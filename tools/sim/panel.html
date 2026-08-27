@@ -51,10 +51,13 @@ details.match summary:hover{background:#2c2c35}
   <div class="col" id="colR"></div>
 </div>
 <div id="wide"></div>
-<script src="overnight.js"></script>
-<script src="baselines.js"></script>
-<script src="threat-audit.js"></script>
-<script src="data.js"></script>
+<script>
+// Cache-busted loads: GitHub Pages' CDN caches static script URLs ~10 min;
+// a fresh query string forces a fresh fetch. Harmless on file://.
+for (const f of ["overnight.js", "baselines.js", "threat-audit.js", "data.js"]) {
+  document.write('<scr' + 'ipt src="' + f + '?v=' + Date.now() + '"></scr' + 'ipt>');
+}
+</script>
 <script>
 const D = window.SIM_DATA;
 // ── overnight series strip (present only while/after a series runs) ──
