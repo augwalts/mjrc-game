@@ -1,0 +1,21 @@
+{
+  "faanWeight": 1.1133,
+  "routeDistanceWeight": 0.6437,
+  "offRouteWeight": 1.0481,
+  "belowMinimumPenalty": 3.3078,
+  "discardDistanceWeight": 1.7905,
+  "discardRouteWeight": 1.4029,
+  "discardSafetyWeight": 0.3229,
+  "discardOutsWeight": 0.0527,
+  "claimSpeedGain": 0.7359,
+  "claimRouteTolerance": 2.0434,
+  "aggression": 1.1306,
+  "threatSensitivity": 0.9651,
+  "threatPushValue": 0.6303,
+  "chipValuation": 0.6643,
+  "routeDecay": 0.5794,
+  "leftFeedWeight": 0.6789,
+  "urgencyWeight": 0.4256,
+  "suitContestWeight": 0.8709,
+  "claimSupplyWeight": 0.5735
+}
