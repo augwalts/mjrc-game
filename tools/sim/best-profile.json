@@ -1,0 +1,13 @@
+{
+  "faanWeight": 0.6,
+  "routeDistanceWeight": 1,
+  "offRouteWeight": 1.2,
+  "belowMinimumPenalty": 5,
+  "discardDistanceWeight": 3,
+  "discardRouteWeight": 1.15,
+  "discardSafetyWeight": 0.45,
+  "discardOutsWeight": 0.055,
+  "claimSpeedGain": 1,
+  "claimRouteTolerance": 1.6,
+  "aggression": 1
+}

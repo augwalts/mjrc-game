@@ -1,0 +1,920 @@
+/**
+ * Platform-services tests — the routes of ../src/index.ts and the query helpers
+ * of ../src/db.ts, driven end to end against an in-memory fake of the small D1
+ * and R2 surface those files declare. DESIGN.md §5.4, §5.3, §2.
+ *
+ * The fake dispatches on the exported `SQL` constants rather than parsing SQL,
+ * which buys two things a mock object would not:
+ *
+ *  - a NEW query cannot silently no-op. An unregistered statement throws, so
+ *    adding a read to a handler without teaching the fake about it fails loudly
+ *    instead of returning an empty result the assertions happen to tolerate.
+ *  - every call checks that the number of bound values equals the number of `?`
+ *    placeholders. A statement that grew a parameter and a call site that did
+ *    not is the exact bug that string-concatenated SQL exists to hide.
+ *
+ * What the route tests are actually for: the two properties that are security
+ * properties rather than features — the public replay link works with no
+ * credential at all, and every other match-scoped route refuses a caller who is
+ * not in the match.
+ */
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { HKOS_STANDARD } from "@mjrc/rulesets";
+import type {
+  D1AllResult,
+  D1Like,
+  D1RunResult,
+  D1Statement,
+  R2Like,
+  R2ObjectLike,
+  SqlValue,
+} from "../src/db.js";
+import { SQL, canonicalJson, rulesetHash, sha256Hex } from "../src/db.js";
+import type { Platform, SeatClaim, TableId, TableNamespace, TableSpec, TableStub } from "../src/index.js";
+import { ConfigError, handle, mintReplayToken, platformFromEnv, verifyReplayToken } from "../src/index.js";
+
+/* ── in-memory D1 ─────────────────────────────────────────────────────────── */
+
+type Row = Record<string, SqlValue>;
+
+interface Store {
+  players: Row[];
+  player_credentials: Row[];
+  rulesets: Row[];
+  matches: Row[];
+  match_players: Row[];
+  hands: Row[];
+}
+
+const emptyStore = (): Store => ({
+  players: [],
+  player_credentials: [],
+  rulesets: [],
+  matches: [],
+  match_players: [],
+  hands: [],
+});
+
+type Handler = (s: Store, a: SqlValue[]) => { rows: Row[]; changes: number };
+
+const rows = (r: Row[]): { rows: Row[]; changes: number } => ({ rows: r, changes: 0 });
+const wrote = (n: number): { rows: Row[]; changes: number } => ({ rows: [], changes: n });
+
+const pick = (r: Row, keys: readonly string[]): Row => {
+  const out: Row = {};
+  for (const k of keys) out[k] = r[k] ?? null;
+  return out;
+};
+
+const MATCH_COLUMNS = [
+  "id", "status", "match_format", "ruleset_hash", "ruleset_id", "engine_version",
+  "log_schema_version", "room_code", "join_code", "rated", "bot_seats", "hand_count",
+  "log_key", "log_bytes", "log_sha256", "started_at", "ended_at",
+] as const;
+
+const HANDLERS = new Map<string, Handler>([
+  [SQL.playerForCredential, (s, [id]) => {
+    const cred = s.player_credentials.find((c) => c.id === id && c.revoked_at === null);
+    if (cred === undefined) return rows([]);
+    const player = s.players.find((p) => p.id === cred.player_id && p.deleted_at === null);
+    return rows(player === undefined ? [] : [pick(player, ["id", "kind", "display_name", "rating", "rating_games", "rating_season"])]);
+  }],
+
+  [SQL.insertPlayer, (s, [id, kind, display_name, created_at, updated_at, last_seen_at]) => {
+    s.players.push({
+      id, kind, display_name, bot_policy: null, rating: null, rating_games: 0,
+      rating_season: null, almanac_user_id: null, almanac_link_source: null,
+      almanac_linked_at: null, created_at, updated_at, last_seen_at, deleted_at: null,
+    });
+    return wrote(1);
+  }],
+
+  [SQL.insertCredential, (s, [id, player_id, kind, label, created_at, last_used_at]) => {
+    s.player_credentials.push({
+      id, player_id, kind, label, public_key: null, sign_count: 0,
+      created_at, last_used_at, revoked_at: null,
+    });
+    return wrote(1);
+  }],
+
+  [SQL.touchCredential, (s, [now, id]) => {
+    const c = s.player_credentials.find((r) => r.id === id);
+    if (c === undefined) return wrote(0);
+    c.last_used_at = now;
+    return wrote(1);
+  }],
+
+  [SQL.touchPlayer, (s, [seen, updated, id]) => {
+    const p = s.players.find((r) => r.id === id);
+    if (p === undefined) return wrote(0);
+    p.last_seen_at = seen;
+    p.updated_at = updated;
+    return wrote(1);
+  }],
+
+  [SQL.renamePlayer, (s, [name, updated, seen, id]) => {
+    const p = s.players.find((r) => r.id === id);
+    if (p === undefined) return wrote(0);
+    p.display_name = name;
+    p.updated_at = updated;
+    p.last_seen_at = seen;
+    return wrote(1);
+  }],
+
+  [SQL.archiveRuleset, (s, a) => {
+    if (s.rulesets.some((r) => r.hash === a[0])) return wrote(0); // OR IGNORE
+    s.rulesets.push({
+      hash: a[0], ruleset_id: a[1], label: a[2], minimum_faan: a[3], limit_faan: a[4],
+      payment_id: a[5], self_draw_settlement: a[6], use_flowers: a[7], config: a[8],
+      first_seen_at: a[9],
+    });
+    return wrote(1);
+  }],
+
+  [SQL.insertMatch, (s, a) => {
+    s.matches.push({
+      id: a[0], status: a[1], match_format: a[2], ruleset_hash: a[3], ruleset_id: a[4],
+      engine_version: a[5], log_schema_version: a[6], room_code: a[7], join_code: a[8],
+      rated: a[9], bot_seats: a[10], hand_count: 0, log_key: null, log_bytes: null,
+      log_sha256: null, started_at: a[11], ended_at: null,
+    });
+    return wrote(1);
+  }],
+
+  [SQL.matchById, (s, [id]) => {
+    const m = s.matches.find((r) => r.id === id);
+    return rows(m === undefined ? [] : [pick(m, MATCH_COLUMNS)]);
+  }],
+
+  [SQL.matchLogById, (s, [id]) => {
+    const m = s.matches.find((r) => r.id === id);
+    return rows(m === undefined ? [] : [pick(m, ["id", "status", "log_key"])]);
+  }],
+
+  [SQL.matchByJoinCode, (s, [code]) => {
+    const m = s.matches.find((r) => r.status === "running" && r.join_code === code);
+    return rows(m === undefined ? [] : [pick(m, MATCH_COLUMNS)]);
+  }],
+
+  [SQL.matchesForPlayer, (s, [playerId, limit]) =>
+    rows(matchPage(s, playerId, null, Number(limit)))],
+
+  [SQL.matchesForPlayerBefore, (s, [playerId, before, limit]) =>
+    rows(matchPage(s, playerId, String(before), Number(limit)))],
+
+  [SQL.seatOf, (s, [matchId, playerId]) => {
+    const mp = s.match_players.find((r) => r.match_id === matchId && r.player_id === playerId);
+    return rows(mp === undefined ? [] : [{ seat: mp.seat }]);
+  }],
+
+  [SQL.seatsOfMatch, (s, [matchId]) => {
+    const seats = s.match_players
+      .filter((r) => r.match_id === matchId)
+      .sort((a, b) => Number(a.seat) - Number(b.seat));
+    return rows(seats.map((mp) => {
+      const p = s.players.find((r) => r.id === mp.player_id);
+      return {
+        ...pick(mp, ["seat", "player_id", "wind", "final_chips", "faan_won", "place",
+          "hands_won", "self_draws", "deal_ins", "bot_takeover_hands",
+          "rating_before", "rating_after"]),
+        display_name: p === undefined ? "" : p.display_name,
+        kind: p === undefined ? "human" : p.kind,
+      };
+    }));
+  }],
+
+  [SQL.claimSeat, (s, [matchId, seat, playerId, wind]) => {
+    // PRIMARY KEY (match_id, seat) and UNIQUE (match_id, player_id), both ignored.
+    const clash = s.match_players.some(
+      (r) => r.match_id === matchId && (r.seat === seat || r.player_id === playerId),
+    );
+    if (clash) return wrote(0);
+    s.match_players.push({
+      match_id: matchId, seat, player_id: playerId, wind, final_chips: 0, faan_won: 0,
+      place: null, hands_won: 0, self_draws: 0, deal_ins: 0, bot_takeover_hands: 0,
+      rating_before: null, rating_after: null,
+    });
+    return wrote(1);
+  }],
+
+  [SQL.handsOfMatch, (s, [matchId]) =>
+    rows(s.hands.filter((h) => h.match_id === matchId)
+      .sort((a, b) => Number(a.hand_index) - Number(b.hand_index)))],
+]);
+
+function matchPage(s: Store, playerId: SqlValue, before: string | null, limit: number): Row[] {
+  return s.match_players
+    .filter((mp) => mp.player_id === playerId)
+    .map((mp) => ({ mp, m: s.matches.find((r) => r.id === mp.match_id) }))
+    .filter((j): j is { mp: Row; m: Row } => j.m !== undefined)
+    .filter((j) => before === null || String(j.m.started_at) < before)
+    .sort((a, b) => String(b.m.started_at).localeCompare(String(a.m.started_at)))
+    .slice(0, limit)
+    .map((j) => ({
+      ...pick(j.m, ["id", "status", "match_format", "ruleset_id", "rated", "bot_seats",
+        "hand_count", "room_code", "join_code", "log_key", "started_at", "ended_at"]),
+      ...pick(j.mp, ["seat", "place", "final_chips", "faan_won", "rating_before", "rating_after"]),
+    }));
+}
+
+class FakeStatement implements D1Statement {
+  private args: SqlValue[] = [];
+
+  constructor(
+    private readonly store: Store,
+    private readonly sql: string,
+    private readonly placeholders: number,
+  ) {}
+
+  bind(...values: SqlValue[]): D1Statement {
+    this.args = values;
+    return this;
+  }
+
+  private exec(): { rows: Row[]; changes: number } {
+    const handler = HANDLERS.get(this.sql);
+    if (handler === undefined) throw new Error(`fake D1: unregistered statement\n${this.sql}`);
+    if (this.args.length !== this.placeholders) {
+      throw new Error(
+        `fake D1: bound ${this.args.length} values for ${this.placeholders} placeholders\n${this.sql}`,
+      );
+    }
+    return handler(this.store, this.args);
+  }
+
+  async first<T>(): Promise<T | null> {
+    const { rows: r } = this.exec();
+    return r.length === 0 ? null : (r[0] as T);
+  }
+
+  async all<T>(): Promise<D1AllResult<T>> {
+    return { results: this.exec().rows as T[], success: true };
+  }
+
+  async run(): Promise<D1RunResult> {
+    return { success: true, meta: { changes: this.exec().changes } };
+  }
+}
+
+class FakeD1 implements D1Like {
+  constructor(readonly store: Store) {}
+  prepare(sql: string): D1Statement {
+    return new FakeStatement(this.store, sql, (sql.match(/\?/g) ?? []).length);
+  }
+}
+
+/* ── in-memory R2 ─────────────────────────────────────────────────────────── */
+
+function streamOf(bytes: Uint8Array): ReadableStream<Uint8Array> {
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(bytes);
+      controller.close();
+    },
+  });
+}
+
+class FakeR2 implements R2Like {
+  readonly gets: string[] = [];
+  private readonly blobs = new Map<string, Uint8Array>();
+
+  put(key: string, text: string): void {
+    this.blobs.set(key, new TextEncoder().encode(text));
+  }
+
+  async get(key: string): Promise<R2ObjectLike | null> {
+    this.gets.push(key);
+    const bytes = this.blobs.get(key);
+    if (bytes === undefined) return null;
+    return { body: streamOf(bytes), size: bytes.length, httpEtag: `"${key}"` };
+  }
+}
+
+/* ── the Table DO seam ────────────────────────────────────────────────────── */
+
+class FakeTables implements TableNamespace {
+  readonly opened: TableSpec[] = [];
+  readonly seated: SeatClaim[] = [];
+  fail = false;
+  private counter = 0;
+
+  idFromName(name: string): TableId {
+    return { toString: () => `table-${name}` };
+  }
+
+  get(id: TableId): TableStub {
+    const ns = this;
+    return {
+      async openTable(spec: TableSpec): Promise<void> {
+        if (ns.fail) throw new Error("table unavailable");
+        ns.opened.push(spec);
+      },
+      async issueSeatToken(claim: SeatClaim): Promise<{ seatToken: string; expiresAt: string }> {
+        if (ns.fail) throw new Error("table unavailable");
+        ns.seated.push(claim);
+        ns.counter += 1;
+        return {
+          seatToken: `seat-${id.toString()}-${claim.seat}-${ns.counter}`,
+          expiresAt: "2026-08-26T00:01:00.000Z",
+        };
+      },
+    };
+  }
+}
+
+/* ── platform ─────────────────────────────────────────────────────────────── */
+
+const SECRET = "test-replay-secret-that-is-long-enough";
+
+interface Harness {
+  platform: Platform;
+  store: Store;
+  logs: FakeR2;
+  tables: FakeTables;
+}
+
+/**
+ * Time and randomness are counters. Nothing in this service may reach for
+ * `Date.now` or `Math.random` — the prototype bug DESIGN.md §5.5 names is
+ * exactly an unseeded call making two identical inputs diverge — and a harness
+ * whose ids are predictable is what lets the determinism test below assert it.
+ */
+function harness(): Harness {
+  const store = emptyStore();
+  const logs = new FakeR2();
+  const tables = new FakeTables();
+  let tick = 0;
+  let byte = 0;
+  return {
+    store,
+    logs,
+    tables,
+    platform: {
+      db: new FakeD1(store),
+      logs,
+      tables,
+      now: () => {
+        tick += 1;
+        return `2026-08-26T00:00:${String(tick).padStart(2, "0")}.000Z`;
+      },
+      random: (n) => {
+        const out = new Uint8Array(n);
+        for (let i = 0; i < n; i += 1) {
+          byte = (byte + 7) % 251;
+          out[i] = byte;
+        }
+        return out;
+      },
+      engineVersion: "engine-0.1.0-test",
+      replayTokenSecret: SECRET,
+    },
+  };
+}
+
+const TOKEN_A = "0123456789abcdefghijklmnopqrstuvwxyzABCD";
+const TOKEN_B = "ZYXWVUTSRQPONMLKJIHGFEDCBA9876543210zyxw";
+
+const get = (path: string, token?: string): Request =>
+  new Request(`https://game.mahjongresearch.com${path}`, {
+    headers: token === undefined ? {} : { authorization: `Bearer ${token}` },
+  });
+
+const post = (path: string, body: unknown, token?: string): Request =>
+  new Request(`https://game.mahjongresearch.com${path}`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      ...(token === undefined ? {} : { authorization: `Bearer ${token}` }),
+    },
+    body: JSON.stringify(body),
+  });
+
+async function identify(h: Harness, token: string, displayName: string): Promise<string> {
+  const res = await handle(post("/api/identity", { deviceToken: token, displayName }), h.platform);
+  const body = (await res.json()) as { playerId: string };
+  return body.playerId;
+}
+
+/** A finished match with one hand, seated by whoever is passed. */
+function seedMatch(
+  h: Harness,
+  opts: {
+    id: string;
+    seats: string[];
+    status?: string;
+    logKey?: string | null;
+    startedAt?: string;
+  },
+): void {
+  const status = opts.status ?? "complete";
+  const logKey = opts.logKey === undefined ? `logs/${opts.id}.json` : opts.logKey;
+  h.store.matches.push({
+    id: opts.id,
+    status,
+    match_format: "east",
+    ruleset_hash: "hash-hkos",
+    ruleset_id: "hkos-standard",
+    engine_version: "engine-0.1.0-test",
+    log_schema_version: 1,
+    room_code: null,
+    join_code: null,
+    rated: 0,
+    bot_seats: 0,
+    hand_count: 1,
+    log_key: logKey,
+    log_bytes: 128,
+    log_sha256: null,
+    started_at: opts.startedAt ?? "2026-08-20T10:00:00.000Z",
+    ended_at: status === "running" ? null : "2026-08-20T10:30:00.000Z",
+  });
+  opts.seats.forEach((playerId, seat) => {
+    h.store.match_players.push({
+      match_id: opts.id, seat, player_id: playerId, wind: seat, final_chips: 0,
+      faan_won: 0, place: null, hands_won: 0, self_draws: 0, deal_ins: 0,
+      bot_takeover_hands: 0, rating_before: null, rating_after: null,
+    });
+  });
+  h.store.hands.push({
+    match_id: opts.id, hand_index: 0, dealer_seat: 0, round_wind: 0, dealer_repeat: 0,
+    seed: 12345, outcome: "win", winner_seat: 1, winner_player_id: opts.seats[1] ?? null,
+    win_from_seat: 2, win_from_player_id: opts.seats[2] ?? null, winning_tile: 5,
+    self_draw: 0, robbed_kong: 0, on_kong_replacement: 0, faan: 4, raw_faan: 4, capped: 0,
+    awards: JSON.stringify([{ id: "allPungs", faan: 3 }, { id: "seatWind", faan: 1 }]),
+    delta_seat0: 0, delta_seat1: 16, delta_seat2: -16, delta_seat3: 0, refused_wins: 1,
+    wall_remaining: 30, event_count: 90, log_seq_start: 0, log_seq_end: 89,
+    started_at: "2026-08-20T10:00:00.000Z", ended_at: "2026-08-20T10:05:00.000Z",
+  });
+  if (logKey !== null) h.logs.put(logKey, `{"header":{"matchId":"${opts.id}"},"events":[]}`);
+}
+
+/* ── the SQL surface itself ───────────────────────────────────────────────── */
+
+describe("the query surface", () => {
+  it("is frozen and carries no interpolated values", () => {
+    expect(Object.isFrozen(SQL)).toBe(true);
+    /* The only single-quoted literals allowed anywhere in the statement set are
+     * closed-vocabulary constants. A quoted value would mean something was
+     * concatenated in, which is the thing db.ts exists to make impossible. */
+    const allowed = new Set(["running"]);
+    for (const [name, sql] of Object.entries(SQL)) {
+      for (const [, literal] of sql.matchAll(/'([^']*)'/g)) {
+        expect(allowed.has(literal), `${name} embeds '${literal}'`).toBe(true);
+      }
+      expect(sql, `${name} looks interpolated`).not.toContain("${");
+    }
+  });
+
+  it("hashes a ruleset by content, not by identity", async () => {
+    const a = await rulesetHash(HKOS_STANDARD);
+    const b = await rulesetHash({ ...HKOS_STANDARD, label: "renamed" });
+    expect(a).toHaveLength(64);
+    expect(a).not.toBe(b);
+  });
+
+  it("serializes canonically, so key order cannot change a hash", () => {
+    expect(canonicalJson({ b: 1, a: [2, { d: 3, c: 4 }] })).toBe(
+      canonicalJson({ a: [2, { c: 4, d: 3 }], b: 1 }),
+    );
+  });
+});
+
+/* ── identity ─────────────────────────────────────────────────────────────── */
+
+describe("POST /api/identity", () => {
+  let h: Harness;
+  beforeEach(() => {
+    h = harness();
+  });
+
+  it("creates a player and stores only the digest of the token", async () => {
+    const res = await handle(
+      post("/api/identity", { deviceToken: TOKEN_A, displayName: "Ah Ming" }),
+      h.platform,
+    );
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { playerId: string; created: boolean };
+    expect(body.created).toBe(true);
+
+    expect(h.store.players).toHaveLength(1);
+    expect(h.store.player_credentials).toHaveLength(1);
+    const stored = h.store.player_credentials[0];
+    expect(stored.id).toBe(await sha256Hex(TOKEN_A));
+    expect(JSON.stringify(h.store)).not.toContain(TOKEN_A);
+  });
+
+  it("re-presenting the same token returns the same player, not a second one", async () => {
+    const first = await identify(h, TOKEN_A, "Ah Ming");
+    const res = await handle(
+      post("/api/identity", { deviceToken: TOKEN_A, displayName: "Ah Ming" }),
+      h.platform,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { playerId: string; created: boolean };
+    expect(body.playerId).toBe(first);
+    expect(body.created).toBe(false);
+    expect(h.store.players).toHaveLength(1);
+  });
+
+  it("mints a token when the client supplies none, and returns it exactly once", async () => {
+    const res = await handle(post("/api/identity", { displayName: "Ah Ming" }), h.platform);
+    const body = (await res.json()) as { deviceToken: string };
+    expect(body.deviceToken).toMatch(/^[0-9A-HJKMNP-TV-Z]{32}$/);
+
+    const again = await handle(
+      post("/api/identity", { deviceToken: body.deviceToken, displayName: "Ah Ming" }),
+      h.platform,
+    );
+    expect((await again.json()) as Record<string, unknown>).not.toHaveProperty("deviceToken");
+  });
+
+  it("refuses a guessably short device token and a missing name", async () => {
+    const weak = await handle(
+      post("/api/identity", { deviceToken: "short", displayName: "Ah Ming" }),
+      h.platform,
+    );
+    expect(weak.status).toBe(400);
+    const unnamed = await handle(post("/api/identity", { deviceToken: TOKEN_A }), h.platform);
+    expect(unnamed.status).toBe(400);
+  });
+});
+
+/* ── authentication boundary ──────────────────────────────────────────────── */
+
+describe("authentication", () => {
+  it("refuses every private route without a credential", async () => {
+    const h = harness();
+    const playerA = await identify(h, TOKEN_A, "Ah Ming");
+    seedMatch(h, { id: "M1", seats: [playerA, "P2", "P3", "P4"] });
+
+    for (const req of [
+      get("/api/matches"),
+      get("/api/matches/M1"),
+      get("/api/matches/M1/log"),
+      post("/api/tables", {}),
+      post("/api/tables/ABCDEFGH/join", {}),
+    ]) {
+      const res = await handle(req, h.platform);
+      expect(res.status, req.url).toBe(401);
+    }
+    expect(h.logs.gets).toEqual([]);
+  });
+
+  it("refuses a token that hashes to nothing stored", async () => {
+    const h = harness();
+    const res = await handle(get("/api/matches", TOKEN_B), h.platform);
+    expect(res.status).toBe(401);
+  });
+});
+
+/* ── match history and detail ─────────────────────────────────────────────── */
+
+describe("match reads are scoped to the caller's own matches", () => {
+  let h: Harness;
+  let mine: string;
+  let theirs: string;
+
+  beforeEach(async () => {
+    h = harness();
+    mine = await identify(h, TOKEN_A, "Ah Ming");
+    theirs = await identify(h, TOKEN_B, "Ah Fai");
+    seedMatch(h, { id: "MINE", seats: [mine, "P2", "P3", "P4"], startedAt: "2026-08-21T10:00:00.000Z" });
+    seedMatch(h, { id: "THEIRS", seats: [theirs, "P2", "P3", "P4"], startedAt: "2026-08-22T10:00:00.000Z" });
+  });
+
+  it("GET /api/matches lists only the caller's matches", async () => {
+    const res = await handle(get("/api/matches", TOKEN_A), h.platform);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { matches: { matchId: string; seat: number }[] };
+    expect(body.matches.map((m) => m.matchId)).toEqual(["MINE"]);
+    expect(body.matches[0].seat).toBe(0);
+  });
+
+  it("GET /api/matches/:id serves a participant the seats and the hands", async () => {
+    const res = await handle(get("/api/matches/MINE", TOKEN_A), h.platform);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      match: { matchId: string; rated: boolean };
+      viewerSeat: number;
+      seats: unknown[];
+      hands: { faan: number; awards: { id: string }[]; deltas: number[]; capped: boolean }[];
+      replayToken: string;
+    };
+    expect(body.match.matchId).toBe("MINE");
+    expect(body.match.rated).toBe(false);
+    expect(body.viewerSeat).toBe(0);
+    expect(body.seats).toHaveLength(4);
+    expect(body.hands).toHaveLength(1);
+    expect(body.hands[0].faan).toBe(4);
+    expect(body.hands[0].capped).toBe(false);
+    expect(body.hands[0].awards.map((a) => a.id)).toEqual(["allPungs", "seatWind"]);
+    expect(body.hands[0].deltas.reduce((x, y) => x + y, 0)).toBe(0);
+    expect(await verifyReplayToken(SECRET, body.replayToken)).toBe("MINE");
+  });
+
+  it("GET /api/matches/:id tells a non-participant nothing, not even that it exists", async () => {
+    const res = await handle(get("/api/matches/THEIRS", TOKEN_A), h.platform);
+    expect(res.status).toBe(404);
+    const text = await res.text();
+    expect(JSON.parse(text)).toEqual({ error: "not_found" });
+    /* Same answer for an id that was never issued — otherwise the status code
+     * itself is an enumeration oracle over every match on the platform. */
+    const absent = await handle(get("/api/matches/NOPE", TOKEN_A), h.platform);
+    expect(absent.status).toBe(404);
+    expect(await absent.text()).toBe(text);
+  });
+
+  it("GET /api/matches/:id/log serves a participant the blob", async () => {
+    const res = await handle(get("/api/matches/MINE/log", TOKEN_A), h.platform);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("application/json; charset=utf-8");
+    expect(res.headers.get("cache-control")).toBe("private, no-store");
+    expect(JSON.parse(await res.text())).toEqual({ header: { matchId: "MINE" }, events: [] });
+  });
+
+  it("GET /api/matches/:id/log refuses a non-participant without touching R2", async () => {
+    const res = await handle(get("/api/matches/THEIRS/log", TOKEN_A), h.platform);
+    expect(res.status).toBe(404);
+    expect(h.logs.gets).toEqual([]);
+  });
+
+  it("refuses the omniscient log of a match that is still running", async () => {
+    seedMatch(h, { id: "LIVE", seats: [mine, "P2", "P3", "P4"], status: "running", logKey: "logs/LIVE.json" });
+    const res = await handle(get("/api/matches/LIVE/log", TOKEN_A), h.platform);
+    expect(res.status).toBe(404);
+    expect((await res.json()) as unknown).toEqual({ error: "log_not_ready" });
+    expect(h.logs.gets).toEqual([]);
+  });
+});
+
+/* ── the public replay link ───────────────────────────────────────────────── */
+
+describe("GET /api/replay/:token", () => {
+  let h: Harness;
+
+  beforeEach(async () => {
+    h = harness();
+    const mine = await identify(h, TOKEN_A, "Ah Ming");
+    seedMatch(h, { id: "SHARED", seats: [mine, "P2", "P3", "P4"] });
+  });
+
+  it("serves the blob with no credential of any kind", async () => {
+    const token = await mintReplayToken(SECRET, "SHARED");
+    const req = new Request(`https://game.mahjongresearch.com/api/replay/${token}`);
+    expect(req.headers.get("authorization")).toBeNull();
+
+    const res = await handle(req, h.platform);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("application/json; charset=utf-8");
+    expect(res.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
+    expect(JSON.parse(await res.text())).toEqual({ header: { matchId: "SHARED" }, events: [] });
+  });
+
+  it("refuses a forged signature", async () => {
+    const token = await mintReplayToken(SECRET, "SHARED");
+    const forged = `${token.slice(0, -1)}${token.endsWith("0") ? "1" : "0"}`;
+    const res = await handle(get(`/api/replay/${forged}`), h.platform);
+    expect(res.status).toBe(404);
+    expect(h.logs.gets).toEqual([]);
+  });
+
+  it("refuses a token minted under a different secret", async () => {
+    const token = await mintReplayToken("a-completely-different-secret-value", "SHARED");
+    expect((await handle(get(`/api/replay/${token}`), h.platform)).status).toBe(404);
+    expect(h.logs.gets).toEqual([]);
+  });
+
+  it("refuses a bare match id with no signature at all", async () => {
+    expect((await handle(get("/api/replay/SHARED"), h.platform)).status).toBe(404);
+    expect(h.logs.gets).toEqual([]);
+  });
+
+  it("never exposes a live match — a share link cannot leak four hands", async () => {
+    seedMatch(h, { id: "LIVE", seats: ["P1", "P2", "P3", "P4"], status: "running" });
+    const token = await mintReplayToken(SECRET, "LIVE");
+    expect((await handle(get(`/api/replay/${token}`), h.platform)).status).toBe(404);
+    expect(h.logs.gets).toEqual([]);
+  });
+
+  it("does not publish an abandoned match, which stays reviewable by its players", async () => {
+    const mine = h.store.match_players[0].player_id as string;
+    seedMatch(h, { id: "DEAD", seats: [mine, "P2", "P3", "P4"], status: "abandoned" });
+    const token = await mintReplayToken(SECRET, "DEAD");
+    expect((await handle(get(`/api/replay/${token}`), h.platform)).status).toBe(404);
+    expect((await handle(get("/api/matches/DEAD/log", TOKEN_A), h.platform)).status).toBe(200);
+  });
+
+  it("refuses a match whose log blob never landed", async () => {
+    seedMatch(h, { id: "LOST", seats: ["P1", "P2", "P3", "P4"], logKey: null });
+    const token = await mintReplayToken(SECRET, "LOST");
+    expect((await handle(get(`/api/replay/${token}`), h.platform)).status).toBe(404);
+    expect(h.logs.gets).toEqual([]);
+  });
+});
+
+/* ── the lobby handoff ────────────────────────────────────────────────────── */
+
+describe("the §5.3 match handoff", () => {
+  let h: Harness;
+  let host: string;
+
+  beforeEach(async () => {
+    h = harness();
+    host = await identify(h, TOKEN_A, "Ah Ming");
+  });
+
+  async function createTable(): Promise<{ joinCode: string; tableId: string; seatToken: string }> {
+    const res = await handle(post("/api/tables", {}, TOKEN_A), h.platform);
+    expect(res.status).toBe(201);
+    return (await res.json()) as { joinCode: string; tableId: string; seatToken: string };
+  }
+
+  it("creates a table, archives the ruleset bytes, and seats the host", async () => {
+    const body = await createTable();
+
+    expect(h.store.matches).toHaveLength(1);
+    const match = h.store.matches[0];
+    expect(match.status).toBe("running");
+    expect(match.engine_version).toBe("engine-0.1.0-test");
+    expect(match.log_schema_version).toBe(1);
+    expect(match.rated).toBe(0);
+    expect(match.ruleset_id).toBe("hkos-standard");
+
+    /* Rulesets are data: the row archives the bytes this match was played
+     * under, and the match points at their hash (schema.sql, rulesets). */
+    expect(h.store.rulesets).toHaveLength(1);
+    const archived = h.store.rulesets[0];
+    expect(archived.hash).toBe(match.ruleset_hash);
+    expect(archived.minimum_faan).toBe(3);
+    expect(archived.limit_faan).toBe(13);
+    expect(archived.self_draw_settlement).toBe("per_player");
+
+    expect(h.store.match_players).toHaveLength(1);
+    expect(h.store.match_players[0].player_id).toBe(host);
+    expect(h.store.match_players[0].seat).toBe(0);
+    /* Seat 0's wind at the first deal is 東, and wind is not seat thereafter. */
+    expect(h.store.match_players[0].wind).toBe(0);
+
+    expect(body.joinCode).toHaveLength(8);
+    expect(h.tables.opened).toHaveLength(1);
+    expect(h.tables.opened[0].matchId).toBe(match.id);
+    expect(body.tableId).toBe(`table-${match.id}`);
+    expect(body.seatToken).toContain("seat-");
+    /* The seat token is the DO's to mint and the DO's to hold — it must never
+     * reach D1 (worker/README.md §5). */
+    expect(JSON.stringify(h.store)).not.toContain(body.seatToken);
+  });
+
+  it("archives a second match under the same ruleset without a second row", async () => {
+    await createTable();
+    await createTable();
+    expect(h.store.matches).toHaveLength(2);
+    expect(h.store.rulesets).toHaveLength(1);
+  });
+
+  it("seats a second player by code and folds look-alike characters", async () => {
+    const { joinCode } = await createTable();
+    await identify(h, TOKEN_B, "Ah Fai");
+
+    /* Typed off a screen: Crockford drops I/L/O, so a "1" read as "I" still
+     * has to find the table. Inject the confusion the alphabet anticipates. */
+    const typed = joinCode.replace(/1/g, "I").replace(/0/g, "O").toLowerCase();
+    const res = await handle(post(`/api/tables/${typed}/join`, {}, TOKEN_B), h.platform);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { seat: number; tableId: string; seatToken: string };
+    expect(body.seat).toBe(1);
+    expect(h.store.match_players).toHaveLength(2);
+    expect(h.tables.seated).toHaveLength(2);
+  });
+
+  it("re-joining returns the same seat with a fresh token — the reconnect path", async () => {
+    const { joinCode } = await createTable();
+    await identify(h, TOKEN_B, "Ah Fai");
+
+    const first = (await (
+      await handle(post(`/api/tables/${joinCode}/join`, {}, TOKEN_B), h.platform)
+    ).json()) as { seat: number; seatToken: string };
+    const second = (await (
+      await handle(post(`/api/tables/${joinCode}/join`, {}, TOKEN_B), h.platform)
+    ).json()) as { seat: number; seatToken: string };
+
+    expect(second.seat).toBe(first.seat);
+    expect(second.seatToken).not.toBe(first.seatToken);
+    expect(h.store.match_players).toHaveLength(2);
+  });
+
+  it("refuses a fifth player", async () => {
+    const { joinCode } = await createTable();
+    const match = h.store.matches[0];
+    for (const seat of [1, 2, 3]) {
+      h.store.match_players.push({
+        match_id: match.id, seat, player_id: `BOT${seat}`, wind: seat, final_chips: 0,
+        faan_won: 0, place: null, hands_won: 0, self_draws: 0, deal_ins: 0,
+        bot_takeover_hands: 0, rating_before: null, rating_after: null,
+      });
+    }
+    await identify(h, TOKEN_B, "Ah Fai");
+    const res = await handle(post(`/api/tables/${joinCode}/join`, {}, TOKEN_B), h.platform);
+    expect(res.status).toBe(409);
+    expect((await res.json()) as unknown).toEqual({ error: "table_full" });
+  });
+
+  it("accepts a percent-encoded code, because a typed code carries spaces", async () => {
+    const { joinCode } = await createTable();
+    await identify(h, TOKEN_B, "Ah Fai");
+    const spaced = encodeURIComponent(`${joinCode.slice(0, 4)} ${joinCode.slice(4)}`);
+    const res = await handle(post(`/api/tables/${spaced}/join`, {}, TOKEN_B), h.platform);
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { seat: number }).seat).toBe(1);
+  });
+
+  it("refuses an unknown or too-short code", async () => {
+    expect((await handle(post("/api/tables/ZZZZZZZZ/join", {}, TOKEN_A), h.platform)).status).toBe(404);
+    expect((await handle(post("/api/tables/AB/join", {}, TOKEN_A), h.platform)).status).toBe(404);
+  });
+
+  it("refuses a ruleset the house does not ship", async () => {
+    /* A real variant that is deliberately not a P0 preset (DESIGN.md §5.1
+     * keeps the TW module for later), so this asserts the gate rather than a
+     * typo. Unknown ruleset ids never reach the rulesets archive. */
+    const res = await handle(post("/api/tables", { rulesetId: "taiwanese-16" }, TOKEN_A), h.platform);
+    expect(res.status).toBe(400);
+    expect((await res.json()) as unknown).toEqual({ error: "unknown_ruleset" });
+    expect(h.store.matches).toHaveLength(0);
+  });
+
+  it("reports the table as unavailable rather than handing out an unusable seat", async () => {
+    h.tables.fail = true;
+    /* Silenced, not removed: the handler logs because a 503 with no trace is a
+     * 503 nobody can diagnose, and this asserts that it does. */
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    const res = await handle(post("/api/tables", {}, TOKEN_A), h.platform);
+    expect(logged).toHaveBeenCalledTimes(1);
+    logged.mockRestore();
+    expect(res.status).toBe(503);
+    /* The match row survives as `running` with no table — idx_matches_running
+     * is the ops query that reaps it. The reverse order would strand a live
+     * table that nothing points at. */
+    expect(h.store.matches).toHaveLength(1);
+    expect(h.store.matches[0].status).toBe("running");
+  });
+});
+
+/* ── determinism and configuration ────────────────────────────────────────── */
+
+describe("determinism", () => {
+  /**
+   * The prototype bug DESIGN.md §5.5 names — an unseeded call making identical
+   * inputs diverge — is caught here rather than argued about: two runs of the
+   * same request sequence against identically seeded harnesses must produce
+   * byte-identical ids, join codes and timestamps. A stray `Date.now()` or
+   * `Math.random()` anywhere under `handle` fails this and nothing else.
+   */
+  async function run(): Promise<string> {
+    const h = harness();
+    await identify(h, TOKEN_A, "Ah Ming");
+    const created = await (await handle(post("/api/tables", {}, TOKEN_A), h.platform)).json();
+    await identify(h, TOKEN_B, "Ah Fai");
+    const code = (created as { joinCode: string }).joinCode;
+    const joined = await (
+      await handle(post(`/api/tables/${code}/join`, {}, TOKEN_B), h.platform)
+    ).json();
+    return JSON.stringify({ created, joined, store: h.store });
+  }
+
+  it("produces identical output for identical input", async () => {
+    expect(await run()).toBe(await run());
+  });
+});
+
+describe("platformFromEnv", () => {
+  const bindings = {
+    DB: new FakeD1(emptyStore()),
+    LOGS: new FakeR2(),
+    TABLES: new FakeTables(),
+  };
+
+  it("fails closed when the engine version is not pinned", () => {
+    expect(() => platformFromEnv({ ...bindings, REPLAY_TOKEN_SECRET: SECRET })).toThrow(ConfigError);
+  });
+
+  it("fails closed on a weak replay secret", () => {
+    expect(() =>
+      platformFromEnv({ ...bindings, ENGINE_VERSION: "1.0.0", REPLAY_TOKEN_SECRET: "short" }),
+    ).toThrow(ConfigError);
+  });
+
+  it("accepts a complete environment", () => {
+    const p = platformFromEnv({ ...bindings, ENGINE_VERSION: "1.0.0", REPLAY_TOKEN_SECRET: SECRET });
+    expect(p.engineVersion).toBe("1.0.0");
+  });
+});
+
+describe("routing", () => {
+  it("answers an unknown path and a wrong method distinctly", async () => {
+    const h = harness();
+    await identify(h, TOKEN_A, "Ah Ming");
+    expect((await handle(get("/api/nope", TOKEN_A), h.platform)).status).toBe(404);
+    expect((await handle(post("/api/matches", {}, TOKEN_A), h.platform)).status).toBe(405);
+    expect((await handle(get("/api/identity", TOKEN_A), h.platform)).status).toBe(405);
+  });
+});

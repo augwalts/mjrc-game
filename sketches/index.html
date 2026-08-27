@@ -1,0 +1,479 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MJRC Game — P0 screen sketches</title>
+<style>
+:root{
+  --ink:#1a1a1e; --dim:#6b6b76; --faint:#9a9aa4; --line:#d8d8de;
+  --bg:#f4f4f6; --card:#fff; --felt:#e6e9e5; --accent:#1845A5; --warn:#a8341f;
+  --ok:#1A8B3A; --shell:#26262c;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--shell);color:var(--ink);
+  font:13px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+  display:flex;gap:18px;padding:18px;align-items:flex-start;min-height:100vh}
+
+/* ── dev scaffolding ── */
+.rail{width:186px;flex:none;color:#d6d6de;position:sticky;top:18px}
+.rail h1{font-size:12.5px;margin:0 0 2px}
+.rail .sub{font-size:10.5px;color:#8b8b96;margin-bottom:12px;line-height:1.4}
+.rail h2{font-size:9.5px;text-transform:uppercase;letter-spacing:.09em;color:#8b8b96;
+  margin:13px 0 5px;font-weight:600}
+.rail button{display:block;width:100%;text-align:left;background:#32323a;color:#e4e4ea;
+  border:1px solid #43434d;border-radius:5px;padding:5px 8px;margin-bottom:3px;
+  font:inherit;font-size:11.5px;cursor:pointer}
+.rail button:hover{background:#3d3d47}
+.rail button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.rail label{display:flex;align-items:center;gap:6px;font-size:11px;color:#b8b8c2;
+  padding:2px 0;cursor:pointer}
+.rail .stat{font-size:10.5px;color:#8b8b96;line-height:1.55;font-variant-numeric:tabular-nums}
+.rail .stat b{color:#d6d6de;font-weight:600}
+.dimlabel{font-size:10px;color:#6f6f7a;margin:-1px 0 7px}
+
+/* ── device frame ── */
+.stage{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:8px}
+.framewrap{transform-origin:top center}
+.frame{background:var(--bg);border-radius:16px;overflow:hidden;position:relative;
+  box-shadow:0 0 0 7px #3a3a44,0 16px 44px rgba(0,0,0,.5);display:flex;flex-direction:column}
+/* Logical points, landscape. Safe-area insets on notched iPhones are real
+   layout, not decoration: in landscape the Dynamic Island eats ~59pt off one
+   side and the home indicator ~21pt off the bottom. */
+.frame[data-dev="phone"]{width:852px;height:393px;--tile:44px;--pool:15px;--edge:7px;--meld:18px;--nav:52px;--fs:11.5px;
+  --safe-l:59px;--safe-b:21px}
+.frame[data-dev="phonesm"]{width:667px;height:375px;--tile:44px;--pool:13px;--edge:6px;--meld:16px;--nav:48px;--fs:11px;
+  --safe-l:0px;--safe-b:0px}
+.frame[data-dev="ipad"]{width:1194px;height:834px;--tile:54px;--pool:23px;--edge:11px;--meld:28px;--nav:74px;--fs:13px;
+  --safe-l:0px;--safe-b:20px}
+.frame[data-dev="desktop"]{width:1440px;height:900px;--tile:58px;--pool:26px;--edge:12px;--meld:30px;--nav:190px;--fs:13.5px;
+  --safe-l:0px;--safe-b:0px}
+.frame{--safe-l:0px;--safe-b:0px}
+.safeguide{position:absolute;inset:0;pointer-events:none;z-index:30;display:none}
+.frame.showsafe .safeguide{display:block}
+.safeguide i{position:absolute;background:rgba(168,52,31,.13);
+  border:1px dashed rgba(168,52,31,.5);display:block}
+.safeguide .sl{left:0;top:0;bottom:0;width:var(--safe-l)}
+.safeguide .sr{right:0;top:0;bottom:0;width:var(--safe-l)}
+.safeguide .sb{left:0;right:0;bottom:0;height:var(--safe-b)}
+.screen{flex:1;display:flex;min-height:0;font-size:var(--fs)}
+.devcap{color:#8b8b96;font-size:10.5px;font-variant-numeric:tabular-nums}
+
+/* ── notes ── */
+.notes{width:268px;flex:none;color:#b4b4be;font-size:11px;line-height:1.5;position:sticky;top:18px}
+.notes h2{font-size:9.5px;text-transform:uppercase;letter-spacing:.09em;color:#8b8b96;
+  margin:0 0 7px;font-weight:600}
+.notes .n{background:#2e2e36;border-left:2px solid #4a4a56;padding:7px 9px;
+  border-radius:0 5px 5px 0;margin-bottom:6px}
+.notes .n b{color:#e0e0e8;font-weight:600}
+.notes .n code{background:#3a3a44;padding:1px 4px;border-radius:3px;font-size:10px}
+.notes .n.warn{border-left-color:#a8341f} .notes .n.todo{border-left-color:#7a6a2a}
+
+/* ── shell: left nav rail (landscape) ── */
+.shell{flex:1;display:flex;min-width:0}
+.nav{width:var(--nav);flex:none;background:var(--card);border-right:1px solid var(--line);
+  display:flex;flex-direction:column;padding:8px 0;gap:2px}
+.nav .item{display:flex;align-items:center;gap:9px;padding:9px 10px;margin:0 6px;border-radius:7px;
+  cursor:pointer;color:var(--dim);font-weight:600;font-size:11.5px;white-space:nowrap;overflow:hidden}
+.nav .item .ic{font-size:17px;line-height:1;flex:none;width:22px;text-align:center}
+.nav .item.on{background:#eef1f9;color:var(--accent)}
+.nav .item .lb{display:none}
+.frame[data-dev="desktop"] .nav .item .lb{display:inline}
+.nav .sp{flex:1}
+.frame[data-dev="portrait"] .shell{flex-direction:column}
+.frame[data-dev="portrait"] .nav{width:100%;flex-direction:row;border-right:0;
+  border-top:1px solid var(--line);order:2;padding:0}
+.frame[data-dev="portrait"] .nav .item{flex:1;flex-direction:column;gap:2px;margin:4px 2px;
+  justify-content:center;font-size:10px}
+.frame[data-dev="portrait"] .nav .item .lb{display:inline}
+.frame[data-dev="portrait"] .nav .sp{display:none}
+.pane{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0}
+
+/* ── header bar ── */
+.hdr{height:44px;flex:none;display:flex;align-items:center;gap:14px;padding:0 14px;
+  background:var(--card);border-bottom:1px solid var(--line)}
+.hdr .brand{font-size:19px;font-weight:700;color:var(--accent);cursor:pointer;line-height:1}
+.hdr .hnav{display:flex;gap:14px}
+.hdr .hnav span{cursor:pointer;font-weight:600;color:var(--dim);padding:2px 0;
+  border-bottom:2px solid transparent}
+.hdr .hnav span.on{color:var(--accent);border-bottom-color:var(--accent)}
+.hdr .rat{font-weight:700;font-variant-numeric:tabular-nums}
+.hdr .rat i{font-style:normal;font-size:8.5px;color:var(--faint);margin-left:3px;
+  text-transform:uppercase;letter-spacing:.05em}
+.hdr .who{color:var(--dim);cursor:pointer;font-weight:600}
+.hdr .gear{cursor:pointer;color:var(--dim);font-size:15px}
+.hdr .roomchip{font-size:10px;padding:2px 7px;border-radius:9px;background:#eef1f9;
+  color:var(--accent);font-weight:600;cursor:pointer}
+.hero{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  text-align:center;padding:20px}
+.stats{display:flex;gap:16px}
+.st{text-align:right}
+.st b{display:block;font-size:17px;font-variant-numeric:tabular-nums;line-height:1.2}
+.st span{font-size:9.5px;color:var(--faint);text-transform:uppercase;letter-spacing:.05em}
+
+/* ── app chrome ── */
+.appbar{height:42px;flex:none;display:flex;align-items:center;gap:9px;padding:0 14px;
+  background:var(--card);border-bottom:1px solid var(--line)}
+.appbar .ttl{font-weight:650;font-size:calc(var(--fs) + 1px);flex:1}
+.appbar .back{color:var(--accent);cursor:pointer}
+.body{flex:1;overflow-y:auto;padding:14px}
+.body>*{max-width:560px;margin-left:auto;margin-right:auto}
+.col{max-width:560px;margin:0 auto}
+.col.wide{max-width:860px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:9px;padding:12px;margin-bottom:9px}
+.btn{display:block;width:100%;padding:11px;border-radius:8px;border:1px solid var(--accent);
+  background:var(--accent);color:#fff;font:inherit;font-size:calc(var(--fs) + 1px);font-weight:600;
+  cursor:pointer;margin-bottom:8px}
+.btn.ghost{background:transparent;color:var(--accent)}
+.row{display:flex;align-items:center;gap:9px}
+.spacer{flex:1} .mut{color:var(--dim)} .tiny{font-size:calc(var(--fs) - 1.5px)}
+.pill{font-size:9.5px;padding:1px 6px;border-radius:9px;background:#ececed;color:var(--dim);
+  font-weight:600;white-space:nowrap}
+.pill.p1{background:#f0e8d8;color:#7a6a2a}
+.pill.stub{background:#f7e4de;color:var(--warn)}
+input[type=text]{width:100%;padding:9px;border:1px solid var(--line);border-radius:7px;
+  font:inherit;font-size:calc(var(--fs) + 1px)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+.frame[data-dev="phone"] .grid2,.frame[data-dev="portrait"] .grid2{grid-template-columns:1fr}
+
+/* ── tiles ── */
+.t{display:inline-block;line-height:0;vertical-align:top}
+.t svg{display:block;width:100%;height:auto}
+.t.sel{transform:translateY(-8px)}
+.hand .t{width:var(--tile);cursor:pointer;transition:transform .09s}
+.hand .t:active{transform:translateY(-5px)}
+.pool .t{width:var(--pool)} .meld .t{width:var(--meld)} .flow .t{width:calc(var(--pool) + 1px)}
+.big .t{width:calc(var(--tile) * 1.35)}
+
+/* ── match: perspective table (layout per Riichi City reference) ── */
+.match{flex:1;display:flex;flex-direction:column;background:#1f3b34;min-height:0;position:relative}
+.arena{position:relative;flex:1;min-height:0;overflow:hidden;
+  padding-left:var(--safe-l);padding-right:var(--safe-l);
+  background:radial-gradient(ellipse at 50% 46%,#2f6355 0%,#20463c 62%,#173029 100%)}
+
+/* corner furniture — everything lives in the corners, centre stays the table */
+.corner{position:absolute;z-index:4;color:#cfe3dc;font-size:10.5px}
+.corner.tl{top:7px;left:calc(8px + var(--safe-l));background:rgba(0,0,0,.34);border-radius:6px;padding:5px 8px}
+.corner.tr{top:7px;right:calc(8px + var(--safe-l));display:flex;gap:6px}
+.corner.br{bottom:calc(7px + var(--safe-b));right:calc(8px + var(--safe-l))}
+.rnd{position:absolute;bottom:6px;left:50%;transform:translateX(-50%);z-index:4;
+  color:#9fc4b8;font-size:10px;letter-spacing:.04em}
+.iconbtn{width:22px;height:22px;border-radius:50%;background:rgba(0,0,0,.34);color:#cfe3dc;
+  display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:12px;border:0}
+.autos{position:absolute;left:calc(8px + var(--safe-l));top:50%;transform:translateY(-50%);z-index:4;
+  display:flex;flex-direction:column;gap:3px}
+.autos b{width:20px;height:20px;border-radius:5px;background:rgba(0,0,0,.34);color:#9fc4b8;
+  display:flex;align-items:center;justify-content:center;font-size:9.5px;cursor:pointer;font-weight:700}
+.autos b.on{background:var(--accent);color:#fff}
+
+/* the table plane, in perspective */
+.surface{position:absolute;inset:12% 16% 14%;transform:perspective(1150px) rotateX(30deg);
+  transform-origin:50% 66%;z-index:1}
+/* ── the pre-hand ritual: 洗牌 / 砌牌 / 擲骰 / 開牌 ── */
+.ritual{position:absolute;inset:0;z-index:12;cursor:pointer;
+  background:radial-gradient(ellipse at 50% 46%,rgba(20,40,34,.55),rgba(12,26,22,.82))}
+.rwalls{position:absolute;left:50%;top:46%;width:0;height:0}
+.rstk{position:absolute;display:block;transform-origin:50% 50%;border-radius:1.5px;
+  background:linear-gradient(#b3d8ec,#8ab8d4);border:1px solid #5f8ea8;
+  transition:left .62s cubic-bezier(.3,.9,.3,1),top .62s cubic-bezier(.3,.9,.3,1),
+             transform .62s cubic-bezier(.3,.9,.3,1),opacity .3s}
+.rstk.broken{opacity:.12}
+/* the shuffle jostle — every tile drifting slightly, out of phase */
+.ritual .rstk{animation:jostle 420ms ease-in-out infinite alternate}
+.rwalls .rstk:nth-child(3n){animation-duration:520ms}
+.rwalls .rstk:nth-child(3n+1){animation-duration:360ms;animation-delay:80ms}
+@keyframes jostle{
+  from{margin-left:-1px;margin-top:1px}
+  to  {margin-left:1px;margin-top:-1px}
+}
+.dice{position:absolute;left:0;top:0;transform:translate(-50%,-50%);display:flex;gap:6px;z-index:3}
+.die{display:flex;align-items:center;justify-content:center;
+  width:22px;height:22px;border-radius:4px;background:#faf8f2;color:#a8341f;
+  font-size:13px;font-weight:700;border:1px solid #d8d2c4;
+  box-shadow:0 2px 5px rgba(0,0,0,.4);animation:tumble 620ms cubic-bezier(.2,.9,.3,1) both}
+@keyframes tumble{
+  0%  {transform:translateY(-52px) rotate(-540deg) scale(.6);opacity:0}
+  30% {opacity:1}
+  72% {transform:translateY(4px) rotate(12deg) scale(1.12)}
+ 100% {transform:translateY(0) rotate(0deg) scale(1)}
+}
+.rlabel{position:absolute;left:0;right:0;bottom:12px;text-align:center;color:#cfe3dc;
+  font-size:11.5px;letter-spacing:.03em}
+.rlabel b{color:#ffd479;font-size:14px}
+.rlabel span{display:block;font-size:9.5px;color:#7f9a91;margin-top:3px}
+@media (prefers-reduced-motion:reduce){
+  .ritual .rstk{animation:none}
+  .die{animation:none}
+  .rstk{transition-duration:.2s}
+}
+
+/* Wall stacks are positioned by JS (see wallStacks) — CSS only styles them. */
+.walls{position:absolute;left:50%;top:50%;width:0;height:0}
+.stk{position:absolute;display:block;background:#5f8ea8;border:1px solid #47708c;
+  border-radius:1.5px;transform-origin:50% 50%}
+.stk b{position:absolute;left:-1px;right:-1px;top:-2.5px;height:100%;display:block;
+  background:linear-gradient(#b3d8ec,#8ab8d4);border:1px solid #5f8ea8;border-radius:1.5px}
+/* Old-school: one jumbled central pile, positioned by JS (see scatterLayout).
+   Diagram mode uses .dpool instead. */
+.pile{position:absolute;left:50%;top:50%;width:1px;height:1px;z-index:2}
+.pile .t{position:absolute;transform-origin:50% 50%;
+  transform:translate(-50%,-50%) rotate(var(--rot,0deg))}
+
+/* The toss 掟牌 — in HK the discard is THROWN, not placed, and HOW you throw it
+   is character. Four registers, one per personality. Each lands exactly on
+   --rot so the resting scatter is untouched; only the journey differs. */
+
+/* fling — careless, fast, lots of spin, lands askew. the default table register */
+@keyframes toss-fling{
+  0%  {transform:translate(-50%,-50%) translate(var(--fx),var(--fy))
+                rotate(calc(var(--rot) - 260deg)) scale(1.5);opacity:0}
+  20% {opacity:1}
+  70% {transform:translate(-50%,-50%) translate(0,-5px)
+                rotate(calc(var(--rot) + 9deg)) scale(1.07)}
+ 100% {transform:translate(-50%,-50%) rotate(var(--rot)) scale(1)}
+}
+/* place — deliberate, slow, barely turns. the careful player */
+@keyframes toss-place{
+  0%  {transform:translate(-50%,-50%) translate(calc(var(--fx) * .28),calc(var(--fy) * .28))
+                rotate(calc(var(--rot) - 12deg)) scale(1.12);opacity:0}
+  30% {opacity:1}
+ 100% {transform:translate(-50%,-50%) rotate(var(--rot)) scale(1)}
+}
+/* slide — pushed in low along the felt, hardly leaves the surface */
+@keyframes toss-slide{
+  0%  {transform:translate(-50%,-50%) translate(var(--fx),var(--fy))
+                rotate(calc(var(--rot) - 4deg)) scale(.97);opacity:0}
+  18% {opacity:1}
+  82% {transform:translate(-50%,-50%) translate(calc(var(--fx) * .06),calc(var(--fy) * .06))
+                rotate(var(--rot)) scale(1)}
+ 100% {transform:translate(-50%,-50%) rotate(var(--rot)) scale(1)}
+}
+/* slam — decisive, hard landing, overshoots and settles. 打得好大力 */
+@keyframes toss-slam{
+  0%  {transform:translate(-50%,-50%) translate(calc(var(--fx) * .8),calc(var(--fy) * .8))
+                rotate(calc(var(--rot) - 40deg)) scale(1.6);opacity:0}
+  15% {opacity:1}
+  55% {transform:translate(-50%,-50%) translate(0,3px)
+                rotate(calc(var(--rot) + 3deg)) scale(.9)}
+  75% {transform:translate(-50%,-50%) translate(0,-3px)
+                rotate(calc(var(--rot) - 2deg)) scale(1.05)}
+ 100% {transform:translate(-50%,-50%) rotate(var(--rot)) scale(1)}
+}
+.pile .t.toss{z-index:3}
+.pile .t.toss-fling{animation:toss-fling 420ms cubic-bezier(.2,.9,.3,1) both}
+.pile .t.toss-place{animation:toss-place 520ms cubic-bezier(.33,.9,.4,1) both}
+.pile .t.toss-slide{animation:toss-slide 380ms cubic-bezier(.15,.75,.3,1) both}
+.pile .t.toss-slam {animation:toss-slam  300ms cubic-bezier(.25,1.3,.4,1) both}
+@media (prefers-reduced-motion:reduce){
+  .pile .t.toss-fling,.pile .t.toss-place,
+  .pile .t.toss-slide,.pile .t.toss-slam{animation:none}
+}
+.pile .t.last{filter:drop-shadow(0 0 3px #ffd479)}
+.dpool{position:absolute;display:flex;flex-wrap:wrap;gap:1.5px;justify-content:center}
+.dpool.dt{top:14%;left:50%;transform:translateX(-50%);max-width:calc(var(--pool) * 6.4)}
+.dpool.db{bottom:14%;left:50%;transform:translateX(-50%);max-width:calc(var(--pool) * 6.4)}
+.dpool.dl{left:14%;top:50%;transform:translateY(-50%);max-width:calc(var(--pool) * 3.4)}
+.dpool.dr{right:14%;top:50%;transform:translateY(-50%);max-width:calc(var(--pool) * 3.4)}
+.dpool .t{width:var(--pool)}
+.dpool .t.last{outline:2px solid #ffd479;outline-offset:1px;border-radius:2px}
+
+/* centre score box — kept upright rather than in-plane, for legibility at this size */
+.ctrbox{position:absolute;left:50%;top:52%;transform:translate(-50%,-50%);z-index:3;
+  background:rgba(12,26,22,.86);border:1px solid #3f6b5e;border-radius:8px;
+  width:calc(var(--pool) * 5.4);height:calc(var(--pool) * 5.4);max-width:132px;max-height:132px;
+  display:grid;grid-template-columns:1fr auto 1fr;grid-template-rows:auto 1fr auto;
+  place-items:center;color:#d6e8e1;font-variant-numeric:tabular-nums;padding:4px}
+.ctrbox .sc{font-size:10px;font-weight:600}
+.ctrbox .sc.top{grid-area:1/2} .ctrbox .sc.left{grid-area:2/1} .ctrbox .sc.right{grid-area:2/3}
+.ctrbox .sc.bot{grid-area:3/2}
+.ctrbox .mid{grid-area:2/2;text-align:center;line-height:1.15}
+.ctrbox .mid b{display:block;font-size:16px}
+.ctrbox .mid span{font-size:8.5px;color:#8fb3a8;text-transform:uppercase;letter-spacing:.05em}
+
+/* seat badges sit outside the perspective so names stay readable */
+.sb{position:absolute;z-index:4;display:flex;align-items:center;gap:5px;
+  background:rgba(0,0,0,.36);border-radius:7px;padding:3px 7px;color:#dceae5}
+.sb.turn{box-shadow:0 0 0 1.5px #ffd479}
+.sb.top{top:5px;left:50%;transform:translateX(-50%)}
+.sb.left{left:calc(8px + var(--safe-l));top:26%}
+.sb.right{right:calc(8px + var(--safe-l));top:26%}
+.sb .av{width:20px;height:20px;border-radius:5px;background:#4a6f63;display:flex;
+  align-items:center;justify-content:center;font-weight:700;font-size:10px;flex:none}
+.sb .nmw{display:flex;flex-direction:column;line-height:1.2;min-width:0}
+.sb .nmw b{font-size:10.5px;white-space:nowrap}
+.sb .nmw span{font-size:9px;color:#9fc4b8}
+.sbmeld{position:absolute;z-index:3;display:flex;gap:3px;flex-wrap:wrap}
+.sbmeld.top{top:30px;left:50%;transform:translateX(-50%)}
+.sbmeld.left{left:calc(8px + var(--safe-l));top:calc(26% + 26px);max-width:88px}
+.sbmeld.right{right:calc(8px + var(--safe-l));top:calc(26% + 26px);max-width:88px;justify-content:flex-end}
+.sbmeld .set{display:flex;gap:1px;padding:1px;background:rgba(0,0,0,.3);border-radius:3px}
+.sbmeld .t{width:calc(var(--meld) * .82)}
+
+/* your bar *//* your bar */
+.youbar{flex:none;display:flex;align-items:flex-end;gap:10px;min-height:0;
+  padding:5px calc(10px + var(--safe-l)) calc(8px + var(--safe-b));
+  width:100%;max-width:1040px;margin:0 auto}
+/* Narrow seat strip only. Melds move to their own row above the hand so they
+   never steal width from it — the hand is the thing you interact with. */
+.youmeta{flex:none;width:auto;display:flex;flex-direction:column;gap:2px;
+  font-size:calc(var(--fs) - 1px);white-space:nowrap}
+.youmelds{display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end;
+  padding:0 calc(10px + var(--safe-l)) 2px}
+.youmelds .set{display:flex;gap:1px;padding:1px;background:rgba(255,255,255,.5);border-radius:3px}
+.youmelds .t{width:var(--meld)}
+.handwrap{flex:1;display:flex;flex-direction:column;gap:3px;align-items:center;min-width:0}
+.hand{display:flex;gap:2px;align-items:flex-end;padding:4px;background:rgba(255,255,255,.75);
+  border-radius:7px;border:1px solid #d3d7d2;max-width:100%}
+.hand .t{flex:none}
+.hand .gap{width:calc(var(--tile) * .42);flex:none}
+.clock{height:3px;background:#d3d7d2;border-radius:2px;overflow:hidden;width:min(320px,90%)}
+.clock i{display:block;height:100%;background:var(--accent)}
+/* Call buttons float over the table rather than taking width from the hand —
+   as in both references. Frees the full row for tiles, which is what fixes the
+   touch target on the smallest phones. */
+.calls{position:absolute;right:calc(10px + var(--safe-l));bottom:calc(var(--safe-b) + 4px);
+  display:flex;align-items:center;gap:6px;z-index:6}
+.calls:empty{display:none}
+.cbtn{width:calc(var(--tile) * 1.85);height:calc(var(--tile) * 1.85);max-width:60px;max-height:60px;
+  border-radius:50%;border:none;background:var(--accent);color:#fff;font:inherit;
+  font-size:calc(var(--fs) + 1px);font-weight:700;cursor:pointer;position:relative;
+  box-shadow:0 2px 7px rgba(0,0,0,.2)}
+.cbtn.pass{background:#8a8a94} .cbtn.win{background:var(--warn)}
+.cbtn small{display:block;font-size:8px;font-weight:500;opacity:.85}
+.ring{position:absolute;inset:-4px;transform:rotate(-90deg)}
+.ring circle{fill:none;stroke-width:3}
+.banner{padding:5px 9px;border-radius:6px;font-size:10.5px;display:flex;gap:6px;align-items:center}
+.banner.warn{background:#f7e4de;color:var(--warn);border:1px solid #e6c4ba}
+.banner.info{background:#e2e8f5;color:#26417a;border:1px solid #c6d2ea}
+.toast{position:absolute;left:50%;transform:translateX(-50%);top:60px;background:rgba(20,20,24,.93);
+  color:#fff;padding:9px 14px;border-radius:8px;font-size:12px;z-index:9;text-align:center;max-width:330px}
+
+/* results / lists / replay */
+.tabs{display:flex;border-bottom:1px solid var(--line);background:var(--card)}
+.tabs div{flex:1;text-align:center;padding:10px 0;font-weight:600;color:var(--dim);
+  cursor:pointer;border-bottom:2px solid transparent}
+.tabs div.on{color:var(--accent);border-bottom-color:var(--accent)}
+.delta{font-size:32px;font-weight:700;font-variant-numeric:tabular-nums}
+.delta.up{color:var(--ok)} .delta.down{color:var(--warn)}
+table{width:100%;border-collapse:collapse;font-size:calc(var(--fs) - .5px)}
+th{text-align:left;font-size:9.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--faint);
+  font-weight:600;padding:5px 4px;border-bottom:1px solid var(--line)}
+td{padding:6px 4px;border-bottom:1px solid #eee;font-variant-numeric:tabular-nums}
+.faan-line{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px dashed #e4e4e8}
+.faan-line:last-child{border-bottom:0}
+.evlog{font:10.5px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;background:#1e1e24;color:#c8c8d2;
+  border-radius:7px;padding:9px;height:150px;overflow-y:auto}
+.evlog .cur{background:#3a3a48;color:#fff;border-radius:3px}
+.evlog .ty{color:#7fb3ff}
+.scrub{display:flex;align-items:center;gap:8px;padding:8px 0}
+.scrub input[type=range]{flex:1}
+.scrub button{width:36px;height:32px;border-radius:6px;border:1px solid var(--line);
+  background:var(--card);cursor:pointer}
+/* observer mini-table: flat top-down on purpose. Perspective is for playing;
+   an analytical view wants a diagram you can read straight down. */
+.mini{position:relative;width:100%;aspect-ratio:1.18;max-width:330px;margin:0 auto;
+  background:#e2e7e1;border:1px solid #cfd6ce;border-radius:10px;padding:6px}
+.mfelt{position:absolute;inset:17%;background:#d3dbd1;border-radius:8px;
+  box-shadow:inset 0 0 0 1px #c3cdc1}
+.mpile{position:absolute;left:50%;top:50%;width:1px;height:1px}
+.mpile .t{position:absolute;transform-origin:50% 50%}
+.mpile .t.last{filter:drop-shadow(0 0 3px #a8341f)}
+.mseat{position:absolute;display:flex;align-items:center;gap:4px;font-size:10px;
+  color:#3c463c;white-space:nowrap}
+.mseat b{font-size:11px}
+.mseat.mt{top:3px;left:50%;transform:translateX(-50%)}
+.mseat.mb{bottom:3px;left:50%;transform:translateX(-50%)}
+.mseat.ml{left:3px;top:50%;transform:translateY(-50%);flex-direction:column;gap:1px;align-items:flex-start}
+.mseat.mr{right:3px;top:50%;transform:translateY(-50%);flex-direction:column;gap:1px;align-items:flex-end}
+.mseat .dot{width:6px;height:6px;border-radius:50%;background:transparent;flex:none}
+.mseat.turn .dot{background:#a8341f}
+.mmeld{display:flex;gap:2px;flex-wrap:wrap;max-width:78px}
+.mmeld .set{display:flex;gap:1px;background:rgba(0,0,0,.06);border-radius:2px;padding:1px}
+.mmeld .t{width:10px}
+.mwall{position:absolute;left:50%;bottom:19%;transform:translateX(-50%);font-size:9.5px;
+  color:#6b7a6b;background:rgba(255,255,255,.75);border-radius:9px;padding:1px 7px}
+.keys{position:absolute;inset:0;background:rgba(12,12,16,.55);z-index:20;display:flex;
+  align-items:center;justify-content:center;padding:16px}
+.keysbox{background:var(--card);border-radius:10px;padding:14px 16px;max-width:440px;width:100%;
+  max-height:100%;overflow-y:auto;box-shadow:0 12px 40px rgba(0,0,0,.35)}
+kbd{display:inline-block;min-width:52px;text-align:center;font:inherit;font-size:10.5px;
+  font-weight:600;background:#f0f0f3;border:1px solid var(--line);border-bottom-width:2px;
+  border-radius:4px;padding:2px 6px;margin-right:8px}
+.turn{padding:7px 8px;border-bottom:1px solid #f0f0f2;cursor:pointer;border-radius:5px}
+.turn:hover{background:#f7f7f9}
+.turn.on{background:#eef1f9;box-shadow:inset 2px 0 0 var(--accent)}
+.turn:last-child{border-bottom:0}
+.hand-strip{display:flex;gap:1.5px;flex-wrap:wrap;align-items:center}
+.hand-strip .t{width:19px}
+.hand-strip .t.in{box-shadow:0 2px 0 var(--ok);border-radius:2px}
+.hand-strip .t.out{opacity:.42;box-shadow:0 2px 0 var(--warn);border-radius:2px}
+.io{font-weight:600;font-size:10.5px;padding:0 5px;border-radius:8px}
+.io.in{color:var(--ok);background:#e6f2e9}
+.io.out{color:var(--warn);background:#f7e4de}
+.io.thru{color:#8a6a1f;background:#f7efd9}
+.hand-strip .t.thru{opacity:.55;box-shadow:0 2px 0 #b8901f;border-radius:2px}
+.lane{background:var(--card);border:1px solid var(--line);border-radius:8px;
+  padding:8px 10px;margin-bottom:7px}
+.lane .pool{flex-wrap:wrap}
+.mrow{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line);cursor:pointer}
+.mrow:last-child{border-bottom:0}
+.mrow .res{width:32px;height:32px;border-radius:6px;display:flex;align-items:center;
+  justify-content:center;font-weight:700;color:#fff;flex:none}
+</style>
+</head>
+<body>
+<div class="rail">
+  <h1>MJRC Game — P0 sketches</h1>
+  <div class="sub">Function over style. Real tile art, placeholders elsewhere.
+    Match scene runs the §5.2 state machine for real.</div>
+
+  <h2>Device</h2>
+  <button data-dev="phone">iPhone 15 · 852×393</button>
+  <button data-dev="phonesm">iPhone SE · 667×375</button>
+  <button data-dev="ipad">iPad Pro 11" · 1194×834</button>
+  <button data-dev="desktop">Desktop · 1440×900</button>
+  <label style="margin-top:5px"><input type="checkbox" id="ck-safe"> Show safe areas</label>
+  <div class="dimlabel" id="dimlabel"></div>
+
+  <h2>Screens</h2>
+  <button data-nav="lobby">Lobby</button>
+  <button data-nav="match">Match</button>
+  <button data-nav="results">Results</button>
+  <button data-nav="matches">Review</button>
+  <button data-nav="handreview">Hand review</button>
+  <button data-nav="observer">Observer mode</button>
+  <button data-nav="rooms">Rooms</button>
+  <button data-nav="landing">Landing / sign-in</button>
+  <button data-nav="replay">Replay viewer</button>
+  <button data-nav="shared">Shared replay</button>
+  <button data-nav="ia">IA map</button>
+
+  <h2>Match controls</h2>
+  <label><input type="checkbox" id="ck-labels" checked> Learner labels</label>
+  <label><input type="checkbox" id="ck-autopass"> Auto-pass claims</label>
+  <label><input type="checkbox" id="ck-floor"> Force faan-floor warning</label>
+  <label><input type="checkbox" id="ck-omni"> Omniscient view</label>
+  <label><input type="checkbox" id="ck-riichi"> Diagram mode (ordered pools)</label>
+  <label><input type="checkbox" id="ck-attrib"> Pile: show attribution</label>
+  <label><input type="checkbox" id="ck-notes" checked> Spec notes</label>
+  <button data-act="newhand" style="margin-top:7px">New hand</button>
+  <button data-act="showkeys">Hotkeys (?)</button>
+
+  <h2>Bot texture</h2>
+  <div class="stat" id="texture">measuring…</div>
+</div>
+
+<div class="stage">
+  <div class="framewrap" id="framewrap">
+    <div class="frame" data-dev="phone" id="frame"><div class="screen" id="screen"></div><div class="safeguide"><i class="sl"></i><i class="sr"></i><i class="sb"></i></div></div>
+  </div>
+  <div class="devcap" id="devcap"></div>
+</div>
+
+<div class="notes" id="notes"></div>
+
+<script src="tiles.gen.js"></script>
+<script src="engine.js"></script>
+<script src="ui.js"></script>
+</body>
+</html>

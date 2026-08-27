@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MJRC Game — module guide</title>
+<style>
+:root{--bg:#1c1c22;--card:#26262e;--line:#3a3a44;--ink:#e6e6ec;--dim:#9a9aa6;
+  --ok:#5dbb7a;--warn:#e08a6a;--acc:#7fb3ff;--gold:#e8c47a}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  padding:28px 20px 60px;max-width:980px;margin:0 auto}
+h1{font-size:21px;margin:0 0 4px}
+.sub{color:var(--dim);font-size:12.5px;margin-bottom:22px}
+h2{font-size:15px;margin:34px 0 4px;color:var(--gold)}
+h2 .path{font:12px ui-monospace,Menlo,monospace;color:var(--dim);font-weight:400;margin-left:8px}
+.pkgsub{color:var(--dim);font-size:12.5px;margin:0 0 12px}
+.mod{background:var(--card);border:1px solid var(--line);border-radius:9px;
+  padding:12px 15px;margin-bottom:9px}
+.mod .hd{display:flex;align-items:baseline;gap:9px;margin-bottom:5px}
+.mod .nm{font:600 13.5px ui-monospace,Menlo,monospace;color:var(--acc)}
+.mod .loc{color:var(--dim);font-size:11px;margin-left:auto;font-variant-numeric:tabular-nums}
+.mod p{margin:5px 0;font-size:13px}
+.mod .api{font:11.5px ui-monospace,Menlo,monospace;color:var(--dim);margin-top:6px;
+  border-top:1px dashed var(--line);padding-top:6px}
+.mod .api b{color:var(--ink);font-weight:600}
+c{font:12px ui-monospace,Menlo,monospace;background:#33333d;padding:1px 5px;border-radius:4px}
+.tag{display:inline-block;font-size:10px;padding:1px 7px;border-radius:9px;font-weight:600;
+  vertical-align:1px}
+.tag.core{background:#1e3a2a;color:var(--ok)}
+.tag.stub{background:#3d2e22;color:var(--warn)}
+.tag.data{background:#22303d;color:var(--acc)}
+.flow{background:var(--card);border:1px solid var(--line);border-radius:9px;padding:16px;
+  font:12px ui-monospace,Menlo,monospace;color:var(--dim);white-space:pre;overflow-x:auto;
+  line-height:1.7}
+.flow b{color:var(--ink)}
+.note{border-left:3px solid var(--gold);background:var(--card);border-radius:0 8px 8px 0;
+  padding:9px 13px;font-size:12.5px;color:var(--dim);margin:12px 0}
+.note b{color:var(--ink)}
+</style>
+</head>
+<body>
+<h1>MJRC Game — module guide</h1>
+<div class="sub">What every file is, why it exists, and how they connect · ~17,300 lines + ~2,000 tests · state as of 2026-08-27</div>
+
+<div class="flow"><b>The one picture that explains the architecture</b>
+
+  player / bot ──action──▶ <b>reducer</b> ──consults──▶ scoring ── patterns/presets
+                              │
+                              └──emits──▶ <b>event log</b> (protocol/events)
+                                             │
+              ┌──────────────┬──────────────┼──────────────┬─────────────┐
+              ▼              ▼              ▼              ▼             ▼
+         Durable Object   replay/fold   analysis      sim tools     future client
+         (broadcasts)     (rebuilds     (review       (watch,       (renders it)
+                           any state)    screens)      evolve)
+
+Everything downstream is a <b>consumer of the same event stream</b>. That is the whole
+design: get the events right and transport, replay, review, and ML all follow.</div>
+
+<!-- ═══════════════════════ ENGINE ═══════════════════════ -->
+<h2>engine <span class="path">engine/src/ — the pure game, zero dependencies, zero I/O</span></h2>
+<div class="pkgsub">Every file here is deterministic: same inputs, same outputs, forever. No <c>Math.random</c>, no clocks. This is what makes replay = re-execution and simulation trustworthy.</div>
+
+<div class="mod"><div class="hd"><span class="nm">types.ts</span> <span class="tag data">contract</span><span class="loc">193 lines</span></div>
+<p>The shared vocabulary every other file imports: the 0–41 tile id space (萬 索 筒, winds, dragons, 8 flowers), <c>Meld</c> with all three kong forms, <c>Action</c>, <c>GameState</c>, <c>ScoreResult</c>, <c>Ruleset</c>. Deliberately frozen — agents built against it in parallel without colliding.</p></div>
+
+<div class="mod"><div class="hd"><span class="nm">tiles.ts</span><span class="loc">51</span></div>
+<p>Tile identity: which suit, which rank, is it an honour / terminal / flower, whose flower is it. Tiny on purpose — everything else asks these questions constantly.</p>
+<div class="api"><b>suitOf · rankOf · isHonour · isFlower · flowerSeat · counts</b> (hand → 34-slot count array, the shape all the math runs on)</div></div>
+
+<div class="mod"><div class="hd"><span class="nm">wall.ts</span><span class="loc">36</span></div>
+<p>The 144-tile wall, shuffled by a <b>seeded</b> PRNG (mulberry32). Same seed → same wall, which is what makes every hand reproducible, every replay exact, and a fairness proof possible (publish a hash of the seed before the hand, reveal it after).</p>
+<div class="api"><b>prng(seed) · buildWall(seed) · assertWallIntact</b></div></div>
+
+<div class="mod"><div class="hd"><span class="nm">ready.ts</span> <span class="tag core">verified 800/800</span><span class="loc">133</span></div>
+<p>Distance-to-ready (上聽): how many tiles away a hand is from a winning shape, and which tiles get it there. Two real bugs were found and fixed here by an independent exhaustive checker — a 14-tile-shape miscount and a subtle proxy-metric bug in the decomposition. Now agrees with brute force on every sampled hand. ~7µs per call, which is what makes the ML loop affordable.</p>
+<div class="api"><b>distanceToReady</b> (-1 complete · 0 ready · 1+ away) · <b>liveTiles</b> (winning tiles + copies still unseen) · <b>isComplete</b></div></div>
+
+<div class="mod"><div class="hd"><span class="nm">melds.ts</span><span class="loc">284</span></div>
+<p>Everything about claimed sets: chow only from the left player, pung from anyone, and the three kong forms (明槓 exposed · 暗槓 concealed · 加槓 added — which opens the rob-the-kong window). Legality checks live here so the reducer and the bots share one answer.</p>
+<div class="api"><b>makeChow/Pung/Kong · chowOptions · canPung/canKong · opensRobKongWindow · leftOf</b></div></div>
+
+<div class="mod"><div class="hd"><span class="nm">decompose.ts</span><span class="loc">246</span></div>
+<p>Breaks a winning 14 tiles into 4 sets + pair — returning <b>every</b> valid reading, not just one, because a hand can be read multiple ways and the scorer must pick the highest. This is the piece the old Python engine lacked entirely (it assumed a concealed hand; a kong crashed it).</p>
+<div class="api"><b>decomposeWin · hasWinningShape · concealedTripletCount</b></div></div>
+
+<div class="mod"><div class="hd"><span class="nm">scoring.ts</span> <span class="tag core">4-way verified</span><span class="loc">345</span></div>
+<p>The faan engine. Scores every decomposition against the pattern catalogue, applies subsumption (so 大三元 never also pays 小三元 — including your 2026-08-26 rulings), breaks ties deterministically, adds situational faan (自摸, 搶槓, 槓上開花, heavenly/earthly, flowers), caps at 13, and refuses wins under the 3-faan floor. Verified by: the golden suite, an independent second implementation (40k hands agree), the Python port-diff, and the audit.</p>
+<div class="api"><b>score(concealed, melds, flowers, winningTile, ctx, ruleset) → ScoreResult</b> — reports both rawFaan and the capped total</div></div>
+
+<div class="mod"><div class="hd"><span class="nm">reducer.ts</span> <span class="tag core">the heart</span><span class="loc">1,382</span></div>
+<p>The match state machine — DESIGN.md §5.2 implemented exactly. Deal → recursive flower replacement (strictly ordered) → turns → claim windows with win &gt; kong/pung &gt; chow priority → kongs and replacements → scoring → settlement → dealer repeat/rotation → wind rounds. Pure function: <c>applyAction(state, action) → {state, events}</c>. The Durable Object, replay viewer, bots and sim all call this same function — nothing else contains game logic.</p>
+<div class="api"><b>startMatch · applyAction · legalActions · startNextHand · replayMatch</b> (re-execution — the property test folds 200 hands' logs back through and demands identical state)</div></div>
+
+<div class="mod"><div class="hd"><span class="nm">bots.ts</span> <span class="tag core">the product at P0</span><span class="loc">1,048</span></div>
+<p>The opponents. Picks a faan route at deal (nine templates: half flush, all pungs, honours…), steers discards and claims toward it, never melds into a hand that can't reach 3 faan, uses count-based safety. All behaviour flows through <b>BotProfile — 11 numeric weights</b>, which is exactly what the evolution loop tunes. Sees only <c>SeatView</c> (its own redacted view) — it cannot cheat by construction. Known gaps, from your interview: no information warfare, no left-feed awareness, no 13-orphans route.</p>
+<div class="api"><b>decideAction(view, legal, config) · assessRoutes · DEFAULT_PROFILE</b></div></div>
+
+<div class="mod"><div class="hd"><span class="nm">analysis.ts</span><span class="loc">830</span></div>
+<p>Rule-derived review: reads an event log and reports only <b>facts</b> — dealt into a win, passed a legal winning claim, melded below the floor, discarded with N of 4 visible (worded carefully: "no pung possible, a chow still is"). Deliberately contains no judgement calls — move classification waits for the route evaluator. Powers the future review screens.</p>
+<div class="api"><b>keyMoments · handTimeline · visibilityCounts</b> (asserts no tile ever counts past 4)</div></div>
+
+<div class="mod"><div class="hd"><span class="nm">rating.ts</span><span class="loc">433</span></div>
+<p>Provisional Elo adapted for four players: expected vs actual <b>placement</b>, chip margin damped so one limit hand can't swamp a match, higher K while provisional. Zero-sum by construction (deltas always sum to 0 — tested). A documented seam waits for the P1 Glicko-2 upgrade.</p>
+<div class="api"><b>updateRatings · expectedPlacement</b></div></div>
+
+<!-- ═══════════════════════ RULESETS ═══════════════════════ -->
+<h2>rulesets <span class="path">rulesets/src/ — the rules as data, not code</span></h2>
+<div class="pkgsub">§4's doctrine: house variants are config. Change a table's rules by picking a preset, never by forking the engine.</div>
+
+<div class="mod"><div class="hd"><span class="nm">patterns.ts</span> <span class="tag data">rulings live here</span><span class="loc">547</span></div>
+<p>The pattern catalogue: every scoring pattern with stable id, characters, Jyutping, English, and its <b>subsumption edges</b> — the subtle part. Your three rulings are encoded here with dated comments: 字一色/清么九 swallow 對對糊, Four Winds swallow the wind faan.</p>
+<div class="api"><b>PATTERNS · applySubsumption · PATTERN_IDS</b></div></div>
+
+<div class="mod"><div class="hd"><span class="nm">payment.ts</span><span class="loc">197</span></div>
+<p>Chip settlement: the doubling ladder and the flat LIU brackets, with <b>both</b> self-draw settlements (each loser pays full vs split three ways) as presets — both are real house rules and a table picks one.</p></div>
+
+<div class="mod"><div class="hd"><span class="nm">presets.ts</span><span class="loc">208</span></div>
+<p>Assembled rulesets: <c>hkos-standard</c> (canonical HK Old Style) and <c>liu</c> — your family's house rules, now first-class: plays flowers, pays concealed hand, its own faan values (清么九 at a flat 13, 小三元 at 4…).</p></div>
+
+<!-- ═══════════════════════ PROTOCOL ═══════════════════════ -->
+<h2>protocol <span class="path">protocol/src/ — the wire format and the archive format</span></h2>
+
+<div class="mod"><div class="hd"><span class="nm">events.ts</span> <span class="tag data">the log schema</span><span class="loc">868</span></div>
+<p>Every game event, versioned, with <c>engineVersion</c> pinned so a future scoring fix can never silently rewrite history. Carries <b>two serializers, never mixed</b>: omniscient (server/archive only) and per-seat redacted (what a player's socket may see — own hand, everyone's discards/melds, only tile <i>counts</i> for others). A type-level guard makes leaking omniscient data down a seat socket hard to even express.</p></div>
+
+<div class="mod"><div class="hd"><span class="nm">messages.ts</span><span class="loc">326</span></div>
+<p>Client↔server messages. A client only ever <i>requests</i> an action — the server decides. Includes the reconnect shape (snapshot + actions-since) and a protocol version field.</p></div>
+
+<!-- ═══════════════════════ WORKER ═══════════════════════ -->
+<h2>worker <span class="path">worker/ — the Cloudflare backend (not yet deployed)</span></h2>
+
+<div class="mod"><div class="hd"><span class="nm">table.ts</span> <span class="tag stub">untested against real CF runtime</span><span class="loc">1,999</span></div>
+<p>The Table Durable Object — one per live match. Owns coordination only; all rules go through the reducer. The three §5.3 traps are handled: the <b>named-deadline multiplexer</b> (a DO has exactly one alarm; naive use hangs the table), the <b>outbox</b> (events stay in DO storage until R2 + D1 both confirm — this is what makes "100% of games reconstruct" real), and <b>per-seat redaction</b> on every broadcast. Bot replies route through a pacing deadline so timing never leaks a held claim.</p></div>
+
+<div class="mod"><div class="hd"><span class="nm">index.ts + db.ts</span><span class="loc">853 + 625</span></div>
+<p>Plain HTTP platform: identity (device token at P0), match history, the public tokenized replay route (the alpha's only viral loop), create/join tables. Strictly separate channel from the match socket (§2's two-planes rule). <c>db.ts</c> is typed, parameterised queries over <c>schema.sql</c>.</p></div>
+
+<div class="mod"><div class="hd"><span class="nm">schema.sql</span><span class="loc">503</span></div>
+<p>D1 tables: players, matches, match_players, hands (one row per hand so review screens never parse log blobs), rating_history. Leaves a documented seam to the Almanac's <c>player_links</c> — the game is a new machine-witnessed source at the top of that trust ranking; online and offline stats share identity but are never unioned.</p></div>
+
+<!-- ═══════════════════════ CLIENT ═══════════════════════ -->
+<h2>client <span class="path">client/src/ — contracts only; no UI exists yet, by design</span></h2>
+<div class="pkgsub">The client is disposable (§5). What's here is the boundaries that make the future DOM→Pixi swap mechanical, plus pure data.</div>
+
+<div class="mod"><div class="hd"><span class="nm">scene/MatchScene.ts + types.ts</span><span class="loc">522 + 512</span></div>
+<p>The renderer interface: <c>mount / setView / applyEvent / flush / destroy</c>, the animation-queue types, and the three hard rules documented (animation never gates input; resync snaps; every ceremony is skippable). Ships a <c>NullScene</c> so the boundary is testable — including the test that a scene can never receive another seat's concealed tiles.</p></div>
+
+<div class="mod"><div class="hd"><span class="nm">cosmetics/types.ts + registry.ts</span><span class="loc">628 + 554</span></div>
+<p>Tile sets, hand models, avatars, table surfaces, loadouts — and <c>Unlock</c> as pure data with <b>no randomness expressible in the type</b>: a gacha is literally unwritable in this model, which is the §1 positioning enforced by the compiler. Every slot has a guaranteed default so a retired cosmetic degrades instead of breaking replay.</p></div>
+
+<div class="mod"><div class="hd"><span class="nm">expressions/catalogue.ts</span><span class="loc">1,357</span></div>
+<p>The Cantonese table-talk system as data: expressions by moment (winning, dealing in, long wait…), each with characters, Jyutping, gloss, and an intensity tier (clean / salty / 粗口) with per-player send &amp; receive consent. Canned, never free text — funnier and unmoderatable-problems-free. Rides the socket but <b>never enters the event log</b>.</p></div>
+
+<!-- ═══════════════════════ TOOLS ═══════════════════════ -->
+<h2>tools <span class="path">tools/ — verification harnesses and the ML loop</span></h2>
+
+<div class="mod"><div class="hd"><span class="nm">replay/fold.ts + cli.ts</span><span class="loc">890 + 793</span></div>
+<p><c>fold.ts</c> is the canonical "event log → game state at any index" — the one shared implementation the replay viewer, observer mode and analysis all use. <c>cli.ts</c> is a terminal replay: step through a hand, or <c>--verify</c> re-executes a log through the reducer and asserts the recorded final state (gate 2, made testable).</p></div>
+
+<div class="mod"><div class="hd"><span class="nm">port-diff/compare.ts</span><span class="loc">914</span></div>
+<p>Replays the old Python engine's logs through this engine and diffs. Scope stated loudly in its own output: validates the closed-hand LIU subset <b>only</b> (all the Python engine can produce). Its exhaustive distance reference is what caught both <c>ready.ts</c> bugs.</p></div>
+
+<div class="mod"><div class="hd"><span class="nm">validation/render.ts</span><span class="loc">1,147</span></div>
+<p>Renders the golden cases as real tiles in a reviewable HTML sheet. Largely superseded by your ruling that machine cross-verification + a short contested-rulings conversation beats a 124-case human review — kept because the ~20 contested cases still want human eyes eventually.</p></div>
+
+<div class="mod"><div class="hd"><span class="nm">sim/ — driver · watch · evolve · headtohead · panel</span> <span class="tag core">the ML loop</span><span class="loc">445 + panel</span></div>
+<p><b>driver.ts</b> plays full headless matches (~11 hands/sec). <b>watch.mjs</b> is your terminal spectator with the 流局 autopsy. <b>evolve.mjs</b> is the self-play optimizer — (1+6) evolution over BotProfile with common random numbers, placement-point fitness, and two-stage confirmed promotion (the runs-1–2 winner's-curse lesson). <b>headtohead.mjs</b> is the honest scoreboard: evolved vs default on held-out seeds. <b>panel.html</b> visualizes it all, self-refreshing.</p>
+<div class="api">node tools/sim/watch.mjs --seed 47 · node tools/sim/evolve.mjs --gens 12 · node tools/sim/headtohead.mjs tools/sim/best-profile.json 120</div></div>
+
+
+<!-- ═══════════════════════ WEIGHTS ═══════════════════════ -->
+<h2>The 11 bot weights <span class="path">engine/src/bots.ts BotProfile — what the ML loop actually tunes</span></h2>
+<div class="pkgsub">The bot makes three kinds of decision — <b>which route to build</b>, <b>which tile to cut</b>, <b>whether to claim</b> — each scored by a small formula. Every coefficient in those formulas is a weight. Evolution never invents behaviour; it only re-balances these dials.</div>
+
+<div class="mod"><div class="hd"><span class="nm">Route choice</span><span class="loc">score = faan·w − distance·w − surplus·w − floorPenalty</span></div>
+<p><b>faanWeight</b> (default 0.6) — how much a route's payout matters vs how fast it completes. Low = race for any legal 3; high = build 半flush/dragons value. This is your "big hands always lose, small hands always lose" dial — the mix lives here.</p>
+<p><b>routeDistanceWeight</b> (1.0) — the speed term: penalty per tile the route still needs. High = sprint to ready; low = patient.</p>
+<p><b>offRouteWeight</b> (1.2) — penalty per concealed tile the route would throw away. High = prefer routes that use what you were dealt; low = happy to demolish and rebuild (your "dump a suit" rescue is cheap when this is low).</p>
+<p><b>belowMinimumPenalty</b> (5) — flat charge on any route that cannot legally reach 3 faan. <b>The anti-sin dial</b> — directly controls the refused-win pathology. Both evolution runs pushed it up (5 → 6.3 → 8.7): chip pressure agrees with the rule.</p></div>
+
+<div class="mod"><div class="hd"><span class="nm">Discard choice</span><span class="loc">score = −distance·w − routeDist·w ± routeFit·w − danger·w + outs·w</span></div>
+<p><b>discardDistanceWeight</b> (3.0) — keep the hand close to ready: penalty for a cut that moves you further away. The dominant term, and rightly so.</p>
+<p><b>discardRouteWeight</b> (1.15) — prefer cuts that serve the chosen route (shed off-route tiles, keep route tiles). This is "commitment": high = tunnel vision, low = stay flexible.</p>
+<p><b>discardSafetyWeight</b> (0.45) — count-based danger: prefer tiles with more copies already visible. Your interview says defence should scale with the opponent threat and your own hand size — today it's a flat dial, which is one of the named gaps.</p>
+<p><b>discardOutsWeight</b> (0.055) — tiny tiebreak by live-tile count between otherwise equal cuts. Deliberately small: §6 says outs are a tiebreak, not a driver.</p></div>
+
+<div class="mod"><div class="hd"><span class="nm">Claim choice</span><span class="loc">refuse if routeLoss &gt; tolerance · claim if gain ≥ bar·(2−aggression)</span></div>
+<p><b>claimRouteTolerance</b> (1.6) — how much route value a pung/chow may destroy before it's refused. Claiming always costs concealment; this decides when that price is worth paying. Run 1 cut it 40% — the optimizer discovering your "beginners claim too much."</p>
+<p><b>claimSpeedGain</b> (1.0) — the minimum distance improvement a chow/pung must buy. Higher = only claim when it genuinely accelerates the hand.</p>
+<p><b>aggression</b> (1.0) — a global multiplier on claim willingness, scaling the bar and the gain together. The one personality-flavoured dial; also the noisiest in both runs (it wandered ±80%), suggesting the game is less sensitive to it than the others.</p></div>
+
+<div class="note"><b>How this variable set was chosen — and why not more or fewer.</b>
+The honest answer: the <i>architecture</i> came first, from DESIGN.md §6's priority list (claim logic → route steering → count safety → outs tiebreak), which itself came from the engine audit's diagnosis of why naive bots are unbearable. The builder wrote one additive scoring formula per decision, and then <b>every coefficient in those formulas became a weight — no more, no less</b>. So the set isn't derived from data; it's the full dial-set of a hand-designed heuristic.
+<br><br>
+<b>Why not fewer:</b> collapsing dials (say, one "speed vs value" knob) would couple decisions that your own play keeps separate — you can be patient in route choice yet ruthless in claims.
+<b>Why not more:</b> two reasons. Search cost — at 48 matches per candidate, 11 dimensions is already near what the noise budget supports; every added dial slows convergence for all of them. And the deeper one: <b>weights can only re-balance what the formulas can see.</b> The bot's inputs today are its own hand, the discards, and visible counts. No weight setting can make it bluff, watch the left player's feed, or model opponents — those need new <i>features</i> (new inputs and terms), which is exactly what STRATEGY.md's gap table lists. When those land, each brings its own weight, and the search space grows <i>because the behaviour space grew</i> — the right order, not the reverse.
+<br><br>
+Run-3 evidence so far supports the design: the dials that matter (floor penalty, claim discipline, faan value) move consistently across runs; the ones that wander (aggression, safety) are either insensitive or waiting on missing features.</div>
+
+<div class="note"><b>Also in the repo, not code:</b> the golden-hand suite (<c>engine/test/golden/</c>, 124 audited cases + CONTESTED.md), the independent reference scorer (<c>engine/test/reference-scorer.ts</c> — a deliberately slow second implementation that must agree with the fast one), and the design docs: DESIGN.md, TERMINOLOGY.md, STRATEGY.md (your interview), POSITIONING-AMENDMENT.md (fun first), ANIMATION.md, RULES-HK.md, AUTH.md, PRESENTATION.md, EXPRESSIONS.md, and the interactive sketches under <c>sketches/</c>.</div>
+
+</body>
+</html>

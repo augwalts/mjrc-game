@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MJRC self-play panel</title>
+<style>
+:root{--bg:#1c1c22;--card:#26262e;--line:#3a3a44;--ink:#e6e6ec;--dim:#9a9aa6;
+  --ok:#5dbb7a;--warn:#e08a6a;--acc:#7fb3ff}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:20px}
+h1{font-size:16px;margin:0 0 2px}
+.sub{color:var(--dim);font-size:11.5px;margin-bottom:16px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:9px;padding:13px}
+.card h2{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--dim);
+  margin:0 0 9px;font-weight:600}
+table{width:100%;border-collapse:collapse;font-size:12px;font-variant-numeric:tabular-nums}
+th{text-align:right;color:var(--dim);font-weight:600;font-size:10px;text-transform:uppercase;
+  letter-spacing:.05em;padding:3px 6px;border-bottom:1px solid var(--line)}
+th:first-child,td:first-child{text-align:left}
+td{text-align:right;padding:4px 6px;border-bottom:1px solid #2e2e36}
+.up{color:var(--ok)} .down{color:var(--warn)} .mut{color:var(--dim)}
+.spark{width:100%;height:64px;display:block}
+.big{font-size:22px;font-weight:700}
+.pill{display:inline-block;font-size:10px;padding:1px 7px;border-radius:9px;
+  background:#33333d;color:var(--dim);margin-left:8px}
+.pill.live{background:#1e3a2a;color:var(--ok)}
+.kv{display:flex;justify-content:space-between;padding:2px 0;font-size:12px}
+.matchlist{max-height:440px;overflow-y:auto}
+details.match{border-bottom:1px solid #2e2e36}
+details.match summary{cursor:pointer;padding:5px 4px;font-size:12px;
+  font-variant-numeric:tabular-nums;list-style-position:inside}
+details.match summary:hover{background:#2c2c35}
+.tiles{font-size:13px;letter-spacing:.04em}
+.wtile{color:var(--acc);font-weight:700;border-bottom:1px solid var(--acc)}
+</style>
+</head>
+<body>
+<h1>Self-play weight evolution <span class="pill" id="status"></span></h1>
+<div class="sub" id="sub">waiting for data.js…</div>
+<div class="grid" id="grid"></div>
+<script src="data.js"></script>
+<script>
+const D = window.SIM_DATA;
+// The optimizer rewrites data.js after every generation; reload to pick it up.
+if (!D || D.status === "running" || (D.history ?? []).length === 0) {
+  setTimeout(() => location.reload(), 45_000);
+}
+if (!D) { document.getElementById("sub").textContent = "no data.js yet — run evolve.mjs first"; }
+else if (D.history.length === 0) {
+  document.getElementById("status").textContent = D.status;
+  document.getElementById("status").className = "pill live";
+  document.getElementById("sub").textContent =
+    "run started " + D.updated + " — generation 0 takes a few minutes; this page reloads itself every 45s";
+} else {
+  const H = D.history;
+  const last = H[H.length - 1];
+  const promoted = H.filter(g => g.promoted !== null).length;
+  const totalMatches = H.length * (1 + 6) * 24;
+  document.getElementById("status").textContent = D.status;
+  document.getElementById("status").className = "pill" + (D.status === "running" ? " live" : "");
+  document.getElementById("sub").textContent =
+    `${H.length} generations · ${promoted} promotions · ~${totalMatches.toLocaleString()} matches simulated · updated ${D.updated} — refresh for latest`;
+
+  const spark = (vals, {lo, hi, fmt = v => v, color = "var(--acc)"} = {}) => {
+    if (!vals.length) return "";
+    lo = lo ?? Math.min(...vals); hi = hi ?? Math.max(...vals);
+    if (hi === lo) { hi = lo + 1; }
+    const W = 300, Hh = 60, pad = 4;
+    const x = i => pad + i / Math.max(1, vals.length - 1) * (W - 2 * pad);
+    const y = v => Hh - pad - (v - lo) / (hi - lo) * (Hh - 2 * pad);
+    const pts = vals.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+    return `<svg class="spark" viewBox="0 0 ${W} ${Hh}" preserveAspectRatio="none">
+      <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.6"/>
+      ${vals.map((v, i) => `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="1.8" fill="${color}"/>`).join("")}
+    </svg><div class="kv"><span class="mut">start ${fmt(vals[0])}</span><b>now ${fmt(vals[vals.length-1])}</b></div>`;
+  };
+
+  const bestChips = H.map(g => Math.max(...g.candidates.map(c => c.result.chipsPerMatch)));
+  const hasPts = last.candidates[0].result.pointsPerMatch !== undefined;
+  const bestPts = H.map(g => Math.max(...g.candidates.map(c => c.result.pointsPerMatch ?? 0)));
+  const texture = k => H.map(g => {
+    const src = g.promoted !== null ? g.candidates.find(c => c.id === g.promoted) : null;
+    return (src ? src.result : g.control)[k];
+  });
+
+  const PATTERN_LABELS = {
+    selfDraw:"self-draw 自摸", allChows:"All Chows 平糊", allPungs:"All Pungs 對對糊",
+    halfFlush:"Half Flush 混一色", fullFlush:"Full Flush 清一色", dragonPung:"dragon pung 三元牌",
+    seatWind:"seat wind 門風", roundWind:"round wind 圈風", ownFlower:"own flower 正花",
+    ownSeason:"own season 正花(季)", noFlowers:"no bonus tiles 無花", concealedHand:"concealed 門前清",
+    winOnKongReplacement:"kong replacement 槓上開花", winOnLastTile:"last tile 海底撈月",
+    winOnLastDiscard:"last discard 河底撈魚", mixedTerminals:"mixed terminals 混么九",
+    smallThreeDragons:"Small 3 Dragons 小三元", bigThreeDragons:"Big 3 Dragons 大三元",
+    allTerminals:"All Terminals 清么九", allHonours:"All Honours 字一色",
+    fourConcealedPungs:"4 Concealed Pungs 四暗刻", nineGates:"Nine Gates 九蓮寶燈",
+    thirteenOrphans:"13 Orphans 十三么", heavenlyHand:"Heavenly 天糊", earthlyHand:"Earthly 地糊",
+    allKongs:"All Kongs 十八羅漢", bigFourWinds:"Big 4 Winds 大四喜", smallFourWinds:"Small 4 Winds 小四喜",
+    robbingKong:"robbing the kong 搶槓", winByDoubleKong:"double kong win 槓上槓",
+    allFlowers:"all 4 flowers 齊四花", allSeasons:"all 4 seasons 齊四季",
+  };
+  const cards = [];
+  // ── what the bots actually DO: latest generation's activity mix ──
+  const actSrc = (g) => {
+    const c = g.promoted !== null ? g.candidates.find(x => x.id === g.promoted) : null;
+    return (c ? c.result : g.control).activity;
+  };
+  const act = actSrc(last);
+  if (act) {
+    const per = (n) => (n / act.hands).toFixed(2);
+    const winsTotal = act.winsOnDiscard + act.selfDraws;
+    const pats = Object.entries(act.patterns).sort((a, b) => b[1] - a[1]).slice(0, 12);
+    cards.push(`<div class="card"><h2>What the bots are actually doing — latest generation</h2>
+      <table><tr><th>per hand</th><th></th></tr>
+        <tr><td>chows 上</td><td>${per(act.chows)}</td></tr>
+        <tr><td>pungs 碰</td><td>${per(act.pungs)}</td></tr>
+        <tr><td>kongs 槓 (all forms)</td><td>${per(act.kongs)}</td></tr>
+        <tr><td>wins — on a discard 食糊</td><td>${per(act.winsOnDiscard)}</td></tr>
+        <tr><td>wins — self-draw 自摸</td><td>${per(act.selfDraws)}</td></tr>
+      </table>
+      <div class="mut" style="font-size:11px;margin:8px 0 4px"><b>Winning-pattern census</b> — every scoring
+      pattern that appeared in a winning hand across this generation's ~${act.hands.toLocaleString()} hands
+      (${winsTotal} wins). This answers "which routes actually pay":</div>
+      <table>${pats.map(([id, n]) => `<tr><td>${PATTERN_LABELS[id] ?? id}</td>
+        <td>${n}</td><td class="mut">${(n / Math.max(1, winsTotal) * 100).toFixed(0)}% of wins</td></tr>`).join("")}</table>
+      <div class="mut" style="font-size:11px;margin-top:6px">Older runs recorded no activity — this card starts
+      with the first run after 2026-08-27.</div></div>`);
+  }
+  if (hasPts) {
+    cards.push(`<div class="card"><h2>Best challenger — placement points/match vs incumbent</h2>
+      <div class="big">${bestPts[bestPts.length-1] > 0 ? "+" : ""}${bestPts[bestPts.length-1]}</div>
+      ${spark(bestPts, {fmt: v => (v>0?"+":"")+v})}
+      <div class="mut" style="font-size:11px">1st +3 · 2nd +1 · 3rd −1 · 4th −3, averaged. The selection fitness since run 3 —
+      bounded, so the promote bar (0.5) sits above the noise floor (±0.43 at 48 matches). Promotion additionally
+      requires CONFIRMING on a fresh unseen seed set. Expect few promotions; that is the design working.</div></div>`);
+  }
+  cards.push(`<div class="card"><h2>Best challenger — chips per match vs incumbent</h2>
+    <div class="big">${bestChips[bestChips.length-1] > 0 ? "+" : ""}${bestChips[bestChips.length-1]}</div>
+    ${spark(bestChips, {fmt: v => (v>0?"+":"")+v})}
+    <div class="mut" style="font-size:11px">Recorded, no longer the selection metric: one limit hand swings ±100 chips and drowns the signal.</div></div>`);
+
+  cards.push(`<div class="card"><h2>Refused wins per hand — the fun pathology</h2>
+    <div class="big">${texture("refusedPerHand").slice(-1)[0]}</div>
+    ${spark(texture("refusedPerHand"), {lo: 0, color: "var(--warn)", fmt: v => v})}
+    <div class="mut" style="font-size:11px">Times per hand a bot completed a winning shape it legally could not take
+ (under the 3-faan floor) — the single most rage-inducing texture flaw for a human. Steered mainly by the
+ belowMinimumPenalty dial below; both runs so far raised that dial on their own.</div></div>`);
+
+  cards.push(`<div class="card"><h2>Draw rate 流局</h2>
+    <div class="big">${(texture("drawRate").slice(-1)[0]*100).toFixed(0)}%</div>
+    ${spark(texture("drawRate"), {lo: 0, hi: 0.7, fmt: v => (v*100).toFixed(0)+"%"})}
+    <div class="mut" style="font-size:11px">流局 — the wall ran out and NOBODY won (not self-draw — 自摸 is a win).
+ Prototype baseline was 69%; real tables feel like 10–20%. Most draws here are authentic: someone was ready, the tile never came.</div></div>`);
+
+  cards.push(`<div class="card"><h2>Mean winning faan</h2>
+    <div class="big">${texture("meanFaan").slice(-1)[0]}</div>
+    ${spark(texture("meanFaan"), {fmt: v => v})}
+    <div class="mut" style="font-size:11px">Average faan of winning hands. 3.0 = everyone scrapes the minimum; rising = hands
+ built for value. The owner's principle says neither extreme survives — this shows where the mix settles.</div></div>`);
+
+  const WEIGHT_DOCS = {
+    faanWeight: "Value vs speed: how much a route's payout matters over finishing fast. Low = race for any legal 3 faan; high = build big hands.",
+    routeDistanceWeight: "The sprint dial: penalty per tile the chosen route still needs. High = pick nearly-done routes.",
+    offRouteWeight: "Rebuild cost: penalty per dealt tile the route would throw away. Low = happy to dump a suit and rebuild.",
+    belowMinimumPenalty: "The anti-sin: charge on any route that cannot legally reach 3 faan. This is the refused-wins dial.",
+    discardDistanceWeight: "Stay close to ready: penalty for a cut that moves the hand further from winning. The dominant discard term.",
+    discardRouteWeight: "Commitment: prefer cuts that serve the chosen route. High = tunnel vision, low = stay flexible.",
+    discardSafetyWeight: "Defence: prefer cutting tiles with more copies already visible on the table.",
+    discardOutsWeight: "Tiny tiebreak between equal cuts by how many live winning tiles each keeps. Deliberately small.",
+    claimSpeedGain: "Minimum speed-up a pung/chow must buy before the bot will take it.",
+    claimRouteTolerance: "Claim discipline: how much route value a claim may destroy before it is refused. Claiming always costs concealment.",
+    aggression: "Global claim eagerness multiplier. The personality dial — and the noisiest one in every run so far.",
+  };
+  const K = D.keys;
+  const w0 = D.defaults, wN = last.incumbentAfter;
+  cards.push(`<div class="card"><h2>Incumbent weights — hand-guessed → evolved</h2>
+    <div class="mut" style="font-size:11px;margin-bottom:8px">The bot's entire personality is these 11 dials — coefficients of its three
+    decision formulas (route choice · discard choice · claim choice). Evolution never invents behaviour, it only re-balances them.
+    "default" is the hand-guessed starting value; green/red Δ = evolution raised/lowered it.</div>
+    <table><tr><th>weight</th><th>default</th><th>now</th><th>Δ</th></tr>
+    ${K.map(k => {
+      const d = wN[k] / w0[k] - 1;
+      const cls = Math.abs(d) < 0.05 ? "mut" : d > 0 ? "up" : "down";
+      return `<tr><td>${k}<div class="mut" style="font-size:10.5px;line-height:1.35;max-width:300px;white-space:normal">${WEIGHT_DOCS[k] ?? ""}</div></td><td class="mut">${w0[k]}</td><td><b>${wN[k]}</b></td>
+        <td class="${cls}">${d > 0 ? "+" : ""}${(d*100).toFixed(0)}%</td></tr>`;
+    }).join("")}</table></div>`);
+
+  // ── the matches themselves: latest generation's control set, hand by hand ──
+  // Tile id 0-41 → characters, mirroring TILE_NAMES in engine/src/tiles.ts.
+  const TILE_CHARS = (() => {
+    const n = [];
+    for (let i = 1; i <= 9; i++) n.push(i + "萬");
+    for (let i = 1; i <= 9; i++) n.push(i + "索");
+    for (let i = 1; i <= 9; i++) n.push(i + "筒");
+    n.push("東","南","西","北","中","發","白");
+    n.push("梅","蘭","菊","竹","春","夏","秋","冬");
+    return n;
+  })();
+  const tileStr = t => TILE_CHARS[t] ?? ("?" + t);
+  const OUTCOME_LABELS = {
+    winOnDiscard: "win 食糊", selfDraw: "self-draw 自摸", exhaustiveDraw: "exhaustive draw 流局",
+  };
+  if (Array.isArray(D.sampleMatches) && D.sampleMatches.length > 0) {
+    const handHtml = (hand) => {
+      if (!hand) return '<span class="mut">—</span>';
+      const concealed = [...(hand.concealed ?? [])].sort((a, b) => a - b).map(tileStr).join(" ");
+      const melds = (hand.melds ?? []).map(m => "[" + m.tiles.map(tileStr).join("") + "]").join(" ");
+      const win = `<span class="wtile" title="winning tile">${tileStr(hand.winningTile)}</span>`;
+      const awards = (hand.awards ?? [])
+        .map(a => `${PATTERN_LABELS[a.id] ?? a.id} <b>${a.faan}</b>`).join(" · ");
+      return `<span class="tiles">${[concealed, melds, win].filter(Boolean).join(" ")}</span>` +
+        (awards ? `<div class="mut" style="font-size:10.5px">${awards}</div>` : "");
+    };
+    const matchHtml = (m) => {
+      const top = Math.max(...m.chips);
+      const chipsLine = m.chips
+        .map((c, s) => { const t = `S${s} ${c > 0 ? "+" : ""}${c}`; return c === top ? `<b>${t}</b>` : t; })
+        .join(" · ");
+      const rows = (m.handRecords ?? []).map((h, i) =>
+        `<tr><td class="mut">${i}</td><td>${OUTCOME_LABELS[h.outcome] ?? h.outcome}</td>
+         <td>${h.winner === null ? '<span class="mut">—</span>' : "S" + h.winner}</td>
+         <td>${h.faan ?? '<span class="mut">—</span>'}</td>
+         <td style="text-align:left;white-space:normal">${handHtml(h.winningHand)}</td></tr>`).join("");
+      return `<details class="match"><summary>seed ${m.seed} · ${m.hands} hands · ${chipsLine}</summary>
+        <table><tr><th>#</th><th>outcome</th><th>winner</th><th>faan</th><th style="text-align:left">winning hand</th></tr>
+        ${rows}</table></details>`;
+    };
+    cards.push(`<div class="card" style="grid-column:1/-1"><h2>Matches — latest generation control set</h2>
+      <div class="mut" style="font-size:11px;margin-bottom:8px">The incumbent playing itself on the control seeds —
+      ${D.sampleMatches.length} full matches. Click a match to see every hand: who won, the faan, and the winning
+      hand face up (melds bracketed, winning tile highlighted). Seats are S0–S3; the top chip take is bold.</div>
+      <div class="matchlist">${D.sampleMatches.map(matchHtml).join("")}</div></div>`);
+  }
+
+  cards.push(`<div class="card"><h2>Generation log</h2>
+    <div class="mut" style="font-size:11px;margin-bottom:8px"><b>control</b> = the incumbent playing itself on the same seeds — its
+    distance from 0 IS the noise floor. <b>best</b> = top challenger of 6 on seed set A. <b>confirm</b> = that challenger re-tested
+    on a fresh unseen set B (— means it never cleared set A). Promotion needs BOTH to clear the bar, so most generations keep the
+    incumbent — that is the design working, not failing.</div>
+    <table><tr><th>gen</th><th>control</th><th>best</th><th>confirm</th><th>promoted</th><th>refused/h</th><th>draw%</th><th>secs</th></tr>
+    ${[...H].reverse().map(g => {
+      const b = Math.max(...g.candidates.map(c => c.result.chipsPerMatch));
+      const src = g.promoted !== null ? g.candidates.find(c => c.id === g.promoted).result : g.control;
+      const pts = v => v === undefined ? "—" : (v > 0 ? "+" : "") + v;
+      const bp = g.candidates[0].result.pointsPerMatch !== undefined
+        ? Math.max(...g.candidates.map(c => c.result.pointsPerMatch)) : undefined;
+      return `<tr><td>${g.gen}</td><td class="mut">${pts(g.control.pointsPerMatch ?? g.control.chipsPerMatch)}</td>
+        <td>${pts(bp ?? b)}</td>
+        <td class="mut">${g.confirm ? pts(g.confirm.pointsPerMatch) : "—"}</td>
+        <td>${g.promoted === null ? '<span class="mut">—</span>' : '<span class="up">#'+g.promoted+"</span>"}</td>
+        <td>${src.refusedPerHand}</td><td>${(src.drawRate*100).toFixed(0)}</td>
+        <td class="mut">${(g.ms/1000).toFixed(0)}</td></tr>`;
+    }).join("")}</table></div>`);
+
+  document.getElementById("grid").innerHTML = cards.join("");
+}
+</script>
+</body>
+</html>
