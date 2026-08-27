@@ -32,6 +32,26 @@ HK mahjong only — `TERMINOLOGY.md` bans Japanese terms repo-wide.
 - `tools/sim/best-profile.json`, `run1-best-profile.json` — evolved weights
 - `engine/test/golden/` — the scoring fixture corpus + `AUDIT.md`, `CONTESTED.md`
 
+## Added 2026-08-27/28 — the sim/ML stack (review this too)
+
+6. **`engine/src/threat.ts` + the step-zero wiring in `bots.ts`** — opponent
+   reads (suit-phasing, honour timing, intent) feeding route choice via
+   urgency/suit-contest/left-feed/claim-supply terms. Measured weak: 35%
+   detection, 72% false alarms (`tools/sim/threat-audit.mjs`) — signal-design
+   critique is the most valuable review here.
+7. **`tools/sim/evolve.ts` + `evalcore.ts` + `evalworker.ts`** — (1+6)
+   evolution, placement-point fitness, two-stage confirmed promotion, parallel
+   workers (serial path byte-matches), per-generation benchmarks vs a frozen
+   baseline AND vs the run's start profile.
+8. **`tools/sim/overnight.mjs`** — unattended cycle harness: hall-of-fame with
+   SAME-BLOCK admission (an earlier cross-block comparison crowned a variance
+   fluke — check the fix is airtight), per-cycle git pushes, live 4-min data
+   ticks. History of subtle bugs: TDZ crash, cwd-dependence, stale anchored
+   edits. Assume more exist.
+9. **`tools/sim/panel.html`** — the dashboard (hosted via GitHub Pages).
+   All rendering is hand-built JS over data.js/overnight.js; review for
+   metric mislabeling — a wrong label here misleads every decision we make.
+
 ## Known open items (do not "discover" these)
 
 - Threat feature is calibration-unproven (dials default 0 = off).
@@ -39,6 +59,17 @@ HK mahjong only — `TERMINOLOGY.md` bans Japanese terms repo-wide.
   as single kong-replacement, documented contested.
 - Worker package untested against real runtime; client package is contracts only.
 - Golden cases are `provisional: true` pending a strong HK player's sign-off.
+- Current defaults LOSE to `baseline-v0` (~−18 chips/match, mostly self-draw
+  tax = speed). The overnight series is searching; an empty hall of fame is a
+  legitimate outcome meaning the dial-space is exhausted.
+- Threat detection precision is poor (see item 6) — known, quantified.
+
+## The dashboard
+
+Live: https://augwalts.github.io/mjrc-game/tools/sim/panel.html
+Source: `tools/sim/panel.html` · data contracts: `data.js` (per-generation),
+`overnight.js` (series), `baselines.js` (historical reference), `threat-audit.js`.
+Mobile text status: `tools/sim/STATUS.md` (pushed every cycle).
 
 ## Build/test
 
