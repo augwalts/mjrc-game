@@ -68,10 +68,13 @@ const D = window.SIM_DATA;
     const hoursLeft = Math.max(0, (O.deadline - O.now) / 3600e3).toFixed(1);
     const done = O.cycles.filter((c) => c.heldOutChips !== null);
     const best = O.hofScore === null || O.hofScore === -Infinity ? "—" : O.hofScore;
+    let prevBest = null;
     const line = done.map((c) => {
       const v = c.heldOutChips;
       const cls = c.improved ? "up" : "mut";
-      return `<span class="${cls}" title="cycle ${c.cycle} · ${c.opponent} · ${c.matches}m">${v > 0 ? "+" : ""}${v}</span>`;
+      const delta = c.improved && prevBest !== null ? ` (Δ+${(v - prevBest).toFixed(1)})` : "";
+      if (c.improved) prevBest = v;
+      return `<span class="${cls}" title="cycle ${c.cycle} · ${c.opponent} · ${c.matches}m">${v > 0 ? "+" : ""}${v}${delta}</span>`;
     }).join(" → ");
     el.innerHTML = `<div class="card" style="margin-bottom:12px;display:flex;gap:18px;align-items:baseline;flex-wrap:wrap">
       <b>Overnight series</b>
@@ -153,7 +156,18 @@ else if (D.history.length === 0) {
       ${b.winLossRatio !== undefined ? `· <b>W/L ratio ${b.winLossRatio}</b> (how humans compare — &gt;1 = net winner)` : ""} per match.
       ${b.dealInLossPerMatch !== undefined ? `The loss, attributed: <b class="down">${b.dealInLossPerMatch}</b> from deal-ins
       (${b.dealInsPerMatch}/match — YOUR discard fed the win) + <b>${b.taxLossPerMatch}</b> self-draw tax (dodgeable only by winning first).` : ""}
-      Same frozen opponent and walls every generation.</div></div>`);
+      Same frozen opponent and walls every generation.</div>
+      ${(() => {
+        const prevs = H.map((g) => g.benchPrev).filter(Boolean);
+        if (!prevs.length) return "";
+        const pv = prevs[prevs.length - 1];
+        return `<div style="border-top:1px dashed var(--line);margin-top:8px;padding-top:6px">
+          <div class="kv"><span><b>vs past champion</b> (this run's start profile)</span>
+          <b class="${pv.chipsPerMatch > 0 ? "up" : pv.chipsPerMatch < 0 ? "down" : ""}">${pv.chipsPerMatch > 0 ? "+" : ""}${pv.chipsPerMatch}</b></div>
+          ${spark(prevs.map((x) => x.chipsPerMatch), { fmt: (v) => (v > 0 ? "+" : "") + v, color: "var(--gold)" })}
+          <div class="mut" style="font-size:11px">≈0 until a promotion lands, then this line is the run's own gain —
+          it keeps meaning even after the baseline is left far behind.</div></div>`;
+      })()}</div>`);
   }
   // ── what the bots actually DO: latest generation's activity mix ──
   const actSrc = (g) => {

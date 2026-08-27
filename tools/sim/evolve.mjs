@@ -2847,6 +2847,7 @@ function flush(status) {
   writeFileSync(join(OUT, "data.js"), "window.SIM_DATA = " + JSON.stringify(payload) + ";\n");
   writeFileSync(join(OUT, "best-profile.json"), JSON.stringify(incumbent, null, 2) + "\n");
 }
+var START_PROFILE = { ...incumbent };
 flush("starting");
 for (let gen = 0; gen < GENS; gen++) {
   const t0 = Date.now();
@@ -2878,7 +2879,10 @@ for (let gen = 0; gen < GENS; gen++) {
       promoted = best.id;
     }
   }
-  const bench = await runEval(incumbent, BASELINE, BENCH_SEEDS);
+  const [bench, benchPrev] = await Promise.all([
+    runEval(incumbent, BASELINE, BENCH_SEEDS),
+    runEval(incumbent, START_PROFILE, BENCH_SEEDS)
+  ]);
   const evalHands = (r) => r.activity.hands;
   const work = {
     matches: MATCHES * (7 + (confirm ? 2 : 0) + 1),
@@ -2890,6 +2894,7 @@ for (let gen = 0; gen < GENS; gen++) {
     control,
     confirm,
     bench,
+    benchPrev,
     work,
     candidates: candidates.map((c) => ({ id: c.id, result: c.result, profile: c.profile })),
     promoted,
@@ -2898,7 +2903,7 @@ for (let gen = 0; gen < GENS; gen++) {
   });
   flush("running");
   console.log(
-    `gen ${gen}: control ${control.pointsPerMatch}pt \xB7 best ${best.result.pointsPerMatch}pt` + (confirm ? ` \xB7 confirm ${confirm.pointsPerMatch}pt` : "") + ` \xB7 ${promoted === null ? "kept" : `PROMOTED #${promoted}`} \xB7 vs baseline ${bench.chipsPerMatch > 0 ? "+" : ""}${bench.chipsPerMatch} chips (won ${bench.chipsWonPerMatch} / lost ${bench.chipsLostPerMatch}) \xB7 ${work.matches}m/${work.hands}h \xB7 ${((Date.now() - t0) / 1e3).toFixed(0)}s`
+    `gen ${gen}: control ${control.pointsPerMatch}pt \xB7 best ${best.result.pointsPerMatch}pt` + (confirm ? ` \xB7 confirm ${confirm.pointsPerMatch}pt` : "") + ` \xB7 ${promoted === null ? "kept" : `PROMOTED #${promoted}`} \xB7 vs baseline ${bench.chipsPerMatch > 0 ? "+" : ""}${bench.chipsPerMatch} \xB7 vs past champ ${benchPrev.chipsPerMatch > 0 ? "+" : ""}${benchPrev.chipsPerMatch} chips \xB7 ${work.matches}m/${work.hands}h \xB7 ${((Date.now() - t0) / 1e3).toFixed(0)}s`
   );
 }
 flush("done");

@@ -117,6 +117,8 @@ interface GenRecord {
   gen: number; seeds: [number, number]; control: EvalResult;
   /** Incumbent-after-this-gen vs the frozen baseline on fixed held-out seeds. */
   bench: EvalResult;
+  /** Same, vs the profile this run started from — the past champion. */
+  benchPrev: EvalResult;
   /** Exact workload this generation. */
   work: { matches: number; hands: number };
   /** Set-B result for the selected candidate; null when selection failed set A. */
@@ -146,6 +148,9 @@ function flush(status: string): void {
   writeFileSync(join(OUT, "best-profile.json"), JSON.stringify(incumbent, null, 2) + "\n");
 }
 
+/** The profile this run STARTED from — the past champion. benchPrev measures
+ * the run's own marginal progress, where the baseline bench saturates. */
+const START_PROFILE: BotProfile = { ...incumbent };
 flush("starting");
 for (let gen = 0; gen < GENS; gen++) {
   const t0 = Date.now();
@@ -182,7 +187,10 @@ for (let gen = 0; gen < GENS; gen++) {
     }
   }
 
-  const bench = await runEval(incumbent, BASELINE, BENCH_SEEDS);
+  const [bench, benchPrev] = await Promise.all([
+    runEval(incumbent, BASELINE, BENCH_SEEDS),
+    runEval(incumbent, START_PROFILE, BENCH_SEEDS),
+  ]);
   const evalHands = (r: EvalResult) => r.activity.hands;
   const work = {
     matches: MATCHES * (7 + (confirm ? 2 : 0) + 1),
@@ -190,7 +198,7 @@ for (let gen = 0; gen < GENS; gen++) {
            (confirm ? evalHands(confirm) * 2 : 0) + evalHands(bench),
   };
   history.push({
-    gen, seeds: [seeds[0]!, seeds[seeds.length - 1]!], control, confirm, bench, work,
+    gen, seeds: [seeds[0]!, seeds[seeds.length - 1]!], control, confirm, bench, benchPrev, work,
     candidates: candidates.map((c) => ({ id: c.id, result: c.result, profile: c.profile })),
     promoted, incumbentAfter: incumbent, ms: Date.now() - t0,
   });
@@ -199,7 +207,7 @@ for (let gen = 0; gen < GENS; gen++) {
     `gen ${gen}: control ${control.pointsPerMatch}pt · best ${best.result.pointsPerMatch}pt` +
     (confirm ? ` · confirm ${confirm.pointsPerMatch}pt` : "") +
     ` · ${promoted === null ? "kept" : `PROMOTED #${promoted}`}` +
-    ` · vs baseline ${bench.chipsPerMatch > 0 ? "+" : ""}${bench.chipsPerMatch} chips (won ${bench.chipsWonPerMatch} / lost ${bench.chipsLostPerMatch})` +
+    ` · vs baseline ${bench.chipsPerMatch > 0 ? "+" : ""}${bench.chipsPerMatch} · vs past champ ${benchPrev.chipsPerMatch > 0 ? "+" : ""}${benchPrev.chipsPerMatch} chips` +
     ` · ${work.matches}m/${work.hands}h · ${((Date.now() - t0) / 1000).toFixed(0)}s`,
   );
 }
