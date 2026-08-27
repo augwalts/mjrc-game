@@ -26,7 +26,13 @@ export interface EvalResult {
   /** Chips gained on wins / bled on losses per match — the owner's objective
    * split: maximize the first, minimize the second. won + lost = chips. */
   chipsWonPerMatch: number;
-  chipsLostPerMatch: number; drawRate: number; refusedPerHand: number;
+  chipsLostPerMatch: number;
+  /** The loss, attributed: deal-ins (your discard fed the win) vs self-draw
+   * tax. dealIns = count per match; the gap between lost and these two is
+   * liability/edge cases. */
+  dealInLossPerMatch: number;
+  dealInsPerMatch: number;
+  taxLossPerMatch: number; drawRate: number; refusedPerHand: number;
   meanFaan: number; claimsPerHand: number;
   /** Per-hand activity mix and the winning-pattern census for this eval. */
   activity: { chows: number; pungs: number; kongs: number;
@@ -62,7 +68,8 @@ export function evaluate(
   candidate: BotProfile, incumbent: BotProfile, seeds: number[],
   sample?: SampleMatch[],
 ): EvalResult {
-  let chips = 0, won = 0, lost = 0, points = 0, hands = 0, draws = 0, refused = 0, claims = 0;
+  let chips = 0, won = 0, lost = 0, dealInLoss = 0, dealIns = 0, taxLoss = 0,
+      points = 0, hands = 0, draws = 0, refused = 0, claims = 0;
   let chows = 0, pungs = 0, kongs = 0, wod = 0, sd = 0;
   const patterns: Record<string, number> = {};
   const faans: number[] = [];
@@ -84,6 +91,9 @@ export function evaluate(
     chips += r.chips[mySeat]!;
     won += r.seatWon[mySeat]!;
     lost += r.seatLost[mySeat]!;
+    dealInLoss += r.seatDealInLoss[mySeat]!;
+    dealIns += r.seatDealInCount[mySeat]!;
+    taxLoss += r.seatTaxLoss[mySeat]!;
     points += placementPoints(r.chips, mySeat);
     hands += r.hands; draws += r.draws; refused += r.refusedWins; claims += r.claims;
     chows += r.chows; pungs += r.pungs; kongs += r.kongs;
@@ -98,6 +108,9 @@ export function evaluate(
     chipsPerMatch: +(chips / seeds.length).toFixed(1),
     chipsWonPerMatch: +(won / seeds.length).toFixed(1),
     chipsLostPerMatch: +(lost / seeds.length).toFixed(1),
+    dealInLossPerMatch: +(dealInLoss / seeds.length).toFixed(1),
+    dealInsPerMatch: +(dealIns / seeds.length).toFixed(2),
+    taxLossPerMatch: +(taxLoss / seeds.length).toFixed(1),
     drawRate: +(draws / hands).toFixed(3),
     refusedPerHand: +(refused / hands).toFixed(2),
     meanFaan: +(faans.reduce((a, b) => a + b, 0) / Math.max(1, faans.length)).toFixed(2),

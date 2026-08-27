@@ -16,5 +16,6 @@
   "routeDecay": 0.45,
   "leftFeedWeight": 0.8,
   "urgencyWeight": 0.5,
-  "suitContestWeight": 0.8
+  "suitContestWeight": 0.8,
+  "claimSupplyWeight": 0.6
 }

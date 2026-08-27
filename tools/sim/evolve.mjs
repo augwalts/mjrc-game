@@ -2606,7 +2606,10 @@ function playMatch(config, decide, opts = {}) {
     selfDraws: 0,
     patterns: {},
     seatWon: [0, 0, 0, 0],
-    seatLost: [0, 0, 0, 0]
+    seatLost: [0, 0, 0, 0],
+    seatDealInLoss: [0, 0, 0, 0],
+    seatDealInCount: [0, 0, 0, 0],
+    seatTaxLoss: [0, 0, 0, 0]
   };
   if (opts.recordHands) r.handRecords = [];
   let pendingWin = null;
@@ -2626,8 +2629,20 @@ function playMatch(config, decide, opts = {}) {
         }
         if (p.chipDeltas) for (const st of SEATS) {
           const d = p.chipDeltas[st] ?? 0;
-          if (d > 0) r.seatWon[st] += d;
-          else r.seatLost[st] += d;
+          if (d > 0) {
+            r.seatWon[st] += d;
+            continue;
+          }
+          r.seatLost[st] += d;
+          if (d < 0) {
+            const pay = p;
+            if (pay.outcome === "winOnDiscard" && pay.loser === st) {
+              r.seatDealInLoss[st] += d;
+              r.seatDealInCount[st] += 1;
+            } else if (pay.outcome === "selfDraw") {
+              r.seatTaxLoss[st] += d;
+            }
+          }
         }
         if (r.handRecords) {
           const rec = {
@@ -2705,7 +2720,7 @@ function placementPoints(chips, seat) {
   return sum / equal;
 }
 function evaluate(candidate, incumbent2, seeds, sample) {
-  let chips = 0, won = 0, lost = 0, points = 0, hands = 0, draws = 0, refused = 0, claims = 0;
+  let chips = 0, won = 0, lost = 0, dealInLoss = 0, dealIns = 0, taxLoss = 0, points = 0, hands = 0, draws = 0, refused = 0, claims = 0;
   let chows = 0, pungs = 0, kongs = 0, wod = 0, sd = 0;
   const patterns = {};
   const faans = [];
@@ -2725,6 +2740,9 @@ function evaluate(candidate, incumbent2, seeds, sample) {
     chips += r.chips[mySeat];
     won += r.seatWon[mySeat];
     lost += r.seatLost[mySeat];
+    dealInLoss += r.seatDealInLoss[mySeat];
+    dealIns += r.seatDealInCount[mySeat];
+    taxLoss += r.seatTaxLoss[mySeat];
     points += placementPoints(r.chips, mySeat);
     hands += r.hands;
     draws += r.draws;
@@ -2745,6 +2763,9 @@ function evaluate(candidate, incumbent2, seeds, sample) {
     chipsPerMatch: +(chips / seeds.length).toFixed(1),
     chipsWonPerMatch: +(won / seeds.length).toFixed(1),
     chipsLostPerMatch: +(lost / seeds.length).toFixed(1),
+    dealInLossPerMatch: +(dealInLoss / seeds.length).toFixed(1),
+    dealInsPerMatch: +(dealIns / seeds.length).toFixed(2),
+    taxLossPerMatch: +(taxLoss / seeds.length).toFixed(1),
     drawRate: +(draws / hands).toFixed(3),
     refusedPerHand: +(refused / hands).toFixed(2),
     meanFaan: +(faans.reduce((a, b) => a + b, 0) / Math.max(1, faans.length)).toFixed(2),

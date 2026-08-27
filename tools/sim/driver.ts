@@ -71,6 +71,12 @@ export interface MatchResult {
    * halves of "maximize chip wins, minimize chip losses". Sum = chips. */
   seatWon: number[];
   seatLost: number[];
+  /** Loss attribution: chips paid because THIS seat discarded the winner. */
+  seatDealInLoss: number[];
+  seatDealInCount: number[];
+  /** Chips paid on opponents' self-draws — the tax you cannot dodge by
+   * discard discipline alone, only by winning first. */
+  seatTaxLoss: number[];
   /** Per-hand detail, only when playMatch is called with recordHands. */
   handRecords?: HandRecord[];
 }
@@ -83,7 +89,8 @@ export function playMatch(
   let { state, events } = startMatch(config);
   const r: MatchResult = { chips: [0, 0, 0, 0], hands: 0, draws: 0, wins: 0, refusedWins: 0, claims: 0, faans: [],
     chows: 0, pungs: 0, kongs: 0, winsOnDiscard: 0, selfDraws: 0, patterns: {},
-    seatWon: [0, 0, 0, 0], seatLost: [0, 0, 0, 0] };
+    seatWon: [0, 0, 0, 0], seatLost: [0, 0, 0, 0],
+    seatDealInLoss: [0, 0, 0, 0], seatDealInCount: [0, 0, 0, 0], seatTaxLoss: [0, 0, 0, 0] };
   if (opts.recordHands) r.handRecords = [];
   /** Win-event detail held until the handEnd that settles it (same batch). */
   let pendingWin: WinningHandRecord | null = null;
@@ -101,7 +108,17 @@ export function playMatch(
         else { r.wins++; if (typeof p.faan === "number") r.faans.push(p.faan); }
         if (p.chipDeltas) for (const st of SEATS) {
           const d = p.chipDeltas[st] ?? 0;
-          if (d > 0) r.seatWon[st]! += d; else r.seatLost[st]! += d;
+          if (d > 0) { r.seatWon[st]! += d; continue; }
+          r.seatLost[st]! += d;
+          if (d < 0) {
+            const pay = p as { outcome?: string; loser?: number | null };
+            if (pay.outcome === "winOnDiscard" && pay.loser === st) {
+              r.seatDealInLoss[st]! += d;
+              r.seatDealInCount[st]! += 1;
+            } else if (pay.outcome === "selfDraw") {
+              r.seatTaxLoss[st]! += d;
+            }
+          }
         }
         if (r.handRecords) {
           const rec: HandRecord = {

@@ -120,8 +120,10 @@ else if (D.history.length === 0) {
     put("kpis", `<div class="card"><h2>vs frozen baseline — chips/match</h2>
       <div class="big ${b.chipsPerMatch > 0 ? "up" : b.chipsPerMatch < 0 ? "down" : ""}">${b.chipsPerMatch > 0 ? "+" : ""}${b.chipsPerMatch}</div>
       ${spark(line, { fmt: (v) => (v > 0 ? "+" : "") + v, color: b.chipsPerMatch >= 0 ? "var(--ok)" : "var(--warn)" })}
-      <div class="mut" style="font-size:11px">won <b class="up">${b.chipsWonPerMatch}</b> · lost <b class="down">${b.chipsLostPerMatch}</b> per match —
-      maximize the first, minimize the second. Same frozen opponent and walls every generation: this line only moves for real reasons.</div></div>`);
+      <div class="mut" style="font-size:11px">won <b class="up">${b.chipsWonPerMatch}</b> · lost <b class="down">${b.chipsLostPerMatch}</b> per match.
+      ${b.dealInLossPerMatch !== undefined ? `The loss, attributed: <b class="down">${b.dealInLossPerMatch}</b> from deal-ins
+      (${b.dealInsPerMatch}/match — YOUR discard fed the win) + <b>${b.taxLossPerMatch}</b> self-draw tax (dodgeable only by winning first).` : ""}
+      Same frozen opponent and walls every generation.</div></div>`);
   }
   // ── what the bots actually DO: latest generation's activity mix ──
   const actSrc = (g) => {
