@@ -21,11 +21,67 @@ import {
   startMatch, startNextHand, applyAction, legalActions,
   type MatchState, type MatchConfig,
 } from "../../engine/src/reducer.js";
-import { decideAction, DEFAULT_PROFILE, type BotConfig } from "../../engine/src/bots.js";
+import {
+  assessRoutes, decideAction, shapeOf, DEFAULT_PROFILE,
+  type BotConfig, type RouteAssessment,
+} from "../../engine/src/bots.js";
+import { tableThreat, type SeatThreat } from "../../engine/src/threat.js";
 import { HKOS_STANDARD } from "../../rulesets/src/presets.js";
 import { isPattern, pattern } from "../../rulesets/src/patterns.js";
 import type { GameEvent } from "../../protocol/src/events.js";
 import { SEATS, viewFor } from "./driver.js";
+
+const THINK = process.argv.includes("--think");
+
+const SUIT_GLYPH = ["萬", "索", "筒"];
+
+function routeName(r: RouteAssessment["route"]): string {
+  if (r.orphans) return "13-orphans 十三么";
+  if (r.honoursOnly) return "honours 字一色";
+  if (r.suit !== null) {
+    const g = r.suit === "chars" ? "萬" : r.suit === "bamboo" ? "索" : "筒";
+    return (r.pungs ? "pung-flush " : "flush ") + g;
+  }
+  return r.pungs ? "all-pungs 對對糊" : "balanced/chows";
+}
+
+function threatLine(t: SeatThreat, name: string): string | null {
+  const signals: string[] = [];
+  if (t.exposure > 0) signals.push(`${Math.round(t.exposure * 4)}/4 melded`);
+  if (t.intentSuit !== null) signals.push(`collecting ${SUIT_GLYPH[t.intentSuit]} (${t.intentStrength.toFixed(2)})`);
+  if (t.read.suitPhasing > 0.55) signals.push("suit-phased cuts → BIG-hand read");
+  if (t.read.earlySpread) signals.push("all suits cut early → all-pungs read");
+  if (t.read.lateHonours > 0.5) signals.push("honours late → near-ready read");
+  if (t.read.earlyValueHonours > 0) signals.push("value honours early → suspicious");
+  if (signals.length === 0 && t.threat < 0.15) return null;
+  return `     ${name.padEnd(9)} threat ${t.threat.toFixed(2)} · est ${t.expectedFaan} faan (${t.chipsRel.toFixed(0)}× floor payout) · ${signals.join(" · ") || "quiet"}`;
+}
+
+/** What the acting bot is evaluating, mathematically, right now. */
+function thinkBlock(v: Parameters<typeof shapeOf>[0], seat: number, discardCount: number): string {
+  const names = ["East", "South", "West", "North"];
+  const threats = tableThreat(v, HKOS_STANDARD);
+  const lines: string[] = [`  ┈┈ ${names[seat]} thinking (discard ${discardCount}) ┈┈`];
+  const reads = threats.seats
+    .map((t) => threatLine(t, names[t.seat] ?? `seat${t.seat}`))
+    .filter((l): l is string => l !== null);
+  lines.push(reads.length ? "     table read:" : "     table read: all quiet — no signals yet");
+  lines.push(...reads);
+  if (threats.max > 0.05) lines.push(`     race pressure ${threats.max.toFixed(2)} → distant plans discounted harder`);
+  const routes = assessRoutes(shapeOf(v), HKOS_STANDARD, DEFAULT_PROFILE, threats)
+    .filter((r) => r.feasible && Number.isFinite(r.score))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3);
+  lines.push("     plans considered:");
+  for (const [i, r] of routes.entries()) {
+    lines.push(
+      `       ${i === 0 ? "→" : " "} ${routeName(r.route).padEnd(16)} score ${r.score.toFixed(2).padStart(6)}` +
+      ` · pays ${r.faan} faan · ${r.distance} away · wastes ${r.surplus} tiles` +
+      (r.attainable < 3 ? " · CANNOT reach the 3-faan floor" : ""),
+    );
+  }
+  return lines.join("\n");
+}
 
 const LEGEND = [
   "══ tile legend ══════════════════════════════════════════════════════════",
@@ -75,6 +131,8 @@ const scoreText = (s: ScoreResult): string => {
  */
 class Transcriber {
   private lines: string[] = [];
+  /** Raw annotation lines — the --think readouts ride the same transcript. */
+  annotate(text: string): void { this.lines.push(text); }
   /** Per-hand display names by seat index — East/South/West/North by seat wind. */
   private names: string[] = ["?", "?", "?", "?"];
   private pending: {
@@ -401,18 +459,28 @@ function playAndTranscribe(seed: number): string {
   let { state, events } = startMatch(config);
   const t = new Transcriber(matchId, seed);
 
+  let discardCount = 0;
   for (let guard = 0; guard < 200_000; guard++) {
-    for (const e of events) t.push(e, state);
+    for (const e of events) {
+      if (e.type === "discard") discardCount++;
+      t.push(e, state);
+    }
     if (state.phase === "matchEnd") return t.text();
     if (state.phase === "handEnd") {
       ({ state, events } = startNextHand(state));
+      discardCount = 0;
       continue;
     }
     let acted = false;
     for (const seat of SEATS) {
       const options = legalActions(state, seat);
       if (options.length === 0) continue;
-      const action = decideAction(viewFor(state, seat), options, configs[seat]!);
+      const v = viewFor(state, seat);
+      if (THINK && state.phase === "awaitDiscard" && state.turn === seat &&
+          discardCount > 0 && discardCount % 8 === 0) {
+        t.annotate(thinkBlock(v, seat, discardCount));
+      }
+      const action = decideAction(v, options, configs[seat]!);
       ({ state, events } = applyAction(state, action));
       acted = true;
       break;
