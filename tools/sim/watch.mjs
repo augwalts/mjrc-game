@@ -1976,7 +1976,8 @@ var DEFAULT_PROFILE = {
   routeDecay: 0.45,
   leftFeedWeight: 0.8,
   urgencyWeight: 0.5,
-  suitContestWeight: 0.8
+  suitContestWeight: 0.8,
+  claimSupplyWeight: 0.6
 };
 var profileOf = (cfg) => cfg.profile ?? DEFAULT_PROFILE;
 function tableRead(v, cfg) {
@@ -2123,6 +2124,16 @@ function honoursHeld(shape, c) {
   return n;
 }
 var isConcealedHand = (melds) => melds.every((m) => m.kind === "kong" && m.concealed);
+function convertiblePairs(c) {
+  let n = 0;
+  for (let i = 0; i < SCORING_KINDS; i++) if (c[i] === 2) n++;
+  return n;
+}
+function claimSupplyCredit(route, pairs, profile) {
+  if (route.orphans) return 0;
+  const rate = route.pungs || route.honoursOnly ? 1 : route.suit !== null ? 0.5 : 0.25;
+  return profile.claimSupplyWeight * rate * pairs;
+}
 function routeValue(faan, distance, rules, profile, urgency) {
   const cv = profile.chipValuation;
   if (cv <= 0) return faan;
@@ -2183,7 +2194,12 @@ function assessRoutes(shape, rules, profile = DEFAULT_PROFILE, table = null) {
     const surplus = Math.max(0, offRoute - Math.max(0, distance));
     const faan = routeFaan(route, shape, rules, c);
     const attainable = faan + faanFor(rules, "selfDraw");
-    let score3 = routeValue(faan, distance, rules, profile, urgency) * profile.faanWeight - distance * profile.routeDistanceWeight * (route.orphans ? ORPHANS_DISTANCE_TAX : 1) - surplus * profile.offRouteWeight + // 上家 as supply line (owner, 2026-08-27): a suit route lives or dies on
+    const credit = Math.min(
+      Math.max(0, distance) / 2,
+      claimSupplyCredit(route, convertiblePairs(routeCounts(route, c)), profile)
+    );
+    const effDistance = Math.max(0, distance) - credit;
+    let score3 = routeValue(faan, effDistance, rules, profile, urgency) * profile.faanWeight - effDistance * profile.routeDistanceWeight * (route.orphans ? ORPHANS_DISTANCE_TAX : 1) - surplus * profile.offRouteWeight + // 上家 as supply line (owner, 2026-08-27): a suit route lives or dies on
     // whether the seat before you is feeding that suit or hoarding it.
     (route.suit !== null ? leftFeed(shape, route.suit) * profile.leftFeedWeight : 0) - // SUIT SUPPLY: a route into a suit the table is eating — a collector
     // declared on it, or a third of its copies already visible — is priced

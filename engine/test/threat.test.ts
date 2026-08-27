@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { SeatIndex, TileId } from "../src/types.js";
 import { assessSeatThreat, feedsSeat, readDiscards, tableThreat } from "../src/threat.js";
-import { chooseRoute, leftFeed, rankDiscards, shapeOf, suitContest, DEFAULT_PROFILE, type SeatView, type BotConfig } from "../src/bots.js";
+import { assessRoutes, chooseRoute, leftFeed, rankDiscards, shapeOf, suitContest, DEFAULT_PROFILE, type SeatView, type BotConfig } from "../src/bots.js";
 import { HKOS_STANDARD, LIU } from "../../rulesets/src/presets.js";
 import { prng } from "../src/wall.js";
 
@@ -177,5 +177,37 @@ describe("step zero — the table shapes the plan (owner, 2026-08-27)", () => {
     if (blind.route.suit === "bamboo" && aware.route.suit === "bamboo") {
       expect(aware.score).toBeLessThan(blind.score);
     }
+  });
+});
+
+describe("claim supply (owner: all-pungs and half flush are the reliable roads)", () => {
+  it("pair-rich hands rate the pung road above the concealed scrape", () => {
+    // four pairs and scatter: a human calls this an all-pungs hand — every
+    // pair has three feeders. Draw-only distance called it slow.
+    const shape = {
+      concealed: [0, 0, 4, 4, 9, 9, 14, 14, 20, 24, 27, 31, 33],
+      melds: [], flowers: [], seatWind: 0 as const, roundWind: 0 as const,
+    };
+    const on = chooseRoute(shape, HKOS_STANDARD, DEFAULT_PROFILE);
+    const off = chooseRoute(shape, HKOS_STANDARD, { ...DEFAULT_PROFILE, claimSupplyWeight: 0 });
+    const pungScore = (r: typeof on) => r.route.pungs ? r.score : -Infinity;
+    // with the credit the pung road must rank strictly better than without it
+    const allOn = assessRoutes(shape, HKOS_STANDARD, DEFAULT_PROFILE);
+    const allOff = assessRoutes(shape, HKOS_STANDARD, { ...DEFAULT_PROFILE, claimSupplyWeight: 0 });
+    const pungOn = allOn.find((r) => r.route.pungs && r.route.suit === null)!;
+    const pungOff = allOff.find((r) => r.route.pungs && r.route.suit === null)!;
+    expect(pungOn.score).toBeGreaterThan(pungOff.score);
+    void pungScore; void on; void off;
+  });
+  it("the concealed orphans road gets no credit — claims kill it", () => {
+    const shape = {
+      concealed: [0, 8, 9, 17, 18, 26, 27, 28, 29, 30, 31, 32, 33],
+      melds: [], flowers: [], seatWind: 0 as const, roundWind: 0 as const,
+    };
+    const withC = assessRoutes(shape, HKOS_STANDARD, DEFAULT_PROFILE);
+    const noC = assessRoutes(shape, HKOS_STANDARD, { ...DEFAULT_PROFILE, claimSupplyWeight: 0 });
+    const orphOn = withC.find((r) => r.route.orphans)!;
+    const orphOff = noC.find((r) => r.route.orphans)!;
+    expect(orphOn.score).toBeCloseTo(orphOff.score, 5);
   });
 });

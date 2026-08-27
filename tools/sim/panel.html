@@ -8,10 +8,15 @@
   --ok:#5dbb7a;--warn:#e08a6a;--acc:#7fb3ff}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);
-  font:13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:20px}
+  font:13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:20px;max-width:1440px;margin:0 auto}
 h1{font-size:16px;margin:0 0 2px}
 .sub{color:var(--dim);font-size:11.5px;margin-bottom:16px}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:12px}
+.kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:12px}
+.kpis .card h2{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;align-items:start;margin-bottom:12px}
+.col{display:flex;flex-direction:column;gap:12px;min-width:0}
+.scrollcard{max-height:420px;overflow-y:auto}
+@media (max-width:1000px){.kpis{grid-template-columns:repeat(2,1fr)}.cols{grid-template-columns:1fr}}
 .card{background:var(--card);border:1px solid var(--line);border-radius:9px;padding:13px}
 .card h2{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--dim);
   margin:0 0 9px;font-weight:600}
@@ -39,7 +44,12 @@ details.match summary:hover{background:#2c2c35}
 <body>
 <h1>Self-play weight evolution <span class="pill" id="status"></span></h1>
 <div class="sub" id="sub">waiting for data.js…</div>
-<div class="grid" id="grid"></div>
+<div class="kpis" id="kpis"></div>
+<div class="cols">
+  <div class="col" id="colL"></div>
+  <div class="col" id="colR"></div>
+</div>
+<div id="wide"></div>
 <script src="data.js"></script>
 <script>
 const D = window.SIM_DATA;
@@ -101,6 +111,7 @@ else if (D.history.length === 0) {
     allFlowers:"all 4 flowers 齊四花", allSeasons:"all 4 seasons 齊四季",
   };
   const cards = [];
+  const put = (slot, html) => cards.push({ slot, html });
   // ── what the bots actually DO: latest generation's activity mix ──
   const actSrc = (g) => {
     const c = g.promoted !== null ? g.candidates.find(x => x.id === g.promoted) : null;
@@ -111,7 +122,7 @@ else if (D.history.length === 0) {
     const per = (n) => (n / act.hands).toFixed(2);
     const winsTotal = act.winsOnDiscard + act.selfDraws;
     const pats = Object.entries(act.patterns).sort((a, b) => b[1] - a[1]).slice(0, 12);
-    cards.push(`<div class="card"><h2>What the bots are actually doing — latest generation</h2>
+    put('colR', `<div class="card"><h2>What the bots are actually doing — latest generation</h2>
       <div class="mut" style="font-size:11px;margin-bottom:5px">All rates are <b>average count per hand played</b> —
       "0.53 chows" means a typical hand contains about half a chow claim across the whole table (four seats).</div>
       <table>
@@ -147,32 +158,32 @@ else if (D.history.length === 0) {
       with the first run after 2026-08-27.</div></div>`);
   }
   if (hasPts) {
-    cards.push(`<div class="card"><h2>Best challenger — placement points/match vs incumbent</h2>
+    put('kpis', `<div class="card"><h2>Best challenger — points/match</h2>
       <div class="big">${bestPts[bestPts.length-1] > 0 ? "+" : ""}${bestPts[bestPts.length-1]}</div>
       ${spark(bestPts, {fmt: v => (v>0?"+":"")+v})}
       <div class="mut" style="font-size:11px">1st +3 · 2nd +1 · 3rd −1 · 4th −3, averaged. The selection fitness since run 3 —
       bounded, so the promote bar (0.5) sits above the noise floor (±0.43 at 48 matches). Promotion additionally
       requires CONFIRMING on a fresh unseen seed set. Expect few promotions; that is the design working.</div></div>`);
   }
-  cards.push(`<div class="card"><h2>Best challenger — chips per match vs incumbent</h2>
+  put('colR', `<div class="card"><h2>Best challenger — chips/match (recorded only)</h2>
     <div class="big">${bestChips[bestChips.length-1] > 0 ? "+" : ""}${bestChips[bestChips.length-1]}</div>
     ${spark(bestChips, {fmt: v => (v>0?"+":"")+v})}
     <div class="mut" style="font-size:11px">Recorded, no longer the selection metric: one limit hand swings ±100 chips and drowns the signal.</div></div>`);
 
-  cards.push(`<div class="card"><h2>Refused wins per hand — the fun pathology</h2>
+  put('kpis', `<div class="card"><h2>Refused wins / hand</h2>
     <div class="big">${texture("refusedPerHand").slice(-1)[0]}</div>
     ${spark(texture("refusedPerHand"), {lo: 0, color: "var(--warn)", fmt: v => v})}
     <div class="mut" style="font-size:11px">Times per hand a bot completed a winning shape it legally could not take
  (under the 3-faan floor) — the single most rage-inducing texture flaw for a human. Steered mainly by the
  belowMinimumPenalty dial below; both runs so far raised that dial on their own.</div></div>`);
 
-  cards.push(`<div class="card"><h2>Draw rate 流局</h2>
+  put('kpis', `<div class="card"><h2>Draw rate 流局</h2>
     <div class="big">${(texture("drawRate").slice(-1)[0]*100).toFixed(0)}%</div>
     ${spark(texture("drawRate"), {lo: 0, hi: 0.7, fmt: v => (v*100).toFixed(0)+"%"})}
     <div class="mut" style="font-size:11px">流局 — the wall ran out and NOBODY won (not self-draw — 自摸 is a win).
  Prototype baseline was 69%; real tables feel like 10–20%. Most draws here are authentic: someone was ready, the tile never came.</div></div>`);
 
-  cards.push(`<div class="card"><h2>Mean winning faan</h2>
+  put('kpis', `<div class="card"><h2>Mean winning faan</h2>
     <div class="big">${texture("meanFaan").slice(-1)[0]}</div>
     ${spark(texture("meanFaan"), {fmt: v => v})}
     <div class="mut" style="font-size:11px">Average faan of winning hands. 3.0 = everyone scrapes the minimum; rising = hands
@@ -196,7 +207,7 @@ else if (D.history.length === 0) {
   };
   const K = D.keys;
   const w0 = D.defaults, wN = last.incumbentAfter;
-  cards.push(`<div class="card"><h2>Incumbent weights — hand-guessed → evolved</h2>
+  put('colR', `<div class="card scrollcard"><h2>Incumbent weights — hand-guessed → evolved</h2>
     <div class="mut" style="font-size:11px;margin-bottom:8px">The bot's entire personality is these 11 dials — coefficients of its three
     decision formulas (route choice · discard choice · claim choice). Evolution never invents behaviour, it only re-balances them.
     "default" is the hand-guessed starting value; green/red Δ = evolution raised/lowered it.</div>
@@ -248,14 +259,69 @@ else if (D.history.length === 0) {
         <table><tr><th>#</th><th>outcome</th><th>winner</th><th>faan</th><th style="text-align:left">winning hand</th></tr>
         ${rows}</table></details>`;
     };
-    cards.push(`<div class="card" style="grid-column:1/-1"><h2>Matches — latest generation control set</h2>
+    put('wide', `<div class="card"><h2>Matches — latest generation control set</h2>
       <div class="mut" style="font-size:11px;margin-bottom:8px">The incumbent playing itself on the control seeds —
       ${D.sampleMatches.length} full matches. Click a match to see every hand: who won, the faan, and the winning
       hand face up (melds bracketed, winning tile highlighted). Seats are S0–S3; the top chip take is bold.</div>
       <div class="matchlist">${D.sampleMatches.map(matchHtml).join("")}</div></div>`);
   }
 
-  cards.push(`<div class="card"><h2>Generation log</h2>
+  // ── narrative: what actually changed, generation by generation ──
+  {
+    const BAR = 0.5;
+    const pts = (v) => (v > 0 ? "+" : "") + (v ?? 0);
+    const entries = H.map((g, i) => {
+      const best = [...g.candidates].sort((a, b) => (b.result.pointsPerMatch ?? 0) - (a.result.pointsPerMatch ?? 0))[0];
+      const bestPts = best?.result.pointsPerMatch ?? 0;
+      const ctrl = g.control.pointsPerMatch ?? 0;
+      if (g.promoted === null) {
+        let why;
+        if (g.confirm) why = `challenger #${best.id} won its seed set (${pts(bestPts)}pt vs control ${pts(ctrl)}) but FAILED the fresh-seed confirm (${pts(g.confirm.pointsPerMatch)}pt &lt; bar ${BAR}) — rejected as luck`;
+        else if (bestPts > ctrl) why = `best challenger ${pts(bestPts)}pt vs control ${pts(ctrl)} — under the ${BAR} bar, not worth the risk`;
+        else why = `no challenger beat the incumbent (best ${pts(bestPts)}pt vs control ${pts(ctrl)})`;
+        return `<div style="padding:6px 0;border-bottom:1px solid #2e2e36">
+          <b>gen ${g.gen}</b> · <span class="mut">kept the incumbent</span>
+          <div class="mut" style="font-size:11px">${why}</div></div>`;
+      }
+      // promoted: weight diffs vs previous incumbent + texture old→new on identical walls
+      const prev = i > 0 ? H[i - 1].incumbentAfter : D.defaults;
+      const now = g.incumbentAfter;
+      const moves = D.keys
+        .map((k) => ({ k, from: prev[k], to: now[k], d: prev[k] ? now[k] / prev[k] - 1 : 0 }))
+        .filter((m) => Math.abs(m.d) > 0.05)
+        .sort((a, b) => Math.abs(b.d) - Math.abs(a.d))
+        .slice(0, 5)
+        .map((m) => `${m.k} ${m.from}→<b>${m.to}</b> (${m.d > 0 ? "+" : ""}${(m.d * 100).toFixed(0)}%)`)
+        .join(" · ");
+      const nw = g.candidates.find((c) => c.id === g.promoted).result;
+      const tex = [];
+      const dd = (a, b, label, fmt) => { if (a !== undefined && b !== undefined && a !== b) tex.push(`${label} ${fmt(a)}→${fmt(b)}`); };
+      dd(g.control.refusedPerHand, nw.refusedPerHand, "refused/hand", (v) => v);
+      dd(g.control.drawRate, nw.drawRate, "draws", (v) => (v * 100).toFixed(0) + "%");
+      dd(g.control.claimsPerHand, nw.claimsPerHand, "claims/hand", (v) => v);
+      dd(g.control.meanFaan, nw.meanFaan, "faan", (v) => v);
+      return `<div style="padding:6px 0;border-bottom:1px solid #2e2e36">
+        <b>gen ${g.gen}</b> · <span class="up">PROMOTED #${g.promoted}</span>
+        <span class="mut">(${pts(bestPts)}pt, confirmed ${pts(g.confirm?.pointsPerMatch)})</span>
+        <div style="font-size:11px;margin-top:2px">${moves || "only sub-5% nudges"}</div>
+        ${tex.length ? `<div class="mut" style="font-size:11px">same-wall texture, old→new incumbent: ${tex.join(" · ")}</div>` : ""}</div>`;
+    });
+    // overall drift since the run began
+    const start = D.defaults, end = last.incumbentAfter;
+    const drift = D.keys
+      .map((k) => ({ k, d: start[k] ? end[k] / start[k] - 1 : 0 }))
+      .filter((m) => Math.abs(m.d) > 0.10)
+      .sort((a, b) => Math.abs(b.d) - Math.abs(a.d))
+      .map((m) => `${m.k} ${m.d > 0 ? "+" : ""}${(m.d * 100).toFixed(0)}%`)
+      .join(" · ");
+    put('colL', `<div class="card scrollcard"><h2>What changed, generation by generation</h2>
+      <div class="mut" style="font-size:11px;margin-bottom:6px">A promotion is a weight-set replacing the champion after winning twice
+      (its seed set AND a fresh confirm). "Kept" generations are the noise gate working, not stagnation.
+      ${drift ? `<br><b>Net drift this run vs the hand-tuned start:</b> ${drift}` : "<br><b>No net weight drift yet this run.</b>"}</div>
+      ${[...entries].reverse().join("")}</div>`);
+  }
+
+  put('colL', `<div class="card scrollcard"><h2>Generation log</h2>
     <div class="mut" style="font-size:11px;margin-bottom:8px"><b>control</b> = the incumbent playing itself on the same seeds — its
     distance from 0 IS the noise floor. <b>best</b> = top challenger of 6 on seed set A. <b>confirm</b> = that challenger re-tested
     on a fresh unseen set B (— means it never cleared set A). Promotion needs BOTH to clear the bar, so most generations keep the
@@ -275,7 +341,10 @@ else if (D.history.length === 0) {
         <td class="mut">${(g.ms/1000).toFixed(0)}</td></tr>`;
     }).join("")}</table></div>`);
 
-  document.getElementById("grid").innerHTML = cards.join("");
+  for (const slot of ["kpis", "colL", "colR", "wide"]) {
+    const el = document.getElementById(slot === "kpis" ? "kpis" : slot === "wide" ? "wide" : slot);
+    el.innerHTML = cards.filter((c) => c.slot === slot).map((c) => c.html).join("");
+  }
 }
 </script>
 </body>

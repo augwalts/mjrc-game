@@ -167,6 +167,16 @@ export interface BotProfile {
   /** Weight on 上家's feed when scoring a suit-restricted route. */
   leftFeedWeight: number;
   /**
+   * CLAIM SUPPLY (owner, 2026-08-27: "in human games all-pungs and half flush
+   * are much more reliable"). Route distance is measured in self-draws, but a
+   * pair converts to a pung off ANY of three discarders — so claim-friendly
+   * routes are systematically faster than their draw-distance says, and
+   * without this credit every bot concludes the concealed scrape is quickest.
+   * Discounts effective distance by convertible pairs: full credit on pung
+   * routes, half on suit routes, quarter on chow routes (left-only supply).
+   */
+  claimSupplyWeight: number;
+  /**
    * THE RACE (owner, 2026-08-27): "if your opponents are moving fast you need
    * to move faster — unless your hand's EV is high enough." Scales how hard
    * table readiness discounts slow routes: effective decay shrinks as the most
@@ -206,6 +216,7 @@ export const DEFAULT_PROFILE: BotProfile = {
   leftFeedWeight: 0.8,
   urgencyWeight: 0.5,
   suitContestWeight: 0.8,
+  claimSupplyWeight: 0.6,
 };
 
 export interface BotConfig {
@@ -523,6 +534,19 @@ export const isConcealedHand = (melds: readonly Meld[]): boolean =>
  * P(complete) decaying per remaining tile of distance. Scaled so a floor hand
  * at distance 0 is worth its old linear self — existing weights keep meaning.
  */
+/** Pairs among route-conforming tiles — each is a set any discarder can finish. */
+function convertiblePairs(c: readonly number[]): number {
+  let n = 0;
+  for (let i = 0; i < SCORING_KINDS; i++) if (c[i] === 2) n++;
+  return n;
+}
+
+function claimSupplyCredit(route: Route, pairs: number, profile: BotProfile): number {
+  if (route.orphans) return 0;                       // concealed by definition
+  const rate = route.pungs || route.honoursOnly ? 1 : route.suit !== null ? 0.5 : 0.25;
+  return profile.claimSupplyWeight * rate * pairs;
+}
+
 function routeValue(
   faan: number, distance: number, rules: Ruleset, profile: BotProfile, urgency: number,
 ): number {
@@ -632,9 +656,18 @@ export function assessRoutes(
     const surplus = Math.max(0, offRoute - Math.max(0, distance));
     const faan = routeFaan(route, shape, rules, c);
     const attainable = faan + faanFor(rules, "selfDraw");
+    // Effective distance credits claim supply: a pair is a set three opponents
+    // can finish for you, so claim-friendly routes are faster than their
+    // draw-only distance claims. Never credited below half the raw distance —
+    // opponents feed you tiles, not certainty.
+    const credit = Math.min(
+      Math.max(0, distance) / 2,
+      claimSupplyCredit(route, convertiblePairs(routeCounts(route, c)), profile),
+    );
+    const effDistance = Math.max(0, distance) - credit;
     let score =
-      routeValue(faan, distance, rules, profile, urgency) * profile.faanWeight -
-      distance * profile.routeDistanceWeight * (route.orphans ? ORPHANS_DISTANCE_TAX : 1) -
+      routeValue(faan, effDistance, rules, profile, urgency) * profile.faanWeight -
+      effDistance * profile.routeDistanceWeight * (route.orphans ? ORPHANS_DISTANCE_TAX : 1) -
       surplus * profile.offRouteWeight +
       // 上家 as supply line (owner, 2026-08-27): a suit route lives or dies on
       // whether the seat before you is feeding that suit or hoarding it.
