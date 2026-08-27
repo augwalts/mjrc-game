@@ -44,15 +44,39 @@ details.match summary:hover{background:#2c2c35}
 <body>
 <h1>Self-play weight evolution <span class="pill" id="status"></span></h1>
 <div class="sub" id="sub">waiting for data.js…</div>
+<div id="overnightbar"></div>
 <div class="kpis" id="kpis"></div>
 <div class="cols">
   <div class="col" id="colL"></div>
   <div class="col" id="colR"></div>
 </div>
 <div id="wide"></div>
+<script src="overnight.js"></script>
 <script src="data.js"></script>
 <script>
 const D = window.SIM_DATA;
+// ── overnight series strip (present only while/after a series runs) ──
+{
+  const O = window.OVERNIGHT;
+  const el = document.getElementById("overnightbar");
+  if (O && el) {
+    const hoursLeft = Math.max(0, (O.deadline - O.now) / 3600e3).toFixed(1);
+    const done = O.cycles.filter((c) => c.heldOutChips !== null);
+    const best = O.hofScore === null || O.hofScore === -Infinity ? "—" : O.hofScore;
+    const line = done.map((c) => {
+      const v = c.heldOutChips;
+      const cls = c.improved ? "up" : "mut";
+      return `<span class="${cls}" title="cycle ${c.cycle} · ${c.opponent} · ${c.matches}m">${v > 0 ? "+" : ""}${v}</span>`;
+    }).join(" → ");
+    el.innerHTML = `<div class="card" style="margin-bottom:12px;display:flex;gap:18px;align-items:baseline;flex-wrap:wrap">
+      <b>Overnight series</b>
+      <span class="mut">${O.statusLine} · ${hoursLeft}h remaining</span>
+      <span>hall of fame vs baseline: <b class="${typeof best === "number" && best > 0 ? "up" : ""}">${typeof best === "number" && best > 0 ? "+" : ""}${best}</b> chips/match</span>
+      ${line ? `<span class="mut" style="font-size:11px">held-out by cycle: ${line}</span>` : ""}
+      <span class="mut" style="font-size:11px">(the cards below are the LIVE cycle, updating per generation)</span>
+    </div>`;
+  }
+}
 // The optimizer rewrites data.js after every generation; reload to pick it up.
 if (!D || D.status === "running" || (D.history ?? []).length === 0) {
   setTimeout(() => location.reload(), 45_000);
