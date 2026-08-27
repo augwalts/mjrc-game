@@ -1,2 +1,3 @@
 {"cycle":1,"opponent":"baseline","matches":48,"start":"tools/sim/run5-start.json","mins":"15.9","heldOutChips":3.3,"improved":true,"hofScore":3.3}
 {"cycle":1,"opponent":"baseline","matches":48,"start":"tools/sim/hall-of-fame.json","mins":"15.6","heldOutChips":3.3,"improved":false,"hofScore":3.3}
+{"cycle":1,"opponent":"baseline","matches":48,"start":"tools/sim/run5-start.json","mins":"16.8","heldOutChips":3.3,"reigningOnSameBlock":null,"improved":false,"hofScore":null}

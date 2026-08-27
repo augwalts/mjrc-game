@@ -13,6 +13,12 @@ import { playMatch, SEATS, type Decide } from "./driver.js";
 const profile: BotProfile = { ...DEFAULT_PROFILE, ...JSON.parse(readFileSync(process.argv[2]!, "utf8")) };
 const N = Number(process.argv[3] ?? 100);
 const SEED_BASE = Number(process.argv[4] ?? 700_000);
+/** Optional 5th arg: profile file for the TABLE side. Defaults to the current
+ * DEFAULT_PROFILE — but a benchmark must name its enemy: the overnight
+ * harness passes baseline-v0 so admission and bench face the SAME opponent. */
+const tableProfile: BotProfile = process.argv[5]
+  ? { ...DEFAULT_PROFILE, ...JSON.parse(readFileSync(process.argv[5], "utf8")) }
+  : DEFAULT_PROFILE;
 
 function mk(p: BotProfile, seed: number): Decide {
   const cfgs: BotConfig[] = SEATS.map((s) => ({
@@ -26,7 +32,7 @@ const faans: number[] = [];
 for (let i = 0; i < N; i++) {
   const seed = SEED_BASE + i * 7919;              // prime-spaced, block selectable
   const mySeat = (i % 4) as 0 | 1 | 2 | 3;
-  const dc = mk(profile, seed), di = mk(DEFAULT_PROFILE, seed);
+  const dc = mk(profile, seed), di = mk(tableProfile, seed);
   const perSeat: Decide[] = SEATS.map((s) => (s === mySeat ? dc : di));
   const r = playMatch({ seed, ruleset: HKOS_STANDARD, matchLength: "oneWindRound" }, perSeat);
   chips += r.chips[mySeat]!;

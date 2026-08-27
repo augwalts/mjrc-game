@@ -2701,6 +2701,7 @@ function playMatch(config, decide, opts = {}) {
 var profile = { ...DEFAULT_PROFILE, ...JSON.parse(readFileSync(process.argv[2], "utf8")) };
 var N = Number(process.argv[3] ?? 100);
 var SEED_BASE = Number(process.argv[4] ?? 7e5);
+var tableProfile = process.argv[5] ? { ...DEFAULT_PROFILE, ...JSON.parse(readFileSync(process.argv[5], "utf8")) } : DEFAULT_PROFILE;
 function mk(p, seed) {
   const cfgs = SEATS.map((s) => ({
     ruleset: HKOS_STANDARD,
@@ -2717,7 +2718,7 @@ var faans = [];
 for (let i = 0; i < N; i++) {
   const seed = SEED_BASE + i * 7919;
   const mySeat = i % 4;
-  const dc = mk(profile, seed), di = mk(DEFAULT_PROFILE, seed);
+  const dc = mk(profile, seed), di = mk(tableProfile, seed);
   const perSeat = SEATS.map((s) => s === mySeat ? dc : di);
   const r = playMatch({ seed, ruleset: HKOS_STANDARD, matchLength: "oneWindRound" }, perSeat);
   chips += r.chips[mySeat];
