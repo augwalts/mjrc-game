@@ -388,20 +388,23 @@ function visibleCounts(v) {
 }
 var SUITS = ["chars", "bamboo", "circles"];
 var ROUTES = [
-  { id: "balanced", suit: null, pungs: false, honoursOnly: false },
-  { id: "allPungs", suit: null, pungs: true, honoursOnly: false },
-  ...SUITS.map((s) => ({ id: "flush", suit: s, pungs: false, honoursOnly: false })),
-  ...SUITS.map((s) => ({ id: "flushPungs", suit: s, pungs: true, honoursOnly: false })),
-  { id: "honours", suit: null, pungs: true, honoursOnly: true }
+  { id: "balanced", suit: null, pungs: false, honoursOnly: false, orphans: false },
+  { id: "allPungs", suit: null, pungs: true, honoursOnly: false, orphans: false },
+  ...SUITS.map((s) => ({ id: "flush", suit: s, pungs: false, honoursOnly: false, orphans: false })),
+  ...SUITS.map((s) => ({ id: "flushPungs", suit: s, pungs: true, honoursOnly: false, orphans: false })),
+  { id: "honours", suit: null, pungs: true, honoursOnly: true, orphans: false },
+  { id: "orphans", suit: null, pungs: false, honoursOnly: false, orphans: true }
 ];
 var routeKey = (r) => r.suit === null ? r.id : `${r.id}:${r.suit}`;
 function onRoute(r, t) {
   if (isFlower(t)) return true;
+  if (r.orphans) return isTerminalOrHonour(t);
   if (r.honoursOnly) return isHonour(t);
   if (r.suit === null) return true;
   return isHonour(t) || suitOf(t) === r.suit;
 }
 function meldsFit(r, melds) {
+  if (r.orphans && melds.length > 0) return false;
   for (const m of melds) {
     if (r.pungs && m.kind === "chow") return false;
     for (const t of m.tiles) if (!onRoute(r, t)) return false;
@@ -425,6 +428,21 @@ function pungDistance(c, melds = 0) {
   const spare = hasPair ? pairs - 1 : 0;
   const parts = Math.max(0, Math.min(spare, 4 - sets));
   return 8 - 2 * sets - parts - (hasPair ? 1 : 0);
+}
+var ORPHAN_KINDS = (() => {
+  const out = [];
+  for (let t = 0; t < SCORING_KINDS; t++) if (isTerminalOrHonour(t)) out.push(t);
+  return out;
+})();
+function orphansDistance(c) {
+  let kinds = 0;
+  let hasPair = false;
+  for (const k of ORPHAN_KINDS) {
+    const n = c[k];
+    if (n > 0) kinds++;
+    if (n >= 2) hasPair = true;
+  }
+  return 13 - kinds - (hasPair ? 1 : 0);
 }
 function bonusFaan(shape, r) {
   if (!r.useFlowers) return 0;
@@ -466,6 +484,7 @@ function honoursHeld(shape, c) {
 }
 var isConcealedHand = (melds) => melds.every((m) => m.kind === "kong" && m.concealed);
 function routeFaan(r, shape, rules, c) {
+  if (r.orphans) return faanFor(rules, "thirteenOrphans");
   let n = bonusFaan(shape, rules) + honourMeldFaan(r, shape, rules, c);
   if (isConcealedHand(shape.melds)) n += faanFor(rules, "concealedHand");
   if (r.honoursOnly) {
@@ -483,7 +502,7 @@ function assessRoutes(shape, rules, profile = DEFAULT_PROFILE) {
   const melds = shape.melds.length;
   const out = [];
   for (const route of ROUTES) {
-    const feasible = meldsFit(route, shape.melds);
+    let feasible = meldsFit(route, shape.melds);
     let offRoute = 0;
     let keptTiles = 0;
     const kept = new Array(SCORING_KINDS).fill(0);
@@ -496,11 +515,24 @@ function assessRoutes(shape, rules, profile = DEFAULT_PROFILE) {
         offRoute += c[i];
       }
     }
-    const distance = route.pungs ? pungDistance(kept, melds) : keptTiles < MIN_ROUTE_TILES ? MAX_DISTANCE : distanceToReady(kept, melds);
+    let distance;
+    if (route.orphans) {
+      let kinds = 0;
+      let orphanTiles = 0;
+      for (const k of ORPHAN_KINDS) {
+        if (c[k] > 0) kinds++;
+        orphanTiles += c[k];
+      }
+      offRoute += Math.max(0, orphanTiles - kinds - 1);
+      distance = orphansDistance(c);
+      if (kinds < ORPHANS_MIN_KINDS) feasible = false;
+    } else {
+      distance = route.pungs ? pungDistance(kept, melds) : keptTiles < MIN_ROUTE_TILES ? MAX_DISTANCE : distanceToReady(kept, melds);
+    }
     const surplus = Math.max(0, offRoute - Math.max(0, distance));
     const faan = routeFaan(route, shape, rules, c);
     const attainable = faan + faanFor(rules, "selfDraw");
-    let score3 = faan * profile.faanWeight - distance * profile.routeDistanceWeight - surplus * profile.offRouteWeight;
+    let score3 = faan * profile.faanWeight - distance * profile.routeDistanceWeight * (route.orphans ? ORPHANS_DISTANCE_TAX : 1) - surplus * profile.offRouteWeight;
     if (attainable < rules.minimumFaan) score3 -= profile.belowMinimumPenalty;
     if (!feasible) score3 = Number.NEGATIVE_INFINITY;
     out.push({
@@ -527,6 +559,7 @@ function faanCeiling(shape, rules) {
   const c = counts(shape.concealed);
   let best = 0;
   for (const route of ROUTES) {
+    if (route.orphans) continue;
     if (!meldsFit(route, shape.melds)) continue;
     const f = routeFaan(route, shape, rules, c);
     if (f > best) best = f;
@@ -604,13 +637,13 @@ function rankDiscards(v, cfg) {
   const melds = shape.melds.length;
   const c = counts(shape.concealed);
   const candidates = distinctAscending(shape.concealed);
-  const restricts = chosen.route.suit !== null || chosen.route.pungs || chosen.route.honoursOnly;
+  const restricts = chosen.route.suit !== null || chosen.route.pungs || chosen.route.honoursOnly || chosen.route.orphans;
   const offRouteDistance = restricts ? chosen.distance : 0;
   const scored = candidates.map((tile) => {
     const fitsRoute = onRoute(chosen.route, tile);
     c[tile]--;
     const distance = distanceToReady(c, melds);
-    const routeDistance = !restricts ? distance : !fitsRoute ? offRouteDistance : chosen.route.pungs ? pungDistance(routeCounts(chosen.route, c), melds) : distanceToReady(routeCounts(chosen.route, c), melds);
+    const routeDistance = !restricts ? distance : !fitsRoute ? offRouteDistance : chosen.route.orphans ? orphansDistance(c) : chosen.route.pungs ? pungDistance(routeCounts(chosen.route, c), melds) : distanceToReady(routeCounts(chosen.route, c), melds);
     c[tile]++;
     const fits = fitsRoute;
     const danger = discardDanger(v, tile, visible);
@@ -618,7 +651,8 @@ function rankDiscards(v, cfg) {
     if (threats !== null && foldFactor > 0) {
       for (const t of threats.seats) threatDanger += t.threat * feedsSeat(tile, t);
     }
-    const score3 = -distance * profile.discardDistanceWeight - routeDistance * profile.discardRouteWeight * 0.5 + (restricts ? fits ? -profile.discardRouteWeight : profile.discardRouteWeight : 0) - danger * profile.discardSafetyWeight - threatDanger * foldFactor * profile.threatSensitivity;
+    const speedDistance = chosen.route.orphans ? routeDistance : distance;
+    const score3 = -speedDistance * profile.discardDistanceWeight - routeDistance * profile.discardRouteWeight * 0.5 + (restricts ? fits ? -profile.discardRouteWeight : profile.discardRouteWeight : 0) - danger * profile.discardSafetyWeight - threatDanger * foldFactor * profile.threatSensitivity;
     return { tile, distance, outs: -1, danger, onRoute: fits, score: score3 };
   });
   scored.sort((a, b) => b.score - a.score || a.tile - b.tile);
@@ -638,9 +672,11 @@ function rankDiscards(v, cfg) {
 var TIE_EPSILON = 1e-9;
 var MAX_DISTANCE = 8;
 var MIN_ROUTE_TILES = 7;
+var ORPHANS_MIN_KINDS = 6;
+var ORPHANS_DISTANCE_TAX = 2;
 function routeDistanceOf(shape, route) {
   const c = routeCounts(route, counts(shape.concealed));
-  return route.pungs ? pungDistance(c, shape.melds.length) : distanceToReady(c, shape.melds.length);
+  return route.orphans ? orphansDistance(c) : route.pungs ? pungDistance(c, shape.melds.length) : distanceToReady(c, shape.melds.length);
 }
 function routeCounts(r, c) {
   const kept = new Array(SCORING_KINDS).fill(0);
@@ -699,7 +735,7 @@ function bestDistanceAfterDiscard(shape, route) {
   const full = counts(shape.concealed);
   const c = routeCounts(route, full);
   const melds = shape.melds.length;
-  const measure = () => route.pungs ? pungDistance(c, melds) : distanceToReady(c, melds);
+  const measure = () => route.orphans ? orphansDistance(c) : route.pungs ? pungDistance(c, melds) : distanceToReady(c, melds);
   let best = Number.POSITIVE_INFINITY;
   let offRouteDone = false;
   for (let t = 0; t < SCORING_KINDS; t++) {
@@ -738,6 +774,9 @@ function assessClaim(v, option, cfg, context) {
     score: Number.NEGATIVE_INFINITY
   };
   if (last === null) return dead;
+  if (before.route.route.orphans && option.kind !== "win") {
+    return { ...dead, reason: "concealedRoute" };
+  }
   const after = shapeAfterClaim(v, option, last.tile, last.from);
   if (after === null) return dead;
   const ceiling = faanCeiling(after, cfg.ruleset);
@@ -790,6 +829,7 @@ function shouldKong(v, tile, form, cfg) {
   const shape = shapeOf(v);
   if (!hasFaanPath(shape, cfg.ruleset)) return false;
   const route = chooseRoute(shape, cfg.ruleset, profileOf(cfg));
+  if (route.route.orphans) return false;
   if (!onRoute(route.route, tile)) return false;
   const melds = shape.melds.length;
   const c = counts(shape.concealed);
@@ -1498,7 +1538,18 @@ function decomposeWin(concealed, melds, winningTile) {
   }
   return out;
 }
-var hasWinningShape = (concealed, melds, winningTile) => decomposeWin(concealed, melds, winningTile).length > 0;
+function isThirteenOrphansShape(concealed, melds, winningTile) {
+  if (melds.length > 0 || concealed.length !== 13) return false;
+  const c = counts([...concealed, winningTile]);
+  let paired = 0;
+  for (let t = 0; t < SCORING_KINDS; t++) {
+    if (!isTerminalOrHonour(t)) continue;
+    if (c[t] === 2) paired++;
+    else if (c[t] !== 1) return false;
+  }
+  return paired === 1;
+}
+var hasWinningShape = (concealed, melds, winningTile) => isThirteenOrphansShape(concealed, melds, winningTile) || decomposeWin(concealed, melds, winningTile).length > 0;
 function concealedTripletCount(d, winFromDiscard) {
   return d.sets.filter(
     (s) => (s.kind === "pung" || s.kind === "kong") && s.concealed && !(winFromDiscard && s.hasWinningTile)
@@ -1509,11 +1560,6 @@ function concealedTripletCount(d, winFromDiscard) {
 var SEASONS_START = FLOWERS_START + 4;
 var FLOWER_SET = [FLOWERS_START, FLOWERS_START + 1, FLOWERS_START + 2, FLOWERS_START + 3];
 var SEASON_SET = [SEASONS_START, SEASONS_START + 1, SEASONS_START + 2, SEASONS_START + 3];
-var ORPHAN_KINDS = (() => {
-  const out = [];
-  for (let t = 0; t < WINDS_START + 7; t++) if (isTerminalOrHonour(t)) out.push(t);
-  return out;
-})();
 var isTripletSet = (s) => s.kind === "pung" || s.kind === "kong";
 var readingTiles = (d) => [
   ...d.pair.tiles,
@@ -1553,16 +1599,7 @@ function readingPatterns(d, ctx) {
   }
   return ids;
 }
-function isThirteenOrphans(concealed, melds, winningTile) {
-  if (melds.length > 0 || concealed.length !== 13) return false;
-  const c = counts([...concealed, winningTile]);
-  let paired = 0;
-  for (const kind of ORPHAN_KINDS) {
-    if (c[kind] === 2) paired++;
-    else if (c[kind] !== 1) return false;
-  }
-  return paired === 1;
-}
+var isThirteenOrphans = isThirteenOrphansShape;
 function isNineGates(concealed, melds, winningTile) {
   if (melds.length > 0 || concealed.length !== 13) return false;
   const tiles = [...concealed, winningTile];
@@ -2629,7 +2666,7 @@ flush("starting");
 for (let gen = 0; gen < GENS; gen++) {
   const t0 = Date.now();
   const seedBase = 5e5 + gen * 1e3;
-  const seeds = Array.from({ length: MATCHES }, (_, i) => seedBase + i);
+  const seeds = Array.from({ length: MATCHES }, (_, i) => seedBase + i * 7919);
   const mrnd = prng(43968 + gen);
   const sigma = 0.3 * Math.pow(0.93, gen);
   const controlSample = [];
@@ -2643,7 +2680,7 @@ for (let gen = 0; gen < GENS; gen++) {
   let confirm = null;
   const best = [...candidates].sort((a, b) => b.result.pointsPerMatch - a.result.pointsPerMatch)[0];
   if (best.result.pointsPerMatch > control.pointsPerMatch + PROMOTE_MARGIN) {
-    const confirmSeeds = Array.from({ length: MATCHES }, (_, i) => seedBase + 500 + i);
+    const confirmSeeds = Array.from({ length: MATCHES }, (_, i) => seedBase + 104729 + i * 7919);
     confirm = evaluate(best.profile, incumbent, confirmSeeds);
     const controlB = evaluate(incumbent, incumbent, confirmSeeds);
     if (confirm.pointsPerMatch > controlB.pointsPerMatch + PROMOTE_MARGIN) {

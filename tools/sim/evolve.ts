@@ -169,7 +169,8 @@ flush("starting");
 for (let gen = 0; gen < GENS; gen++) {
   const t0 = Date.now();
   const seedBase = 500_000 + gen * 1000;
-  const seeds = Array.from({ length: MATCHES }, (_, i) => seedBase + i);
+  // spaced by a prime — adjacent seeds replay each other's walls (transcriber finding 2026-08-27)
+  const seeds = Array.from({ length: MATCHES }, (_, i) => seedBase + i * 7919);
   const mrnd = prng(0xabc0 + gen);
   // anneal: broad early, fine late
   const sigma = 0.3 * Math.pow(0.93, gen);
@@ -186,7 +187,7 @@ for (let gen = 0; gen < GENS; gen++) {
   let confirm: EvalResult | null = null;
   const best = [...candidates].sort((a, b) => b.result.pointsPerMatch - a.result.pointsPerMatch)[0]!;
   if (best.result.pointsPerMatch > control.pointsPerMatch + PROMOTE_MARGIN) {
-    const confirmSeeds = Array.from({ length: MATCHES }, (_, i) => seedBase + 500 + i);
+    const confirmSeeds = Array.from({ length: MATCHES }, (_, i) => seedBase + 104729 + i * 7919);
     confirm = evaluate(best.profile, incumbent, confirmSeeds);
     const controlB = evaluate(incumbent, incumbent, confirmSeeds);
     if (confirm.pointsPerMatch > controlB.pointsPerMatch + PROMOTE_MARGIN) {

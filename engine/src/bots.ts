@@ -11,10 +11,10 @@
  *      claim when the claim serves a route that can still legally pay the
  *      house minimum, and never commit the HK sin of melding into a hand with
  *      no path to it. The faan floor is checked BEFORE speed, always.
- *   2. FAAN-ROUTE STEERING (`assessRoutes` / `chooseRoute`). Nine route
- *      templates — balanced, 對對糊, 混/清一色 in each of the three suits, and
- *      字一色 — scored on faan against distance. The chosen route biases every
- *      discard and every claim.
+ *   2. FAAN-ROUTE STEERING (`assessRoutes` / `chooseRoute`). Ten route
+ *      templates — balanced, 對對糊, 混/清一色 in each of the three suits,
+ *      字一色, and the desperation Thirteen Orphans 十三么 — scored on faan
+ *      against distance. The chosen route biases every discard and every claim.
  *   3. COUNT-BASED DISCARD SAFETY (`discardDanger`). Prefer tiles with more
  *      copies already visible. HK does not bar a player from winning on a tile
  *      they cut earlier, so "they discarded it, it is safe against them" is a
@@ -228,7 +228,7 @@ export function visibleCounts(v: SeatView): number[] {
 
 /* ── routes 路線 ───────────────────────────────────────────────────────── */
 
-export type RouteId = "balanced" | "allPungs" | "flush" | "flushPungs" | "honours";
+export type RouteId = "balanced" | "allPungs" | "flush" | "flushPungs" | "honours" | "orphans";
 
 export interface Route {
   id: RouteId;
@@ -238,6 +238,8 @@ export interface Route {
   pungs: boolean;
   /** Targeting 字一色. */
   honoursOnly: boolean;
+  /** Targeting Thirteen Orphans 十三么 — 么九 kinds only, fully concealed. */
+  orphans: boolean;
 }
 
 const SUITS: readonly Suit[] = ["chars", "bamboo", "circles"];
@@ -245,14 +247,16 @@ const SUITS: readonly Suit[] = ["chars", "bamboo", "circles"];
 /**
  * The route table, in fixed order (never derived from object keys). Ties break
  * to the earlier entry, so the cheap, fast routes sit first and a bot only
- * commits to a flush when the flush genuinely scores better.
+ * commits to a flush when the flush genuinely scores better. 十三么 sits last:
+ * it is the desperation route (STRATEGY.md §2) and should never win a tie.
  */
 export const ROUTES: readonly Route[] = [
-  { id: "balanced", suit: null, pungs: false, honoursOnly: false },
-  { id: "allPungs", suit: null, pungs: true, honoursOnly: false },
-  ...SUITS.map((s): Route => ({ id: "flush", suit: s, pungs: false, honoursOnly: false })),
-  ...SUITS.map((s): Route => ({ id: "flushPungs", suit: s, pungs: true, honoursOnly: false })),
-  { id: "honours", suit: null, pungs: true, honoursOnly: true },
+  { id: "balanced", suit: null, pungs: false, honoursOnly: false, orphans: false },
+  { id: "allPungs", suit: null, pungs: true, honoursOnly: false, orphans: false },
+  ...SUITS.map((s): Route => ({ id: "flush", suit: s, pungs: false, honoursOnly: false, orphans: false })),
+  ...SUITS.map((s): Route => ({ id: "flushPungs", suit: s, pungs: true, honoursOnly: false, orphans: false })),
+  { id: "honours", suit: null, pungs: true, honoursOnly: true, orphans: false },
+  { id: "orphans", suit: null, pungs: false, honoursOnly: false, orphans: true },
 ];
 
 export const routeKey = (r: Route): string => (r.suit === null ? r.id : `${r.id}:${r.suit}`);
@@ -260,7 +264,10 @@ export const routeKey = (r: Route): string => (r.suit === null ? r.id : `${r.id}
 export interface RouteAssessment {
   route: Route;
   key: string;
-  /** False when a declared meld already contradicts the route — it is dead. */
+  /**
+   * False when the route is dead: a declared meld already contradicts it, or
+   * — for 十三么 only — the hand sits under `ORPHANS_MIN_KINDS`.
+   */
   feasible: boolean;
   /** Faan the route pays if it completes, including faan already banked. */
   faan: number;
@@ -282,6 +289,7 @@ export interface RouteAssessment {
 /** 混一色 keeps honours; 清一色 does not; a suitless route keeps everything. */
 export function onRoute(r: Route, t: TileId): boolean {
   if (isFlower(t)) return true; // 花 are set aside, never held in hand
+  if (r.orphans) return isTerminalOrHonour(t); // 十三么 wants 么九 and nothing else
   if (r.honoursOnly) return isHonour(t);
   if (r.suit === null) return true;
   return isHonour(t) || suitOf(t) === r.suit;
@@ -289,6 +297,9 @@ export function onRoute(r: Route, t: TileId): boolean {
 
 /** A declared meld cannot be taken back, so one off-route meld kills a route. */
 function meldsFit(r: Route, melds: readonly Meld[]): boolean {
+  // 十三么 is concealed BY SHAPE: any declared meld — a 暗槓 included, since
+  // four of one kind can never fit one-of-each — leaves no orphans hand to make.
+  if (r.orphans && melds.length > 0) return false;
   for (const m of melds) {
     if (r.pungs && m.kind === "chow") return false;
     for (const t of m.tiles) if (!onRoute(r, t)) return false;
@@ -319,6 +330,35 @@ export function pungDistance(c: readonly number[], melds = 0): number {
   const spare = hasPair ? pairs - 1 : 0;
   const parts = Math.max(0, Math.min(spare, 4 - sets));
   return 8 - 2 * sets - parts - (hasPair ? 1 : 0);
+}
+
+/** 么九 kinds in fixed tile-id order — the thirteen that 十三么 hunts. */
+const ORPHAN_KINDS: readonly TileId[] = (() => {
+  const out: TileId[] = [];
+  for (let t = 0; t < SCORING_KINDS; t++) if (isTerminalOrHonour(t)) out.push(t);
+  return out;
+})();
+
+/**
+ * Distance to a Thirteen Orphans 十三么 win, on `distanceToReady`'s scale:
+ * -1 complete, 0 ready. The winning 14 hold every 么九 kind once plus a
+ * duplicate of one of them, so a hand with `kinds` distinct kinds still needs
+ * `13 - kinds` new kinds plus, unless a duplicate is already held, the pair
+ * tile: 13 - kinds - (pair ? 1 : 0). Anchors: 13 kinds + pair = -1 (complete);
+ * 13 kinds bare = 0 (the famous thirteen-sided wait); 12 kinds + pair = 0.
+ * Runs and triplets buy nothing here, which is why this replaces
+ * `distanceToReady` on the orphans route the way `pungDistance` does on the
+ * pung routes.
+ */
+export function orphansDistance(c: readonly number[]): number {
+  let kinds = 0;
+  let hasPair = false;
+  for (const k of ORPHAN_KINDS) {
+    const n = c[k]!;
+    if (n > 0) kinds++;
+    if (n >= 2) hasPair = true;
+  }
+  return 13 - kinds - (hasPair ? 1 : 0);
 }
 
 /** 花 faan already banked. Flowers are revealed, so this is never a guess. */
@@ -398,6 +438,10 @@ export const isConcealedHand = (melds: readonly Meld[]): boolean =>
  * is claimed this faan disappears, and the gate sees the hand get cheaper.
  */
 function routeFaan(r: Route, shape: HandShape, rules: Ruleset, c: readonly number[]): number {
+  // 十三么 is a limit hand: the ruleset's one price IS the score — the cap
+  // makes flower and wind extras irrelevant — and a house that does not play
+  // the pattern prices the route at 0, which kills it in scoring for free.
+  if (r.orphans) return faanFor(rules, "thirteenOrphans");
   let n = bonusFaan(shape, rules) + honourMeldFaan(r, shape, rules, c);
   if (isConcealedHand(shape.melds)) n += faanFor(rules, "concealedHand");
   if (r.honoursOnly) {
@@ -428,7 +472,7 @@ export function assessRoutes(
   const melds = shape.melds.length;
   const out: RouteAssessment[] = [];
   for (const route of ROUTES) {
-    const feasible = meldsFit(route, shape.melds);
+    let feasible = meldsFit(route, shape.melds);
     let offRoute = 0;
     let keptTiles = 0;
     const kept = new Array<number>(SCORING_KINDS).fill(0);
@@ -441,17 +485,39 @@ export function assessRoutes(
         offRoute += c[i]!;
       }
     }
-    // 8 is `distanceToReady`'s ceiling, so it is a sound upper bound and not a
-    // guess. A route holding under `MIN_ROUTE_TILES` of the hand is one this
-    // policy would never pick — every faan on the table times `faanWeight` is
-    // still smaller than the distance it would be paying — and the search
-    // behind an exact answer is the most expensive thing in the file.
-    const distance =
-      route.pungs
-        ? pungDistance(kept, melds)
-        : keptTiles < MIN_ROUTE_TILES
-          ? MAX_DISTANCE
-          : distanceToReady(kept, melds);
+    let distance: number;
+    if (route.orphans) {
+      // 十三么 keeps ONE duplicate — the first, the eventual pair — and every
+      // further copy is a stray to shed like any off-route tile: a third 東
+      // helps this hand no more than a 5筒 does.
+      let kinds = 0;
+      let orphanTiles = 0;
+      for (const k of ORPHAN_KINDS) {
+        if (c[k]! > 0) kinds++;
+        orphanTiles += c[k]!;
+      }
+      offRoute += Math.max(0, orphanTiles - kinds - 1);
+      distance = orphansDistance(c);
+      // THE GATE — the owner's rule (STRATEGY.md §2): "7-8 of the 13 orphans
+      // in an otherwise fragmented deal, sometimes just go for it". Under six
+      // distinct kinds the route is never eligible, whatever the arithmetic
+      // says; at six and over the scoring decides, and the distance tax below
+      // holds the route under the other templates until the deal reaches the
+      // owner's 7-8, fragmented shape.
+      if (kinds < ORPHANS_MIN_KINDS) feasible = false;
+    } else {
+      // 8 is `distanceToReady`'s ceiling, so it is a sound upper bound and not a
+      // guess. A route holding under `MIN_ROUTE_TILES` of the hand is one this
+      // policy would never pick — every faan on the table times `faanWeight` is
+      // still smaller than the distance it would be paying — and the search
+      // behind an exact answer is the most expensive thing in the file.
+      distance =
+        route.pungs
+          ? pungDistance(kept, melds)
+          : keptTiles < MIN_ROUTE_TILES
+            ? MAX_DISTANCE
+            : distanceToReady(kept, melds);
+    }
     // Charging every off-route tile double-counts: the restricted distance
     // already rose when those tiles were set aside, and a hand that still owes
     // `distance` draws also owes `distance` discards it can spend on strays.
@@ -462,7 +528,7 @@ export function assessRoutes(
     const attainable = faan + faanFor(rules, "selfDraw");
     let score =
       faan * profile.faanWeight -
-      distance * profile.routeDistanceWeight -
+      distance * profile.routeDistanceWeight * (route.orphans ? ORPHANS_DISTANCE_TAX : 1) -
       surplus * profile.offRouteWeight;
     // THE ANTI-SIN TERM. A route whose finished hand may not be taken is not a
     // fast route, it is a dead one — DESIGN.md §7's faan-floor applied as
@@ -501,6 +567,10 @@ export function faanCeiling(shape: HandShape, rules: Ruleset): number {
   const c = counts(shape.concealed);
   let best = 0;
   for (const route of ROUTES) {
+    // 十三么 is excluded: its limit faan are "attainable" from any concealed
+    // hand the way a lottery ticket is, and counting them would price every
+    // concealed hand at the limit and blunt the floor test this exists for.
+    if (route.orphans) continue;
     if (!meldsFit(route, shape.melds)) continue;
     const f = routeFaan(route, shape, rules, c);
     if (f > best) best = f;
@@ -645,7 +715,9 @@ export function rankDiscards(v: SeatView, cfg: BotConfig): DiscardScore[] {
 
   // The balanced route keeps every tile, so its route distance is the plain one
   // and there is nothing to compute twice.
-  const restricts = chosen.route.suit !== null || chosen.route.pungs || chosen.route.honoursOnly;
+  const restricts =
+    chosen.route.suit !== null || chosen.route.pungs || chosen.route.honoursOnly ||
+    chosen.route.orphans;
   // Cutting a tile the route was never going to use leaves the route's own
   // counts untouched, so every off-route candidate shares one answer. That is
   // usually half the hand, and the search behind it is not cheap.
@@ -659,9 +731,11 @@ export function rankDiscards(v: SeatView, cfg: BotConfig): DiscardScore[] {
       ? distance
       : !fitsRoute
         ? offRouteDistance
-        : chosen.route.pungs
-          ? pungDistance(routeCounts(chosen.route, c), melds)
-          : distanceToReady(routeCounts(chosen.route, c), melds);
+        : chosen.route.orphans
+          ? orphansDistance(c) // reads only 么九 kinds, so the full counts serve
+          : chosen.route.pungs
+            ? pungDistance(routeCounts(chosen.route, c), melds)
+            : distanceToReady(routeCounts(chosen.route, c), melds);
     c[tile]!++;
     const fits = fitsRoute;
     const danger = discardDanger(v, tile, visible);
@@ -669,8 +743,16 @@ export function rankDiscards(v: SeatView, cfg: BotConfig): DiscardScore[] {
     if (threats !== null && foldFactor > 0) {
       for (const t of threats.seats) threatDanger += t.threat * feedsSeat(tile, t);
     }
+    // The plain-hand distance steers the speed term on every route EXCEPT
+    // 十三么. The orphans plan builds no sets, so four-sets-and-a-pair
+    // distance is not speed for it — worse, it is ANTI-speed, prizing exactly
+    // the pairs and partial runs the plan counts as surplus, and at this
+    // term's weight it would cut a needed 么九 single to keep a junk pair. On
+    // the orphans route the route distance is the speed. `distance` is still
+    // reported honestly below.
+    const speedDistance = chosen.route.orphans ? routeDistance : distance;
     const score =
-      -distance * profile.discardDistanceWeight -
+      -speedDistance * profile.discardDistanceWeight -
       routeDistance * profile.discardRouteWeight * 0.5 +
       (restricts ? (fits ? -profile.discardRouteWeight : profile.discardRouteWeight) : 0) -
       danger * profile.discardSafetyWeight -
@@ -710,12 +792,38 @@ const MAX_DISTANCE = 8;
  */
 const MIN_ROUTE_TILES = 7;
 
+/**
+ * Distinct 么九 kinds below which 十三么 is not assessed at all. The owner's
+ * threshold (STRATEGY.md §2) is 7-8; the hard floor sits one under it at six
+ * so the marginal cases are decided by SCORING rather than by the gate — in
+ * practice `ORPHANS_DISTANCE_TAX` keeps a bare six-kind hand losing to 對對糊
+ * on the same junk, and the route starts winning around 7-8 kinds on
+ * fragmented deals, which is exactly the owner's rule.
+ */
+const ORPHANS_MIN_KINDS = 6;
+
+/**
+ * 十三么 pays its distance double. A normal route's next step is satisfied by
+ * any of several tiles — either end of a run, any third of a pair — where an
+ * orphans step is satisfied ONLY by one of the missing 么九 kinds, and the
+ * hand banks no partial-set credit on the way. Untaxed, 13 faan at
+ * `faanWeight` buys the route out of any distance the gate lets through
+ * (13 × 0.6 ≈ 7.8 against a distance of 4-6) and it would win every deal it
+ * is eligible on. Taxed, it wins where the owner plays it — orphan-rich AND
+ * fragmented — and, because a stalled hunt piles up 么九 pairs, it loses the
+ * re-evaluation to 對對糊 the moment those tiles read better as pungs: the
+ * owner's own bail path ("pivot into all pungs or terminals").
+ */
+const ORPHANS_DISTANCE_TAX = 2;
+
 /** Distance to a win along one named route, for the hand as it stands. */
 export function routeDistanceOf(shape: HandShape, route: Route): number {
   const c = routeCounts(route, counts(shape.concealed));
-  return route.pungs
-    ? pungDistance(c, shape.melds.length)
-    : distanceToReady(c, shape.melds.length);
+  return route.orphans
+    ? orphansDistance(c)
+    : route.pungs
+      ? pungDistance(c, shape.melds.length)
+      : distanceToReady(c, shape.melds.length);
 }
 
 /** Counts restricted to the tiles a route keeps. */
@@ -803,7 +911,11 @@ export function bestDistanceAfterDiscard(shape: HandShape, route: Route): number
   const c = routeCounts(route, full);
   const melds = shape.melds.length;
   const measure = (): number =>
-    route.pungs ? pungDistance(c, melds) : distanceToReady(c, melds);
+    route.orphans
+      ? orphansDistance(c)
+      : route.pungs
+        ? pungDistance(c, melds)
+        : distanceToReady(c, melds);
   // Cutting an off-route tile leaves the route's counts alone, so one
   // measurement covers all of them.
   let best = Number.POSITIVE_INFINITY;
@@ -827,8 +939,12 @@ export function bestDistanceAfterDiscard(shape: HandShape, route: Route): number
 
 export interface ClaimAssessment {
   option: ClaimOption;
-  /** Why a refusal was a refusal. Surfaces in the harness and in teaching UI. */
-  reason: "faanFloor" | "offRoute" | "tooSlow" | "accepted";
+  /**
+   * Why a refusal was a refusal. Surfaces in the harness and in teaching UI.
+   * `concealedRoute` — the chosen route (十三么) dies with ANY meld, so every
+   * chow, pung and kong is refused outright while it is the plan.
+   */
+  reason: "faanFloor" | "offRoute" | "concealedRoute" | "tooSlow" | "accepted";
   /** Best faan the hand could still be worth once the claim is taken. */
   faanCeiling: number;
   distanceBefore: number;
@@ -879,6 +995,16 @@ export function assessClaim(
     score: Number.NEGATIVE_INFINITY,
   };
   if (last === null) return dead;
+
+  // ON THE 十三么 ROUTE, NEVER CHOW, NEVER PUNG, NEVER KONG. One meld and
+  // there is no orphans hand left to make — the pattern demands a fully
+  // concealed 13 + 1 — so no speed gain can ever pay for the claim. The one
+  // exception is the WINNING claim, and that never reaches this function:
+  // `decideAction` takes any offered win before claims are assessed. The kind
+  // check keeps the exception honest for direct callers anyway.
+  if (before.route.route.orphans && option.kind !== "win") {
+    return { ...dead, reason: "concealedRoute" };
+  }
 
   const after = shapeAfterClaim(v, option, last.tile, last.from);
   if (after === null) return dead;
@@ -987,6 +1113,10 @@ export function shouldKong(
   const shape = shapeOf(v);
   if (!hasFaanPath(shape, cfg.ruleset)) return false;
   const route = chooseRoute(shape, cfg.ruleset, profileOf(cfg));
+  // A kong opens a meld slot and 十三么 dies with it — even a 暗槓, since four
+  // of one kind can never fit one-of-each. Every 么九 tile is `onRoute` for
+  // the orphans plan, so without this check the next test would wave it in.
+  if (route.route.orphans) return false;
   if (!onRoute(route.route, tile)) return false;
   const melds = shape.melds.length;
   const c = counts(shape.concealed);

@@ -24,7 +24,7 @@
  * Terminology: ../../TERMINOLOGY.md.
  */
 import { SCORING_KINDS, type Meld, type MeldKind, type TileId } from "./types.js";
-import { TILE_NAMES, counts, isSuited, rankOf } from "./tiles.js";
+import { TILE_NAMES, counts, isSuited, isTerminalOrHonour, rankOf } from "./tiles.js";
 import { isConcealedSet, meldShapeError, meldTileCount } from "./melds.js";
 
 /** A decomposition slot: one of the four sets, or the pair 眼. */
@@ -214,12 +214,41 @@ export function decomposeWin(
   return out;
 }
 
-/** True when these tiles can be read as a win at all. */
+/**
+ * Thirteen Orphans 十三么 — one of each of the thirteen terminal-and-honour
+ * kinds with exactly one of them paired, held fully concealed. The ONE winning
+ * hand with no four-sets-and-a-pair reading, so `decomposeWin` correctly
+ * returns nothing for it and the shape is tested directly. Checking the
+ * thirteen kinds at 1-2 copies with exactly one pair accounts for all 14
+ * tiles, so no separate "nothing else in hand" test is needed. The scorer
+ * (scoring.ts) runs this same predicate before consulting any decomposition;
+ * keeping it here keeps the reducer's win offer and the scorer's award from
+ * ever drifting apart.
+ */
+export function isThirteenOrphansShape(
+  concealed: readonly TileId[],
+  melds: readonly Meld[],
+  winningTile: TileId,
+): boolean {
+  if (melds.length > 0 || concealed.length !== 13) return false;
+  const c = counts([...concealed, winningTile]);
+  let paired = 0;
+  for (let t = 0; t < SCORING_KINDS; t++) {
+    if (!isTerminalOrHonour(t)) continue;
+    if (c[t] === 2) paired++;
+    else if (c[t] !== 1) return false;
+  }
+  return paired === 1;
+}
+
+/** True when these tiles can be read as a win at all — 十三么 included. */
 export const hasWinningShape = (
   concealed: readonly TileId[],
   melds: readonly Meld[],
   winningTile: TileId,
-): boolean => decomposeWin(concealed, melds, winningTile).length > 0;
+): boolean =>
+  isThirteenOrphansShape(concealed, melds, winningTile) ||
+  decomposeWin(concealed, melds, winningTile).length > 0;
 
 /** Physical tiles on the table and in hand for this reading — 14, plus one per kong. */
 export const decompositionTileCount = (d: Decomposition): number =>

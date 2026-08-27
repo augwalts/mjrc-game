@@ -35,6 +35,7 @@ import {
   concealedTripletCount,
   decomposeWin,
   decompositionKey,
+  isThirteenOrphansShape,
   type DecomposedSet,
   type Decomposition,
 } from "./decompose.js";
@@ -90,13 +91,6 @@ export interface WinSituation extends WinContext {
 const SEASONS_START = FLOWERS_START + 4;
 const FLOWER_SET: readonly TileId[] = [FLOWERS_START, FLOWERS_START + 1, FLOWERS_START + 2, FLOWERS_START + 3];
 const SEASON_SET: readonly TileId[] = [SEASONS_START, SEASONS_START + 1, SEASONS_START + 2, SEASONS_START + 3];
-
-/** 么九 kinds, in tile-id order — the thirteen 十三么 is built from. */
-const ORPHAN_KINDS: readonly TileId[] = (() => {
-  const out: TileId[] = [];
-  for (let t = 0; t < WINDS_START + 7; t++) if (isTerminalOrHonour(t)) out.push(t);
-  return out;
-})();
 
 const isTripletSet = (s: DecomposedSet): boolean => s.kind === "pung" || s.kind === "kong";
 
@@ -168,17 +162,12 @@ function readingPatterns(d: Decomposition, ctx: WinSituation): string[] {
  * The win context, the bonus tiles, and the two limit hands that have no
  * four-sets-and-a-pair reading at all. */
 
-/** 十三么 — all thirteen 么九 kinds, one of them paired, nothing melded. */
-function isThirteenOrphans(concealed: readonly TileId[], melds: readonly Meld[], winningTile: TileId): boolean {
-  if (melds.length > 0 || concealed.length !== 13) return false;
-  const c = counts([...concealed, winningTile]);
-  let paired = 0;
-  for (const kind of ORPHAN_KINDS) {
-    if (c[kind] === 2) paired++;
-    else if (c[kind] !== 1) return false;
-  }
-  return paired === 1;
-}
+/**
+ * 十三么 — all thirteen 么九 kinds, one of them paired, nothing melded. The
+ * predicate lives in decompose.ts beside `hasWinningShape`, which needs the
+ * same test to OFFER the win, so the offer and the award cannot drift.
+ */
+const isThirteenOrphans = isThirteenOrphansShape;
 
 /**
  * 九蓮寶燈 — 1112345678999 of one suit plus any tile of that suit, held

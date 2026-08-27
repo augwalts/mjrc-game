@@ -9,5 +9,7 @@
   "discardOutsWeight": 0.055,
   "claimSpeedGain": 1,
   "claimRouteTolerance": 1.6,
-  "aggression": 1
+  "aggression": 1,
+  "threatSensitivity": 1,
+  "threatPushValue": 0.8
 }
