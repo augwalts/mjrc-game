@@ -12,6 +12,7 @@ import { playMatch, SEATS, type Decide } from "./driver.js";
 
 const profile: BotProfile = { ...DEFAULT_PROFILE, ...JSON.parse(readFileSync(process.argv[2]!, "utf8")) };
 const N = Number(process.argv[3] ?? 100);
+const SEED_BASE = Number(process.argv[4] ?? 700_000);
 
 function mk(p: BotProfile, seed: number): Decide {
   const cfgs: BotConfig[] = SEATS.map((s) => ({
@@ -23,7 +24,7 @@ function mk(p: BotProfile, seed: number): Decide {
 let chips = 0, hands = 0, draws = 0, refused = 0;
 const faans: number[] = [];
 for (let i = 0; i < N; i++) {
-  const seed = 700_000 + i;                       // held out from both runs
+  const seed = SEED_BASE + i * 7919;              // prime-spaced, block selectable
   const mySeat = (i % 4) as 0 | 1 | 2 | 3;
   const dc = mk(profile, seed), di = mk(DEFAULT_PROFILE, seed);
   const perSeat: Decide[] = SEATS.map((s) => (s === mySeat ? dc : di));

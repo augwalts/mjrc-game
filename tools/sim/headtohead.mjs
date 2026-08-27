@@ -154,7 +154,12 @@ function tableThreat(v, rules) {
     if (s === v.seat) continue;
     seats.push(assessSeatThreat(v, s, rules));
   }
-  return { seats, max: Math.max(0, ...seats.map((t) => t.threat)) };
+  const suitDepletion = [0, 0, 0];
+  for (let s = 0; s < 4; s++) {
+    for (const t of v.discards[s]) if (isSuited(t)) suitDepletion[suitIx(t)]++;
+    for (const m of v.melds[s]) for (const t of m.tiles) if (isSuited(t)) suitDepletion[suitIx(t)]++;
+  }
+  return { seats, max: Math.max(0, ...seats.map((t) => t.threat)), suitDepletion };
 }
 function feedsSeat(tile, t) {
   if (isHonour(tile)) return t.exposure >= 0.5 ? 0.6 : 0.2;
@@ -405,9 +410,16 @@ var DEFAULT_PROFILE = {
   // claims and the table goes alien-quiet — the texture gate caught exactly
   // that at 0.55. Evolution owns fine-tuning; the default must pass the gate.
   routeDecay: 0.45,
-  leftFeedWeight: 0.8
+  leftFeedWeight: 0.8,
+  urgencyWeight: 0.5,
+  suitContestWeight: 0.8,
+  claimSupplyWeight: 0.6
 };
 var profileOf = (cfg) => cfg.profile ?? DEFAULT_PROFILE;
+function tableRead(v, cfg) {
+  const p = profileOf(cfg);
+  return p.threatSensitivity > 0 || p.urgencyWeight > 0 || p.suitContestWeight > 0 ? tableThreat(v, cfg.ruleset) : null;
+}
 var faanFor = (r, id) => r.faanTable[id] ?? 0;
 function pickOne(ties, rnd) {
   const r = rnd();
@@ -426,6 +438,15 @@ function shapeOf(v) {
     roundWind: v.roundWind,
     leftDiscards: v.discards[(v.seat + 3) % 4]
   };
+}
+function suitContest(suit, table) {
+  const ix = suit === "chars" ? 0 : suit === "bamboo" ? 1 : 2;
+  let collector = 0;
+  for (const t of table.seats) {
+    if (t.intentSuit === ix) collector = Math.max(collector, t.intentStrength);
+  }
+  const depletion = Math.min(1, table.suitDepletion[ix] / 18);
+  return collector * 0.7 + depletion * 0.5;
 }
 function leftFeed(shape, suit) {
   const suited = (shape.leftDiscards ?? []).filter((t) => t < 27);
@@ -539,13 +560,24 @@ function honoursHeld(shape, c) {
   return n;
 }
 var isConcealedHand = (melds) => melds.every((m) => m.kind === "kong" && m.concealed);
-function routeValue(faan, distance, rules, profile2) {
+function convertiblePairs(c) {
+  let n = 0;
+  for (let i = 0; i < SCORING_KINDS; i++) if (c[i] === 2) n++;
+  return n;
+}
+function claimSupplyCredit(route, pairs, profile2) {
+  if (route.orphans) return 0;
+  const rate = route.pungs || route.honoursOnly ? 1 : route.suit !== null ? 0.5 : 0.25;
+  return profile2.claimSupplyWeight * rate * pairs;
+}
+function routeValue(faan, distance, rules, profile2, urgency) {
   const cv = profile2.chipValuation;
   if (cv <= 0) return faan;
   const floor = rules.minimumFaan;
   const floorPay = Math.max(1, rules.payment.onDiscard(floor));
   const rel = Math.max(0, rules.payment.onDiscard(Math.min(faan, rules.limitFaan))) / floorPay;
-  const chipEV = floor * rel * Math.pow(profile2.routeDecay, Math.max(0, distance));
+  const decay = Math.max(0.15, profile2.routeDecay * (1 - profile2.urgencyWeight * urgency));
+  const chipEV = floor * rel * Math.pow(decay, Math.max(0, distance));
   return (1 - cv) * faan + cv * chipEV;
 }
 function routeFaan(r, shape, rules, c) {
@@ -562,7 +594,8 @@ function routeFaan(r, shape, rules, c) {
   else if (r.suit === null) n += faanFor(rules, "allChows");
   return n;
 }
-function assessRoutes(shape, rules, profile2 = DEFAULT_PROFILE) {
+function assessRoutes(shape, rules, profile2 = DEFAULT_PROFILE, table = null) {
+  const urgency = table?.max ?? 0;
   const c = counts(shape.concealed);
   const melds = shape.melds.length;
   const out = [];
@@ -597,9 +630,17 @@ function assessRoutes(shape, rules, profile2 = DEFAULT_PROFILE) {
     const surplus = Math.max(0, offRoute - Math.max(0, distance));
     const faan = routeFaan(route, shape, rules, c);
     const attainable = faan + faanFor(rules, "selfDraw");
-    let score3 = routeValue(faan, distance, rules, profile2) * profile2.faanWeight - distance * profile2.routeDistanceWeight * (route.orphans ? ORPHANS_DISTANCE_TAX : 1) - surplus * profile2.offRouteWeight + // 上家 as supply line (owner, 2026-08-27): a suit route lives or dies on
+    const credit = Math.min(
+      Math.max(0, distance) / 2,
+      claimSupplyCredit(route, convertiblePairs(routeCounts(route, c)), profile2)
+    );
+    const effDistance = Math.max(0, distance) - credit;
+    let score3 = routeValue(faan, effDistance, rules, profile2, urgency) * profile2.faanWeight - effDistance * profile2.routeDistanceWeight * (route.orphans ? ORPHANS_DISTANCE_TAX : 1) - surplus * profile2.offRouteWeight + // 上家 as supply line (owner, 2026-08-27): a suit route lives or dies on
     // whether the seat before you is feeding that suit or hoarding it.
-    (route.suit !== null ? leftFeed(shape, route.suit) * profile2.leftFeedWeight : 0);
+    (route.suit !== null ? leftFeed(shape, route.suit) * profile2.leftFeedWeight : 0) - // SUIT SUPPLY: a route into a suit the table is eating — a collector
+    // declared on it, or a third of its copies already visible — is priced
+    // down before any tile is thrown at it.
+    (route.suit !== null && table !== null ? suitContest(route.suit, table) * profile2.suitContestWeight : 0);
     if (attainable < rules.minimumFaan) score3 -= profile2.belowMinimumPenalty;
     if (!feasible) score3 = Number.NEGATIVE_INFINITY;
     out.push({
@@ -616,8 +657,8 @@ function assessRoutes(shape, rules, profile2 = DEFAULT_PROFILE) {
   }
   return out;
 }
-function chooseRoute(shape, rules, profile2 = DEFAULT_PROFILE) {
-  const all = assessRoutes(shape, rules, profile2);
+function chooseRoute(shape, rules, profile2 = DEFAULT_PROFILE, table = null) {
+  const all = assessRoutes(shape, rules, profile2, table);
   let best = all[0];
   for (const a of all) if (a.score > best.score) best = a;
   return best;
@@ -692,12 +733,11 @@ var distinctAscending = (tiles) => {
 function rankDiscards(v, cfg) {
   const profile2 = profileOf(cfg);
   const shape = shapeOf(v);
-  const chosen = chooseRoute(shape, cfg.ruleset, profile2);
+  const threats = tableRead(v, cfg);
+  const chosen = chooseRoute(shape, cfg.ruleset, profile2, threats);
   const visible = visibleCounts(v);
   let foldFactor = 0;
-  let threats = null;
-  if (profile2.threatSensitivity > 0) {
-    threats = tableThreat(v, cfg.ruleset);
+  if (profile2.threatSensitivity > 0 && threats !== null) {
     const ownStrength = Math.max(0, 1 - chosen.distance / 4);
     foldFactor = Math.max(0, threats.max - ownStrength * profile2.threatPushValue);
   }
@@ -826,7 +866,7 @@ function bestDistanceAfterDiscard(shape, route) {
 function claimContext(v, cfg) {
   const profile2 = profileOf(cfg);
   const shape = shapeOf(v);
-  const route = chooseRoute(shape, cfg.ruleset, profile2);
+  const route = chooseRoute(shape, cfg.ruleset, profile2, tableRead(v, cfg));
   return { shape, route, distance: route.distance };
 }
 function assessClaim(v, option, cfg, context) {
@@ -899,7 +939,7 @@ var claimRank = (o) => o.kind === "kong" ? 0 : o.kind === "pung" ? 1 : o.kind ==
 function shouldKong(v, tile, form, cfg) {
   const shape = shapeOf(v);
   if (!hasFaanPath(shape, cfg.ruleset)) return false;
-  const route = chooseRoute(shape, cfg.ruleset, profileOf(cfg));
+  const route = chooseRoute(shape, cfg.ruleset, profileOf(cfg), tableRead(v, cfg));
   if (route.route.orphans) return false;
   if (!onRoute(route.route, tile)) return false;
   const melds = shape.melds.length;
@@ -2560,7 +2600,12 @@ function playMatch(config, decide, opts = {}) {
     kongs: 0,
     winsOnDiscard: 0,
     selfDraws: 0,
-    patterns: {}
+    patterns: {},
+    seatWon: [0, 0, 0, 0],
+    seatLost: [0, 0, 0, 0],
+    seatDealInLoss: [0, 0, 0, 0],
+    seatDealInCount: [0, 0, 0, 0],
+    seatTaxLoss: [0, 0, 0, 0]
   };
   if (opts.recordHands) r.handRecords = [];
   let pendingWin = null;
@@ -2577,6 +2622,23 @@ function playMatch(config, decide, opts = {}) {
         else {
           r.wins++;
           if (typeof p.faan === "number") r.faans.push(p.faan);
+        }
+        if (p.chipDeltas) for (const st of SEATS) {
+          const d = p.chipDeltas[st] ?? 0;
+          if (d > 0) {
+            r.seatWon[st] += d;
+            continue;
+          }
+          r.seatLost[st] += d;
+          if (d < 0) {
+            const pay = p;
+            if (pay.outcome === "winOnDiscard" && pay.loser === st) {
+              r.seatDealInLoss[st] += d;
+              r.seatDealInCount[st] += 1;
+            } else if (pay.outcome === "selfDraw") {
+              r.seatTaxLoss[st] += d;
+            }
+          }
         }
         if (r.handRecords) {
           const rec = {
@@ -2638,6 +2700,7 @@ function playMatch(config, decide, opts = {}) {
 // tools/sim/headtohead.ts
 var profile = { ...DEFAULT_PROFILE, ...JSON.parse(readFileSync(process.argv[2], "utf8")) };
 var N = Number(process.argv[3] ?? 100);
+var SEED_BASE = Number(process.argv[4] ?? 7e5);
 function mk(p, seed) {
   const cfgs = SEATS.map((s) => ({
     ruleset: HKOS_STANDARD,
@@ -2652,7 +2715,7 @@ var draws = 0;
 var refused = 0;
 var faans = [];
 for (let i = 0; i < N; i++) {
-  const seed = 7e5 + i;
+  const seed = SEED_BASE + i * 7919;
   const mySeat = i % 4;
   const dc = mk(profile, seed), di = mk(DEFAULT_PROFILE, seed);
   const perSeat = SEATS.map((s) => s === mySeat ? dc : di);
