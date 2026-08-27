@@ -5,3 +5,7 @@ dist/
 .DS_Store
 tools/**/*.mjs
 tools/sim/logs/
+
+# Moodboard images — local-only reference material, keep binaries out of git
+moodboard/*
+!moodboard/*.md

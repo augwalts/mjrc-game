@@ -183,7 +183,11 @@ export const DEFAULT_PROFILE: BotProfile = {
   threatSensitivity: 0,
   threatPushValue: 0,
   chipValuation: 1,
-  routeDecay: 0.55,
+  // 0.45, not 0.55: on the doubling ladder a claim costs 門前清 (÷2 payout), so
+  // a tile of speed must be worth MORE than 2× (1/0.45 ≈ 2.2) or no bot ever
+  // claims and the table goes alien-quiet — the texture gate caught exactly
+  // that at 0.55. Evolution owns fine-tuning; the default must pass the gate.
+  routeDecay: 0.45,
   leftFeedWeight: 0.8,
 };
 
@@ -1078,7 +1082,17 @@ export function assessClaim(
   const ceiling = faanCeiling(after, cfg.ruleset);
   if (ceiling < cfg.ruleset.minimumFaan) return { ...dead, faanCeiling: ceiling };
 
-  const afterRoute = chooseRoute(after, cfg.ruleset, profile);
+  // THE COMMITMENT CHECK RUNS IN LINEAR-FAAN UNITS, DELIBERATELY. Chip
+  // valuation owns route SELECTION; here the question is "does this claim wreck
+  // the plan's SHAPE", and under chip units two things go wrong at once: score
+  // magnitudes compress until the fixed tolerance vetoes everything, and the
+  // hypothetical post-claim chooseRoute drifts to low-faan balanced routes that
+  // then die at the minimum-open gate. Measured: 90% of 4,493 live claim offers
+  // were dying here (claimprobe, 2026-08-27). Linear units restore the tuned
+  // behaviour; the economics still rule via the floor and speed gates.
+  const shapeProfile: BotProfile = { ...profile, chipValuation: 0 };
+  const beforeRoute = chooseRoute(before.shape, cfg.ruleset, shapeProfile);
+  const afterRoute = chooseRoute(after, cfg.ruleset, shapeProfile);
   // DO NOT OPEN A HAND THAT IS NOT WORTH THE MINIMUM OPEN. `faan` excludes 自摸
   // on purpose: a claim leaving a hand winnable only on its own draw has traded
   // 門前清 away for nothing, which is the HK sin wearing a disguise — and it is
@@ -1089,7 +1103,7 @@ export function assessClaim(
   // Claiming always costs 門前清, so a small drop in route value is the price of
   // admission. A large one means the claim is dragging the hand somewhere it
   // was never going.
-  if (afterRoute.score < before.route.score - profile.claimRouteTolerance) {
+  if (afterRoute.score < beforeRoute.score - profile.claimRouteTolerance) {
     return { ...dead, reason: "offRoute", faanCeiling: ceiling };
   }
 

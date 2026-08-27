@@ -68,9 +68,39 @@ function counts(tiles) {
 }
 
 // engine/src/threat.ts
+var suitIx = (t) => t < 9 ? 0 : t < 18 ? 1 : 2;
+function readDiscards(discards, theirWind, roundWind) {
+  const n = discards.length;
+  const suited = discards.filter(isSuited);
+  let suitPhasing = 0;
+  if (suited.length >= 4) {
+    const share = (a) => {
+      const c = [0, 0, 0];
+      for (const t of a) c[suitIx(t)]++;
+      return Math.max(...c) / a.length;
+    };
+    const half = Math.floor(suited.length / 2);
+    suitPhasing = clamp01((share(suited.slice(0, half)) + share(suited.slice(half))) / 2 * 1.25 - 0.45);
+  }
+  const firstSix = discards.slice(0, 6);
+  const suitsSeen = new Set(firstSix.filter(isSuited).map(suitIx));
+  const earlySpread = suitsSeen.size === 3;
+  const honourIdx = discards.map((t, i) => isHonour(t) ? i : -1).filter((i) => i >= 0);
+  let lateHonours = 0;
+  if (n >= 6 && honourIdx.length > 0) {
+    lateHonours = clamp01(honourIdx.filter((i) => i >= n * 2 / 3).length / honourIdx.length);
+  }
+  const valueHonour = (t) => t >= 31 || t === 27 + theirWind || t === 27 + roundWind;
+  let earlyValueHonours = 0;
+  if (n >= 3) {
+    const early = discards.slice(0, Math.max(3, Math.floor(n / 3)));
+    earlyValueHonours = clamp01(early.filter((t) => isHonour(t) && valueHonour(t)).length / 2);
+  }
+  return { suitPhasing, earlySpread, lateHonours, earlyValueHonours };
+}
 var clamp01 = (x) => x < 0 ? 0 : x > 1 ? 1 : x;
 var isMiddle = (t) => isSuited(t) && rankOf(t) >= 2 && rankOf(t) <= 6;
-function assessSeatThreat(v, seat) {
+function assessSeatThreat(v, seat, rules) {
   const melds = v.melds[seat];
   const discards = v.discards[seat];
   const exposure = melds.length / 4;
@@ -104,14 +134,26 @@ function assessSeatThreat(v, seat) {
   } else {
     readyProxy = exposure * 0.3;
   }
-  const threat = clamp01(exposure * 0.55 + readyProxy * 0.35 + intentStrength * 0.25);
-  return { seat, exposure, intentSuit, intentStrength, readyProxy, threat };
+  const read = readDiscards(discards, v.seatWinds[seat], v.roundWind);
+  const floor = rules?.minimumFaan ?? 3;
+  let expectedFaan = floor;
+  if (read.suitPhasing > 0.55) expectedFaan += 2;
+  if (read.earlyValueHonours > 0) expectedFaan += 2;
+  if (intentSuit !== null && intentStrength > 0.6) expectedFaan += 1;
+  if (read.earlySpread) expectedFaan = Math.max(floor, expectedFaan - 1);
+  expectedFaan = Math.min(expectedFaan, rules?.limitFaan ?? 13);
+  const chipsRel = rules ? Math.max(1, rules.payment.onDiscard(expectedFaan) / Math.max(1, rules.payment.onDiscard(floor))) : Math.pow(2, expectedFaan - floor);
+  const readiness = clamp01(
+    exposure * 0.5 + readyProxy * 0.3 + read.lateHonours * 0.3 + intentStrength * 0.15
+  );
+  const threat = clamp01(readiness);
+  return { seat, exposure, intentSuit, intentStrength, readyProxy, threat, read, expectedFaan, chipsRel };
 }
-function tableThreat(v) {
+function tableThreat(v, rules) {
   const seats = [];
   for (let s = 0; s < 4; s = s + 1) {
     if (s === v.seat) continue;
-    seats.push(assessSeatThreat(v, s));
+    seats.push(assessSeatThreat(v, s, rules));
   }
   return { seats, max: Math.max(0, ...seats.map((t) => t.threat)) };
 }
@@ -357,7 +399,14 @@ var DEFAULT_PROFILE = {
   claimRouteTolerance: 1.6,
   aggression: 1,
   threatSensitivity: 0,
-  threatPushValue: 0
+  threatPushValue: 0,
+  chipValuation: 1,
+  // 0.45, not 0.55: on the doubling ladder a claim costs 門前清 (÷2 payout), so
+  // a tile of speed must be worth MORE than 2× (1/0.45 ≈ 2.2) or no bot ever
+  // claims and the table goes alien-quiet — the texture gate caught exactly
+  // that at 0.55. Evolution owns fine-tuning; the default must pass the gate.
+  routeDecay: 0.45,
+  leftFeedWeight: 0.8
 };
 var profileOf = (cfg) => cfg.profile ?? DEFAULT_PROFILE;
 var faanFor = (r, id) => r.faanTable[id] ?? 0;
@@ -375,8 +424,16 @@ function shapeOf(v) {
     melds: v.melds[v.seat],
     flowers: v.flowers[v.seat],
     seatWind: v.seatWinds[v.seat],
-    roundWind: v.roundWind
+    roundWind: v.roundWind,
+    leftDiscards: v.discards[(v.seat + 3) % 4]
   };
+}
+function leftFeed(shape, suit) {
+  const suited = (shape.leftDiscards ?? []).filter((t) => t < 27);
+  if (suited.length < 3) return 0;
+  const ix = suit === "chars" ? 0 : suit === "bamboo" ? 1 : 2;
+  const share = suited.filter((t) => Math.floor(t / 9) === ix).length / suited.length;
+  return Math.max(-1, Math.min(1, (share - 1 / 3) * 3));
 }
 function visibleCounts(v) {
   const c = counts(ownTiles(v));
@@ -483,12 +540,21 @@ function honoursHeld(shape, c) {
   return n;
 }
 var isConcealedHand = (melds) => melds.every((m) => m.kind === "kong" && m.concealed);
+function routeValue(faan, distance, rules, profile) {
+  const cv = profile.chipValuation;
+  if (cv <= 0) return faan;
+  const floor = rules.minimumFaan;
+  const floorPay = Math.max(1, rules.payment.onDiscard(floor));
+  const rel = Math.max(0, rules.payment.onDiscard(Math.min(faan, rules.limitFaan))) / floorPay;
+  const chipEV = floor * rel * Math.pow(profile.routeDecay, Math.max(0, distance));
+  return (1 - cv) * faan + cv * chipEV;
+}
 function routeFaan(r, shape, rules, c) {
   if (r.orphans) return faanFor(rules, "thirteenOrphans");
   let n = bonusFaan(shape, rules) + honourMeldFaan(r, shape, rules, c);
   if (isConcealedHand(shape.melds)) n += faanFor(rules, "concealedHand");
   if (r.honoursOnly) {
-    return n + faanFor(rules, "allHonours") + faanFor(rules, "allPungs");
+    return n + faanFor(rules, "allHonours");
   }
   if (r.suit !== null) {
     n += honoursHeld(shape, c) <= 1 ? faanFor(rules, "fullFlush") : faanFor(rules, "halfFlush");
@@ -532,7 +598,9 @@ function assessRoutes(shape, rules, profile = DEFAULT_PROFILE) {
     const surplus = Math.max(0, offRoute - Math.max(0, distance));
     const faan = routeFaan(route, shape, rules, c);
     const attainable = faan + faanFor(rules, "selfDraw");
-    let score3 = faan * profile.faanWeight - distance * profile.routeDistanceWeight * (route.orphans ? ORPHANS_DISTANCE_TAX : 1) - surplus * profile.offRouteWeight;
+    let score3 = routeValue(faan, distance, rules, profile) * profile.faanWeight - distance * profile.routeDistanceWeight * (route.orphans ? ORPHANS_DISTANCE_TAX : 1) - surplus * profile.offRouteWeight + // 上家 as supply line (owner, 2026-08-27): a suit route lives or dies on
+    // whether the seat before you is feeding that suit or hoarding it.
+    (route.suit !== null ? leftFeed(shape, route.suit) * profile.leftFeedWeight : 0);
     if (attainable < rules.minimumFaan) score3 -= profile.belowMinimumPenalty;
     if (!feasible) score3 = Number.NEGATIVE_INFINITY;
     out.push({
@@ -630,7 +698,7 @@ function rankDiscards(v, cfg) {
   let foldFactor = 0;
   let threats = null;
   if (profile.threatSensitivity > 0) {
-    threats = tableThreat(v);
+    threats = tableThreat(v, cfg.ruleset);
     const ownStrength = Math.max(0, 1 - chosen.distance / 4);
     foldFactor = Math.max(0, threats.max - ownStrength * profile.threatPushValue);
   }
@@ -649,7 +717,9 @@ function rankDiscards(v, cfg) {
     const danger = discardDanger(v, tile, visible);
     let threatDanger = 0;
     if (threats !== null && foldFactor > 0) {
-      for (const t of threats.seats) threatDanger += t.threat * feedsSeat(tile, t);
+      for (const t of threats.seats) {
+        threatDanger += t.threat * feedsSeat(tile, t) * (Math.min(t.chipsRel, 16) / 4);
+      }
     }
     const speedDistance = chosen.route.orphans ? routeDistance : distance;
     const score3 = -speedDistance * profile.discardDistanceWeight - routeDistance * profile.discardRouteWeight * 0.5 + (restricts ? fits ? -profile.discardRouteWeight : profile.discardRouteWeight : 0) - danger * profile.discardSafetyWeight - threatDanger * foldFactor * profile.threatSensitivity;
@@ -781,11 +851,13 @@ function assessClaim(v, option, cfg, context) {
   if (after === null) return dead;
   const ceiling = faanCeiling(after, cfg.ruleset);
   if (ceiling < cfg.ruleset.minimumFaan) return { ...dead, faanCeiling: ceiling };
-  const afterRoute = chooseRoute(after, cfg.ruleset, profile);
+  const shapeProfile = { ...profile, chipValuation: 0 };
+  const beforeRoute = chooseRoute(before.shape, cfg.ruleset, shapeProfile);
+  const afterRoute = chooseRoute(after, cfg.ruleset, shapeProfile);
   if (!afterRoute.feasible || afterRoute.faan < cfg.ruleset.minimumFaan) {
     return { ...dead, reason: "offRoute", faanCeiling: ceiling };
   }
-  if (afterRoute.score < before.route.score - profile.claimRouteTolerance) {
+  if (afterRoute.score < beforeRoute.score - profile.claimRouteTolerance) {
     return { ...dead, reason: "offRoute", faanCeiling: ceiling };
   }
   const onRouteBefore = routeDistanceOf(before.shape, afterRoute.route);
