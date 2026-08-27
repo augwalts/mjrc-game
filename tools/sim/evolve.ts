@@ -17,11 +17,15 @@
  * Deterministic end to end: same --gens and seeds → identical history.
  */
 import { writeFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { dirname, join as pjoin } from "node:path";
 import { join } from "node:path";
 import { prng } from "../../engine/src/wall.js";
 import { decideAction, DEFAULT_PROFILE, type BotProfile, type BotConfig } from "../../engine/src/bots.js";
 import { HKOS_STANDARD } from "../../rulesets/src/presets.js";
-import { playMatch, SEATS, type Decide, type HandRecord } from "./driver.js";
+import { SEATS, type Decide, type HandRecord } from "./driver.js";
+import { evaluate, type EvalResult, type SampleMatch } from "./evalcore.js";
 
 const args = process.argv.slice(2);
 const flag = (n: string, d: string): string => {
@@ -29,6 +33,7 @@ const flag = (n: string, d: string): string => {
   return i >= 0 ? (args[i + 1] ?? d) : d;
 };
 const GENS = Number(flag("--gens", "20"));
+const SERIAL = args.includes("--serial");
 const OUT = flag("--out", "tools/sim");
 const CANDIDATES = 6;
 const MATCHES = Number(flag("--matches", "48"));
@@ -39,6 +44,36 @@ const MATCHES = Number(flag("--matches", "48"));
 const PROMOTE_MARGIN = 0.5;
 
 const KEYS = Object.keys(DEFAULT_PROFILE) as (keyof BotProfile)[];
+
+const WORKER = pjoin(dirname(fileURLToPath(import.meta.url)), "evalworker.mjs");
+
+/** evaluate() in a child process — the profile says minDist is 89% of CPU and
+ * the seven evaluations of a generation are fully independent, so the wall
+ * clock of a generation collapses to the wall clock of ONE evaluation. */
+function evaluateRemote(
+  candidate: BotProfile, incumbent: BotProfile, seeds: number[], collect: boolean,
+): Promise<{ result: EvalResult; sample?: SampleMatch[] }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [WORKER], { stdio: ["pipe", "pipe", "inherit"] });
+    let out = "";
+    child.stdout.on("data", (c) => (out += c));
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code !== 0) return reject(new Error(`evalworker exited ${code}`));
+      try { resolve(JSON.parse(out)); } catch (e) { reject(e); }
+    });
+    child.stdin.end(JSON.stringify({ candidate, incumbent, seeds, collect }));
+  });
+}
+
+async function runEval(
+  c: BotProfile, i: BotProfile, seeds: number[], sample?: SampleMatch[],
+): Promise<EvalResult> {
+  if (SERIAL) return evaluate(c, i, seeds, sample);
+  const { result, sample: got } = await evaluateRemote(c, i, seeds, sample !== undefined);
+  if (sample && got) sample.push(...got);
+  return result;
+}
 
 /** Log-normal multiplicative jitter, Box–Muller over the seeded stream. */
 function mutate(base: BotProfile, rnd: () => number, sigma: number): BotProfile {
@@ -57,87 +92,6 @@ function mkDecide(profile: BotProfile, seed: number): Decide {
     rnd: prng((seed ^ ((s + 1) * 0x9e3779b1)) >>> 0),
   }));
   return (view, legal, seat) => decideAction(view, legal, cfgs[seat]!);
-}
-
-interface EvalResult {
-  /** Mean placement points/match: 1st +3, 2nd +1, 3rd −1, 4th −3 (ties averaged).
-   * Chips have heavy tails — one limit hand swings ±100 and drowns the signal —
-   * so selection runs on placement; chips are still recorded for the panel. */
-  pointsPerMatch: number;
-  chipsPerMatch: number; drawRate: number; refusedPerHand: number;
-  meanFaan: number; claimsPerHand: number;
-  /** Per-hand activity mix and the winning-pattern census for this eval. */
-  activity: { chows: number; pungs: number; kongs: number;
-              winsOnDiscard: number; selfDraws: number; hands: number;
-              patterns: Record<string, number>;
-              /** Wins by final faan value, index = faan (3..13). */
-              faanHist: number[] };
-}
-
-const PLACEMENT = [3, 1, -1, -3];
-function placementPoints(chips: readonly number[], seat: number): number {
-  const mine = chips[seat]!;
-  const better = chips.filter((c) => c > mine).length;
-  const equal = chips.filter((c) => c === mine).length;
-  // average the points over the tied placement span
-  let sum = 0;
-  for (let k = 0; k < equal; k++) sum += PLACEMENT[better + k]!;
-  return sum / equal;
-}
-
-/** One control match in full: browsable per-hand detail for the panel. */
-interface SampleMatch {
-  seed: number;
-  /** Final chips per seat. */
-  chips: number[];
-  hands: number;
-  handRecords: HandRecord[];
-}
-
-/** candidate in one rotating seat vs three incumbents, over the seed set.
- * `sample` (control eval only): collect per-match hand detail for the panel. */
-function evaluate(
-  candidate: BotProfile, incumbent: BotProfile, seeds: number[],
-  sample?: SampleMatch[],
-): EvalResult {
-  let chips = 0, points = 0, hands = 0, draws = 0, refused = 0, claims = 0;
-  let chows = 0, pungs = 0, kongs = 0, wod = 0, sd = 0;
-  const patterns: Record<string, number> = {};
-  const faans: number[] = [];
-  seeds.forEach((seed, i) => {
-    const mySeat = (i % 4) as 0 | 1 | 2 | 3;
-    const decideC = mkDecide(candidate, seed);
-    const decideI = mkDecide(incumbent, seed);
-    const perSeat: Decide[] = SEATS.map((s) =>
-      s === mySeat
-        ? (v, l, st) => decideC(v, l, st)
-        : (v, l, st) => decideI(v, l, st));
-    const r = playMatch(
-      { seed, ruleset: HKOS_STANDARD, matchLength: "oneWindRound" }, perSeat,
-      { recordHands: sample !== undefined },
-    );
-    if (sample) {
-      sample.push({ seed, chips: r.chips.slice(), hands: r.hands, handRecords: r.handRecords ?? [] });
-    }
-    chips += r.chips[mySeat]!;
-    points += placementPoints(r.chips, mySeat);
-    hands += r.hands; draws += r.draws; refused += r.refusedWins; claims += r.claims;
-    chows += r.chows; pungs += r.pungs; kongs += r.kongs;
-    wod += r.winsOnDiscard; sd += r.selfDraws;
-    for (const [k, n] of Object.entries(r.patterns)) patterns[k] = (patterns[k] ?? 0) + n;
-    faans.push(...r.faans);
-  });
-  const faanHist = new Array(14).fill(0);
-  for (const f of faans) faanHist[Math.max(0, Math.min(13, Math.round(f)))]++;
-  return {
-    pointsPerMatch: +(points / seeds.length).toFixed(2),
-    chipsPerMatch: +(chips / seeds.length).toFixed(1),
-    drawRate: +(draws / hands).toFixed(3),
-    refusedPerHand: +(refused / hands).toFixed(2),
-    meanFaan: +(faans.reduce((a, b) => a + b, 0) / Math.max(1, faans.length)).toFixed(2),
-    claimsPerHand: +(claims / hands).toFixed(2),
-    activity: { chows, pungs, kongs, winsOnDiscard: wod, selfDraws: sd, hands, patterns, faanHist },
-  };
 }
 
 interface GenRecord {
@@ -180,20 +134,24 @@ for (let gen = 0; gen < GENS; gen++) {
   const sigma = 0.3 * Math.pow(0.93, gen);
 
   const controlSample: SampleMatch[] = [];
-  const control = evaluate(incumbent, incumbent, seeds, controlSample);
+  const mutants = Array.from({ length: CANDIDATES }, (_, id) => ({ id, profile: mutate(incumbent, mrnd, sigma) }));
+  const [control, ...results] = await Promise.all([
+    runEval(incumbent, incumbent, seeds, controlSample),
+    ...mutants.map((m) => runEval(m.profile, incumbent, seeds)),
+  ]);
   sampleMatches = controlSample;
-  const candidates = Array.from({ length: CANDIDATES }, (_, id) => {
-    const profile = mutate(incumbent, mrnd, sigma);
-    return { id, profile, result: evaluate(profile, incumbent, seeds) };
-  });
+  const candidates = mutants.map((m, i) => ({ ...m, result: results[i]! }));
 
   let promoted: number | null = null;
   let confirm: EvalResult | null = null;
   const best = [...candidates].sort((a, b) => b.result.pointsPerMatch - a.result.pointsPerMatch)[0]!;
   if (best.result.pointsPerMatch > control.pointsPerMatch + PROMOTE_MARGIN) {
     const confirmSeeds = Array.from({ length: MATCHES }, (_, i) => seedBase + 104729 + i * 7919);
-    confirm = evaluate(best.profile, incumbent, confirmSeeds);
-    const controlB = evaluate(incumbent, incumbent, confirmSeeds);
+    const [cf, controlB] = await Promise.all([
+      runEval(best.profile, incumbent, confirmSeeds),
+      runEval(incumbent, incumbent, confirmSeeds),
+    ]);
+    confirm = cf;
     if (confirm.pointsPerMatch > controlB.pointsPerMatch + PROMOTE_MARGIN) {
       incumbent = best.profile;
       promoted = best.id;

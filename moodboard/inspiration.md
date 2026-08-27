@@ -134,12 +134,38 @@ hunting images; add finds to the folder and log new sources in `README.md`.
 - **Balatro** — nothing east-west about it; pure lesson in making a table card/tile
   game feel juicy and modern. (`ui`)
 
-## Music (secondary, for tone)
+## Music — `emw`
 
 - **Canto-pop as a form** — Western pop structures sung in Cantonese; the audio
-  version of the whole thesis. Sam Hui for the vernacular 70s start.
+  version of the whole thesis. Sam Hui for the vernacular 70s start; Anita Mui
+  and Leslie Cheung for the glam 80s peak.
+- **Faye Wong** — *Chungking Express*-era covers of the Cranberries and Cocteau
+  Twins in Cantonese; a two-way artifact in a single track. (`emw`, `neon`)
 - **Wu-Tang Clan** — kung-fu cinema mythology rebuilt into hip-hop. C→W, total
   absorption rather than quotation — the model for how deep the injection can go.
+- **Shanghai jazz age (1930s–40s)** — Zhou Xuan, Paramount ballroom shidaiqu
+  (時代曲): American jazz forms in Mandarin. The W→C injection on record, and the
+  direct ancestor of Canto-pop. (`city`, `vhk`)
+
+## Tokyo — parallel case study (`city`; method, not vocabulary)
+
+Japan absorbed the West on its own terms and then injected *back* hard. Not the
+Chinese collision, but the best-documented playbook for how absorption works —
+study the mechanism, don't borrow the aesthetics wholesale.
+
+- **Kurosawa two-way loop** — absorbed Ford westerns; *Seven Samurai* → *Magnificent
+  Seven*, *Yojimbo* → *A Fistful of Dollars*. The cleanest documented case of
+  inject-absorb-reinject in any medium.
+- **City Pop & Shibuya-kei** — Western funk/AOR and 60s pop rebuilt as something
+  unmistakably Japanese (Tatsuro Yamashita; Pizzicato Five, Cornelius). The music
+  parallel to what the game's soundtrack could do with Canto sources.
+- **Tadanori Yokoo** — poster art collaging ukiyo-e, pop art, and psychedelia;
+  the graphic-design version of the absorption method. (`future`)
+- **Akira / neo-Tokyo** — the East-Asian future-city template that *Ghost in the
+  Shell* then relocated to HK. Useful to see what's Japanese about it so the
+  Chinese version can differ. (`future`)
+- **Metabolism architecture** — Nakagin Capsule Tower etc.: Japan proposing its
+  own future instead of importing one. The ambition level to match. (`future`, `space`)
 
 ## Where to hunt images
 

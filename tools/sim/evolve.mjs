@@ -1,5 +1,8 @@
 // tools/sim/evolve.ts
 import { writeFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { dirname, join as pjoin } from "node:path";
 import { join } from "node:path";
 
 // engine/src/types.ts
@@ -2660,28 +2663,7 @@ function playMatch(config, decide, opts = {}) {
   throw new Error("match did not terminate");
 }
 
-// tools/sim/evolve.ts
-import { readFileSync, existsSync } from "node:fs";
-var args = process.argv.slice(2);
-var flag = (n, d) => {
-  const i = args.indexOf(n);
-  return i >= 0 ? args[i + 1] ?? d : d;
-};
-var GENS = Number(flag("--gens", "20"));
-var OUT = flag("--out", "tools/sim");
-var CANDIDATES = 6;
-var MATCHES = Number(flag("--matches", "48"));
-var PROMOTE_MARGIN = 0.5;
-var KEYS = Object.keys(DEFAULT_PROFILE);
-function mutate(base, rnd, sigma) {
-  const out = { ...base };
-  for (const k of KEYS) {
-    const u1 = Math.max(rnd(), 1e-12), u2 = rnd();
-    const gauss = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
-    out[k] = +(base[k] * Math.exp(gauss * sigma)).toFixed(4);
-  }
-  return out;
-}
+// tools/sim/evalcore.ts
 function mkDecide(profile, seed) {
   const cfgs = SEATS.map((s) => ({
     ruleset: HKOS_STANDARD,
@@ -2743,6 +2725,54 @@ function evaluate(candidate, incumbent2, seeds, sample) {
     activity: { chows, pungs, kongs, winsOnDiscard: wod, selfDraws: sd, hands, patterns, faanHist }
   };
 }
+
+// tools/sim/evolve.ts
+import { readFileSync, existsSync } from "node:fs";
+var args = process.argv.slice(2);
+var flag = (n, d) => {
+  const i = args.indexOf(n);
+  return i >= 0 ? args[i + 1] ?? d : d;
+};
+var GENS = Number(flag("--gens", "20"));
+var SERIAL = args.includes("--serial");
+var OUT = flag("--out", "tools/sim");
+var CANDIDATES = 6;
+var MATCHES = Number(flag("--matches", "48"));
+var PROMOTE_MARGIN = 0.5;
+var KEYS = Object.keys(DEFAULT_PROFILE);
+var WORKER = pjoin(dirname(fileURLToPath(import.meta.url)), "evalworker.mjs");
+function evaluateRemote(candidate, incumbent2, seeds, collect) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [WORKER], { stdio: ["pipe", "pipe", "inherit"] });
+    let out = "";
+    child.stdout.on("data", (c) => out += c);
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code !== 0) return reject(new Error(`evalworker exited ${code}`));
+      try {
+        resolve(JSON.parse(out));
+      } catch (e) {
+        reject(e);
+      }
+    });
+    child.stdin.end(JSON.stringify({ candidate, incumbent: incumbent2, seeds, collect }));
+  });
+}
+async function runEval(c, i, seeds, sample) {
+  if (SERIAL) return evaluate(c, i, seeds, sample);
+  const { result, sample: got } = await evaluateRemote(c, i, seeds, sample !== void 0);
+  if (sample && got) sample.push(...got);
+  return result;
+}
+function mutate(base, rnd, sigma) {
+  const out = { ...base };
+  for (const k of KEYS) {
+    const u1 = Math.max(rnd(), 1e-12), u2 = rnd();
+    const gauss = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+    out[k] = +(base[k] * Math.exp(gauss * sigma)).toFixed(4);
+  }
+  return out;
+}
 var history = [];
 var startFrom = flag("--start", "");
 var incumbent = startFrom && existsSync(startFrom) ? { ...DEFAULT_PROFILE, ...JSON.parse(readFileSync(startFrom, "utf8")) } : { ...DEFAULT_PROFILE };
@@ -2768,19 +2798,23 @@ for (let gen = 0; gen < GENS; gen++) {
   const mrnd = prng(43968 + gen);
   const sigma = 0.3 * Math.pow(0.93, gen);
   const controlSample = [];
-  const control = evaluate(incumbent, incumbent, seeds, controlSample);
+  const mutants = Array.from({ length: CANDIDATES }, (_, id) => ({ id, profile: mutate(incumbent, mrnd, sigma) }));
+  const [control, ...results] = await Promise.all([
+    runEval(incumbent, incumbent, seeds, controlSample),
+    ...mutants.map((m) => runEval(m.profile, incumbent, seeds))
+  ]);
   sampleMatches = controlSample;
-  const candidates = Array.from({ length: CANDIDATES }, (_, id) => {
-    const profile = mutate(incumbent, mrnd, sigma);
-    return { id, profile, result: evaluate(profile, incumbent, seeds) };
-  });
+  const candidates = mutants.map((m, i) => ({ ...m, result: results[i] }));
   let promoted = null;
   let confirm = null;
   const best = [...candidates].sort((a, b) => b.result.pointsPerMatch - a.result.pointsPerMatch)[0];
   if (best.result.pointsPerMatch > control.pointsPerMatch + PROMOTE_MARGIN) {
     const confirmSeeds = Array.from({ length: MATCHES }, (_, i) => seedBase + 104729 + i * 7919);
-    confirm = evaluate(best.profile, incumbent, confirmSeeds);
-    const controlB = evaluate(incumbent, incumbent, confirmSeeds);
+    const [cf, controlB] = await Promise.all([
+      runEval(best.profile, incumbent, confirmSeeds),
+      runEval(incumbent, incumbent, confirmSeeds)
+    ]);
+    confirm = cf;
     if (confirm.pointsPerMatch > controlB.pointsPerMatch + PROMOTE_MARGIN) {
       incumbent = best.profile;
       promoted = best.id;

@@ -22,6 +22,9 @@ So: east meets west, urban, multinational, multilingual. Guardrails:
 2. **Don't collapse into HK cosplay.** Pull from every Chinese/Western hybrid city
    to isolate the shared language from any one city's clichés — Singapore and
    Shanghai to start (also fair game: Macau, Taipei, overseas Chinatowns).
+   Tokyo is welcome too, as a *parallel* case: a hybrid culture that absorbed the
+   West on its own terms, but Japanese rather than Chinese — borrow its *method*
+   of absorption, not its vocabulary.
 
 Spatial character: HK is uniquely urban *and* uniquely outdoors — extreme density
 pressed against mountains, water, and open air. Life happens outside: street
