@@ -1,5 +1,12 @@
 # Overnight training — live status
 
-Series started 2026-08-27T16:56:30Z · cycle 1 evolving. First cycle result lands here in ~20-35 min, then updates every cycle.
+Updated 2026-08-27T17:13:26.686Z · 19.7h remaining
 
-Hall of fame vs frozen baseline: none yet (start point −18 chips/match; goal: through 0).
+**Hall of fame vs frozen baseline: 3.3 chips/match**
+(started at −18; the night's job is to drive this through 0)
+
+| cycle | opponent | matches | held-out chips | | mins |
+|---|---|---|---|---|---|
+| 1 | baseline | 48 | 3.3 | **NEW BEST** | 15.9m |
+
+Files: hall-of-fame.json (best weights) · overnight-log.jsonl · runs/cycle-NNN.js (full histories)
