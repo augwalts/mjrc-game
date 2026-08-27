@@ -2763,6 +2763,7 @@ function evaluate(candidate, incumbent2, seeds, sample) {
     chipsPerMatch: +(chips / seeds.length).toFixed(1),
     chipsWonPerMatch: +(won / seeds.length).toFixed(1),
     chipsLostPerMatch: +(lost / seeds.length).toFixed(1),
+    winLossRatio: +(won / Math.max(1, Math.abs(lost))).toFixed(2),
     dealInLossPerMatch: +(dealInLoss / seeds.length).toFixed(1),
     dealInsPerMatch: +(dealIns / seeds.length).toFixed(2),
     taxLossPerMatch: +(taxLoss / seeds.length).toFixed(1),

@@ -32,7 +32,9 @@ export interface EvalResult {
    * liability/edge cases. */
   dealInLossPerMatch: number;
   dealInsPerMatch: number;
-  taxLossPerMatch: number; drawRate: number; refusedPerHand: number;
+  taxLossPerMatch: number;
+  /** chipsWon / |chipsLost| — how humans compare players. >1 = net winner. */
+  winLossRatio: number; drawRate: number; refusedPerHand: number;
   meanFaan: number; claimsPerHand: number;
   /** Per-hand activity mix and the winning-pattern census for this eval. */
   activity: { chows: number; pungs: number; kongs: number;
@@ -108,6 +110,7 @@ export function evaluate(
     chipsPerMatch: +(chips / seeds.length).toFixed(1),
     chipsWonPerMatch: +(won / seeds.length).toFixed(1),
     chipsLostPerMatch: +(lost / seeds.length).toFixed(1),
+    winLossRatio: +(won / Math.max(1, Math.abs(lost))).toFixed(2),
     dealInLossPerMatch: +(dealInLoss / seeds.length).toFixed(1),
     dealInsPerMatch: +(dealIns / seeds.length).toFixed(2),
     taxLossPerMatch: +(taxLoss / seeds.length).toFixed(1),

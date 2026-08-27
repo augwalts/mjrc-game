@@ -52,6 +52,8 @@ details.match summary:hover{background:#2c2c35}
 </div>
 <div id="wide"></div>
 <script src="overnight.js"></script>
+<script src="baselines.js"></script>
+<script src="threat-audit.js"></script>
 <script src="data.js"></script>
 <script>
 const D = window.SIM_DATA;
@@ -144,7 +146,8 @@ else if (D.history.length === 0) {
     put("kpis", `<div class="card"><h2>vs frozen baseline — chips/match</h2>
       <div class="big ${b.chipsPerMatch > 0 ? "up" : b.chipsPerMatch < 0 ? "down" : ""}">${b.chipsPerMatch > 0 ? "+" : ""}${b.chipsPerMatch}</div>
       ${spark(line, { fmt: (v) => (v > 0 ? "+" : "") + v, color: b.chipsPerMatch >= 0 ? "var(--ok)" : "var(--warn)" })}
-      <div class="mut" style="font-size:11px">won <b class="up">${b.chipsWonPerMatch}</b> · lost <b class="down">${b.chipsLostPerMatch}</b> per match.
+      <div class="mut" style="font-size:11px">won <b class="up">${b.chipsWonPerMatch}</b> · lost <b class="down">${b.chipsLostPerMatch}</b>
+      ${b.winLossRatio !== undefined ? `· <b>W/L ratio ${b.winLossRatio}</b> (how humans compare — &gt;1 = net winner)` : ""} per match.
       ${b.dealInLossPerMatch !== undefined ? `The loss, attributed: <b class="down">${b.dealInLossPerMatch}</b> from deal-ins
       (${b.dealInsPerMatch}/match — YOUR discard fed the win) + <b>${b.taxLossPerMatch}</b> self-draw tax (dodgeable only by winning first).` : ""}
       Same frozen opponent and walls every generation.</div></div>`);
@@ -303,6 +306,28 @@ else if (D.history.length === 0) {
       <div class="matchlist">${D.sampleMatches.map(matchHtml).join("")}</div></div>`);
   }
 
+  // ── historical reference points (the "where did 60% draws go" answer) ──
+  if (window.BASELINES) {
+    const rows = window.BASELINES.rows.map((r) =>
+      `<tr><td>${r.name}<div class="mut" style="font-size:10px">${r.date ?? ""} · ${r.source}</div></td>
+       <td>${r.drawRate !== null ? (r.drawRate * 100).toFixed(0) + "%" : "—"}</td>
+       <td>${r.claimsPerHand ?? "—"}</td><td>${r.meanFaan ?? "—"}</td></tr>`).join("");
+    put("colR", `<div class="card"><h2>Reference points — every era, measured</h2>
+      <table><tr><th>who</th><th>draws</th><th>claims/h</th><th>faan</th></tr>${rows}</table>
+      <div class="mut" style="font-size:11px;margin-top:5px">The 69%-draw era is the audited Python prototype;
+      today's 25-30% sits between that and the ~10-20% real-table feel. Permanent record: tools/sim/baselines.json.</div></div>`);
+  }
+  // ── threat-detection quality (from tools/sim/threat-audit.mjs) ──
+  if (window.THREAT_AUDIT) {
+    const T = window.THREAT_AUDIT;
+    put("colR", `<div class="card"><h2>Threat detection — does the table read work?</h2>
+      <div class="kv"><span>winners flagged before their win (threat &gt; 0.3)</span><b>${(T.detectionRate * 100).toFixed(0)}%</b></div>
+      <div class="kv"><span>false alarms (flagged &gt; 0.5, did not win the hand)</span><b>${(T.falseAlarmRate * 100).toFixed(0)}%</b></div>
+      <div class="kv"><span>hand-size calibration (est − actual faan, mean)</span><b>${T.faanBias > 0 ? "+" : ""}${T.faanBias}</b></div>
+      <div class="kv"><span>mean |error| of the size estimate</span><b>${T.faanMAE} faan</b></div>
+      <div class="mut" style="font-size:11px;margin-top:5px">${T.matches} matches, ${T.wins} wins audited · ${T.generated}.
+      Regenerate: node tools/sim/threat-audit.mjs</div></div>`);
+  }
   // ── narrative: what actually changed, generation by generation ──
   {
     const BAR = 0.5;
