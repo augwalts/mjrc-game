@@ -2784,6 +2784,8 @@ var flag = (n, d) => {
 };
 var GENS = Number(flag("--gens", "20"));
 var SERIAL = args.includes("--serial");
+var OPPONENT = flag("--opponent", "mirror");
+var MUTSEED = Number(flag("--mutseed", "0"));
 var BASELINE = {
   ...DEFAULT_PROFILE,
   ...exs("tools/sim/baseline-v0.json") ? JSON.parse(rfs("tools/sim/baseline-v0.json", "utf8")) : {}
@@ -2849,13 +2851,14 @@ for (let gen = 0; gen < GENS; gen++) {
   const t0 = Date.now();
   const seedBase = 5e5 + gen * 1e3;
   const seeds = Array.from({ length: MATCHES }, (_, i) => seedBase + i * 7919);
-  const mrnd = prng(43968 + gen);
+  const mrnd = prng(43968 + gen + MUTSEED >>> 0);
   const sigma = 0.3 * Math.pow(0.93, gen);
   const controlSample = [];
+  const opp = OPPONENT === "baseline" ? BASELINE : incumbent;
   const mutants = Array.from({ length: CANDIDATES }, (_, id) => ({ id, profile: mutate(incumbent, mrnd, sigma) }));
   const [control, ...results] = await Promise.all([
-    runEval(incumbent, incumbent, seeds, controlSample),
-    ...mutants.map((m) => runEval(m.profile, incumbent, seeds))
+    runEval(incumbent, opp, seeds, controlSample),
+    ...mutants.map((m) => runEval(m.profile, opp, seeds))
   ]);
   sampleMatches = controlSample;
   const candidates = mutants.map((m, i) => ({ ...m, result: results[i] }));
@@ -2865,8 +2868,8 @@ for (let gen = 0; gen < GENS; gen++) {
   if (best.result.pointsPerMatch > control.pointsPerMatch + PROMOTE_MARGIN) {
     const confirmSeeds = Array.from({ length: MATCHES }, (_, i) => seedBase + 104729 + i * 7919);
     const [cf, controlB] = await Promise.all([
-      runEval(best.profile, incumbent, confirmSeeds),
-      runEval(incumbent, incumbent, confirmSeeds)
+      runEval(best.profile, opp, confirmSeeds),
+      runEval(incumbent, opp, confirmSeeds)
     ]);
     confirm = cf;
     if (confirm.pointsPerMatch > controlB.pointsPerMatch + PROMOTE_MARGIN) {

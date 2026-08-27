@@ -34,6 +34,15 @@ const flag = (n: string, d: string): string => {
 };
 const GENS = Number(flag("--gens", "20"));
 const SERIAL = args.includes("--serial");
+/** Who candidates play against. "mirror" = the incumbent (classic self-play);
+ * "baseline" = the frozen season-start bot — run 8's lesson: 16 generations of
+ * mirror promotions found nothing while the bench sat at -18, because a slow
+ * mirror table never rewards the speed that beats the fast baseline. Train
+ * against the enemy you are scored against. */
+const OPPONENT = flag("--opponent", "mirror");
+/** Offset for the mutation stream so a retry explores DIFFERENT mutants —
+ * without it, identical seeds replay the identical run. */
+const MUTSEED = Number(flag("--mutseed", "0"));
 import { readFileSync as rfs, existsSync as exs } from "node:fs";
 /** The frozen season-start bot (linear faan, no table reading). Every
  * generation the CURRENT incumbent plays 3× this on a FIXED held-out seed set,
@@ -143,15 +152,16 @@ for (let gen = 0; gen < GENS; gen++) {
   const seedBase = 500_000 + gen * 1000;
   // spaced by a prime — adjacent seeds replay each other's walls (transcriber finding 2026-08-27)
   const seeds = Array.from({ length: MATCHES }, (_, i) => seedBase + i * 7919);
-  const mrnd = prng(0xabc0 + gen);
+  const mrnd = prng((0xabc0 + gen + MUTSEED) >>> 0);
   // anneal: broad early, fine late
   const sigma = 0.3 * Math.pow(0.93, gen);
 
   const controlSample: SampleMatch[] = [];
+  const opp = OPPONENT === "baseline" ? BASELINE : incumbent;
   const mutants = Array.from({ length: CANDIDATES }, (_, id) => ({ id, profile: mutate(incumbent, mrnd, sigma) }));
   const [control, ...results] = await Promise.all([
-    runEval(incumbent, incumbent, seeds, controlSample),
-    ...mutants.map((m) => runEval(m.profile, incumbent, seeds)),
+    runEval(incumbent, opp, seeds, controlSample),
+    ...mutants.map((m) => runEval(m.profile, opp, seeds)),
   ]);
   sampleMatches = controlSample;
   const candidates = mutants.map((m, i) => ({ ...m, result: results[i]! }));
@@ -162,8 +172,8 @@ for (let gen = 0; gen < GENS; gen++) {
   if (best.result.pointsPerMatch > control.pointsPerMatch + PROMOTE_MARGIN) {
     const confirmSeeds = Array.from({ length: MATCHES }, (_, i) => seedBase + 104729 + i * 7919);
     const [cf, controlB] = await Promise.all([
-      runEval(best.profile, incumbent, confirmSeeds),
-      runEval(incumbent, incumbent, confirmSeeds),
+      runEval(best.profile, opp, confirmSeeds),
+      runEval(incumbent, opp, confirmSeeds),
     ]);
     confirm = cf;
     if (confirm.pointsPerMatch > controlB.pointsPerMatch + PROMOTE_MARGIN) {
