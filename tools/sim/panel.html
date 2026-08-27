@@ -52,13 +52,23 @@ details.match summary:hover{background:#2c2c35}
 </div>
 <div id="wide"></div>
 <script>
-// Cache-busted loads: GitHub Pages' CDN caches static script URLs ~10 min;
-// a fresh query string forces a fresh fetch. Harmless on file://.
-for (const f of ["overnight.js", "baselines.js", "threat-audit.js", "data.js"]) {
-  document.write('<scr' + 'ipt src="' + f + '?v=' + Date.now() + '"></scr' + 'ipt>');
-}
+// Cache-busted, mobile-safe loads (document.write scripts get BLOCKED by
+// mobile Chrome on slow networks — that was "where did the rest of the html
+// go"). Append real script tags, count them down, then boot the panel.
+(function () {
+  const files = ["overnight.js", "baselines.js", "threat-audit.js", "data.js"];
+  let pending = files.length;
+  const done = () => { if (--pending === 0 && window.initPanel) window.initPanel(); };
+  for (const f of files) {
+    const t = document.createElement("script");
+    t.src = f + "?v=" + Date.now();
+    t.onload = done; t.onerror = done;      // a missing optional file must not block boot
+    document.head.appendChild(t);
+  }
+})();
 </script>
 <script>
+window.initPanel = function initPanel() {
 const D = window.SIM_DATA;
 // ── overnight series strip (present only while/after a series runs) ──
 {
@@ -427,6 +437,7 @@ else if (D.history.length === 0) {
     el.innerHTML = cards.filter((c) => c.slot === slot).map((c) => c.html).join("");
   }
 }
+};
 </script>
 </body>
 </html>

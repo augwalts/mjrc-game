@@ -1,1 +1,1 @@
-window.OVERNIGHT = {"startedAt":1787852653628,"deadline":1787921053628,"now":1787852893631,"hofScore":3.3,"statusLine":"cycle 1 evolving","cycles":[]};
+window.OVERNIGHT = {"startedAt":1787853061894,"deadline":1787917861894,"now":1787853061894,"hofScore":null,"statusLine":"series starting — cycle 1 evolving","cycles":[]};
