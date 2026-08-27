@@ -1,4 +1,4 @@
-overnight training — cycle 1 done (15.9 min) · 19.7h remaining
-latest cycle: opponent=baseline matches/eval=48 start=tools/sim/run5-start.json
-held-out vs frozen baseline: 3.3 chips/match — NEW HALL OF FAME
+overnight training — cycle 1 done (15.6 min) · 18.7h remaining
+latest cycle: opponent=baseline matches/eval=48 start=tools/sim/hall-of-fame.json
+held-out vs frozen baseline: 3.3 chips/match 
 hall of fame: 3.3 chips/match (tools/sim/hall-of-fame.json)
