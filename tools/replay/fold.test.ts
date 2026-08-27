@@ -191,17 +191,18 @@ function playMatch(seed: number): GeneratedMatch {
 }
 
 /**
- * Five of these are arbitrary. 47 and 133 are not, and they are pinned rather
- * than hoped for: under this exact policy 47 is the first seed that opens a
- * 搶槓 window and 133 the first where the rob actually lands. Nothing else in
+ * Five of these are arbitrary. 197975 is not, and it is pinned rather than
+ * hoped for: it produces a LANDED 搶槓 under this exact policy. Nothing else in
  * the policy's reach exercises `revertAddedKong` — 搶槓 needs a seat one tile
  * from a win at the exact moment another seat upgrades a 碰 — and a branch
  * reached by luck is a branch that is one refactor from never running again.
  *
- * They are tied to the policy, not to the reducer: change `pick` and the
- * search has to be redone.
+ * They are tied to the policy AND to the engine's decision math: the 2026-08-27
+ * distanceToReady fix silently retired the previous pins (47/133). If this
+ * assertion fails after touching either, redo the search (prime-spaced seeds —
+ * adjacent match seeds share walls via handSeedFor).
  */
-const SEEDS = [1, 2, 3, 5, 8, 47, 133];
+const SEEDS = [1, 2, 3, 5, 8, 197975];
 const CORPUS: GeneratedMatch[] = SEEDS.map(playMatch);
 
 

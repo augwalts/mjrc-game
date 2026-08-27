@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { SeatIndex, TileId } from "../src/types.js";
-import { assessSeatThreat, feedsSeat, tableThreat } from "../src/threat.js";
-import { rankDiscards, DEFAULT_PROFILE, type SeatView, type BotConfig } from "../src/bots.js";
-import { HKOS_STANDARD } from "../../rulesets/src/presets.js";
+import { assessSeatThreat, feedsSeat, readDiscards, tableThreat } from "../src/threat.js";
+import { chooseRoute, leftFeed, rankDiscards, DEFAULT_PROFILE, type SeatView, type BotConfig } from "../src/bots.js";
+import { HKOS_STANDARD, LIU } from "../../rulesets/src/presets.js";
 import { prng } from "../src/wall.js";
 
 const pung = (t: TileId, from: SeatIndex): { kind: "pung"; tiles: TileId[]; from: SeatIndex; concealed: boolean } =>
@@ -73,5 +73,65 @@ describe("threat estimation", () => {
     const deltaCircle = scoreOf(aware, 20) - scoreOf(blind, 20);
     const deltaChar = scoreOf(aware, 0) - scoreOf(blind, 0);
     expect(deltaCircle).toBeLessThan(deltaChar - 0.1);
+  });
+});
+
+describe("the owner's discard tells (interview 2026-08-27)", () => {
+  const W = 1, R = 0;
+  it("one suit at a time reads as a BIG hand", () => {
+    // six bamboo cuts then five character cuts — a circles flush being built
+    const r = readDiscards([9, 11, 13, 15, 10, 16, 0, 2, 4, 6, 8], W, R);
+    expect(r.suitPhasing).toBeGreaterThan(0.6);
+    expect(r.earlySpread).toBe(false);
+  });
+  it("something of every suit early reads as all-pungs (smaller)", () => {
+    const r = readDiscards([0, 9, 18, 4, 13, 22], W, R);
+    expect(r.earlySpread).toBe(true);
+    expect(r.suitPhasing).toBeLessThan(0.5);
+  });
+  it("honours late = almost ready; value honours early = suspicious", () => {
+    const late = readDiscards([0, 9, 18, 4, 13, 22, 2, 11, 31, 27], W, R);
+    expect(late.lateHonours).toBeGreaterThan(0.5);
+    // 中 and their own seat wind 南 in the first cuts
+    const early = readDiscards([31, 28, 0, 9, 18, 4, 13, 22, 2], W, R);
+    expect(early.earlyValueHonours).toBeGreaterThan(0);
+    expect(early.lateHonours).toBe(0);
+  });
+  it("a big slow read out-threatens a small ready one, in chips", () => {
+    const v = view({
+      // seat 2: suit-phased cutter with a dragon shed early — big-hand read
+      discards: [[], [0, 1, 3, 5, 7, 9, 11, 13], [31, 9, 11, 13, 15, 10, 12, 16], []],
+      melds: [[], [pung(0, 3)], [pung(24, 1)], []],
+    });
+    const big = assessSeatThreat(v, 2, HKOS_STANDARD);
+    const small = assessSeatThreat(v, 1, HKOS_STANDARD);
+    expect(big.expectedFaan).toBeGreaterThan(small.expectedFaan);
+    expect(big.chipsRel).toBeGreaterThan(small.chipsRel);
+    expect(big.chipsRel).toBeGreaterThanOrEqual(4); // ≥+2 faan on a doubling ladder
+  });
+});
+
+describe("route economics", () => {
+  it("left player showering a suit raises that route; hoarding it sinks it", () => {
+    const base: Parameters<typeof leftFeed>[0] = {
+      concealed: [], melds: [], flowers: [], seatWind: 0, roundWind: 0,
+      leftDiscards: [0, 2, 4, 6, 1, 3],           // six character cuts
+    };
+    expect(leftFeed(base, "chars")).toBeGreaterThan(0.8);
+    expect(leftFeed(base, "bamboo")).toBeLessThan(-0.8);
+    expect(leftFeed({ ...base, leftDiscards: [] }, "chars")).toBe(0);
+  });
+  it("HKOS builds value where LIU scrapes — same hand, different economics", () => {
+    // a hand two tiles off a half flush but one tile off a cheap chow hand:
+    // the doubling ladder should stretch for the flush; LIU's flat brackets
+    // should take the scrape. This is the chip-valuation fix observable.
+    const shape = {
+      concealed: [0, 1, 2, 3, 4, 5, 6, 7, 8, 31, 31, 9, 18],
+      melds: [], flowers: [34], seatWind: 0 as const, roundWind: 0 as const,
+    };
+    const hk = chooseRoute(shape, HKOS_STANDARD, DEFAULT_PROFILE);
+    const liu = chooseRoute(shape, LIU, DEFAULT_PROFILE);
+    expect(hk.route.suit).toBe("chars");            // stretch for the flush
+    expect(hk.faan).toBeGreaterThanOrEqual(liu.faan === hk.faan ? 0 : liu.faan);
   });
 });

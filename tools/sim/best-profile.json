@@ -1,15 +1,15 @@
 {
-  "faanWeight": 0.6,
-  "routeDistanceWeight": 1,
-  "offRouteWeight": 1.2,
-  "belowMinimumPenalty": 5,
-  "discardDistanceWeight": 3,
-  "discardRouteWeight": 1.15,
-  "discardSafetyWeight": 0.45,
-  "discardOutsWeight": 0.055,
-  "claimSpeedGain": 1,
-  "claimRouteTolerance": 1.6,
-  "aggression": 1,
-  "threatSensitivity": 1,
-  "threatPushValue": 0.8
+  "faanWeight": 0.5179,
+  "routeDistanceWeight": 1.0282,
+  "offRouteWeight": 1.3432,
+  "belowMinimumPenalty": 6.6992,
+  "discardDistanceWeight": 2.4434,
+  "discardRouteWeight": 1.3326,
+  "discardSafetyWeight": 0.3719,
+  "discardOutsWeight": 0.1102,
+  "claimSpeedGain": 0.8083,
+  "claimRouteTolerance": 1.1706,
+  "aggression": 1.1987,
+  "threatSensitivity": 0.9996,
+  "threatPushValue": 1.447
 }

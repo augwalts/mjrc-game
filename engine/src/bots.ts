@@ -108,6 +108,14 @@ export interface HandShape {
   flowers: readonly TileId[];
   seatWind: WindIndex;
   roundWind: WindIndex;
+  /**
+   * 上家's discards — the seat BEFORE you, your only chow source and the
+   * owner's route-picking read (2026-08-27): "if the opponent before you is
+   * throwing characters, characters are good for you; if they're throwing
+   * bamboo, they're GOING for characters and your character supply is cut."
+   * Optional: absent (old tests, hypotheticals) degrades every term to 0.
+   */
+  leftDiscards?: readonly TileId[];
 }
 
 /* ── tuning ────────────────────────────────────────────────────────────── */
@@ -147,6 +155,17 @@ export interface BotProfile {
   /** Own-strength discount: a big, nearly-ready hand pushes through threat
    * (the owner's rule — "6-10 points, I take more risk"). */
   threatPushValue: number;
+  /**
+   * 0 = value routes by LINEAR faan (the historical bug: 6 faan reads as 2× a
+   * 3-faan hand when the payment table pays ~8×). 1 = value by EXPECTED CHIPS
+   * through the ruleset's own payment table. The blend exists for A/B only.
+   */
+  chipValuation: number;
+  /** P(the route completes) per remaining tile of distance — disciplines the
+   * exponential payout so "slow huge" does not always beat "fast small". */
+  routeDecay: number;
+  /** Weight on 上家's feed when scoring a suit-restricted route. */
+  leftFeedWeight: number;
 }
 
 export const DEFAULT_PROFILE: BotProfile = {
@@ -163,6 +182,9 @@ export const DEFAULT_PROFILE: BotProfile = {
   aggression: 1,
   threatSensitivity: 0,
   threatPushValue: 0,
+  chipValuation: 1,
+  routeDecay: 0.55,
+  leftFeedWeight: 0.8,
 };
 
 export interface BotConfig {
@@ -208,7 +230,21 @@ export function shapeOf(v: SeatView): HandShape {
     flowers: v.flowers[v.seat]!,
     seatWind: v.seatWinds[v.seat]!,
     roundWind: v.roundWind,
+    leftDiscards: v.discards[(v.seat + 3) % 4]!,
   };
+}
+
+/**
+ * How well 上家 feeds a suit, in [-1, 1]: their discard share of it, centred on
+ * the uniform third. +1 ≈ they shower you with it; -1 ≈ they cut everything
+ * BUT it, i.e. they are collecting it themselves and your supply is gone.
+ */
+export function leftFeed(shape: HandShape, suit: Suit): number {
+  const suited = (shape.leftDiscards ?? []).filter((t) => t < 27);
+  if (suited.length < 3) return 0;
+  const ix = suit === "chars" ? 0 : suit === "bamboo" ? 1 : 2;
+  const share = suited.filter((t) => Math.floor(t / 9) === ix).length / suited.length;
+  return Math.max(-1, Math.min(1, (share - 1 / 3) * 3));
 }
 
 /**
@@ -437,6 +473,23 @@ export const isConcealedHand = (melds: readonly Meld[]): boolean =>
  * is also the term that makes the claim gate honest: the moment a chow or pung
  * is claimed this faan disappears, and the gate sees the hand get cheaper.
  */
+/**
+ * What a route is WORTH. chipValuation blends between linear faan (the
+ * historical bug: 6 faan read as 2× a 3-faan hand while the doubling ladder
+ * pays ~8×) and expected chips: relative payout × P(complete), with
+ * P(complete) decaying per remaining tile of distance. Scaled so a floor hand
+ * at distance 0 is worth its old linear self — existing weights keep meaning.
+ */
+function routeValue(faan: number, distance: number, rules: Ruleset, profile: BotProfile): number {
+  const cv = profile.chipValuation;
+  if (cv <= 0) return faan;
+  const floor = rules.minimumFaan;
+  const floorPay = Math.max(1, rules.payment.onDiscard(floor));
+  const rel = Math.max(0, rules.payment.onDiscard(Math.min(faan, rules.limitFaan))) / floorPay;
+  const chipEV = floor * rel * Math.pow(profile.routeDecay, Math.max(0, distance));
+  return (1 - cv) * faan + cv * chipEV;
+}
+
 function routeFaan(r: Route, shape: HandShape, rules: Ruleset, c: readonly number[]): number {
   // 十三么 is a limit hand: the ruleset's one price IS the score — the cap
   // makes flower and wind extras irrelevant — and a house that does not play
@@ -445,8 +498,9 @@ function routeFaan(r: Route, shape: HandShape, rules: Ruleset, c: readonly numbe
   let n = bonusFaan(shape, rules) + honourMeldFaan(r, shape, rules, c);
   if (isConcealedHand(shape.melds)) n += faanFor(rules, "concealedHand");
   if (r.honoursOnly) {
-    // 字一色 is all pungs by construction and the presets pay 對對糊 on top.
-    return n + faanFor(rules, "allHonours") + faanFor(rules, "allPungs");
+    // Owner ruling 2026-08-26: 字一色 is all pungs BY DEFINITION and subsumes
+    // 對對糊 (patterns.ts) — pricing it on top here over-valued the route by 3.
+    return n + faanFor(rules, "allHonours");
   }
   if (r.suit !== null) {
     // One stray honour is a tile the hand can still cut, so read a nearly clean
@@ -527,9 +581,12 @@ export function assessRoutes(
     const faan = routeFaan(route, shape, rules, c);
     const attainable = faan + faanFor(rules, "selfDraw");
     let score =
-      faan * profile.faanWeight -
+      routeValue(faan, distance, rules, profile) * profile.faanWeight -
       distance * profile.routeDistanceWeight * (route.orphans ? ORPHANS_DISTANCE_TAX : 1) -
-      surplus * profile.offRouteWeight;
+      surplus * profile.offRouteWeight +
+      // 上家 as supply line (owner, 2026-08-27): a suit route lives or dies on
+      // whether the seat before you is feeding that suit or hoarding it.
+      (route.suit !== null ? leftFeed(shape, route.suit) * profile.leftFeedWeight : 0);
     // THE ANTI-SIN TERM. A route whose finished hand may not be taken is not a
     // fast route, it is a dead one — DESIGN.md §7's faan-floor applied as
     // steering rather than as a warning. `attainable` is the honest test: 自摸
@@ -705,7 +762,7 @@ export function rankDiscards(v: SeatView, cfg: BotConfig): DiscardScore[] {
   let foldFactor = 0;
   let threats: ReturnType<typeof tableThreat> | null = null;
   if (profile.threatSensitivity > 0) {
-    threats = tableThreat(v);
+    threats = tableThreat(v, cfg.ruleset);
     const ownStrength = Math.max(0, 1 - chosen.distance / 4);
     foldFactor = Math.max(0, threats.max - ownStrength * profile.threatPushValue);
   }
@@ -741,7 +798,12 @@ export function rankDiscards(v: SeatView, cfg: BotConfig): DiscardScore[] {
     const danger = discardDanger(v, tile, visible);
     let threatDanger = 0;
     if (threats !== null && foldFactor > 0) {
-      for (const t of threats.seats) threatDanger += t.threat * feedsSeat(tile, t);
+      // Feeding a seat is as bad as their hand is BIG: the payout against you
+      // is exponential in their faan (owner: "you don't want to lose really
+      // big"). chipsRel is capped so one scary read cannot zero a whole suit.
+      for (const t of threats.seats) {
+        threatDanger += t.threat * feedsSeat(tile, t) * (Math.min(t.chipsRel, 16) / 4);
+      }
     }
     // The plain-hand distance steers the speed term on every route EXCEPT
     // 十三么. The orphans plan builds no sets, so four-sets-and-a-pair

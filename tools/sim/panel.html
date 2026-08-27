@@ -171,6 +171,9 @@ else if (D.history.length === 0) {
     claimSpeedGain: "Minimum speed-up a pung/chow must buy before the bot will take it.",
     claimRouteTolerance: "Claim discipline: how much route value a claim may destroy before it is refused. Claiming always costs concealment.",
     aggression: "Global claim eagerness multiplier. The personality dial — and the noisiest one in every run so far.",
+    chipValuation: "0 = value routes by LINEAR faan (the old bug); 1 = by expected CHIPS through the ruleset's payment table. 6 faan pays ~8× a 3-faan hand, not 2×.",
+    routeDecay: "P(route completes) per remaining tile of distance — disciplines the exponential payout so slow-huge doesn't always beat fast-small.",
+    leftFeedWeight: "The seat before you is your supply line: their discard mix raises or sinks each suit route (owner's route-picking read).",
   };
   const K = D.keys;
   const w0 = D.defaults, wN = last.incumbentAfter;

@@ -67,9 +67,39 @@ function counts(tiles) {
 }
 
 // engine/src/threat.ts
+var suitIx = (t) => t < 9 ? 0 : t < 18 ? 1 : 2;
+function readDiscards(discards, theirWind, roundWind) {
+  const n = discards.length;
+  const suited = discards.filter(isSuited);
+  let suitPhasing = 0;
+  if (suited.length >= 4) {
+    const share = (a) => {
+      const c = [0, 0, 0];
+      for (const t of a) c[suitIx(t)]++;
+      return Math.max(...c) / a.length;
+    };
+    const half = Math.floor(suited.length / 2);
+    suitPhasing = clamp01((share(suited.slice(0, half)) + share(suited.slice(half))) / 2 * 1.25 - 0.45);
+  }
+  const firstSix = discards.slice(0, 6);
+  const suitsSeen = new Set(firstSix.filter(isSuited).map(suitIx));
+  const earlySpread = suitsSeen.size === 3;
+  const honourIdx = discards.map((t, i) => isHonour(t) ? i : -1).filter((i) => i >= 0);
+  let lateHonours = 0;
+  if (n >= 6 && honourIdx.length > 0) {
+    lateHonours = clamp01(honourIdx.filter((i) => i >= n * 2 / 3).length / honourIdx.length);
+  }
+  const valueHonour = (t) => t >= 31 || t === 27 + theirWind || t === 27 + roundWind;
+  let earlyValueHonours = 0;
+  if (n >= 3) {
+    const early = discards.slice(0, Math.max(3, Math.floor(n / 3)));
+    earlyValueHonours = clamp01(early.filter((t) => isHonour(t) && valueHonour(t)).length / 2);
+  }
+  return { suitPhasing, earlySpread, lateHonours, earlyValueHonours };
+}
 var clamp01 = (x) => x < 0 ? 0 : x > 1 ? 1 : x;
 var isMiddle = (t) => isSuited(t) && rankOf(t) >= 2 && rankOf(t) <= 6;
-function assessSeatThreat(v, seat) {
+function assessSeatThreat(v, seat, rules) {
   const melds = v.melds[seat];
   const discards = v.discards[seat];
   const exposure = melds.length / 4;
@@ -103,14 +133,26 @@ function assessSeatThreat(v, seat) {
   } else {
     readyProxy = exposure * 0.3;
   }
-  const threat = clamp01(exposure * 0.55 + readyProxy * 0.35 + intentStrength * 0.25);
-  return { seat, exposure, intentSuit, intentStrength, readyProxy, threat };
+  const read = readDiscards(discards, v.seatWinds[seat], v.roundWind);
+  const floor = rules?.minimumFaan ?? 3;
+  let expectedFaan = floor;
+  if (read.suitPhasing > 0.55) expectedFaan += 2;
+  if (read.earlyValueHonours > 0) expectedFaan += 2;
+  if (intentSuit !== null && intentStrength > 0.6) expectedFaan += 1;
+  if (read.earlySpread) expectedFaan = Math.max(floor, expectedFaan - 1);
+  expectedFaan = Math.min(expectedFaan, rules?.limitFaan ?? 13);
+  const chipsRel = rules ? Math.max(1, rules.payment.onDiscard(expectedFaan) / Math.max(1, rules.payment.onDiscard(floor))) : Math.pow(2, expectedFaan - floor);
+  const readiness = clamp01(
+    exposure * 0.5 + readyProxy * 0.3 + read.lateHonours * 0.3 + intentStrength * 0.15
+  );
+  const threat = clamp01(readiness);
+  return { seat, exposure, intentSuit, intentStrength, readyProxy, threat, read, expectedFaan, chipsRel };
 }
-function tableThreat(v) {
+function tableThreat(v, rules) {
   const seats = [];
   for (let s = 0; s < 4; s = s + 1) {
     if (s === v.seat) continue;
-    seats.push(assessSeatThreat(v, s));
+    seats.push(assessSeatThreat(v, s, rules));
   }
   return { seats, max: Math.max(0, ...seats.map((t) => t.threat)) };
 }
@@ -356,7 +398,10 @@ var DEFAULT_PROFILE = {
   claimRouteTolerance: 1.6,
   aggression: 1,
   threatSensitivity: 0,
-  threatPushValue: 0
+  threatPushValue: 0,
+  chipValuation: 1,
+  routeDecay: 0.55,
+  leftFeedWeight: 0.8
 };
 var profileOf = (cfg) => cfg.profile ?? DEFAULT_PROFILE;
 var faanFor = (r, id) => r.faanTable[id] ?? 0;
@@ -374,8 +419,16 @@ function shapeOf(v) {
     melds: v.melds[v.seat],
     flowers: v.flowers[v.seat],
     seatWind: v.seatWinds[v.seat],
-    roundWind: v.roundWind
+    roundWind: v.roundWind,
+    leftDiscards: v.discards[(v.seat + 3) % 4]
   };
+}
+function leftFeed(shape, suit) {
+  const suited = (shape.leftDiscards ?? []).filter((t) => t < 27);
+  if (suited.length < 3) return 0;
+  const ix = suit === "chars" ? 0 : suit === "bamboo" ? 1 : 2;
+  const share = suited.filter((t) => Math.floor(t / 9) === ix).length / suited.length;
+  return Math.max(-1, Math.min(1, (share - 1 / 3) * 3));
 }
 function visibleCounts(v) {
   const c = counts(ownTiles(v));
@@ -387,20 +440,23 @@ function visibleCounts(v) {
 }
 var SUITS = ["chars", "bamboo", "circles"];
 var ROUTES = [
-  { id: "balanced", suit: null, pungs: false, honoursOnly: false },
-  { id: "allPungs", suit: null, pungs: true, honoursOnly: false },
-  ...SUITS.map((s) => ({ id: "flush", suit: s, pungs: false, honoursOnly: false })),
-  ...SUITS.map((s) => ({ id: "flushPungs", suit: s, pungs: true, honoursOnly: false })),
-  { id: "honours", suit: null, pungs: true, honoursOnly: true }
+  { id: "balanced", suit: null, pungs: false, honoursOnly: false, orphans: false },
+  { id: "allPungs", suit: null, pungs: true, honoursOnly: false, orphans: false },
+  ...SUITS.map((s) => ({ id: "flush", suit: s, pungs: false, honoursOnly: false, orphans: false })),
+  ...SUITS.map((s) => ({ id: "flushPungs", suit: s, pungs: true, honoursOnly: false, orphans: false })),
+  { id: "honours", suit: null, pungs: true, honoursOnly: true, orphans: false },
+  { id: "orphans", suit: null, pungs: false, honoursOnly: false, orphans: true }
 ];
 var routeKey = (r) => r.suit === null ? r.id : `${r.id}:${r.suit}`;
 function onRoute(r, t) {
   if (isFlower(t)) return true;
+  if (r.orphans) return isTerminalOrHonour(t);
   if (r.honoursOnly) return isHonour(t);
   if (r.suit === null) return true;
   return isHonour(t) || suitOf(t) === r.suit;
 }
 function meldsFit(r, melds) {
+  if (r.orphans && melds.length > 0) return false;
   for (const m of melds) {
     if (r.pungs && m.kind === "chow") return false;
     for (const t of m.tiles) if (!onRoute(r, t)) return false;
@@ -424,6 +480,21 @@ function pungDistance(c, melds = 0) {
   const spare = hasPair ? pairs - 1 : 0;
   const parts = Math.max(0, Math.min(spare, 4 - sets));
   return 8 - 2 * sets - parts - (hasPair ? 1 : 0);
+}
+var ORPHAN_KINDS = (() => {
+  const out = [];
+  for (let t = 0; t < SCORING_KINDS; t++) if (isTerminalOrHonour(t)) out.push(t);
+  return out;
+})();
+function orphansDistance(c) {
+  let kinds = 0;
+  let hasPair = false;
+  for (const k of ORPHAN_KINDS) {
+    const n = c[k];
+    if (n > 0) kinds++;
+    if (n >= 2) hasPair = true;
+  }
+  return 13 - kinds - (hasPair ? 1 : 0);
 }
 function bonusFaan(shape, r) {
   if (!r.useFlowers) return 0;
@@ -464,11 +535,21 @@ function honoursHeld(shape, c) {
   return n;
 }
 var isConcealedHand = (melds) => melds.every((m) => m.kind === "kong" && m.concealed);
+function routeValue(faan, distance, rules, profile2) {
+  const cv = profile2.chipValuation;
+  if (cv <= 0) return faan;
+  const floor = rules.minimumFaan;
+  const floorPay = Math.max(1, rules.payment.onDiscard(floor));
+  const rel = Math.max(0, rules.payment.onDiscard(Math.min(faan, rules.limitFaan))) / floorPay;
+  const chipEV = floor * rel * Math.pow(profile2.routeDecay, Math.max(0, distance));
+  return (1 - cv) * faan + cv * chipEV;
+}
 function routeFaan(r, shape, rules, c) {
+  if (r.orphans) return faanFor(rules, "thirteenOrphans");
   let n = bonusFaan(shape, rules) + honourMeldFaan(r, shape, rules, c);
   if (isConcealedHand(shape.melds)) n += faanFor(rules, "concealedHand");
   if (r.honoursOnly) {
-    return n + faanFor(rules, "allHonours") + faanFor(rules, "allPungs");
+    return n + faanFor(rules, "allHonours");
   }
   if (r.suit !== null) {
     n += honoursHeld(shape, c) <= 1 ? faanFor(rules, "fullFlush") : faanFor(rules, "halfFlush");
@@ -482,7 +563,7 @@ function assessRoutes(shape, rules, profile2 = DEFAULT_PROFILE) {
   const melds = shape.melds.length;
   const out = [];
   for (const route of ROUTES) {
-    const feasible = meldsFit(route, shape.melds);
+    let feasible = meldsFit(route, shape.melds);
     let offRoute = 0;
     let keptTiles = 0;
     const kept = new Array(SCORING_KINDS).fill(0);
@@ -495,11 +576,26 @@ function assessRoutes(shape, rules, profile2 = DEFAULT_PROFILE) {
         offRoute += c[i];
       }
     }
-    const distance = route.pungs ? pungDistance(kept, melds) : keptTiles < MIN_ROUTE_TILES ? MAX_DISTANCE : distanceToReady(kept, melds);
+    let distance;
+    if (route.orphans) {
+      let kinds = 0;
+      let orphanTiles = 0;
+      for (const k of ORPHAN_KINDS) {
+        if (c[k] > 0) kinds++;
+        orphanTiles += c[k];
+      }
+      offRoute += Math.max(0, orphanTiles - kinds - 1);
+      distance = orphansDistance(c);
+      if (kinds < ORPHANS_MIN_KINDS) feasible = false;
+    } else {
+      distance = route.pungs ? pungDistance(kept, melds) : keptTiles < MIN_ROUTE_TILES ? MAX_DISTANCE : distanceToReady(kept, melds);
+    }
     const surplus = Math.max(0, offRoute - Math.max(0, distance));
     const faan = routeFaan(route, shape, rules, c);
     const attainable = faan + faanFor(rules, "selfDraw");
-    let score3 = faan * profile2.faanWeight - distance * profile2.routeDistanceWeight - surplus * profile2.offRouteWeight;
+    let score3 = routeValue(faan, distance, rules, profile2) * profile2.faanWeight - distance * profile2.routeDistanceWeight * (route.orphans ? ORPHANS_DISTANCE_TAX : 1) - surplus * profile2.offRouteWeight + // 上家 as supply line (owner, 2026-08-27): a suit route lives or dies on
+    // whether the seat before you is feeding that suit or hoarding it.
+    (route.suit !== null ? leftFeed(shape, route.suit) * profile2.leftFeedWeight : 0);
     if (attainable < rules.minimumFaan) score3 -= profile2.belowMinimumPenalty;
     if (!feasible) score3 = Number.NEGATIVE_INFINITY;
     out.push({
@@ -526,6 +622,7 @@ function faanCeiling(shape, rules) {
   const c = counts(shape.concealed);
   let best = 0;
   for (const route of ROUTES) {
+    if (route.orphans) continue;
     if (!meldsFit(route, shape.melds)) continue;
     const f = routeFaan(route, shape, rules, c);
     if (f > best) best = f;
@@ -596,28 +693,31 @@ function rankDiscards(v, cfg) {
   let foldFactor = 0;
   let threats = null;
   if (profile2.threatSensitivity > 0) {
-    threats = tableThreat(v);
+    threats = tableThreat(v, cfg.ruleset);
     const ownStrength = Math.max(0, 1 - chosen.distance / 4);
     foldFactor = Math.max(0, threats.max - ownStrength * profile2.threatPushValue);
   }
   const melds = shape.melds.length;
   const c = counts(shape.concealed);
   const candidates = distinctAscending(shape.concealed);
-  const restricts = chosen.route.suit !== null || chosen.route.pungs || chosen.route.honoursOnly;
+  const restricts = chosen.route.suit !== null || chosen.route.pungs || chosen.route.honoursOnly || chosen.route.orphans;
   const offRouteDistance = restricts ? chosen.distance : 0;
   const scored = candidates.map((tile) => {
     const fitsRoute = onRoute(chosen.route, tile);
     c[tile]--;
     const distance = distanceToReady(c, melds);
-    const routeDistance = !restricts ? distance : !fitsRoute ? offRouteDistance : chosen.route.pungs ? pungDistance(routeCounts(chosen.route, c), melds) : distanceToReady(routeCounts(chosen.route, c), melds);
+    const routeDistance = !restricts ? distance : !fitsRoute ? offRouteDistance : chosen.route.orphans ? orphansDistance(c) : chosen.route.pungs ? pungDistance(routeCounts(chosen.route, c), melds) : distanceToReady(routeCounts(chosen.route, c), melds);
     c[tile]++;
     const fits = fitsRoute;
     const danger = discardDanger(v, tile, visible);
     let threatDanger = 0;
     if (threats !== null && foldFactor > 0) {
-      for (const t of threats.seats) threatDanger += t.threat * feedsSeat(tile, t);
+      for (const t of threats.seats) {
+        threatDanger += t.threat * feedsSeat(tile, t) * (Math.min(t.chipsRel, 16) / 4);
+      }
     }
-    const score3 = -distance * profile2.discardDistanceWeight - routeDistance * profile2.discardRouteWeight * 0.5 + (restricts ? fits ? -profile2.discardRouteWeight : profile2.discardRouteWeight : 0) - danger * profile2.discardSafetyWeight - threatDanger * foldFactor * profile2.threatSensitivity;
+    const speedDistance = chosen.route.orphans ? routeDistance : distance;
+    const score3 = -speedDistance * profile2.discardDistanceWeight - routeDistance * profile2.discardRouteWeight * 0.5 + (restricts ? fits ? -profile2.discardRouteWeight : profile2.discardRouteWeight : 0) - danger * profile2.discardSafetyWeight - threatDanger * foldFactor * profile2.threatSensitivity;
     return { tile, distance, outs: -1, danger, onRoute: fits, score: score3 };
   });
   scored.sort((a, b) => b.score - a.score || a.tile - b.tile);
@@ -637,9 +737,11 @@ function rankDiscards(v, cfg) {
 var TIE_EPSILON = 1e-9;
 var MAX_DISTANCE = 8;
 var MIN_ROUTE_TILES = 7;
+var ORPHANS_MIN_KINDS = 6;
+var ORPHANS_DISTANCE_TAX = 2;
 function routeDistanceOf(shape, route) {
   const c = routeCounts(route, counts(shape.concealed));
-  return route.pungs ? pungDistance(c, shape.melds.length) : distanceToReady(c, shape.melds.length);
+  return route.orphans ? orphansDistance(c) : route.pungs ? pungDistance(c, shape.melds.length) : distanceToReady(c, shape.melds.length);
 }
 function routeCounts(r, c) {
   const kept = new Array(SCORING_KINDS).fill(0);
@@ -698,7 +800,7 @@ function bestDistanceAfterDiscard(shape, route) {
   const full = counts(shape.concealed);
   const c = routeCounts(route, full);
   const melds = shape.melds.length;
-  const measure = () => route.pungs ? pungDistance(c, melds) : distanceToReady(c, melds);
+  const measure = () => route.orphans ? orphansDistance(c) : route.pungs ? pungDistance(c, melds) : distanceToReady(c, melds);
   let best = Number.POSITIVE_INFINITY;
   let offRouteDone = false;
   for (let t = 0; t < SCORING_KINDS; t++) {
@@ -737,6 +839,9 @@ function assessClaim(v, option, cfg, context) {
     score: Number.NEGATIVE_INFINITY
   };
   if (last === null) return dead;
+  if (before.route.route.orphans && option.kind !== "win") {
+    return { ...dead, reason: "concealedRoute" };
+  }
   const after = shapeAfterClaim(v, option, last.tile, last.from);
   if (after === null) return dead;
   const ceiling = faanCeiling(after, cfg.ruleset);
@@ -789,6 +894,7 @@ function shouldKong(v, tile, form, cfg) {
   const shape = shapeOf(v);
   if (!hasFaanPath(shape, cfg.ruleset)) return false;
   const route = chooseRoute(shape, cfg.ruleset, profileOf(cfg));
+  if (route.route.orphans) return false;
   if (!onRoute(route.route, tile)) return false;
   const melds = shape.melds.length;
   const c = counts(shape.concealed);
@@ -1497,7 +1603,18 @@ function decomposeWin(concealed, melds, winningTile) {
   }
   return out;
 }
-var hasWinningShape = (concealed, melds, winningTile) => decomposeWin(concealed, melds, winningTile).length > 0;
+function isThirteenOrphansShape(concealed, melds, winningTile) {
+  if (melds.length > 0 || concealed.length !== 13) return false;
+  const c = counts([...concealed, winningTile]);
+  let paired = 0;
+  for (let t = 0; t < SCORING_KINDS; t++) {
+    if (!isTerminalOrHonour(t)) continue;
+    if (c[t] === 2) paired++;
+    else if (c[t] !== 1) return false;
+  }
+  return paired === 1;
+}
+var hasWinningShape = (concealed, melds, winningTile) => isThirteenOrphansShape(concealed, melds, winningTile) || decomposeWin(concealed, melds, winningTile).length > 0;
 function concealedTripletCount(d, winFromDiscard) {
   return d.sets.filter(
     (s) => (s.kind === "pung" || s.kind === "kong") && s.concealed && !(winFromDiscard && s.hasWinningTile)
@@ -1508,11 +1625,6 @@ function concealedTripletCount(d, winFromDiscard) {
 var SEASONS_START = FLOWERS_START + 4;
 var FLOWER_SET = [FLOWERS_START, FLOWERS_START + 1, FLOWERS_START + 2, FLOWERS_START + 3];
 var SEASON_SET = [SEASONS_START, SEASONS_START + 1, SEASONS_START + 2, SEASONS_START + 3];
-var ORPHAN_KINDS = (() => {
-  const out = [];
-  for (let t = 0; t < WINDS_START + 7; t++) if (isTerminalOrHonour(t)) out.push(t);
-  return out;
-})();
 var isTripletSet = (s) => s.kind === "pung" || s.kind === "kong";
 var readingTiles = (d) => [
   ...d.pair.tiles,
@@ -1552,16 +1664,7 @@ function readingPatterns(d, ctx) {
   }
   return ids;
 }
-function isThirteenOrphans(concealed, melds, winningTile) {
-  if (melds.length > 0 || concealed.length !== 13) return false;
-  const c = counts([...concealed, winningTile]);
-  let paired = 0;
-  for (const kind of ORPHAN_KINDS) {
-    if (c[kind] === 2) paired++;
-    else if (c[kind] !== 1) return false;
-  }
-  return paired === 1;
-}
+var isThirteenOrphans = isThirteenOrphansShape;
 function isNineGates(concealed, melds, winningTile) {
   if (melds.length > 0 || concealed.length !== 13) return false;
   const tiles = [...concealed, winningTile];
@@ -2436,7 +2539,7 @@ function viewFor(state, seat) {
     lastDiscard: offered === null ? state.lastDiscard : { tile: offered.tile, from: offered.from }
   };
 }
-function playMatch(config, decide) {
+function playMatch(config, decide, opts = {}) {
   let { state, events } = startMatch(config);
   const r = {
     chips: [0, 0, 0, 0],
@@ -2453,6 +2556,8 @@ function playMatch(config, decide) {
     selfDraws: 0,
     patterns: {}
   };
+  if (opts.recordHands) r.handRecords = [];
+  let pendingWin = null;
   const step = (a) => {
     state = a.state;
     events = a.events;
@@ -2467,6 +2572,17 @@ function playMatch(config, decide) {
           r.wins++;
           if (typeof p.faan === "number") r.faans.push(p.faan);
         }
+        if (r.handRecords) {
+          const rec = {
+            outcome: p.outcome,
+            winner: p.winner ?? null,
+            faan: p.faan ?? null,
+            chipDeltas: (p.chipDeltas ?? [0, 0, 0, 0]).slice()
+          };
+          if (pendingWin) rec.winningHand = pendingWin;
+          r.handRecords.push(rec);
+        }
+        pendingWin = null;
       }
       if (e.type === "refusedWin") r.refusedWins++;
       if (e.type === "claimed") {
@@ -2480,8 +2596,16 @@ function playMatch(config, decide) {
       if (e.type === "winOnDiscard" || e.type === "selfDraw") {
         if (e.type === "selfDraw") r.selfDraws++;
         else r.winsOnDiscard++;
-        const score3 = e.payload.score;
-        for (const a of score3?.awards ?? []) r.patterns[a.id] = (r.patterns[a.id] ?? 0) + 1;
+        const p = e.payload;
+        for (const a of p.score?.awards ?? []) r.patterns[a.id] = (r.patterns[a.id] ?? 0) + 1;
+        if (r.handRecords) {
+          pendingWin = {
+            concealed: (p.concealed ?? []).slice(),
+            melds: (p.melds ?? []).map((m) => ({ kind: m.kind, tiles: m.tiles.slice() })),
+            winningTile: p.context?.winningTile ?? -1,
+            awards: (p.score?.awards ?? []).map((a) => ({ id: a.id, faan: a.faan }))
+          };
+        }
       }
     }
     if (state.phase === "matchEnd") {
