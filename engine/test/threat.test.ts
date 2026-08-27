@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { SeatIndex, TileId } from "../src/types.js";
 import { assessSeatThreat, feedsSeat, readDiscards, tableThreat } from "../src/threat.js";
-import { chooseRoute, leftFeed, rankDiscards, DEFAULT_PROFILE, type SeatView, type BotConfig } from "../src/bots.js";
+import { chooseRoute, leftFeed, rankDiscards, shapeOf, suitContest, DEFAULT_PROFILE, type SeatView, type BotConfig } from "../src/bots.js";
 import { HKOS_STANDARD, LIU } from "../../rulesets/src/presets.js";
 import { prng } from "../src/wall.js";
 
@@ -133,5 +133,49 @@ describe("route economics", () => {
     const liu = chooseRoute(shape, LIU, DEFAULT_PROFILE);
     expect(hk.route.suit).toBe("chars");            // stretch for the flush
     expect(hk.faan).toBeGreaterThanOrEqual(liu.faan === hk.faan ? 0 : liu.faan);
+  });
+});
+
+describe("step zero — the table shapes the plan (owner, 2026-08-27)", () => {
+  const bigSlowHand = view({
+    // nine characters plus scatter: the flush is rich but 3+ tiles away
+    hand: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 18, 27, 31],
+    drawn: null,
+  });
+  const mk = (over: Partial<SeatView>): SeatView => ({ ...bigSlowHand, ...over });
+
+  it("a ready-looking opponent turns the plan toward speed", () => {
+    const quietTable = tableThreat(mk({}), HKOS_STANDARD);
+    // seat 2: three melds and late-honour cuts — reads nearly ready
+    const fast = mk({
+      melds: [[], [], [pung(10, 1), pung(14, 3), pung(22, 1)], []],
+      discards: [[], [], [0, 4, 9, 13, 20, 24, 2, 6, 31, 27], []],
+    });
+    const fastTable = tableThreat(fast, HKOS_STANDARD);
+    expect(fastTable.max).toBeGreaterThan(quietTable.max);
+    const sBig = shapeOf(bigSlowHand);
+    const calm = chooseRoute(sBig, HKOS_STANDARD, DEFAULT_PROFILE, quietTable);
+    const raced = chooseRoute(shapeOf(fast), HKOS_STANDARD, DEFAULT_PROFILE, fastTable);
+    // under race pressure the distant flush must be worth strictly less
+    expect(raced.score).toBeLessThan(calm.score);
+  });
+
+  it("a contested suit sinks that suit's route", () => {
+    // seat 1 has melded six bamboo and starves it — bamboo is being eaten
+    const v = mk({
+      hand: [9, 10, 11, 12, 13, 14, 15, 16, 17, 0, 18, 27, 31],  // bamboo-rich us
+      melds: [[], [pung(11, 2), pung(15, 3)], [], []],
+      discards: [[], [0, 4, 19, 23, 2, 6], [], []],
+    });
+    const t = tableThreat(v, HKOS_STANDARD);
+    const contested = suitContest("bamboo", t);
+    expect(contested).toBeGreaterThan(0.3);
+    expect(suitContest("chars", t)).toBeLessThan(contested);
+    // and the route scorer must price the bamboo flush below its blind self
+    const blind = chooseRoute(shapeOf(v), HKOS_STANDARD, DEFAULT_PROFILE, null);
+    const aware = chooseRoute(shapeOf(v), HKOS_STANDARD, DEFAULT_PROFILE, t);
+    if (blind.route.suit === "bamboo" && aware.route.suit === "bamboo") {
+      expect(aware.score).toBeLessThan(blind.score);
+    }
   });
 });

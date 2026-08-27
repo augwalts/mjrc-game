@@ -1939,7 +1939,12 @@ function tableThreat(v, rules) {
     if (s === v.seat) continue;
     seats.push(assessSeatThreat(v, s, rules));
   }
-  return { seats, max: Math.max(0, ...seats.map((t) => t.threat)) };
+  const suitDepletion = [0, 0, 0];
+  for (let s = 0; s < 4; s++) {
+    for (const t of v.discards[s]) if (isSuited(t)) suitDepletion[suitIx(t)]++;
+    for (const m of v.melds[s]) for (const t of m.tiles) if (isSuited(t)) suitDepletion[suitIx(t)]++;
+  }
+  return { seats, max: Math.max(0, ...seats.map((t) => t.threat)), suitDepletion };
 }
 function feedsSeat(tile, t) {
   if (isHonour(tile)) return t.exposure >= 0.5 ? 0.6 : 0.2;
@@ -1969,9 +1974,15 @@ var DEFAULT_PROFILE = {
   // claims and the table goes alien-quiet — the texture gate caught exactly
   // that at 0.55. Evolution owns fine-tuning; the default must pass the gate.
   routeDecay: 0.45,
-  leftFeedWeight: 0.8
+  leftFeedWeight: 0.8,
+  urgencyWeight: 0.5,
+  suitContestWeight: 0.8
 };
 var profileOf = (cfg) => cfg.profile ?? DEFAULT_PROFILE;
+function tableRead(v, cfg) {
+  const p = profileOf(cfg);
+  return p.threatSensitivity > 0 || p.urgencyWeight > 0 || p.suitContestWeight > 0 ? tableThreat(v, cfg.ruleset) : null;
+}
 var faanFor = (r, id) => r.faanTable[id] ?? 0;
 function pickOne(ties, rnd) {
   const r = rnd();
@@ -1990,6 +2001,15 @@ function shapeOf(v) {
     roundWind: v.roundWind,
     leftDiscards: v.discards[(v.seat + 3) % 4]
   };
+}
+function suitContest(suit, table) {
+  const ix = suit === "chars" ? 0 : suit === "bamboo" ? 1 : 2;
+  let collector = 0;
+  for (const t of table.seats) {
+    if (t.intentSuit === ix) collector = Math.max(collector, t.intentStrength);
+  }
+  const depletion = Math.min(1, table.suitDepletion[ix] / 18);
+  return collector * 0.7 + depletion * 0.5;
 }
 function leftFeed(shape, suit) {
   const suited = (shape.leftDiscards ?? []).filter((t) => t < 27);
@@ -2103,13 +2123,14 @@ function honoursHeld(shape, c) {
   return n;
 }
 var isConcealedHand = (melds) => melds.every((m) => m.kind === "kong" && m.concealed);
-function routeValue(faan, distance, rules, profile) {
+function routeValue(faan, distance, rules, profile, urgency) {
   const cv = profile.chipValuation;
   if (cv <= 0) return faan;
   const floor = rules.minimumFaan;
   const floorPay = Math.max(1, rules.payment.onDiscard(floor));
   const rel = Math.max(0, rules.payment.onDiscard(Math.min(faan, rules.limitFaan))) / floorPay;
-  const chipEV = floor * rel * Math.pow(profile.routeDecay, Math.max(0, distance));
+  const decay = Math.max(0.15, profile.routeDecay * (1 - profile.urgencyWeight * urgency));
+  const chipEV = floor * rel * Math.pow(decay, Math.max(0, distance));
   return (1 - cv) * faan + cv * chipEV;
 }
 function routeFaan(r, shape, rules, c) {
@@ -2126,7 +2147,8 @@ function routeFaan(r, shape, rules, c) {
   else if (r.suit === null) n += faanFor(rules, "allChows");
   return n;
 }
-function assessRoutes(shape, rules, profile = DEFAULT_PROFILE) {
+function assessRoutes(shape, rules, profile = DEFAULT_PROFILE, table = null) {
+  const urgency = table?.max ?? 0;
   const c = counts(shape.concealed);
   const melds = shape.melds.length;
   const out = [];
@@ -2161,9 +2183,12 @@ function assessRoutes(shape, rules, profile = DEFAULT_PROFILE) {
     const surplus = Math.max(0, offRoute - Math.max(0, distance));
     const faan = routeFaan(route, shape, rules, c);
     const attainable = faan + faanFor(rules, "selfDraw");
-    let score3 = routeValue(faan, distance, rules, profile) * profile.faanWeight - distance * profile.routeDistanceWeight * (route.orphans ? ORPHANS_DISTANCE_TAX : 1) - surplus * profile.offRouteWeight + // 上家 as supply line (owner, 2026-08-27): a suit route lives or dies on
+    let score3 = routeValue(faan, distance, rules, profile, urgency) * profile.faanWeight - distance * profile.routeDistanceWeight * (route.orphans ? ORPHANS_DISTANCE_TAX : 1) - surplus * profile.offRouteWeight + // 上家 as supply line (owner, 2026-08-27): a suit route lives or dies on
     // whether the seat before you is feeding that suit or hoarding it.
-    (route.suit !== null ? leftFeed(shape, route.suit) * profile.leftFeedWeight : 0);
+    (route.suit !== null ? leftFeed(shape, route.suit) * profile.leftFeedWeight : 0) - // SUIT SUPPLY: a route into a suit the table is eating — a collector
+    // declared on it, or a third of its copies already visible — is priced
+    // down before any tile is thrown at it.
+    (route.suit !== null && table !== null ? suitContest(route.suit, table) * profile.suitContestWeight : 0);
     if (attainable < rules.minimumFaan) score3 -= profile.belowMinimumPenalty;
     if (!feasible) score3 = Number.NEGATIVE_INFINITY;
     out.push({
@@ -2180,8 +2205,8 @@ function assessRoutes(shape, rules, profile = DEFAULT_PROFILE) {
   }
   return out;
 }
-function chooseRoute(shape, rules, profile = DEFAULT_PROFILE) {
-  const all = assessRoutes(shape, rules, profile);
+function chooseRoute(shape, rules, profile = DEFAULT_PROFILE, table = null) {
+  const all = assessRoutes(shape, rules, profile, table);
   let best = all[0];
   for (const a of all) if (a.score > best.score) best = a;
   return best;
@@ -2256,12 +2281,11 @@ var distinctAscending = (tiles) => {
 function rankDiscards(v, cfg) {
   const profile = profileOf(cfg);
   const shape = shapeOf(v);
-  const chosen = chooseRoute(shape, cfg.ruleset, profile);
+  const threats = tableRead(v, cfg);
+  const chosen = chooseRoute(shape, cfg.ruleset, profile, threats);
   const visible = visibleCounts(v);
   let foldFactor = 0;
-  let threats = null;
-  if (profile.threatSensitivity > 0) {
-    threats = tableThreat(v, cfg.ruleset);
+  if (profile.threatSensitivity > 0 && threats !== null) {
     const ownStrength = Math.max(0, 1 - chosen.distance / 4);
     foldFactor = Math.max(0, threats.max - ownStrength * profile.threatPushValue);
   }
@@ -2390,7 +2414,7 @@ function bestDistanceAfterDiscard(shape, route) {
 function claimContext(v, cfg) {
   const profile = profileOf(cfg);
   const shape = shapeOf(v);
-  const route = chooseRoute(shape, cfg.ruleset, profile);
+  const route = chooseRoute(shape, cfg.ruleset, profile, tableRead(v, cfg));
   return { shape, route, distance: route.distance };
 }
 function assessClaim(v, option, cfg, context) {
@@ -2463,7 +2487,7 @@ var claimRank = (o) => o.kind === "kong" ? 0 : o.kind === "pung" ? 1 : o.kind ==
 function shouldKong(v, tile, form, cfg) {
   const shape = shapeOf(v);
   if (!hasFaanPath(shape, cfg.ruleset)) return false;
-  const route = chooseRoute(shape, cfg.ruleset, profileOf(cfg));
+  const route = chooseRoute(shape, cfg.ruleset, profileOf(cfg), tableRead(v, cfg));
   if (route.route.orphans) return false;
   if (!onRoute(route.route, tile)) return false;
   const melds = shape.melds.length;

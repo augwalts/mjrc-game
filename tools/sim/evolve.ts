@@ -69,7 +69,9 @@ interface EvalResult {
   /** Per-hand activity mix and the winning-pattern census for this eval. */
   activity: { chows: number; pungs: number; kongs: number;
               winsOnDiscard: number; selfDraws: number; hands: number;
-              patterns: Record<string, number> };
+              patterns: Record<string, number>;
+              /** Wins by final faan value, index = faan (3..13). */
+              faanHist: number[] };
 }
 
 const PLACEMENT = [3, 1, -1, -3];
@@ -125,6 +127,8 @@ function evaluate(
     for (const [k, n] of Object.entries(r.patterns)) patterns[k] = (patterns[k] ?? 0) + n;
     faans.push(...r.faans);
   });
+  const faanHist = new Array(14).fill(0);
+  for (const f of faans) faanHist[Math.max(0, Math.min(13, Math.round(f)))]++;
   return {
     pointsPerMatch: +(points / seeds.length).toFixed(2),
     chipsPerMatch: +(chips / seeds.length).toFixed(1),
@@ -132,7 +136,7 @@ function evaluate(
     refusedPerHand: +(refused / hands).toFixed(2),
     meanFaan: +(faans.reduce((a, b) => a + b, 0) / Math.max(1, faans.length)).toFixed(2),
     claimsPerHand: +(claims / hands).toFixed(2),
-    activity: { chows, pungs, kongs, winsOnDiscard: wod, selfDraws: sd, hands, patterns },
+    activity: { chows, pungs, kongs, winsOnDiscard: wod, selfDraws: sd, hands, patterns, faanHist },
   };
 }
 

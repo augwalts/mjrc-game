@@ -170,6 +170,9 @@ export function assessSeatThreat(v: SeatView, seat: SeatIndex, rules?: Ruleset):
 export interface TableThreat {
   seats: SeatThreat[];
   max: number;
+  /** Visible suited copies per suit (all discards + all melds), of 36 each —
+   * the table-wide supply picture a suit route must be priced against. */
+  suitDepletion: [number, number, number];
 }
 
 export function tableThreat(v: SeatView, rules?: Ruleset): TableThreat {
@@ -178,7 +181,12 @@ export function tableThreat(v: SeatView, rules?: Ruleset): TableThreat {
     if (s === v.seat) continue;
     seats.push(assessSeatThreat(v, s, rules));
   }
-  return { seats, max: Math.max(0, ...seats.map((t) => t.threat)) };
+  const suitDepletion: [number, number, number] = [0, 0, 0];
+  for (let s = 0; s < 4; s++) {
+    for (const t of v.discards[s]!) if (isSuited(t)) suitDepletion[suitIx(t)]!++;
+    for (const m of v.melds[s]!) for (const t of m.tiles) if (isSuited(t)) suitDepletion[suitIx(t)]!++;
+  }
+  return { seats, max: Math.max(0, ...seats.map((t) => t.threat)), suitDepletion };
 }
 
 /**

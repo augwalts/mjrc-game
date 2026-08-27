@@ -42,7 +42,7 @@
  * every decision entry point below calls `cfg.rnd` EXACTLY ONCE so the stream
  * position depends on the number of decisions taken, never on hand contents.
  */
-import { feedsSeat, tableThreat } from "./threat.js";
+import { feedsSeat, tableThreat, type TableThreat } from "./threat.js";
 import {
   DRAGONS_START,
   FLOWERS_START,
@@ -166,6 +166,21 @@ export interface BotProfile {
   routeDecay: number;
   /** Weight on 上家's feed when scoring a suit-restricted route. */
   leftFeedWeight: number;
+  /**
+   * THE RACE (owner, 2026-08-27): "if your opponents are moving fast you need
+   * to move faster — unless your hand's EV is high enough." Scales how hard
+   * table readiness discounts slow routes: effective decay shrinks as the most
+   * threatening opponent looks closer to winning, so distant hands lose value
+   * in a fast race while a huge nearly-done hand still justifies itself.
+   */
+  urgencyWeight: number;
+  /**
+   * SUIT SUPPLY, table-wide (owner): "if the opponent before you is going for
+   * sticks you'll have a hard time going for sticks." Beyond the left seat's
+   * chow feed: any collector plus visible depletion shrinks a suit's remaining
+   * supply, and a suit route is priced down by how contested its suit is.
+   */
+  suitContestWeight: number;
 }
 
 export const DEFAULT_PROFILE: BotProfile = {
@@ -189,6 +204,8 @@ export const DEFAULT_PROFILE: BotProfile = {
   // that at 0.55. Evolution owns fine-tuning; the default must pass the gate.
   routeDecay: 0.45,
   leftFeedWeight: 0.8,
+  urgencyWeight: 0.5,
+  suitContestWeight: 0.8,
 };
 
 export interface BotConfig {
@@ -202,6 +219,15 @@ export interface BotConfig {
 }
 
 const profileOf = (cfg: BotConfig): BotProfile => cfg.profile ?? DEFAULT_PROFILE;
+
+/** The table read, taken once per decision — null when every dial that could
+ * consume it is off, so the blind configuration stays byte-identical. */
+function tableRead(v: SeatView, cfg: BotConfig): TableThreat | null {
+  const p = profileOf(cfg);
+  return p.threatSensitivity > 0 || p.urgencyWeight > 0 || p.suitContestWeight > 0
+    ? tableThreat(v, cfg.ruleset)
+    : null;
+}
 
 /** Faan this house pays for a pattern, or 0 when it does not play it. */
 const faanFor = (r: Ruleset, id: string): number => r.faanTable[id] ?? 0;
@@ -243,6 +269,19 @@ export function shapeOf(v: SeatView): HandShape {
  * the uniform third. +1 ≈ they shower you with it; -1 ≈ they cut everything
  * BUT it, i.e. they are collecting it themselves and your supply is gone.
  */
+/** How contested a suit is, 0-1ish: the strongest declared collector plus the
+ * visible depletion of its 36 copies. Sensitive by construction — both inputs
+ * are 0 until real evidence (melds, discards) exists. */
+export function suitContest(suit: Suit, table: TableThreat): number {
+  const ix = suit === "chars" ? 0 : suit === "bamboo" ? 1 : 2;
+  let collector = 0;
+  for (const t of table.seats) {
+    if (t.intentSuit === ix) collector = Math.max(collector, t.intentStrength);
+  }
+  const depletion = Math.min(1, table.suitDepletion[ix]! / 18);
+  return collector * 0.7 + depletion * 0.5;
+}
+
 export function leftFeed(shape: HandShape, suit: Suit): number {
   const suited = (shape.leftDiscards ?? []).filter((t) => t < 27);
   if (suited.length < 3) return 0;
@@ -484,13 +523,20 @@ export const isConcealedHand = (melds: readonly Meld[]): boolean =>
  * P(complete) decaying per remaining tile of distance. Scaled so a floor hand
  * at distance 0 is worth its old linear self — existing weights keep meaning.
  */
-function routeValue(faan: number, distance: number, rules: Ruleset, profile: BotProfile): number {
+function routeValue(
+  faan: number, distance: number, rules: Ruleset, profile: BotProfile, urgency: number,
+): number {
   const cv = profile.chipValuation;
   if (cv <= 0) return faan;
   const floor = rules.minimumFaan;
   const floorPay = Math.max(1, rules.payment.onDiscard(floor));
   const rel = Math.max(0, rules.payment.onDiscard(Math.min(faan, rules.limitFaan))) / floorPay;
-  const chipEV = floor * rel * Math.pow(profile.routeDecay, Math.max(0, distance));
+  // THE RACE: the most-ready opponent shrinks the effective decay, so every
+  // remaining tile of distance costs more when the table is fast. A huge hand
+  // that is nearly done keeps its value; a huge hand far away does not — the
+  // owner's "move faster, unless the EV is high enough" in one exponent.
+  const decay = Math.max(0.15, profile.routeDecay * (1 - profile.urgencyWeight * urgency));
+  const chipEV = floor * rel * Math.pow(decay, Math.max(0, distance));
   return (1 - cv) * faan + cv * chipEV;
 }
 
@@ -525,7 +571,9 @@ export function assessRoutes(
   shape: HandShape,
   rules: Ruleset,
   profile: BotProfile = DEFAULT_PROFILE,
+  table: TableThreat | null = null,
 ): RouteAssessment[] {
+  const urgency = table?.max ?? 0;
   const c = counts(shape.concealed);
   const melds = shape.melds.length;
   const out: RouteAssessment[] = [];
@@ -585,12 +633,18 @@ export function assessRoutes(
     const faan = routeFaan(route, shape, rules, c);
     const attainable = faan + faanFor(rules, "selfDraw");
     let score =
-      routeValue(faan, distance, rules, profile) * profile.faanWeight -
+      routeValue(faan, distance, rules, profile, urgency) * profile.faanWeight -
       distance * profile.routeDistanceWeight * (route.orphans ? ORPHANS_DISTANCE_TAX : 1) -
       surplus * profile.offRouteWeight +
       // 上家 as supply line (owner, 2026-08-27): a suit route lives or dies on
       // whether the seat before you is feeding that suit or hoarding it.
-      (route.suit !== null ? leftFeed(shape, route.suit) * profile.leftFeedWeight : 0);
+      (route.suit !== null ? leftFeed(shape, route.suit) * profile.leftFeedWeight : 0) -
+      // SUIT SUPPLY: a route into a suit the table is eating — a collector
+      // declared on it, or a third of its copies already visible — is priced
+      // down before any tile is thrown at it.
+      (route.suit !== null && table !== null
+        ? suitContest(route.suit, table) * profile.suitContestWeight
+        : 0);
     // THE ANTI-SIN TERM. A route whose finished hand may not be taken is not a
     // fast route, it is a dead one — DESIGN.md §7's faan-floor applied as
     // steering rather than as a warning. `attainable` is the honest test: 自摸
@@ -610,8 +664,9 @@ export function chooseRoute(
   shape: HandShape,
   rules: Ruleset,
   profile: BotProfile = DEFAULT_PROFILE,
+  table: TableThreat | null = null,
 ): RouteAssessment {
-  const all = assessRoutes(shape, rules, profile);
+  const all = assessRoutes(shape, rules, profile, table);
   let best = all[0]!;
   for (const a of all) if (a.score > best.score) best = a;
   return best;
@@ -756,7 +811,8 @@ const distinctAscending = (tiles: readonly TileId[]): TileId[] => {
 export function rankDiscards(v: SeatView, cfg: BotConfig): DiscardScore[] {
   const profile = profileOf(cfg);
   const shape = shapeOf(v);
-  const chosen = chooseRoute(shape, cfg.ruleset, profile);
+  const threats = tableRead(v, cfg);
+  const chosen = chooseRoute(shape, cfg.ruleset, profile, threats);
   const visible = visibleCounts(v);
 
   // Opponent awareness (threat.ts). foldFactor rises with the scariest seat
@@ -764,9 +820,7 @@ export function rankDiscards(v: SeatView, cfg: BotConfig): DiscardScore[] {
   // distant one folds — the owner's push/fold rule. Zero-cost when the dial
   // is off: the whole block collapses to 0 and the formula is the old one.
   let foldFactor = 0;
-  let threats: ReturnType<typeof tableThreat> | null = null;
-  if (profile.threatSensitivity > 0) {
-    threats = tableThreat(v, cfg.ruleset);
+  if (profile.threatSensitivity > 0 && threats !== null) {
     const ownStrength = Math.max(0, 1 - chosen.distance / 4);
     foldFactor = Math.max(0, threats.max - ownStrength * profile.threatPushValue);
   }
@@ -1031,7 +1085,7 @@ export interface ClaimContext {
 export function claimContext(v: SeatView, cfg: BotConfig): ClaimContext {
   const profile = profileOf(cfg);
   const shape = shapeOf(v);
-  const route = chooseRoute(shape, cfg.ruleset, profile);
+  const route = chooseRoute(shape, cfg.ruleset, profile, tableRead(v, cfg));
   // The route's own distance, so before and after are measured the same way.
   return { shape, route, distance: route.distance };
 }
@@ -1188,7 +1242,7 @@ export function shouldKong(
 ): boolean {
   const shape = shapeOf(v);
   if (!hasFaanPath(shape, cfg.ruleset)) return false;
-  const route = chooseRoute(shape, cfg.ruleset, profileOf(cfg));
+  const route = chooseRoute(shape, cfg.ruleset, profileOf(cfg), tableRead(v, cfg));
   // A kong opens a meld slot and 十三么 dies with it — even a 暗槓, since four
   // of one kind can never fit one-of-each. Every 么九 tile is `onRoute` for
   // the orphans plan, so without this check the next test would wave it in.

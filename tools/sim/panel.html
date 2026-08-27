@@ -112,13 +112,32 @@ else if (D.history.length === 0) {
     const winsTotal = act.winsOnDiscard + act.selfDraws;
     const pats = Object.entries(act.patterns).sort((a, b) => b[1] - a[1]).slice(0, 12);
     cards.push(`<div class="card"><h2>What the bots are actually doing — latest generation</h2>
-      <table><tr><th>per hand</th><th></th></tr>
-        <tr><td>chows 上</td><td>${per(act.chows)}</td></tr>
-        <tr><td>pungs 碰</td><td>${per(act.pungs)}</td></tr>
-        <tr><td>kongs 槓 (all forms)</td><td>${per(act.kongs)}</td></tr>
-        <tr><td>wins — on a discard 食糊</td><td>${per(act.winsOnDiscard)}</td></tr>
-        <tr><td>wins — self-draw 自摸</td><td>${per(act.selfDraws)}</td></tr>
+      <div class="mut" style="font-size:11px;margin-bottom:5px">All rates are <b>average count per hand played</b> —
+      "0.53 chows" means a typical hand contains about half a chow claim across the whole table (four seats).</div>
+      <table>
+        <tr><td>chows 上</td><td>${per(act.chows)} / hand</td></tr>
+        <tr><td>pungs 碰</td><td>${per(act.pungs)} / hand</td></tr>
+        <tr><td>kongs 槓 (all forms)</td><td>${per(act.kongs)} / hand</td></tr>
+        <tr><td>wins — on a discard 食糊</td><td>${per(act.winsOnDiscard)} / hand</td></tr>
+        <tr><td>wins — self-draw 自摸</td><td>${per(act.selfDraws)} / hand</td></tr>
       </table>
+      ${(() => {
+        const claims = act.chows + act.pungs + act.kongs;
+        if (!claims) return "";
+        const pc = (n) => (n / claims * 100).toFixed(0) + "%";
+        return `<div class="mut" style="font-size:11px;margin-top:4px">of all claims: ${pc(act.chows)} chow · ${pc(act.pungs)} pung · ${pc(act.kongs)} kong</div>`;
+      })()}
+      ${(() => {
+        const h = act.faanHist;
+        if (!h || !h.some((n) => n > 0)) return "";
+        const max = Math.max(...h);
+        const wins = h.reduce((a, b) => a + b, 0);
+        return `<div class="mut" style="font-size:11px;margin:10px 0 3px"><b>Winning-hand size distribution</b> — ${wins} wins by final faan:</div>
+          <div style="display:flex;align-items:flex-end;gap:3px;height:52px">` +
+          h.map((n, f) => f < 3 ? "" :
+            `<div style="flex:1;text-align:center"><div style="background:var(--acc);height:${(n / max * 40).toFixed(0)}px;border-radius:2px 2px 0 0"></div><div style="font-size:9px;color:var(--dim)">${f}</div><div style="font-size:9px">${n || ""}</div></div>`).join("") +
+          `</div><div class="mut" style="font-size:10px;margin-top:2px">a wall at 3 = everyone scrapes the floor; mass at 5+ = value hands actually happen</div>`;
+      })()}
       <div class="mut" style="font-size:11px;margin:8px 0 4px"><b>Winning-pattern census</b> — every scoring
       pattern that appeared in a winning hand across this generation's ~${act.hands.toLocaleString()} hands
       (${winsTotal} wins). This answers "which routes actually pay":</div>
