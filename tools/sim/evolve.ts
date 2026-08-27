@@ -34,6 +34,16 @@ const flag = (n: string, d: string): string => {
 };
 const GENS = Number(flag("--gens", "20"));
 const SERIAL = args.includes("--serial");
+import { readFileSync as rfs, existsSync as exs } from "node:fs";
+/** The frozen season-start bot (linear faan, no table reading). Every
+ * generation the CURRENT incumbent plays 3× this on a FIXED held-out seed set,
+ * so "are we actually getting better" is a line that can only move for real
+ * reasons — mirror self-play is zero-sum and can never show absolute progress. */
+const BASELINE: BotProfile = {
+  ...DEFAULT_PROFILE,
+  ...(exs("tools/sim/baseline-v0.json") ? JSON.parse(rfs("tools/sim/baseline-v0.json", "utf8")) : {}),
+};
+const BENCH_SEEDS = Array.from({ length: 48 }, (_, i) => 880_000 + i * 7919);
 const OUT = flag("--out", "tools/sim");
 const CANDIDATES = 6;
 const MATCHES = Number(flag("--matches", "48"));
@@ -96,6 +106,10 @@ function mkDecide(profile: BotProfile, seed: number): Decide {
 
 interface GenRecord {
   gen: number; seeds: [number, number]; control: EvalResult;
+  /** Incumbent-after-this-gen vs the frozen baseline on fixed held-out seeds. */
+  bench: EvalResult;
+  /** Exact workload this generation. */
+  work: { matches: number; hands: number };
   /** Set-B result for the selected candidate; null when selection failed set A. */
   confirm: EvalResult | null;
   candidates: { id: number; result: EvalResult; profile: BotProfile }[];
@@ -158,8 +172,15 @@ for (let gen = 0; gen < GENS; gen++) {
     }
   }
 
+  const bench = await runEval(incumbent, BASELINE, BENCH_SEEDS);
+  const evalHands = (r: EvalResult) => r.activity.hands;
+  const work = {
+    matches: MATCHES * (7 + (confirm ? 2 : 0) + 1),
+    hands: evalHands(control) + candidates.reduce((n, c) => n + evalHands(c.result), 0) +
+           (confirm ? evalHands(confirm) * 2 : 0) + evalHands(bench),
+  };
   history.push({
-    gen, seeds: [seeds[0]!, seeds[seeds.length - 1]!], control, confirm,
+    gen, seeds: [seeds[0]!, seeds[seeds.length - 1]!], control, confirm, bench, work,
     candidates: candidates.map((c) => ({ id: c.id, result: c.result, profile: c.profile })),
     promoted, incumbentAfter: incumbent, ms: Date.now() - t0,
   });
@@ -168,7 +189,8 @@ for (let gen = 0; gen < GENS; gen++) {
     `gen ${gen}: control ${control.pointsPerMatch}pt · best ${best.result.pointsPerMatch}pt` +
     (confirm ? ` · confirm ${confirm.pointsPerMatch}pt` : "") +
     ` · ${promoted === null ? "kept" : `PROMOTED #${promoted}`}` +
-    ` · refused/hand ${best.result.refusedPerHand} · draw ${(best.result.drawRate * 100).toFixed(0)}% · ${((Date.now() - t0) / 1000).toFixed(0)}s`,
+    ` · vs baseline ${bench.chipsPerMatch > 0 ? "+" : ""}${bench.chipsPerMatch} chips (won ${bench.chipsWonPerMatch} / lost ${bench.chipsLostPerMatch})` +
+    ` · ${work.matches}m/${work.hands}h · ${((Date.now() - t0) / 1000).toFixed(0)}s`,
   );
 }
 flush("done");

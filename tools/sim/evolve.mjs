@@ -416,7 +416,8 @@ var DEFAULT_PROFILE = {
   routeDecay: 0.45,
   leftFeedWeight: 0.8,
   urgencyWeight: 0.5,
-  suitContestWeight: 0.8
+  suitContestWeight: 0.8,
+  claimSupplyWeight: 0.6
 };
 var profileOf = (cfg) => cfg.profile ?? DEFAULT_PROFILE;
 function tableRead(v, cfg) {
@@ -563,6 +564,16 @@ function honoursHeld(shape, c) {
   return n;
 }
 var isConcealedHand = (melds) => melds.every((m) => m.kind === "kong" && m.concealed);
+function convertiblePairs(c) {
+  let n = 0;
+  for (let i = 0; i < SCORING_KINDS; i++) if (c[i] === 2) n++;
+  return n;
+}
+function claimSupplyCredit(route, pairs, profile) {
+  if (route.orphans) return 0;
+  const rate = route.pungs || route.honoursOnly ? 1 : route.suit !== null ? 0.5 : 0.25;
+  return profile.claimSupplyWeight * rate * pairs;
+}
 function routeValue(faan, distance, rules, profile, urgency) {
   const cv = profile.chipValuation;
   if (cv <= 0) return faan;
@@ -623,7 +634,12 @@ function assessRoutes(shape, rules, profile = DEFAULT_PROFILE, table = null) {
     const surplus = Math.max(0, offRoute - Math.max(0, distance));
     const faan = routeFaan(route, shape, rules, c);
     const attainable = faan + faanFor(rules, "selfDraw");
-    let score3 = routeValue(faan, distance, rules, profile, urgency) * profile.faanWeight - distance * profile.routeDistanceWeight * (route.orphans ? ORPHANS_DISTANCE_TAX : 1) - surplus * profile.offRouteWeight + // 上家 as supply line (owner, 2026-08-27): a suit route lives or dies on
+    const credit = Math.min(
+      Math.max(0, distance) / 2,
+      claimSupplyCredit(route, convertiblePairs(routeCounts(route, c)), profile)
+    );
+    const effDistance = Math.max(0, distance) - credit;
+    let score3 = routeValue(faan, effDistance, rules, profile, urgency) * profile.faanWeight - effDistance * profile.routeDistanceWeight * (route.orphans ? ORPHANS_DISTANCE_TAX : 1) - surplus * profile.offRouteWeight + // 上家 as supply line (owner, 2026-08-27): a suit route lives or dies on
     // whether the seat before you is feeding that suit or hoarding it.
     (route.suit !== null ? leftFeed(shape, route.suit) * profile.leftFeedWeight : 0) - // SUIT SUPPLY: a route into a suit the table is eating — a collector
     // declared on it, or a third of its copies already visible — is priced
@@ -2588,7 +2604,9 @@ function playMatch(config, decide, opts = {}) {
     kongs: 0,
     winsOnDiscard: 0,
     selfDraws: 0,
-    patterns: {}
+    patterns: {},
+    seatWon: [0, 0, 0, 0],
+    seatLost: [0, 0, 0, 0]
   };
   if (opts.recordHands) r.handRecords = [];
   let pendingWin = null;
@@ -2605,6 +2623,11 @@ function playMatch(config, decide, opts = {}) {
         else {
           r.wins++;
           if (typeof p.faan === "number") r.faans.push(p.faan);
+        }
+        if (p.chipDeltas) for (const st of SEATS) {
+          const d = p.chipDeltas[st] ?? 0;
+          if (d > 0) r.seatWon[st] += d;
+          else r.seatLost[st] += d;
         }
         if (r.handRecords) {
           const rec = {
@@ -2682,7 +2705,7 @@ function placementPoints(chips, seat) {
   return sum / equal;
 }
 function evaluate(candidate, incumbent2, seeds, sample) {
-  let chips = 0, points = 0, hands = 0, draws = 0, refused = 0, claims = 0;
+  let chips = 0, won = 0, lost = 0, points = 0, hands = 0, draws = 0, refused = 0, claims = 0;
   let chows = 0, pungs = 0, kongs = 0, wod = 0, sd = 0;
   const patterns = {};
   const faans = [];
@@ -2700,6 +2723,8 @@ function evaluate(candidate, incumbent2, seeds, sample) {
       sample.push({ seed, chips: r.chips.slice(), hands: r.hands, handRecords: r.handRecords ?? [] });
     }
     chips += r.chips[mySeat];
+    won += r.seatWon[mySeat];
+    lost += r.seatLost[mySeat];
     points += placementPoints(r.chips, mySeat);
     hands += r.hands;
     draws += r.draws;
@@ -2718,6 +2743,8 @@ function evaluate(candidate, incumbent2, seeds, sample) {
   return {
     pointsPerMatch: +(points / seeds.length).toFixed(2),
     chipsPerMatch: +(chips / seeds.length).toFixed(1),
+    chipsWonPerMatch: +(won / seeds.length).toFixed(1),
+    chipsLostPerMatch: +(lost / seeds.length).toFixed(1),
     drawRate: +(draws / hands).toFixed(3),
     refusedPerHand: +(refused / hands).toFixed(2),
     meanFaan: +(faans.reduce((a, b) => a + b, 0) / Math.max(1, faans.length)).toFixed(2),
@@ -2727,6 +2754,7 @@ function evaluate(candidate, incumbent2, seeds, sample) {
 }
 
 // tools/sim/evolve.ts
+import { readFileSync as rfs, existsSync as exs } from "node:fs";
 import { readFileSync, existsSync } from "node:fs";
 var args = process.argv.slice(2);
 var flag = (n, d) => {
@@ -2735,6 +2763,11 @@ var flag = (n, d) => {
 };
 var GENS = Number(flag("--gens", "20"));
 var SERIAL = args.includes("--serial");
+var BASELINE = {
+  ...DEFAULT_PROFILE,
+  ...exs("tools/sim/baseline-v0.json") ? JSON.parse(rfs("tools/sim/baseline-v0.json", "utf8")) : {}
+};
+var BENCH_SEEDS = Array.from({ length: 48 }, (_, i) => 88e4 + i * 7919);
 var OUT = flag("--out", "tools/sim");
 var CANDIDATES = 6;
 var MATCHES = Number(flag("--matches", "48"));
@@ -2820,11 +2853,19 @@ for (let gen = 0; gen < GENS; gen++) {
       promoted = best.id;
     }
   }
+  const bench = await runEval(incumbent, BASELINE, BENCH_SEEDS);
+  const evalHands = (r) => r.activity.hands;
+  const work = {
+    matches: MATCHES * (7 + (confirm ? 2 : 0) + 1),
+    hands: evalHands(control) + candidates.reduce((n, c) => n + evalHands(c.result), 0) + (confirm ? evalHands(confirm) * 2 : 0) + evalHands(bench)
+  };
   history.push({
     gen,
     seeds: [seeds[0], seeds[seeds.length - 1]],
     control,
     confirm,
+    bench,
+    work,
     candidates: candidates.map((c) => ({ id: c.id, result: c.result, profile: c.profile })),
     promoted,
     incumbentAfter: incumbent,
@@ -2832,7 +2873,7 @@ for (let gen = 0; gen < GENS; gen++) {
   });
   flush("running");
   console.log(
-    `gen ${gen}: control ${control.pointsPerMatch}pt \xB7 best ${best.result.pointsPerMatch}pt` + (confirm ? ` \xB7 confirm ${confirm.pointsPerMatch}pt` : "") + ` \xB7 ${promoted === null ? "kept" : `PROMOTED #${promoted}`} \xB7 refused/hand ${best.result.refusedPerHand} \xB7 draw ${(best.result.drawRate * 100).toFixed(0)}% \xB7 ${((Date.now() - t0) / 1e3).toFixed(0)}s`
+    `gen ${gen}: control ${control.pointsPerMatch}pt \xB7 best ${best.result.pointsPerMatch}pt` + (confirm ? ` \xB7 confirm ${confirm.pointsPerMatch}pt` : "") + ` \xB7 ${promoted === null ? "kept" : `PROMOTED #${promoted}`} \xB7 vs baseline ${bench.chipsPerMatch > 0 ? "+" : ""}${bench.chipsPerMatch} chips (won ${bench.chipsWonPerMatch} / lost ${bench.chipsLostPerMatch}) \xB7 ${work.matches}m/${work.hands}h \xB7 ${((Date.now() - t0) / 1e3).toFixed(0)}s`
   );
 }
 flush("done");

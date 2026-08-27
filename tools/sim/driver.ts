@@ -67,6 +67,10 @@ export interface MatchResult {
   winsOnDiscard: number;
   selfDraws: number;
   patterns: Record<string, number>;
+  /** Chips gained on winning hands / bled on losing ones, per seat — the two
+   * halves of "maximize chip wins, minimize chip losses". Sum = chips. */
+  seatWon: number[];
+  seatLost: number[];
   /** Per-hand detail, only when playMatch is called with recordHands. */
   handRecords?: HandRecord[];
 }
@@ -78,7 +82,8 @@ export function playMatch(
 ): MatchResult {
   let { state, events } = startMatch(config);
   const r: MatchResult = { chips: [0, 0, 0, 0], hands: 0, draws: 0, wins: 0, refusedWins: 0, claims: 0, faans: [],
-    chows: 0, pungs: 0, kongs: 0, winsOnDiscard: 0, selfDraws: 0, patterns: {} };
+    chows: 0, pungs: 0, kongs: 0, winsOnDiscard: 0, selfDraws: 0, patterns: {},
+    seatWon: [0, 0, 0, 0], seatLost: [0, 0, 0, 0] };
   if (opts.recordHands) r.handRecords = [];
   /** Win-event detail held until the handEnd that settles it (same batch). */
   let pendingWin: WinningHandRecord | null = null;
@@ -94,6 +99,10 @@ export function playMatch(
         };
         if (p.outcome === "exhaustiveDraw") r.draws++;
         else { r.wins++; if (typeof p.faan === "number") r.faans.push(p.faan); }
+        if (p.chipDeltas) for (const st of SEATS) {
+          const d = p.chipDeltas[st] ?? 0;
+          if (d > 0) r.seatWon[st]! += d; else r.seatLost[st]! += d;
+        }
         if (r.handRecords) {
           const rec: HandRecord = {
             outcome: p.outcome as HandRecord["outcome"],

@@ -294,7 +294,10 @@ describe("bailing out", () => {
     const orphans = all.find((a) => a.route.orphans)!;
     expect(orphans.feasible).toBe(true); // the gate did NOT do this
     const chosen = chooseRoute(shape(stalled), RULES);
-    expect(chosen.route.id).toBe("allPungs"); // scoring did
+    // Claim-supply credit (2026-08-27) re-ranks WITHIN the pung family, so pin
+    // the family, not one member: the bail path is "some pung road", exactly
+    // as the owner described it.
+    expect(chosen.route.pungs || chosen.route.honoursOnly).toBe(true);
     expect(orphans.score).toBeLessThan(chosen.score);
   });
 

@@ -11,7 +11,7 @@ body{margin:0;background:var(--bg);color:var(--ink);
   font:13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:20px;max-width:1440px;margin:0 auto}
 h1{font-size:16px;margin:0 0 2px}
 .sub{color:var(--dim);font-size:11.5px;margin-bottom:16px}
-.kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:12px}
+.kpis{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin-bottom:12px}
 .kpis .card h2{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;align-items:start;margin-bottom:12px}
 .col{display:flex;flex-direction:column;gap:12px;min-width:0}
@@ -112,6 +112,17 @@ else if (D.history.length === 0) {
   };
   const cards = [];
   const put = (slot, html) => cards.push({ slot, html });
+  // ── THE number: incumbent vs the frozen season-start bot, fixed seeds ──
+  const benches = H.map((g) => g.bench).filter(Boolean);
+  if (benches.length) {
+    const b = benches[benches.length - 1];
+    const line = benches.map((x) => x.chipsPerMatch);
+    put("kpis", `<div class="card"><h2>vs frozen baseline — chips/match</h2>
+      <div class="big ${b.chipsPerMatch > 0 ? "up" : b.chipsPerMatch < 0 ? "down" : ""}">${b.chipsPerMatch > 0 ? "+" : ""}${b.chipsPerMatch}</div>
+      ${spark(line, { fmt: (v) => (v > 0 ? "+" : "") + v, color: b.chipsPerMatch >= 0 ? "var(--ok)" : "var(--warn)" })}
+      <div class="mut" style="font-size:11px">won <b class="up">${b.chipsWonPerMatch}</b> · lost <b class="down">${b.chipsLostPerMatch}</b> per match —
+      maximize the first, minimize the second. Same frozen opponent and walls every generation: this line only moves for real reasons.</div></div>`);
+  }
   // ── what the bots actually DO: latest generation's activity mix ──
   const actSrc = (g) => {
     const c = g.promoted !== null ? g.candidates.find(x => x.id === g.promoted) : null;
@@ -326,7 +337,7 @@ else if (D.history.length === 0) {
     distance from 0 IS the noise floor. <b>best</b> = top challenger of 6 on seed set A. <b>confirm</b> = that challenger re-tested
     on a fresh unseen set B (— means it never cleared set A). Promotion needs BOTH to clear the bar, so most generations keep the
     incumbent — that is the design working, not failing.</div>
-    <table><tr><th>gen</th><th>control</th><th>best</th><th>confirm</th><th>promoted</th><th>refused/h</th><th>draw%</th><th>secs</th></tr>
+    <table><tr><th>gen</th><th>control</th><th>best</th><th>confirm</th><th>promoted</th><th>vs base</th><th>matches</th><th>hands</th><th>secs</th></tr>
     ${[...H].reverse().map(g => {
       const b = Math.max(...g.candidates.map(c => c.result.chipsPerMatch));
       const src = g.promoted !== null ? g.candidates.find(c => c.id === g.promoted).result : g.control;
@@ -337,7 +348,9 @@ else if (D.history.length === 0) {
         <td>${pts(bp ?? b)}</td>
         <td class="mut">${g.confirm ? pts(g.confirm.pointsPerMatch) : "—"}</td>
         <td>${g.promoted === null ? '<span class="mut">—</span>' : '<span class="up">#'+g.promoted+"</span>"}</td>
-        <td>${src.refusedPerHand}</td><td>${(src.drawRate*100).toFixed(0)}</td>
+        <td>${g.bench ? (g.bench.chipsPerMatch>0?"+":"")+g.bench.chipsPerMatch : "—"}</td>
+        <td class="mut">${g.work ? g.work.matches : "~336"}</td>
+        <td class="mut">${g.work ? g.work.hands.toLocaleString() : "~2,400"}</td>
         <td class="mut">${(g.ms/1000).toFixed(0)}</td></tr>`;
     }).join("")}</table></div>`);
 
