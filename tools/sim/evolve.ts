@@ -158,7 +158,7 @@ function flush(status: string): void {
   const payload = {
     status, updated: new Date().toISOString(),
     defaults: DEFAULT_PROFILE, keys: KEYS, history, sampleMatches,
-    baseline: BASELINE_PATH, ruleset: MJRC_STANDARD.id, fitness: FITNESS,
+    baseline: BASELINE_PATH, ruleset: MJRC_STANDARD.id, fitness: FITNESS, gens: GENS,
     trainingOpponent: OPPONENT,
     trainingOpponentLabel: OPPONENT === "baseline" ? baselineName : "current incumbent (mirror)",
     selectionMatches: MATCHES,

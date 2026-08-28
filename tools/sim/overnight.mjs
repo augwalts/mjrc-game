@@ -37,6 +37,11 @@ const HOURS = Number(argOf("--hours", "20"));
 //   --seed-profile tools/sim/era3-start.json --fitness chips
 const ERA = Number(argOf("--era", "2"));
 const FITNESS = argOf("--fitness", "points");
+// Owner 2026-08-28: promotions land early in a cycle; gens 9-16 mostly
+// re-confirm stability. Fewer gens per cycle = more fresh mutation streams
+// and more held-out exams per night — breadth beats depth once the dial
+// space is near-saturated.
+const GENS = argOf("--gens", "16");
 const DIR = "tools/sim";
 const deadline = Date.now() + HOURS * 3600_000;
 const log = (o) => appendFileSync(`${DIR}/overnight-log.jsonl`, JSON.stringify(o) + "\n");
@@ -109,7 +114,7 @@ while (Date.now() < deadline) {
   const restart = cycle % 5 === 0;                             // periodic fresh start
   const start = restart || !existsSync(HOF) ? SEED_PROFILE : HOF;
   const t0 = Date.now();
-  const args = [`${DIR}/evolve.mjs`, "--gens", "16", "--matches", matches, "--out", DIR,
+  const args = [`${DIR}/evolve.mjs`, "--gens", GENS, "--matches", matches, "--out", DIR,
                 "--start", start, "--opponent", opponent, "--baseline", ENEMY, "--fitness", FITNESS,
                 "--mutseed", String(9000 + cycle * 137)];
   const run = await runChild("node", args, 4 * 3600_000);

@@ -2943,6 +2943,7 @@ function flush(status) {
     baseline: BASELINE_PATH,
     ruleset: MJRC_STANDARD.id,
     fitness: FITNESS,
+    gens: GENS,
     trainingOpponent: OPPONENT,
     trainingOpponentLabel: OPPONENT === "baseline" ? baselineName : "current incumbent (mirror)",
     selectionMatches: MATCHES,
