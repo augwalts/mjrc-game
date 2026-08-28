@@ -35,3 +35,4 @@
 {"cycle":32,"opponent":"baseline","matches":96,"start":"tools/sim/hall-of-fame.json","mins":"24.2","heldOutChips":26,"reigningOnSameBlock":26,"improved":false,"hofScore":70.2}
 {"cycle":33,"opponent":"mirror","matches":48,"start":"tools/sim/hall-of-fame.json","mins":"17.2","heldOutChips":36.1,"reigningOnSameBlock":36.1,"improved":false,"hofScore":70.2}
 {"era":2,"cycle":1,"opponent":"baseline","matches":48,"start":"tools/sim/baseline-v1.json","mins":"41.8","heldOutChips":23.4,"reigningOnSameBlock":null,"vsV0":51.9,"improved":true,"hofScore":23.4}
+{"era":2,"cycle":2,"opponent":"baseline","matches":96,"start":"tools/sim/hall-of-fame.json","mins":"51.1","heldOutChips":-22.6,"reigningOnSameBlock":-22.6,"vsV0":55.5,"improved":false,"hofScore":23.4}
