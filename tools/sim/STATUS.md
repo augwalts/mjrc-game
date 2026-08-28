@@ -1,6 +1,6 @@
 # Overnight training — live status
 
-Updated 2026-08-28T00:07:01.330Z · 11.4h remaining
+Updated 2026-08-28T00:25:11.392Z · 11.1h remaining
 
 **Hall of fame vs frozen baseline: 70.2 chips/match**
 (started at −18; the night's job is to drive this through 0)
@@ -23,5 +23,6 @@ Updated 2026-08-28T00:07:01.330Z · 11.4h remaining
 | 14 | baseline | 96 | 45.1 |  | 23.6m |
 | 15 | mirror | 48 | -18.6 |  | 15.9m |
 | 16 | baseline | 96 | 24.8 |  | 23.7m |
+| 17 | baseline | 48 | 53.3 |  | 15.8m |
 
 Files: hall-of-fame.json (best weights) · overnight-log.jsonl · runs/cycle-NNN.js (full histories)
