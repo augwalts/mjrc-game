@@ -22,11 +22,21 @@ import { readFileSync, writeFileSync, appendFileSync, copyFileSync, existsSync }
 
 import { fileURLToPath } from "node:url";
 import { dirname } from "node:path";
+import { updateSeriesHistory } from "./build-series-history.js";
 // CWD-PROOF: every path derives from this file's own location. A launch from
 // the wrong directory silently orphaned the hall-of-fame chain once (bench
 // -18 instead of +3.3) — never again.
 process.chdir(dirname(dirname(dirname(fileURLToPath(import.meta.url)))));
-const HOURS = Number((process.argv[process.argv.indexOf("--hours") + 1]) || 20);
+const argOf = (name, dflt) => {
+  const i = process.argv.indexOf(name);
+  return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : dflt;
+};
+const HOURS = Number(argOf("--hours", "20"));
+// Era parameters — defaults reproduce the era-2 series exactly, so a bare
+// restart is unchanged. Era 3: --era 3 --enemy tools/sim/baseline-v1.json
+//   --seed-profile tools/sim/era3-start.json --fitness chips
+const ERA = Number(argOf("--era", "2"));
+const FITNESS = argOf("--fitness", "points");
 const DIR = "tools/sim";
 const deadline = Date.now() + HOURS * 3600_000;
 const log = (o) => appendFileSync(`${DIR}/overnight-log.jsonl`, JSON.stringify(o) + "\n");
@@ -48,9 +58,9 @@ function flushPanel(statusLine) {
 
 // ERA 2 (2026-08-27): the enemy and the seed are both the frozen era-1
 // champion — king-of-the-hill. baseline-v0 stays as a continuity yardstick.
-const ENEMY = `${DIR}/baseline-v1.json`;
+const ENEMY = argOf("--enemy", `${DIR}/baseline-v1.json`);
 const V0 = `${DIR}/baseline-v0.json`;
-const SEED_PROFILE = `${DIR}/baseline-v1.json`;
+const SEED_PROFILE = argOf("--seed-profile", `${DIR}/baseline-v1.json`);
 const HOF = `${DIR}/hall-of-fame.json`;         // best profile ever, by held-out score
 let hofScore = -Infinity;
 if (existsSync(`${DIR}/hall-of-fame-score.txt`)) hofScore = Number(readFileSync(`${DIR}/hall-of-fame-score.txt`, "utf8"));
@@ -100,13 +110,13 @@ while (Date.now() < deadline) {
   const start = restart || !existsSync(HOF) ? SEED_PROFILE : HOF;
   const t0 = Date.now();
   const args = [`${DIR}/evolve.mjs`, "--gens", "16", "--matches", matches, "--out", DIR,
-                "--start", start, "--opponent", opponent, "--baseline", ENEMY,
+                "--start", start, "--opponent", opponent, "--baseline", ENEMY, "--fitness", FITNESS,
                 "--mutseed", String(9000 + cycle * 137)];
   const run = await runChild("node", args, 4 * 3600_000);
   const mins = ((Date.now() - t0) / 60000).toFixed(1);
   if (run.status !== 0) {
     log({ cycle, error: `evolve exited ${run.status}`, mins });
-    cyclesSoFar.push({ cycle, enemy: "baseline-v1", stats: verdict.stats, opponent, matches: Number(matches), mins: Number(mins), heldOutChips: null, improved: false });
+    cyclesSoFar.push({ cycle, enemy: ENEMY.split("/").pop().replace(".json", ""), stats: null, opponent, matches: Number(matches), generations: 0, mins: Number(mins), heldOutChips: null, improved: false });
     flushPanel(`cycle ${cycle} FAILED · cycle ${cycle + 1} evolving`);
     continue;                                                  // a bad cycle must not end the night
   }
@@ -115,12 +125,14 @@ while (Date.now() < deadline) {
   // where the detail survives (owner, 2026-08-28).
   try {
     if (!existsSync(`${DIR}/runs`)) (await import("node:fs")).mkdirSync(`${DIR}/runs`);
-    copyFileSync(`${DIR}/data.js`, `${DIR}/runs/era2-cycle-${String(cycle).padStart(3, "0")}.js`);
+    copyFileSync(`${DIR}/data.js`, `${DIR}/runs/era${ERA}-cycle-${String(cycle).padStart(3, "0")}.js`);
+    updateSeriesHistory({ dataPath: `${DIR}/data.js`, outPath: `${DIR}/series-history.js`, era: 2, cycle,
+      completedAt: new Date().toISOString(), opponent });
   } catch {}
   // FAIR ADMISSION (the +3.3 mirage lesson): candidate and the reigning
   // hall-of-famer are BOTH measured on the SAME fresh block — never compare
   // scores from different blocks, that is how variance gets crowned.
-  const block = 5_000_000 + cycle * 50_000;   // era-2 blocks — never seen in era 1
+  const block = ERA * 2_500_000 + cycle * 50_000;   // per-era virgin seed blocks
   let verdict = { chips: NaN, raw: "headtohead failed" };
   let reigning = { chips: -Infinity };
   let vsV0 = { chips: NaN };
@@ -138,9 +150,10 @@ while (Date.now() < deadline) {
     writeFileSync(`${DIR}/hall-of-fame-score.txt`, String(verdict.chips));
     hofScore = verdict.chips;
   }
-  log({ era: 2, enemy: "baseline-v1", ts: new Date().toISOString(), stats: verdict.stats, cycle, opponent, matches: Number(matches), start, mins, heldOutChips: verdict.chips,
+  log({ era: ERA, enemy: ENEMY.split("/").pop().replace(".json", ""), fitness: FITNESS, ts: new Date().toISOString(), stats: verdict.stats, cycle, opponent, matches: Number(matches), generations: 16, start, mins, heldOutChips: verdict.chips,
         reigningOnSameBlock: reigning.chips, vsV0: vsV0.chips, improved, hofScore });
-  cyclesSoFar.push({ cycle, enemy: "baseline-v1", stats: verdict.stats, opponent, matches: Number(matches), mins: Number(mins), heldOutChips: verdict.chips, vsV0: vsV0.chips, improved });
+  cyclesSoFar.push({ cycle, enemy: ENEMY.split("/").pop().replace(".json", ""), stats: verdict.stats, opponent, matches: Number(matches), generations: 16, mins: Number(mins), heldOutChips: verdict.chips,
+                    reigningOnSameBlock: reigning.chips, admissionMargin: MARGIN, vsV0: vsV0.chips, improved });
   flushPanel(`cycle ${cycle} done · cycle ${cycle + 1} evolving`);
   // ── mobile monitoring: STATUS.md pushed to GitHub every cycle ──
   while (gitBusy) await new Promise((r) => setTimeout(r, 2000));
@@ -166,7 +179,7 @@ while (Date.now() < deadline) {
       `Files: hall-of-fame.json (best weights) · overnight-log.jsonl · runs/cycle-NNN.js (full histories)`,
     ].join("\n") + "\n");
     for (const args of [["add", `${DIR}/STATUS.md`, `${DIR}/overnight-log.jsonl`, `${DIR}/hall-of-fame.json`, `${DIR}/hall-of-fame-score.txt`,
-                          `${DIR}/data.js`, `${DIR}/overnight.js`, `${DIR}/log.js`, `${DIR}/experiments.js`, `${DIR}/baselines.js`, `${DIR}/threat-audit.js`, `${DIR}/panel.html`, "-f"],
+                          `${DIR}/data.js`, `${DIR}/overnight.js`, `${DIR}/log.js`, `${DIR}/series-history.js`, `${DIR}/experiments.js`, `${DIR}/baselines.js`, `${DIR}/threat-audit.js`, `${DIR}/panel.html`, "-f"],
                         ["commit", "-q", "-m", `era2: cycle ${cycle} — ${verdict.chips} vs v1, ${vsV0.chips} vs v0`],
                         ["push", "-q"]]) {
       const g = spawnSync("git", args, { stdio: "ignore", timeout: 120_000 });

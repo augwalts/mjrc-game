@@ -26,6 +26,8 @@ export function viewFor(state: MatchState, seat: SeatIndex): SeatView {
     flowers: state.seats.map((s) => s.flowers),
     discards: state.seats.map((s) => s.discards),
     handCounts: state.seats.map((s) => s.hand.length),
+    standings: state.seats.map((s) => s.chips),
+    dealershipsDone: Math.max(0, state.seats.findIndex((s) => s.wind === 0)),
     wallRemaining: Math.max(0, state.wallEnd - state.wallIndex),
     lastDiscard: offered === null ? state.lastDiscard : { tile: offered.tile, from: offered.from },
   };

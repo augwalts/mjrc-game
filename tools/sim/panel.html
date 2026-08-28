@@ -36,6 +36,11 @@ h1{font-size:16px;margin:0 0 2px}
 .table-scroll{max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
 .decision{font-size:12px}.decision td,.decision th{white-space:nowrap}.decision td:last-child,.decision th:last-child{white-space:normal;text-align:left}
 .trend{width:100%;height:170px;display:block}.trendkey{display:flex;gap:12px;flex-wrap:wrap;font-size:10px;color:var(--dim)}
+.tabs{display:flex;gap:6px;margin:10px 0 14px;border-bottom:1px solid var(--line)}
+.tab{border:0;border-bottom:2px solid transparent;background:transparent;color:var(--dim);padding:8px 13px;cursor:pointer;font:inherit;font-weight:650}
+.tab.active{color:var(--ink);border-bottom-color:var(--acc)}.tab-panel[hidden]{display:none}
+.matrix th,.matrix td{white-space:nowrap;text-align:center}.matrix th:first-child,.matrix td:first-child{position:sticky;left:0;background:var(--card);z-index:2;text-align:left}
+.matrix .era-start{border-left:2px solid var(--gold)}.rise{color:var(--acc);font-size:9px}.fall{color:var(--warn);font-size:9px}
 table{width:100%;border-collapse:collapse;font-size:12px;font-variant-numeric:tabular-nums}
 th{text-align:right;color:var(--dim);font-weight:600;font-size:10px;text-transform:uppercase;
   letter-spacing:.05em;padding:3px 6px;border-bottom:1px solid var(--line)}
@@ -59,31 +64,38 @@ details.match summary:hover{background:#2c2c35}
 </head>
 <body>
 <h1>Self-play weight evolution <span class="pill" id="status"></span></h1>
-<div class="sub" id="sub">waiting for data.js…</div>
-<div class="nav"><b class="mut" style="font-size:10px;text-transform:uppercase;letter-spacing:.08em">jump to</b>
-  <a href="#overnightbar">Health</a><a href="#seriesKpis">Run structure</a><a href="#longitudinal">Across cycles</a><a href="#currentCycle">Within cycle</a><a href="#history">Research archive</a></div>
-<div id="overnightbar"></div>
-<div class="sectionlabel">Run structure</div>
-<div id="seriesKpis"></div>
-<div class="sectionlabel">Across all cycles — every archived generation, with era breaks</div>
-<div class="trendgrid" id="longitudinal"></div>
-<div class="sectionlabel" id="currentCycle">Within the current cycle — generation-by-generation movement</div>
-<div class="diagnostics" id="kpis"></div>
-<div class="sectionlabel">Latest generation and current-cycle detail</div>
-<div class="cols">
-  <div class="col" id="colL"></div>
-  <div class="col" id="colR"></div>
+<div class="tabs" role="tablist" aria-label="Panel scope">
+  <button class="tab active" id="tabCurrentButton" type="button" role="tab" aria-selected="true">Current cycle</button>
+  <button class="tab" id="tabOverallButton" type="button" role="tab" aria-selected="false">Overall history</button>
 </div>
-<div id="wide"></div>
-<div class="sectionlabel" id="historylabel" style="display:none">Research archive</div>
-<div id="history"></div>
-<div id="legend"></div>
+<section class="tab-panel" id="tabCurrent" role="tabpanel">
+  <div class="sub" id="sub">waiting for data.js…</div>
+  <div id="overnightbar"></div>
+  <div class="sectionlabel">Current-cycle generation decisions</div>
+  <div id="currentDecision"></div>
+  <div class="sectionlabel" id="currentCycle">Current-cycle trends — generation by generation</div>
+  <div class="diagnostics" id="kpis"></div>
+  <div class="sectionlabel">Current-cycle weights and inspection</div>
+  <div id="currentDetails"></div>
+  <div id="currentWide"></div>
+</section>
+<section class="tab-panel" id="tabOverall" role="tabpanel" hidden>
+  <div class="sectionlabel">Operation and archive coverage</div>
+  <div id="seriesKpis"></div>
+  <div class="sectionlabel">Across all cycles — every archived generation, with era breaks</div>
+  <div class="trendgrid" id="longitudinal"></div>
+  <div class="sectionlabel">Table behavior by cycle endpoint</div>
+  <div id="overallTexture"></div>
+  <div class="sectionlabel" id="historylabel" style="display:none">Research archive</div>
+  <div id="history"></div>
+  <div id="legend"></div>
+</section>
 <script>
 // Cache-busted, mobile-safe loads (document.write scripts get BLOCKED by
 // mobile Chrome on slow networks — that was "where did the rest of the html
 // go"). Append real script tags, count them down, then boot the panel.
 (function () {
-  const files = ["overnight.js", "series-history.js", "baselines.js", "threat-audit.js", "experiments.js", "log.js", "data.js"];
+  const files = ["overnight.js", "series-history.js", "baselines.js", "experiments.js", "log.js", "data.js"];
   let pending = files.length;
   const done = () => { if (--pending === 0 && window.initPanel) window.initPanel(); };
   for (const f of files) {
@@ -97,6 +109,18 @@ details.match summary:hover{background:#2c2c35}
 <script>
 window.initPanel = function initPanel() {
 const D = window.SIM_DATA;
+const showTab = (name) => {
+  const current = name !== "overall";
+  document.getElementById("tabCurrent").hidden = !current;
+  document.getElementById("tabOverall").hidden = current;
+  document.getElementById("tabCurrentButton").className = "tab" + (current ? " active" : "");
+  document.getElementById("tabOverallButton").className = "tab" + (!current ? " active" : "");
+  document.getElementById("tabCurrentButton").setAttribute("aria-selected", String(current));
+  document.getElementById("tabOverallButton").setAttribute("aria-selected", String(!current));
+};
+document.getElementById("tabCurrentButton").onclick = () => showTab("current");
+document.getElementById("tabOverallButton").onclick = () => showTab("overall");
+showTab(location.hash === "#overall" ? "overall" : "current");
 // ── operational health + series-level KPIs ──
 {
   const O = window.OVERNIGHT;
@@ -195,8 +219,6 @@ else if (D.history.length === 0) {
   };
 
   const bestChips = H.map(g => Math.max(...g.candidates.map(c => c.result.chipsPerMatch)));
-  const hasPts = last.candidates[0].result.pointsPerMatch !== undefined;
-  const bestPts = H.map(g => Math.max(...g.candidates.map(c => c.result.pointsPerMatch ?? 0)));
   // Texture KPIs read from the BENCH (same frozen enemy every generation).
   // They used to read the control/promoted set, whose opponent alternates
   // mirror/baseline cycle to cycle — cross-cycle comparison was broken (audit
@@ -215,10 +237,18 @@ else if (D.history.length === 0) {
       : (eraCycles.length ? Math.max(...eraCycles) + 1 : 1);
     const live = H.map((g) => {
       const b = g.bench ?? g.control;
+      const a = b.activity;
+      const claims = (a?.chows || 0) + (a?.pungs || 0) + (a?.kongs || 0);
       return { era: currentEra, cycle: currentCycle, gen: g.gen, promoted: g.promoted !== null,
         baseline: D.baseline, opponent: D.trainingOpponent,
         chipsPerMatch: b.chipsPerMatch, refusedPerHand: b.refusedPerHand, drawRate: b.drawRate,
-        meanFaan: b.meanFaan, threatDetection: b.threatDetection, claimsPerHand: b.claimsPerHand };
+        meanFaan: b.meanFaan, threatDetection: b.threatDetection, claimsPerHand: b.claimsPerHand,
+        chowsPerHand: a?.hands ? a.chows / a.hands : null, pungsPerHand: a?.hands ? a.pungs / a.hands : null,
+        kongsPerHand: a?.hands ? a.kongs / a.hands : null,
+        chowClaimShare: claims ? a.chows / claims : null, pungClaimShare: claims ? a.pungs / claims : null,
+        kongClaimShare: claims ? a.kongs / claims : null,
+        discardWinsPerHand: a?.hands ? a.winsOnDiscard / a.hands : null,
+        selfDrawsPerHand: a?.hands ? a.selfDraws / a.hands : null };
     });
     const liveKeys = new Set(live.map((p) => `${p.era}:${p.cycle}:${p.gen}`));
     const points = archived.filter((p) => !liveKeys.has(`${p.era}:${p.cycle}:${p.gen}`)).concat(live)
@@ -261,6 +291,51 @@ else if (D.history.length === 0) {
     ];
     document.getElementById("longitudinal").innerHTML = metrics.map(([key, title, opts]) =>
       `<div class="card"><span class="scope">ACROSS ALL CYCLES · EVERY RECORDED GENERATION</span><h2>${title}</h2>${trend(key, opts)}</div>`).join("");
+
+    // One column per cycle, using that cycle's final recorded generation. This
+    // makes table-behavior shifts readable without treating one live snapshot
+    // as a durable KPI.
+    const byCycle = new Map();
+    for (const point of points) byCycle.set(`${point.era}:${point.cycle}`, point);
+    const cycleRows = [...byCycle.values()];
+    const behavior = [
+      ["chowClaimShare", "Chows · share of claims", (v) => `${(v * 100).toFixed(0)}%`, 0.005, true],
+      ["pungClaimShare", "Pungs · share of claims", (v) => `${(v * 100).toFixed(0)}%`, 0.005, true],
+      ["kongClaimShare", "Kongs · share of claims", (v) => `${(v * 100).toFixed(1)}%`, 0.002, true],
+      ["chowsPerHand", "Chows / table hand", (v) => v.toFixed(2), 0.01, false],
+      ["pungsPerHand", "Pungs / table hand", (v) => v.toFixed(2), 0.01, false],
+      ["kongsPerHand", "Kongs / table hand", (v) => v.toFixed(2), 0.01, false],
+      ["claimsPerHand", "All claims / table hand", (v) => v.toFixed(2), 0.01, false],
+      ["discardWinsPerHand", "Discard wins / table hand", (v) => v.toFixed(2), 0.01, false],
+      ["selfDrawsPerHand", "Self-draws / table hand", (v) => v.toFixed(2), 0.01, false],
+      ["threatDetection", "Threat detection", (v) => `${(v * 100).toFixed(0)}%`, 0.01, true],
+    ];
+    const cell = (metric, value, index, threshold, percentage) => {
+      if (!Number.isFinite(value)) return '<span class="mut">—</span>';
+      let previous = null;
+      for (let i = index - 1; i >= 0; i--) {
+        if (cycleRows[i].era !== cycleRows[index].era) break;
+        if (Number.isFinite(cycleRows[i][metric])) { previous = cycleRows[i][metric]; break; }
+      }
+      if (previous === null || Math.abs(value - previous) < threshold) return behavior.find((r) => r[0] === metric)[2](value);
+      const change = value - previous;
+      const delta = percentage ? `${Math.abs(change * 100).toFixed(Math.abs(change) < 0.01 ? 1 : 0)}pp` : Math.abs(change).toFixed(2);
+      return `${behavior.find((r) => r[0] === metric)[2](value)} <span class="${change > 0 ? "rise" : "fall"}">${change > 0 ? "▲" : "▼"}${delta}</span>`;
+    };
+    const matrixHead = cycleRows.map((p, i) => {
+      const eraStart = i === 0 || p.era !== cycleRows[i - 1].era;
+      const liveCycle = p.era === currentEra && p.cycle === currentCycle;
+      return `<th class="${eraStart ? "era-start" : ""}" title="Era ${p.era}, cycle ${p.cycle}, generation ${p.gen}">E${p.era}<br>C${p.cycle}${liveCycle ? "*" : ""}</th>`;
+    }).join("");
+    const matrixBody = behavior.map(([metric, label, fmt, threshold, percentage]) =>
+      `<tr><td><b>${label}</b></td>${cycleRows.map((p, i) => {
+        const eraStart = i === 0 || p.era !== cycleRows[i - 1].era;
+        return `<td class="${eraStart ? "era-start" : ""}">${cell(metric, p[metric], i, threshold, percentage)}</td>`;
+      }).join("")}</tr>`).join("");
+    document.getElementById("overallTexture").innerHTML = `<div class="card"><span class="scope">OVERALL HISTORY · FINAL RECORDED GENERATION OF EACH CYCLE</span>
+      <h2>Claim, win, and threat behavior by cycle</h2>
+      <div class="mut" style="font-size:11px;margin-bottom:7px">Columns are cycle endpoints; <b>*</b> is the live cycle's latest generation. Arrows compare with the previous recorded cycle inside the same era. Era changes have a gold divider and intentionally reset the comparison.</div>
+      <div class="table-scroll"><table class="matrix"><tr><th>table-wide metric</th>${matrixHead}</tr>${matrixBody}</table></div></div>`;
   }
 
   const PATTERN_LABELS = {
@@ -314,55 +389,12 @@ else if (D.history.length === 0) {
       put("kpis", `<div class="card"><span class="scope">WITHIN CURRENT CYCLE · ${tdVals.length} GENERATIONS</span><h2>Threat detection by generation</h2>
         ${spark(tdVals, { zero: true, hi: 1, fmt: (v) => Math.round(v * 100) + "%" })}
         <div class="mut" style="font-size:11px">Share of benchmark wins where the winner had been flagged (threat &gt; 0.3)
-        by an opponent's table read before the win. This plot compares only generations inside the active cycle; the separate offline-audit card covers false alarms and exposed/concealed splits.</div></div>`);
+        by an opponent's table read before the win. This plot compares generations inside the active cycle; use the Overall tab to compare recorded threat detection across cycles.</div></div>`);
     }
   }
-  // ── what the bots actually DO: latest generation's activity mix ──
-  const act = (last.bench ?? last.control).activity;
-  if (act) {
-    const per = (n) => (n / act.hands).toFixed(2);
-    const winsTotal = act.winsOnDiscard + act.selfDraws;
-    const pats = Object.entries(act.patterns).sort((a, b) => b[1] - a[1]).slice(0, 12);
-    put('colR', `<div class="card"><span class="scope">LATEST GENERATION · TABLE TEXTURE</span><h2>One incumbent + three ${D.baseline?.split("/").pop()?.replace(".json", "") || "benchmark opponents"}</h2>
-      <div class="mut" style="font-size:11px;margin-bottom:5px">These are <b>whole-table counts</b>, not incumbent-only behavior. The fixed bench rotates the incumbent through all seats; every match still contains one incumbent and three benchmark opponents.</div>
-      <table>
-        <tr><td>chows 上</td><td>${per(act.chows)} / hand</td></tr>
-        <tr><td>pungs 碰</td><td>${per(act.pungs)} / hand</td></tr>
-        <tr><td>kongs 槓 (all forms)</td><td>${per(act.kongs)} / hand</td></tr>
-        <tr><td>wins — on a discard 食糊</td><td>${per(act.winsOnDiscard)} / hand</td></tr>
-        <tr><td>wins — self-draw 自摸</td><td>${per(act.selfDraws)} / hand</td></tr>
-      </table>
-      ${(() => {
-        const claims = act.chows + act.pungs + act.kongs;
-        if (!claims) return "";
-        const pc = (n) => (n / claims * 100).toFixed(0) + "%";
-        return `<div class="mut" style="font-size:11px;margin-top:4px">of all claims: ${pc(act.chows)} chow · ${pc(act.pungs)} pung · ${pc(act.kongs)} kong</div>`;
-      })()}
-      ${(() => {
-        const h = act.faanHist;
-        if (!h || !h.some((n) => n > 0)) return "";
-        const max = Math.max(...h);
-        const wins = h.reduce((a, b) => a + b, 0);
-        return `<div class="mut" style="font-size:11px;margin:10px 0 3px"><b>Winning-hand size distribution</b> — ${wins} wins by final faan:</div>
-          <div style="display:flex;align-items:flex-end;gap:3px;height:52px">` +
-          h.map((n, f) => f < 3 ? "" :
-            `<div style="flex:1;text-align:center"><div style="background:var(--acc);height:${(n / max * 40).toFixed(0)}px;border-radius:2px 2px 0 0"></div><div style="font-size:9px;color:var(--dim)">${f}</div><div style="font-size:9px">${n || ""}</div></div>`).join("") +
-          `</div><div class="mut" style="font-size:10px;margin-top:2px">a wall at 3 = everyone scrapes the floor; mass at 5+ = value hands actually happen</div>`;
-      })()}
-      <div class="mut" style="font-size:11px;margin:8px 0 4px"><b>Winning-pattern census</b> — every scoring
-      pattern that appeared in a winning hand across this generation's ~${act.hands.toLocaleString()} hands
-      (${winsTotal} wins). This answers "which routes actually pay":</div>
-      <table>${pats.map(([id, n]) => `<tr><td>${PATTERN_LABELS[id] ?? id}</td>
-        <td>${n}</td><td class="mut">${(n / Math.max(1, winsTotal) * 100).toFixed(0)}% of wins</td></tr>`).join("")}</table>
-      <div class="mut" style="font-size:11px;margin-top:6px">Older runs recorded no activity — this card starts
-      with the first run after 2026-08-27.</div></div>`);
-  }
-  if (hasPts) {
-    }
-
   put('kpis', `<div class="card"><span class="scope">WITHIN CURRENT CYCLE · ${H.length} GENERATIONS</span><h2>Refused wins / hand by generation</h2>
     ${spark(texture("refusedPerHand"), {lo: 0, color: "var(--warn)", fmt: v => v})}
-    <div class="mut" style="font-size:11px">Whole-table count per hand where any seat completed a winning shape it legally could not take under the 3-faan floor. This is the current cycle only; the long-term chart above covers all archived cycles.</div></div>`);
+    <div class="mut" style="font-size:11px">Whole-table count per hand where any seat completed a winning shape it legally could not take under the 3-faan floor. This is the current cycle only; the Overall tab covers all archived cycles.</div></div>`);
 
   put('kpis', `<div class="card"><span class="scope">WITHIN CURRENT CYCLE · ${H.length} GENERATIONS</span><h2>Draw rate by generation 流局</h2>
     ${spark(texture("drawRate"), {lo: 0, hi: 0.7, fmt: v => (v*100).toFixed(0)+"%"})}
@@ -389,11 +421,21 @@ else if (D.history.length === 0) {
     chipValuation: "0 = value routes by LINEAR faan (the old bug); 1 = by expected CHIPS through the ruleset's payment table. 6 faan pays ~8× a 3-faan hand, not 2×.",
     routeDecay: "P(route completes) per remaining tile of distance — disciplines the exponential payout so slow-huge doesn't always beat fast-small.",
     leftFeedWeight: "The seat before you is your supply line: their discard mix raises or sinks each suit route (owner's route-picking read).",
+    threatSensitivity: "How much the table read bends discards at all. The master defence switch.",
+    threatPushValue: "Push/fold exchange rate: own hand strength offsets table threat. High = a big hand ignores danger.",
+    urgencyWeight: "Race pressure: table heat discounts distant plans harder.",
+    suitContestWeight: "Price down suit routes the table is visibly eating (a collector declared, or copies gone).",
+    claimSupplyWeight: "Pairs count as claimable speed — three opponents can finish a pung for you.",
+    leadDefense: "SCORE DIAL (era 3): when ahead on chips, scale up safety, threat folding, and ease the fold trigger — the owner's 'in the lead, try very hard not to lose'.",
+    trailSwing: "SCORE DIAL (era 3): when behind, scale up faan value and claim aggression — 'if I'm losing I take bigger swings'.",
+    winFastLead: "SCORE DIAL (era 3): when ahead, prefer finishing fast (distance weights scale up).",
+    foldThreshold: "HARD FOLD (era 3): past this fold-factor the seat abandons the win — safest-tile-only cuts, no claims. 0 = never. Deliberately evolvable: the owner says the correct line is unknown.",
+    feedDenial: "FEED DENIAL (era 3): withhold pairable tiles from seats showing an all-pungs appetite (2+ pung/kong melds).",
   };
   const K = D.keys;
   const w0 = D.defaults, wN = last.incumbentAfter;
-  put('colR', `<div class="card scrollcard"><span class="scope">CURRENT CYCLE</span><h2>Incumbent weights — cycle start → now</h2>
-    <div class="mut" style="font-size:11px;margin-bottom:8px">The bot's entire personality is these 19 dials — coefficients of its three
+  put('currentDetails', `<div class="card scrollcard"><span class="scope">CURRENT CYCLE</span><h2>Incumbent weights — cycle start → now</h2>
+    <div class="mut" style="font-size:11px;margin-bottom:8px">The bot's entire personality is these ${K.length} dials — coefficients of its three
     decision formulas (route choice · discard choice · claim choice). Evolution never invents behaviour, it only re-balances them.
     "default" is the hand-guessed starting value; green/red Δ = evolution raised/lowered it.</div>
     <table><tr><th>weight</th><th>default</th><th>now</th><th>Δ</th></tr>
@@ -446,24 +488,13 @@ else if (D.history.length === 0) {
         <table><tr><th>#</th><th>outcome</th><th>winner</th><th>faan</th><th style="text-align:left">winning hand</th></tr>
         ${rows}</table></details>`;
     };
-    put('wide', `<div class="card"><details><summary><span class="scope">LATEST GENERATION · SAMPLE MATCHES</span><b>Match inspector — control set</b></summary>
+    put('currentWide', `<div class="card"><details><summary><span class="scope">LATEST GENERATION · SAMPLE MATCHES</span><b>Match inspector — control set</b></summary>
       <div class="mut" style="font-size:11px;margin:8px 0">One incumbent seat versus three <b>${D.trainingOpponentLabel || "opponents not recorded in this legacy run"}</b> on the control seeds —
       ${D.sampleMatches.length} full matches. Click a match to see every hand: who won, the faan, and the winning
       hand face up (melds bracketed, winning tile highlighted). The incumbent seat is named in each row; the top chip take is bold.</div>
       <div class="matchlist">${D.sampleMatches.map(matchHtml).join("")}</div></details></div>`);
   }
 
-  // ── threat-detection quality (from tools/sim/threat-audit.mjs) ──
-  if (window.THREAT_AUDIT) {
-    const T = window.THREAT_AUDIT;
-    put("colR", `<div class="card"><span class="scope">OFFLINE AUDIT · ${T.generated}</span><h2>Threat detection — does the table read work?</h2>
-      <div class="kv"><span>winners flagged before their win (threat &gt; 0.3)</span><b>${(T.detectionRate * 100).toFixed(0)}%</b></div>
-      <div class="kv"><span>false alarms (flagged &gt; 0.5, did not win the hand)</span><b>${(T.falseAlarmRate * 100).toFixed(0)}%</b></div>
-      <div class="kv"><span>hand-size calibration (est − actual faan, mean)</span><b>${T.faanBias > 0 ? "+" : ""}${T.faanBias}</b></div>
-      <div class="kv"><span>mean |error| of the size estimate</span><b>${T.faanMAE} faan</b></div>
-      <div class="mut" style="font-size:11px;margin-top:5px">${T.matches} matches, ${T.wins} wins audited · ${T.generated}.
-      Regenerate: node tools/sim/threat-audit.mjs</div></div>`);
-  }
   // ── current-cycle generation decision log ──
   {
     const BAR = 0.5;
@@ -493,21 +524,17 @@ else if (D.history.length === 0) {
         <td class="mut">${matchCount}</td><td class="mut">${(g.ms / 1000).toFixed(0)}</td><td>${changed}</td></tr>`;
     });
     const baseLbl = (D.baseline || "").includes("v1") ? "baseline-v1 (the frozen era-1 champion)" : "the frozen baseline";
-    put('wide', `<div class="card"><span class="scope">CURRENT CYCLE · ALL ${H.length} COMPLETED GENERATIONS</span>
+    put('currentDecision', `<div class="card"><span class="scope">CURRENT CYCLE · ALL ${H.length} COMPLETED GENERATIONS</span>
       <h2>Generation decision log</h2>
-      <div class="mut" style="font-size:11px;margin-bottom:7px"><b>Gate A</b> = best challenger minus incumbent on seed set A. <b>Gate B</b> = the same challenger minus incumbent on fresh seed set B. Both must exceed +${BAR} placement points/match. Training opponent: <b>${D.trainingOpponentLabel || "not recorded in this legacy run"}</b>. Fixed bench is against ${baseLbl}; it is diagnostic, not a promotion gate.</div>
+      <div class="mut" style="font-size:11px;margin-bottom:7px"><b>Gate A</b> = best challenger minus incumbent on seed set A. <b>Gate B</b> = the same challenger minus incumbent on fresh seed set B. Both must exceed +${BAR} ${D.fitness === "chips" ? "chips/match (owner ruling: chips, not placement, are the objective)" : "placement points/match"}. Training opponent: <b>${D.trainingOpponentLabel || "not recorded in this legacy run"}</b>. Fixed bench is against ${baseLbl}; it is diagnostic, not a promotion gate.</div>
       <div class="table-scroll"><table class="decision"><tr><th>gen</th><th>gate A Δ</th><th>gate B Δ</th><th>decision</th><th>fixed bench<br>chips/match</th><th>matches</th><th>secs</th><th>dials changed</th></tr>
       ${[...rows].reverse().join("")}</table></div></div>`);
   }
 
 
-  for (const slot of ["kpis", "colL", "colR", "wide"]) {
-    const el = document.getElementById(slot === "kpis" ? "kpis" : slot === "wide" ? "wide" : slot);
-    let list = cards.filter((c) => c.slot === slot);
-    // live generation decisions lead the wide section; research details follow
-    if (slot === "wide") list = [...list].sort((a, b) =>
-      (b.html.includes("Generation decision log") ? 1 : 0) - (a.html.includes("Generation decision log") ? 1 : 0));
-    el.innerHTML = list.map((c) => c.html).join("");
+  for (const slot of ["kpis", "currentDecision", "currentDetails", "currentWide"]) {
+    const el = document.getElementById(slot);
+    el.innerHTML = cards.filter((c) => c.slot === slot).map((c) => c.html).join("");
   }
 }
 // ── HISTORY: one unified, dated record — cycles, experiments, references ──

@@ -404,6 +404,11 @@ var DEFAULT_PROFILE = {
   aggression: 1,
   threatSensitivity: 0,
   threatPushValue: 0,
+  leadDefense: 0,
+  trailSwing: 0,
+  winFastLead: 0,
+  foldThreshold: 0,
+  feedDenial: 0,
   chipValuation: 1,
   // 0.45, not 0.55: on the doubling ladder a claim costs 門前清 (÷2 payout), so
   // a tile of speed must be worth MORE than 2× (1/0.45 ≈ 2.2) or no bot ever
@@ -741,6 +746,7 @@ function rankDiscards(v, cfg) {
     const ownStrength = Math.max(0, 1 - chosen.distance / 4);
     foldFactor = Math.max(0, threats.max - ownStrength * profile2.threatPushValue);
   }
+  const folding = profile2.foldThreshold > 0 && foldFactor > profile2.foldThreshold;
   const melds = shape.melds.length;
   const c = counts(shape.concealed);
   const candidates = distinctAscending(shape.concealed);
@@ -761,7 +767,15 @@ function rankDiscards(v, cfg) {
       }
     }
     const speedDistance = chosen.route.orphans ? routeDistance : distance;
-    const score3 = -speedDistance * profile2.discardDistanceWeight - routeDistance * profile2.discardRouteWeight * 0.5 + (restricts ? fits ? -profile2.discardRouteWeight : profile2.discardRouteWeight : 0) - danger * profile2.discardSafetyWeight - threatDanger * foldFactor * profile2.threatSensitivity;
+    let denial = 0;
+    if (profile2.feedDenial > 0 && Math.max(0, 4 - visible[tile]) >= 2) {
+      for (let si = 0; si < 4; si++) {
+        if (si === v.seat) continue;
+        const pungish = v.melds[si].filter((m) => m.kind !== "chow").length;
+        if (pungish >= 2) denial += 0.5 * pungish;
+      }
+    }
+    const score3 = folding ? -danger * (1 + profile2.discardSafetyWeight) - denial * profile2.feedDenial - threatDanger * foldFactor * profile2.threatSensitivity : -speedDistance * profile2.discardDistanceWeight - routeDistance * profile2.discardRouteWeight * 0.5 + (restricts ? fits ? -profile2.discardRouteWeight : profile2.discardRouteWeight : 0) - danger * profile2.discardSafetyWeight - denial * profile2.feedDenial - threatDanger * foldFactor * profile2.threatSensitivity;
     return { tile, distance, outs: -1, danger, onRoute: fits, score: score3 };
   });
   scored.sort((a, b) => b.score - a.score || a.tile - b.tile);
@@ -925,6 +939,18 @@ function assessClaim(v, option, cfg, context) {
 }
 function claimDecision(v, options, cfg) {
   const context = claimContext(v, cfg);
+  const profile2 = cfg.profile ?? DEFAULT_PROFILE;
+  if (profile2.foldThreshold > 0 && profile2.threatSensitivity > 0) {
+    const threats = tableRead(v, cfg);
+    if (threats !== null) {
+      const cc = counts(v.hand);
+      const ownStrength = Math.max(0, 1 - distanceToReady(cc, v.melds[v.seat].length) / 4);
+      if (Math.max(0, threats.max - ownStrength * profile2.threatPushValue) > profile2.foldThreshold) {
+        cfg.rnd();
+        return null;
+      }
+    }
+  }
   const assessed = options.filter((o) => o.kind !== "win").map((o) => assessClaim(v, o, cfg, context)).filter((a) => a.reason === "accepted");
   if (assessed.length === 0) {
     cfg.rnd();
@@ -956,8 +982,42 @@ function shouldKong(v, tile, form, cfg) {
   }
   return true;
 }
+function chipLead(v) {
+  const st = v.standings;
+  if (!st) return 0;
+  const mine = st[v.seat];
+  let best = -Infinity;
+  for (let i = 0; i < st.length; i++) if (i !== v.seat && st[i] > best) best = st[i];
+  const lead = (mine - best) / 128;
+  return lead > 1 ? 1 : lead < -1 ? -1 : lead;
+}
+function scoreAdjust(profile2, v) {
+  if (profile2.leadDefense === 0 && profile2.trailSwing === 0 && profile2.winFastLead === 0) return profile2;
+  const L = chipLead(v);
+  if (L === 0) return profile2;
+  if (L > 0) {
+    return {
+      ...profile2,
+      discardSafetyWeight: profile2.discardSafetyWeight * (1 + profile2.leadDefense * L),
+      threatSensitivity: profile2.threatSensitivity * (1 + profile2.leadDefense * L),
+      // easier hard-fold when protecting a lead
+      foldThreshold: profile2.foldThreshold > 0 ? profile2.foldThreshold / (1 + profile2.leadDefense * L) : 0,
+      discardDistanceWeight: profile2.discardDistanceWeight * (1 + profile2.winFastLead * L),
+      routeDistanceWeight: profile2.routeDistanceWeight * (1 + profile2.winFastLead * L)
+    };
+  }
+  return {
+    ...profile2,
+    faanWeight: profile2.faanWeight * (1 + profile2.trailSwing * -L),
+    aggression: profile2.aggression * (1 + profile2.trailSwing * -L)
+  };
+}
 function decideAction(v, legal, cfg) {
   if (legal.length === 0) throw new Error(`seat ${v.seat} was asked to act with no legal action`);
+  if (cfg.profile) {
+    const adj = scoreAdjust(cfg.profile, v);
+    if (adj !== cfg.profile) cfg = { ...cfg, profile: adj };
+  }
   for (const a of legal) if (a.type === "declareWin") return a;
   for (const a of legal) if (a.type === "claim" && a.option.kind === "win") return a;
   const claims = legal.filter(
@@ -2595,6 +2655,8 @@ function viewFor(state, seat) {
     flowers: state.seats.map((s) => s.flowers),
     discards: state.seats.map((s) => s.discards),
     handCounts: state.seats.map((s) => s.hand.length),
+    standings: state.seats.map((s) => s.chips),
+    dealershipsDone: Math.max(0, state.seats.findIndex((s) => s.wind === 0)),
     wallRemaining: Math.max(0, state.wallEnd - state.wallIndex),
     lastDiscard: offered === null ? state.lastDiscard : { tile: offered.tile, from: offered.from }
   };

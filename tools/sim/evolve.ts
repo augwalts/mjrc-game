@@ -61,7 +61,13 @@ const MATCHES = Number(flag("--matches", "48"));
 // Selection on set A takes max-of-6 (winner's curse); promotion additionally
 // requires beating the control on a FRESH set B — the runs 1–2 lesson, where
 // 25 single-stage promotions produced zero held-out improvement.
-const PROMOTE_MARGIN = 0.5;
+/** Selection metric. Owner ruling 2026-08-28: "placement does not matter in
+ * mj — the number of chips is how much you lose." Era 3 promotes on chips.
+ * Default stays "points" so an already-running era-2 harness that respawns
+ * this bundle mid-series keeps its original semantics. */
+const FITNESS = flag("--fitness", "points") as "points" | "chips";
+const fit = (r: EvalResult): number => FITNESS === "chips" ? r.chipsPerMatch : r.pointsPerMatch;
+const PROMOTE_MARGIN = FITNESS === "chips" ? Number(flag("--margin", "4")) : 0.5;
 
 const KEYS = Object.keys(DEFAULT_PROFILE) as (keyof BotProfile)[];
 
@@ -120,10 +126,15 @@ interface GenRecord {
   bench: EvalResult;
   /** Same, vs the profile this run started from — the past champion. */
   benchPrev: EvalResult;
-  /** Exact workload this generation. */
-  work: { matches: number; hands: number };
+  /** Exact workload this generation, including both all-seat benches. */
+  work: {
+    matches: number; hands: number;
+    breakdown: Record<string, { matches: number; hands: number }>;
+  };
   /** Set-B result for the selected candidate; null when selection failed set A. */
   confirm: EvalResult | null;
+  /** Incumbent on the same set-B walls; the confirmation comparator. */
+  confirmControl: EvalResult | null;
   candidates: { id: number; result: EvalResult; profile: BotProfile }[];
   promoted: number | null; incumbentAfter: BotProfile; ms: number;
   /** Dials the promoted mutant moved, from -> to. Null when nothing promoted. */
@@ -143,10 +154,17 @@ if (startFrom) console.log(`starting from ${startFrom}`);
 let sampleMatches: SampleMatch[] = [];
 
 function flush(status: string): void {
+  const baselineName = BASELINE_PATH.split("/").pop()?.replace(/\.json$/, "") ?? BASELINE_PATH;
   const payload = {
     status, updated: new Date().toISOString(),
     defaults: DEFAULT_PROFILE, keys: KEYS, history, sampleMatches,
-    baseline: BASELINE_PATH, ruleset: MJRC_STANDARD.id,
+    baseline: BASELINE_PATH, ruleset: MJRC_STANDARD.id, fitness: FITNESS,
+    trainingOpponent: OPPONENT,
+    trainingOpponentLabel: OPPONENT === "baseline" ? baselineName : "current incumbent (mirror)",
+    selectionMatches: MATCHES,
+    benchMatches: BENCH_SEEDS.length * 4,
+    benchWalls: BENCH_SEEDS.length,
+    generationsPlanned: GENS,
   };
   writeFileSync(join(OUT, "data.js"), "window.SIM_DATA = " + JSON.stringify(payload) + ";\n");
   writeFileSync(join(OUT, "best-profile.json"), JSON.stringify(incumbent, null, 2) + "\n");
@@ -178,15 +196,17 @@ for (let gen = 0; gen < GENS; gen++) {
 
   let promoted: number | null = null;
   let confirm: EvalResult | null = null;
-  const best = [...candidates].sort((a, b) => b.result.pointsPerMatch - a.result.pointsPerMatch)[0]!;
-  if (best.result.pointsPerMatch > control.pointsPerMatch + PROMOTE_MARGIN) {
+  let confirmControl: EvalResult | null = null;
+  const best = [...candidates].sort((a, b) => fit(b.result) - fit(a.result))[0]!;
+  if (fit(best.result) > fit(control) + PROMOTE_MARGIN) {
     const confirmSeeds = Array.from({ length: MATCHES }, (_, i) => seedBase + 104729 + i * 7919);
     const [cf, controlB] = await Promise.all([
       runEval(best.profile, opp, confirmSeeds),
       runEval(incumbent, opp, confirmSeeds),
     ]);
     confirm = cf;
-    if (confirm.pointsPerMatch > controlB.pointsPerMatch + PROMOTE_MARGIN) {
+    confirmControl = controlB;
+    if (fit(confirm) > fit(controlB) + PROMOTE_MARGIN) {
       incumbent = best.profile;
       promoted = best.id;
     }
@@ -199,10 +219,18 @@ for (let gen = 0; gen < GENS; gen++) {
     runEval(incumbent, START_PROFILE, BENCH_SEEDS, undefined, true),
   ]);
   const evalHands = (r: EvalResult) => r.activity.hands;
+  const selectionHands = evalHands(control) + candidates.reduce((n, c) => n + evalHands(c.result), 0);
+  const confirmationHands = confirm && confirmControl ? evalHands(confirm) + evalHands(confirmControl) : 0;
+  const breakdown = {
+    selection: { matches: MATCHES * (CANDIDATES + 1), hands: selectionHands },
+    confirmation: { matches: confirm ? MATCHES * 2 : 0, hands: confirmationHands },
+    fixedBenchmark: { matches: BENCH_SEEDS.length * 4, hands: evalHands(bench) },
+    pastChampionBenchmark: { matches: BENCH_SEEDS.length * 4, hands: evalHands(benchPrev) },
+  };
   const work = {
-    matches: MATCHES * (7 + (confirm ? 2 : 0) + 1),
-    hands: evalHands(control) + candidates.reduce((n, c) => n + evalHands(c.result), 0) +
-           (confirm ? evalHands(confirm) * 2 : 0) + evalHands(bench),
+    matches: Object.values(breakdown).reduce((n, part) => n + part.matches, 0),
+    hands: Object.values(breakdown).reduce((n, part) => n + part.hands, 0),
+    breakdown,
   };
   const changed = promoted === null ? null : Object.fromEntries(
     (Object.keys(incumbent) as (keyof BotProfile)[])
@@ -210,14 +238,14 @@ for (let gen = 0; gen < GENS; gen++) {
       .map((k) => [k, { from: +incumbentBefore[k].toFixed(4), to: +incumbent[k].toFixed(4) }]),
   );
   history.push({
-    gen, seeds: [seeds[0]!, seeds[seeds.length - 1]!], control, confirm, bench, benchPrev, work, changed,
+    gen, seeds: [seeds[0]!, seeds[seeds.length - 1]!], control, confirm, confirmControl, bench, benchPrev, work, changed,
     candidates: candidates.map((c) => ({ id: c.id, result: c.result, profile: c.profile })),
     promoted, incumbentAfter: incumbent, ms: Date.now() - t0,
   });
   flush("running");
   console.log(
-    `gen ${gen}: control ${control.pointsPerMatch}pt · best ${best.result.pointsPerMatch}pt` +
-    (confirm ? ` · confirm ${confirm.pointsPerMatch}pt` : "") +
+    `gen ${gen}: control ${fit(control)}${FITNESS === "chips" ? "c" : "pt"} · best ${fit(best.result)}${FITNESS === "chips" ? "c" : "pt"}` +
+    (confirm ? ` · confirm ${fit(confirm)}${FITNESS === "chips" ? "c" : "pt"}` : "") +
     ` · ${promoted === null ? "kept" : `PROMOTED #${promoted}`}` +
     ` · vs baseline ${bench.chipsPerMatch > 0 ? "+" : ""}${bench.chipsPerMatch} · vs past champ ${benchPrev.chipsPerMatch > 0 ? "+" : ""}${benchPrev.chipsPerMatch} chips` +
     ` · ${work.matches}m/${work.hands}h · ${((Date.now() - t0) / 1000).toFixed(0)}s`,

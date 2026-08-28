@@ -97,6 +97,11 @@ export interface SeatView {
   handCounts: readonly number[];
   /** Tiles left to draw. Drives late-hand urgency. */
   wallRemaining: number;
+  /** Chip standings entering this hand, by seat — public at any real table.
+   * Absent in legacy fixtures; score dials no-op without it. */
+  standings?: readonly number[];
+  /** Dealerships completed this wind round (0-3). Absent = unknown. */
+  dealershipsDone?: number;
   lastDiscard: { tile: TileId; from: SeatIndex } | null;
 }
 
@@ -161,6 +166,29 @@ export interface BotProfile {
    * through the ruleset's own payment table. The blend exists for A/B only.
    */
   chipValuation: number;
+  /**
+   * SCORE AWARENESS (owner rulings 2026-08-28; all default 0 = score-blind,
+   * which keeps every legacy profile and test byte-identical).
+   * leadDefense: when ahead on chips, scale up tile safety and threat folding
+   *   — "when I'm in the lead I try very hard not to lose".
+   * trailSwing: when behind, scale up faan value and claim aggression —
+   *   "if I'm losing I take bigger swings; it matters slightly less if I lose".
+   * winFastLead: when ahead, prefer finishing fast (distance weights up).
+   */
+  leadDefense: number;
+  trailSwing: number;
+  winFastLead: number;
+  /**
+   * HARD FOLD. 0 = never; above 0, when foldFactor (table threat minus own
+   * strength × threatPushValue) exceeds this, the seat abandons the win:
+   * discards become safest-tile-only and non-win claims are declined. The
+   * owner says the correct threshold is unknown — it is deliberately an
+   * evolvable dial so the simulator can find it.
+   */
+  foldThreshold: number;
+  /** Withhold pairable tiles from seats showing an all-pungs appetite
+   * (≥2 pung/kong melds) — "stop feeding the collector". */
+  feedDenial: number;
   /** P(the route completes) per remaining tile of distance — disciplines the
    * exponential payout so "slow huge" does not always beat "fast small". */
   routeDecay: number;
@@ -207,6 +235,11 @@ export const DEFAULT_PROFILE: BotProfile = {
   aggression: 1,
   threatSensitivity: 0,
   threatPushValue: 0,
+  leadDefense: 0,
+  trailSwing: 0,
+  winFastLead: 0,
+  foldThreshold: 0,
+  feedDenial: 0,
   chipValuation: 1,
   // 0.45, not 0.55: on the doubling ladder a claim costs 門前清 (÷2 payout), so
   // a tile of speed must be worth MORE than 2× (1/0.45 ≈ 2.2) or no bot ever
@@ -857,6 +890,11 @@ export function rankDiscards(v: SeatView, cfg: BotConfig): DiscardScore[] {
     const ownStrength = Math.max(0, 1 - chosen.distance / 4);
     foldFactor = Math.max(0, threats.max - ownStrength * profile.threatPushValue);
   }
+  // HARD FOLD (owner 2026-08-28): past the threshold the seat stops racing —
+  // the win is abandoned and every cut is chosen on safety alone. The
+  // threshold is evolvable because the owner says the correct line between
+  // "small hand vs a shown 7 → fold" and "7+ vs 7 → push" is unknown.
+  const folding = profile.foldThreshold > 0 && foldFactor > profile.foldThreshold;
   const melds = shape.melds.length;
   const c = counts(shape.concealed);
   const candidates = distinctAscending(shape.concealed);
@@ -904,12 +942,27 @@ export function rankDiscards(v: SeatView, cfg: BotConfig): DiscardScore[] {
     // the orphans route the route distance is the speed. `distance` is still
     // reported honestly below.
     const speedDistance = chosen.route.orphans ? routeDistance : distance;
-    const score =
-      -speedDistance * profile.discardDistanceWeight -
-      routeDistance * profile.discardRouteWeight * 0.5 +
-      (restricts ? (fits ? -profile.discardRouteWeight : profile.discardRouteWeight) : 0) -
-      danger * profile.discardSafetyWeight -
-      threatDanger * foldFactor * profile.threatSensitivity;
+    // FEED DENIAL: a seat showing an all-pungs appetite (2+ pung/kong melds)
+    // can claim any tile it holds paired — withhold tiles with 2+ unseen
+    // copies from such tables. Off at feedDenial 0.
+    let denial = 0;
+    if (profile.feedDenial > 0 && Math.max(0, 4 - visible[tile]!) >= 2) {
+      for (let si = 0 as SeatIndex; si < 4; si++) {
+        if (si === v.seat) continue;
+        const pungish = v.melds[si]!.filter((m) => m.kind !== "chow").length;
+        if (pungish >= 2) denial += 0.5 * pungish;
+      }
+    }
+    const score = folding
+      ? -danger * (1 + profile.discardSafetyWeight) -
+        denial * profile.feedDenial -
+        threatDanger * foldFactor * profile.threatSensitivity
+      : -speedDistance * profile.discardDistanceWeight -
+        routeDistance * profile.discardRouteWeight * 0.5 +
+        (restricts ? (fits ? -profile.discardRouteWeight : profile.discardRouteWeight) : 0) -
+        danger * profile.discardSafetyWeight -
+        denial * profile.feedDenial -
+        threatDanger * foldFactor * profile.threatSensitivity;
     return { tile, distance, outs: -1, danger, onRoute: fits, score };
   });
 
@@ -1239,6 +1292,19 @@ export function claimDecision(
   cfg: BotConfig,
 ): ClaimOption | null {
   const context = claimContext(v, cfg);
+  const profile = cfg.profile ?? DEFAULT_PROFILE;
+  // A folding seat claims nothing but wins: extending the hand is exposure.
+  if (profile.foldThreshold > 0 && profile.threatSensitivity > 0) {
+    const threats = tableRead(v, cfg);
+    if (threats !== null) {
+      const cc = counts(v.hand);
+      const ownStrength = Math.max(0, 1 - distanceToReady(cc, v.melds[v.seat]!.length) / 4);
+      if (Math.max(0, threats.max - ownStrength * profile.threatPushValue) > profile.foldThreshold) {
+        cfg.rnd(); // keep the stream aligned with the number of decisions taken
+        return null;
+      }
+    }
+  }
   const assessed = options
     .filter((o) => o.kind !== "win")
     .map((o) => assessClaim(v, o, cfg, context))
@@ -1310,12 +1376,54 @@ export function shouldKong(
  * @param legal every Action this seat may take right now, from the reducer
  * @throws when handed an empty list — that is a caller bug, not a pass
  */
+/** Chip-lead signal in [-1, 1]: +1 = far ahead of the best opponent, -1 = far
+ * behind. 128 chips (a 10-faan discard win / four floor hands) saturates it. */
+export function chipLead(v: SeatView): number {
+  const st = v.standings;
+  if (!st) return 0;
+  const mine = st[v.seat]!;
+  let best = -Infinity;
+  for (let i = 0; i < st.length; i++) if (i !== v.seat && st[i]! > best) best = st[i]!;
+  const lead = (mine - best) / 128;
+  return lead > 1 ? 1 : lead < -1 ? -1 : lead;
+}
+
+/** Owner's score-aware play (2026-08-28), as profile scaling. Returns the same
+ * object when every score dial is off or standings are unknown — zero cost and
+ * zero behaviour change for legacy profiles. */
+export function scoreAdjust(profile: BotProfile, v: SeatView): BotProfile {
+  if (profile.leadDefense === 0 && profile.trailSwing === 0 && profile.winFastLead === 0) return profile;
+  const L = chipLead(v);
+  if (L === 0) return profile;
+  if (L > 0) {
+    return {
+      ...profile,
+      discardSafetyWeight: profile.discardSafetyWeight * (1 + profile.leadDefense * L),
+      threatSensitivity: profile.threatSensitivity * (1 + profile.leadDefense * L),
+      // easier hard-fold when protecting a lead
+      foldThreshold: profile.foldThreshold > 0 ? profile.foldThreshold / (1 + profile.leadDefense * L) : 0,
+      discardDistanceWeight: profile.discardDistanceWeight * (1 + profile.winFastLead * L),
+      routeDistanceWeight: profile.routeDistanceWeight * (1 + profile.winFastLead * L),
+    };
+  }
+  return {
+    ...profile,
+    faanWeight: profile.faanWeight * (1 + profile.trailSwing * -L),
+    aggression: profile.aggression * (1 + profile.trailSwing * -L),
+  };
+}
+
 export function decideAction(
   v: SeatView,
   legal: readonly Action[],
   cfg: BotConfig,
 ): Action {
   if (legal.length === 0) throw new Error(`seat ${v.seat} was asked to act with no legal action`);
+  // Score-aware dial scaling (no-op for score-blind profiles).
+  if (cfg.profile) {
+    const adj = scoreAdjust(cfg.profile, v);
+    if (adj !== cfg.profile) cfg = { ...cfg, profile: adj };
+  }
 
   // 1. A legal win is always taken. Legality already carries the faan minimum,
   //    so anything offered here is a hand the table will pay out.

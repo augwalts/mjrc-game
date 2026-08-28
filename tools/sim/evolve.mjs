@@ -408,6 +408,11 @@ var DEFAULT_PROFILE = {
   aggression: 1,
   threatSensitivity: 0,
   threatPushValue: 0,
+  leadDefense: 0,
+  trailSwing: 0,
+  winFastLead: 0,
+  foldThreshold: 0,
+  feedDenial: 0,
   chipValuation: 1,
   // 0.45, not 0.55: on the doubling ladder a claim costs 門前清 (÷2 payout), so
   // a tile of speed must be worth MORE than 2× (1/0.45 ≈ 2.2) or no bot ever
@@ -745,6 +750,7 @@ function rankDiscards(v, cfg) {
     const ownStrength = Math.max(0, 1 - chosen.distance / 4);
     foldFactor = Math.max(0, threats.max - ownStrength * profile.threatPushValue);
   }
+  const folding = profile.foldThreshold > 0 && foldFactor > profile.foldThreshold;
   const melds = shape.melds.length;
   const c = counts(shape.concealed);
   const candidates = distinctAscending(shape.concealed);
@@ -765,7 +771,15 @@ function rankDiscards(v, cfg) {
       }
     }
     const speedDistance = chosen.route.orphans ? routeDistance : distance;
-    const score3 = -speedDistance * profile.discardDistanceWeight - routeDistance * profile.discardRouteWeight * 0.5 + (restricts ? fits ? -profile.discardRouteWeight : profile.discardRouteWeight : 0) - danger * profile.discardSafetyWeight - threatDanger * foldFactor * profile.threatSensitivity;
+    let denial = 0;
+    if (profile.feedDenial > 0 && Math.max(0, 4 - visible[tile]) >= 2) {
+      for (let si = 0; si < 4; si++) {
+        if (si === v.seat) continue;
+        const pungish = v.melds[si].filter((m) => m.kind !== "chow").length;
+        if (pungish >= 2) denial += 0.5 * pungish;
+      }
+    }
+    const score3 = folding ? -danger * (1 + profile.discardSafetyWeight) - denial * profile.feedDenial - threatDanger * foldFactor * profile.threatSensitivity : -speedDistance * profile.discardDistanceWeight - routeDistance * profile.discardRouteWeight * 0.5 + (restricts ? fits ? -profile.discardRouteWeight : profile.discardRouteWeight : 0) - danger * profile.discardSafetyWeight - denial * profile.feedDenial - threatDanger * foldFactor * profile.threatSensitivity;
     return { tile, distance, outs: -1, danger, onRoute: fits, score: score3 };
   });
   scored.sort((a, b) => b.score - a.score || a.tile - b.tile);
@@ -929,6 +943,18 @@ function assessClaim(v, option, cfg, context) {
 }
 function claimDecision(v, options, cfg) {
   const context = claimContext(v, cfg);
+  const profile = cfg.profile ?? DEFAULT_PROFILE;
+  if (profile.foldThreshold > 0 && profile.threatSensitivity > 0) {
+    const threats = tableRead(v, cfg);
+    if (threats !== null) {
+      const cc = counts(v.hand);
+      const ownStrength = Math.max(0, 1 - distanceToReady(cc, v.melds[v.seat].length) / 4);
+      if (Math.max(0, threats.max - ownStrength * profile.threatPushValue) > profile.foldThreshold) {
+        cfg.rnd();
+        return null;
+      }
+    }
+  }
   const assessed = options.filter((o) => o.kind !== "win").map((o) => assessClaim(v, o, cfg, context)).filter((a) => a.reason === "accepted");
   if (assessed.length === 0) {
     cfg.rnd();
@@ -960,8 +986,42 @@ function shouldKong(v, tile, form, cfg) {
   }
   return true;
 }
+function chipLead(v) {
+  const st = v.standings;
+  if (!st) return 0;
+  const mine = st[v.seat];
+  let best = -Infinity;
+  for (let i = 0; i < st.length; i++) if (i !== v.seat && st[i] > best) best = st[i];
+  const lead = (mine - best) / 128;
+  return lead > 1 ? 1 : lead < -1 ? -1 : lead;
+}
+function scoreAdjust(profile, v) {
+  if (profile.leadDefense === 0 && profile.trailSwing === 0 && profile.winFastLead === 0) return profile;
+  const L = chipLead(v);
+  if (L === 0) return profile;
+  if (L > 0) {
+    return {
+      ...profile,
+      discardSafetyWeight: profile.discardSafetyWeight * (1 + profile.leadDefense * L),
+      threatSensitivity: profile.threatSensitivity * (1 + profile.leadDefense * L),
+      // easier hard-fold when protecting a lead
+      foldThreshold: profile.foldThreshold > 0 ? profile.foldThreshold / (1 + profile.leadDefense * L) : 0,
+      discardDistanceWeight: profile.discardDistanceWeight * (1 + profile.winFastLead * L),
+      routeDistanceWeight: profile.routeDistanceWeight * (1 + profile.winFastLead * L)
+    };
+  }
+  return {
+    ...profile,
+    faanWeight: profile.faanWeight * (1 + profile.trailSwing * -L),
+    aggression: profile.aggression * (1 + profile.trailSwing * -L)
+  };
+}
 function decideAction(v, legal, cfg) {
   if (legal.length === 0) throw new Error(`seat ${v.seat} was asked to act with no legal action`);
+  if (cfg.profile) {
+    const adj = scoreAdjust(cfg.profile, v);
+    if (adj !== cfg.profile) cfg = { ...cfg, profile: adj };
+  }
   for (const a of legal) if (a.type === "declareWin") return a;
   for (const a of legal) if (a.type === "claim" && a.option.kind === "win") return a;
   const claims = legal.filter(
@@ -2599,6 +2659,8 @@ function viewFor(state, seat) {
     flowers: state.seats.map((s) => s.flowers),
     discards: state.seats.map((s) => s.discards),
     handCounts: state.seats.map((s) => s.hand.length),
+    standings: state.seats.map((s) => s.chips),
+    dealershipsDone: Math.max(0, state.seats.findIndex((s) => s.wind === 0)),
     wallRemaining: Math.max(0, state.wallEnd - state.wallIndex),
     lastDiscard: offered === null ? state.lastDiscard : { tile: offered.tile, from: offered.from }
   };
@@ -2763,7 +2825,7 @@ function evaluate(candidate, incumbent2, seeds, sample, opts) {
       { recordHands: sample !== void 0 }
     );
     if (sample) {
-      sample.push({ seed, chips: r.chips.slice(), hands: r.hands, handRecords: r.handRecords ?? [] });
+      sample.push({ seed, candidateSeat: mySeat, chips: r.chips.slice(), hands: r.hands, handRecords: r.handRecords ?? [] });
     }
     chips += r.chips[mySeat];
     won += r.seatWon[mySeat];
@@ -2827,7 +2889,9 @@ var BENCH_SEEDS = Array.from({ length: 48 }, (_, i) => 88e4 + i * 7919);
 var OUT = flag("--out", "tools/sim");
 var CANDIDATES = 6;
 var MATCHES = Number(flag("--matches", "48"));
-var PROMOTE_MARGIN = 0.5;
+var FITNESS = flag("--fitness", "points");
+var fit = (r) => FITNESS === "chips" ? r.chipsPerMatch : r.pointsPerMatch;
+var PROMOTE_MARGIN = FITNESS === "chips" ? Number(flag("--margin", "4")) : 0.5;
 var KEYS = Object.keys(DEFAULT_PROFILE);
 var WORKER = pjoin(dirname(fileURLToPath(import.meta.url)), "evalworker.mjs");
 function evaluateRemote(candidate, incumbent2, seeds, collect, allSeats) {
@@ -2868,6 +2932,7 @@ var incumbent = startFrom && existsSync(startFrom) ? { ...DEFAULT_PROFILE, ...JS
 if (startFrom) console.log(`starting from ${startFrom}`);
 var sampleMatches = [];
 function flush(status) {
+  const baselineName = BASELINE_PATH.split("/").pop()?.replace(/\.json$/, "") ?? BASELINE_PATH;
   const payload = {
     status,
     updated: (/* @__PURE__ */ new Date()).toISOString(),
@@ -2876,7 +2941,14 @@ function flush(status) {
     history,
     sampleMatches,
     baseline: BASELINE_PATH,
-    ruleset: MJRC_STANDARD.id
+    ruleset: MJRC_STANDARD.id,
+    fitness: FITNESS,
+    trainingOpponent: OPPONENT,
+    trainingOpponentLabel: OPPONENT === "baseline" ? baselineName : "current incumbent (mirror)",
+    selectionMatches: MATCHES,
+    benchMatches: BENCH_SEEDS.length * 4,
+    benchWalls: BENCH_SEEDS.length,
+    generationsPlanned: GENS
   };
   writeFileSync(join(OUT, "data.js"), "window.SIM_DATA = " + JSON.stringify(payload) + ";\n");
   writeFileSync(join(OUT, "best-profile.json"), JSON.stringify(incumbent, null, 2) + "\n");
@@ -2901,15 +2973,17 @@ for (let gen = 0; gen < GENS; gen++) {
   const candidates = mutants.map((m, i) => ({ ...m, result: results[i] }));
   let promoted = null;
   let confirm = null;
-  const best = [...candidates].sort((a, b) => b.result.pointsPerMatch - a.result.pointsPerMatch)[0];
-  if (best.result.pointsPerMatch > control.pointsPerMatch + PROMOTE_MARGIN) {
+  let confirmControl = null;
+  const best = [...candidates].sort((a, b) => fit(b.result) - fit(a.result))[0];
+  if (fit(best.result) > fit(control) + PROMOTE_MARGIN) {
     const confirmSeeds = Array.from({ length: MATCHES }, (_, i) => seedBase + 104729 + i * 7919);
     const [cf, controlB] = await Promise.all([
       runEval(best.profile, opp, confirmSeeds),
       runEval(incumbent, opp, confirmSeeds)
     ]);
     confirm = cf;
-    if (confirm.pointsPerMatch > controlB.pointsPerMatch + PROMOTE_MARGIN) {
+    confirmControl = controlB;
+    if (fit(confirm) > fit(controlB) + PROMOTE_MARGIN) {
       incumbent = best.profile;
       promoted = best.id;
     }
@@ -2919,9 +2993,18 @@ for (let gen = 0; gen < GENS; gen++) {
     runEval(incumbent, START_PROFILE, BENCH_SEEDS, void 0, true)
   ]);
   const evalHands = (r) => r.activity.hands;
+  const selectionHands = evalHands(control) + candidates.reduce((n, c) => n + evalHands(c.result), 0);
+  const confirmationHands = confirm && confirmControl ? evalHands(confirm) + evalHands(confirmControl) : 0;
+  const breakdown = {
+    selection: { matches: MATCHES * (CANDIDATES + 1), hands: selectionHands },
+    confirmation: { matches: confirm ? MATCHES * 2 : 0, hands: confirmationHands },
+    fixedBenchmark: { matches: BENCH_SEEDS.length * 4, hands: evalHands(bench) },
+    pastChampionBenchmark: { matches: BENCH_SEEDS.length * 4, hands: evalHands(benchPrev) }
+  };
   const work = {
-    matches: MATCHES * (7 + (confirm ? 2 : 0) + 1),
-    hands: evalHands(control) + candidates.reduce((n, c) => n + evalHands(c.result), 0) + (confirm ? evalHands(confirm) * 2 : 0) + evalHands(bench)
+    matches: Object.values(breakdown).reduce((n, part) => n + part.matches, 0),
+    hands: Object.values(breakdown).reduce((n, part) => n + part.hands, 0),
+    breakdown
   };
   const changed = promoted === null ? null : Object.fromEntries(
     Object.keys(incumbent).filter((k) => Math.abs(incumbent[k] - incumbentBefore[k]) > 1e-9).map((k) => [k, { from: +incumbentBefore[k].toFixed(4), to: +incumbent[k].toFixed(4) }])
@@ -2931,6 +3014,7 @@ for (let gen = 0; gen < GENS; gen++) {
     seeds: [seeds[0], seeds[seeds.length - 1]],
     control,
     confirm,
+    confirmControl,
     bench,
     benchPrev,
     work,
@@ -2942,7 +3026,7 @@ for (let gen = 0; gen < GENS; gen++) {
   });
   flush("running");
   console.log(
-    `gen ${gen}: control ${control.pointsPerMatch}pt \xB7 best ${best.result.pointsPerMatch}pt` + (confirm ? ` \xB7 confirm ${confirm.pointsPerMatch}pt` : "") + ` \xB7 ${promoted === null ? "kept" : `PROMOTED #${promoted}`} \xB7 vs baseline ${bench.chipsPerMatch > 0 ? "+" : ""}${bench.chipsPerMatch} \xB7 vs past champ ${benchPrev.chipsPerMatch > 0 ? "+" : ""}${benchPrev.chipsPerMatch} chips \xB7 ${work.matches}m/${work.hands}h \xB7 ${((Date.now() - t0) / 1e3).toFixed(0)}s`
+    `gen ${gen}: control ${fit(control)}${FITNESS === "chips" ? "c" : "pt"} \xB7 best ${fit(best.result)}${FITNESS === "chips" ? "c" : "pt"}` + (confirm ? ` \xB7 confirm ${fit(confirm)}${FITNESS === "chips" ? "c" : "pt"}` : "") + ` \xB7 ${promoted === null ? "kept" : `PROMOTED #${promoted}`} \xB7 vs baseline ${bench.chipsPerMatch > 0 ? "+" : ""}${bench.chipsPerMatch} \xB7 vs past champ ${benchPrev.chipsPerMatch > 0 ? "+" : ""}${benchPrev.chipsPerMatch} chips \xB7 ${work.matches}m/${work.hands}h \xB7 ${((Date.now() - t0) / 1e3).toFixed(0)}s`
   );
 }
 flush("done");
