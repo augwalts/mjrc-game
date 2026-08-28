@@ -101,13 +101,24 @@ async function runEval(
   return result;
 }
 
-/** Log-normal multiplicative jitter, Box–Muller over the seeded stream. */
-function mutate(base: BotProfile, rnd: () => number, sigma: number): BotProfile {
+/** SPARSE HARD KICKS (owner 2026-08-28: "encourage more mutations / bigger
+ * jumps"). The old mutator jittered ALL dials faintly — a good directional
+ * move on 3 dials drowned in noise on the other 21, and annealing made late
+ * mutants timid. Now each mutant moves a random 1-5 dials, boldly (sigma
+ * floored at 0.35), leaving the rest untouched; the `wild` candidate jumps
+ * ~2.5x harder as insurance against local optima. Log-normal multiplicative,
+ * Box-Muller over the seeded stream — deterministic per mutseed as before. */
+function mutate(base: BotProfile, rnd: () => number, sigma: number, wild = false): BotProfile {
   const out = { ...base };
-  for (const k of KEYS) {
+  const kicks = 1 + Math.floor(rnd() * 5);
+  const s = (wild ? 2.5 : 1) * Math.max(sigma, 0.35);
+  const picked = new Set<number>();
+  while (picked.size < kicks) picked.add(Math.floor(rnd() * KEYS.length));
+  for (const i of picked) {
+    const k = KEYS[i]!;
     const u1 = Math.max(rnd(), 1e-12), u2 = rnd();
     const gauss = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
-    out[k] = +(base[k] * Math.exp(gauss * sigma)).toFixed(4);
+    out[k] = +(base[k] * Math.exp(gauss * s)).toFixed(4);
   }
   return out;
 }
@@ -186,7 +197,7 @@ for (let gen = 0; gen < GENS; gen++) {
 
   const controlSample: SampleMatch[] = [];
   const opp = OPPONENT === "baseline" ? BASELINE : incumbent;
-  const mutants = Array.from({ length: CANDIDATES }, (_, id) => ({ id, profile: mutate(incumbent, mrnd, sigma) }));
+  const mutants = Array.from({ length: CANDIDATES }, (_, id) => ({ id, profile: mutate(incumbent, mrnd, sigma, id === CANDIDATES - 1) }));
   const [control, ...results] = await Promise.all([
     runEval(incumbent, opp, seeds, controlSample),
     ...mutants.map((m) => runEval(m.profile, opp, seeds)),

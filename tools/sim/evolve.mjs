@@ -2917,12 +2917,17 @@ async function runEval(c, i, seeds, sample, allSeats) {
   if (sample && got) sample.push(...got);
   return result;
 }
-function mutate(base, rnd, sigma) {
+function mutate(base, rnd, sigma, wild = false) {
   const out = { ...base };
-  for (const k of KEYS) {
+  const kicks = 1 + Math.floor(rnd() * 5);
+  const s = (wild ? 2.5 : 1) * Math.max(sigma, 0.35);
+  const picked = /* @__PURE__ */ new Set();
+  while (picked.size < kicks) picked.add(Math.floor(rnd() * KEYS.length));
+  for (const i of picked) {
+    const k = KEYS[i];
     const u1 = Math.max(rnd(), 1e-12), u2 = rnd();
     const gauss = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
-    out[k] = +(base[k] * Math.exp(gauss * sigma)).toFixed(4);
+    out[k] = +(base[k] * Math.exp(gauss * s)).toFixed(4);
   }
   return out;
 }
@@ -2965,7 +2970,7 @@ for (let gen = 0; gen < GENS; gen++) {
   const sigma = 0.3 * Math.pow(0.93, gen);
   const controlSample = [];
   const opp = OPPONENT === "baseline" ? BASELINE : incumbent;
-  const mutants = Array.from({ length: CANDIDATES }, (_, id) => ({ id, profile: mutate(incumbent, mrnd, sigma) }));
+  const mutants = Array.from({ length: CANDIDATES }, (_, id) => ({ id, profile: mutate(incumbent, mrnd, sigma, id === CANDIDATES - 1) }));
   const [control, ...results] = await Promise.all([
     runEval(incumbent, opp, seeds, controlSample),
     ...mutants.map((m) => runEval(m.profile, opp, seeds))
