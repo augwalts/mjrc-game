@@ -405,14 +405,29 @@ else if (D.history.length === 0) {
         dd(g.control.meanFaan, nw.meanFaan, "faan", (v) => v);
         story = `dials moved: ${moves || "only sub-5% nudges"}${tex.length ? ` · same-wall texture old→new: ${tex.join(" · ")}` : ""}`;
       }
+      const fh = g.bench?.activity?.faanHist ?? g.control?.activity?.faanHist;
+      let faanCells = '<td colspan="8" class="mut" style="border:0">—</td>', meanCell = "—";
+      if (fh) {
+        const buckets = [3, 4, 5, 6, 7, 8, 9].map((f) => fh[f]).concat([fh.slice(10).reduce((a, b) => a + b, 0)]);
+        const tot = fh.reduce((a, b) => a + b, 0) || 1, peak = Math.max(...buckets, 1);
+        faanCells = buckets.map((n, bi) => {
+          const share = n / tot, rel = n / peak;
+          return `<td title="gen ${g.gen} · ${bi === 7 ? "10+" : bi + 3} faan: ${n} wins (${Math.round(share * 100)}%)" style="padding:1px;border:0">` +
+            `<div style="height:16px;min-width:26px;border-radius:2px;display:flex;align-items:center;justify-content:center;` +
+            `font-size:9px;color:${rel > 0.55 ? "#10121a" : "var(--dim)"};` +
+            `background:rgba(127,179,255,${n ? (0.05 + rel * 0.9).toFixed(2) : 0})">${n ? Math.round(share * 100) : ""}</div></td>`;
+        }).join("");
+        meanCell = g.bench?.meanFaan ?? g.control?.meanFaan ?? "—";
+      }
       return `<tr><td><b>${g.gen}</b></td><td class="mut">${pts(ctrl)}</td><td>${pts(bestPts)}</td>
         <td class="mut">${g.confirm ? pts(g.confirm.pointsPerMatch) : "—"}</td>
         <td>${g.promoted === null ? '<span class="mut">kept</span>' : '<span class="up">PROMOTED #' + g.promoted + "</span>"}</td>
         <td>${g.bench ? (g.bench.chipsPerMatch > 0 ? "+" : "") + g.bench.chipsPerMatch : "—"}</td>
+        ${faanCells}<td class="mut">${meanCell}</td>
         <td class="mut">${g.work ? g.work.matches : "~336"}</td>
         <td class="mut">${g.work ? g.work.hands.toLocaleString() : "~2,400"}</td>
         <td class="mut">${(g.ms / 1000).toFixed(0)}</td></tr>
-        <tr><td style="border-bottom:1px solid var(--line)"></td><td colspan="8" class="mut" style="text-align:left;font-size:11px;border-bottom:1px solid var(--line)">${story}</td></tr>`;
+        <tr><td style="border-bottom:1px solid var(--line)"></td><td colspan="17" class="mut" style="text-align:left;font-size:11px;border-bottom:1px solid var(--line)">${story}</td></tr>`;
     });
     const start = D.defaults, end = last.incumbentAfter;
     const drift = D.keys.map((k) => ({ k, d: start[k] ? end[k] / start[k] - 1 : 0 }))
@@ -427,50 +442,18 @@ else if (D.history.length === 0) {
          <td>${r.claimsPerHand ?? "—"}</td><td>${r.meanFaan ?? "—"}</td></tr>`).join("")}</table>
       <div class="mut" style="font-size:10.5px;margin-top:4px">The 69%-draw era is the audited Python prototype; today's 25-30% sits
       between that and the ~10-20% real-table feel. Permanent record: tools/sim/baselines.json.</div></div>` : "";
-    put('colL', `<div class="card scrollcard" style="max-height:680px"><h2>Training history — every generation, numbers + story</h2>
+    put('wide', `<div class="card scrollcard" style="max-height:680px"><h2>Training history — every generation, numbers + story</h2>
       <div class="mut" style="font-size:11px;margin-bottom:6px"><b>control</b> = incumbent vs itself on the same walls (its distance from 0 IS the
       noise floor) · <b>best</b> = top challenger of 6 on seed set A · <b>confirm</b> = same challenger on unseen set B — promotion needs both, so
       most generations keep the incumbent (the noise gate working, not stagnation) · <b>vs base</b> = chips/match vs ${baseLbl} on fixed walls, all
-      seats · <b>games/hands</b> = the full workload that generation.
+      seats · <b>games/hands</b> = the full workload that generation · <b>3f…10+ columns</b> = that generation's winning-hand
+      sizes in its benchmark games (% of wins at each faan, brightness relative to the row's peak) — watch the mass migrate as the
+      meta shifts; <b>x̄</b> = mean winning faan.
       ${drift ? `<br><b>Net drift this run vs its start:</b> ${drift}` : ""}</div>
-      <table><tr><th>gen</th><th>control</th><th>best</th><th>confirm</th><th>outcome</th><th>vs base</th><th>games</th><th>hands</th><th>secs</th></tr>
+      <table><tr><th>gen</th><th>control</th><th>best</th><th>confirm</th><th>outcome</th><th>vs base</th><th>3f</th><th>4f</th><th>5f</th><th>6f</th><th>7f</th><th>8f</th><th>9f</th><th>10+</th><th>x̄ faan</th><th>games</th><th>hands</th><th>secs</th></tr>
       ${[...rows].reverse().join("")}</table>${refs}</div>`);
   }
 
-  // ── hand-size distribution per generation: the meta drifting in one picture ──
-  {
-    const baseLblShort = (D.baseline || "").includes("v1") ? "baseline-v1" : "baseline-v0";
-    const hist = (g) => g.bench?.activity?.faanHist ?? g.control?.activity?.faanHist;
-    const gensH = H.filter((g) => hist(g));
-    if (gensH.length >= 2) {
-      const FAANS = [3, 4, 5, 6, 7, 8, 9, 10];
-      const w = Math.max(14, Math.floor(560 / gensH.length));
-      // per-column stats: share of each bucket + the column's peak, so shading
-      // is normalized within a generation and the modal hand size pops out
-      const colStats = gensH.map((g) => {
-        const h = hist(g); const tot = h.reduce((a, b) => a + b, 0) || 1;
-        const buckets = FAANS.map((f) => (f === 10 ? h.slice(10).reduce((a, b) => a + b, 0) : h[f]));
-        return { tot, buckets, peak: Math.max(...buckets, 1) };
-      });
-      const rowsHtml = FAANS.map((f, fi) => `<tr><td class="mut" style="white-space:nowrap">${f}${f === 10 ? "+ 爆棚" : ""} faan</td>${
-        colStats.map((c, gi) => {
-          const n = c.buckets[fi]; const share = n / c.tot; const rel = n / c.peak;
-          const label = w >= 26 && n ? `${Math.round(share * 100)}%` : "";
-          return `<td title="gen ${gensH[gi].gen} · ${f} faan: ${n} wins (${Math.round(share * 100)}%)" style="padding:1px;border:0">` +
-            `<div style="height:18px;min-width:${w}px;border-radius:2px;display:flex;align-items:center;justify-content:center;` +
-            `font-size:9.5px;color:${rel > 0.55 ? "#10121a" : "var(--dim)"};` +
-            `background:rgba(127,179,255,${n ? (0.05 + rel * 0.9).toFixed(2) : 0})">${label}</div></td>`;
-        }).join("")
-      }</tr>`).join("");
-      const meanRow = `<tr><td class="mut">mean faan</td>${gensH.map((g) =>
-        `<td class="mut" style="font-size:9.5px;text-align:center;border:0">${g.bench?.meanFaan ?? g.control?.meanFaan ?? ""}</td>`).join("")}</tr>`;
-      put('colR', `<div class="card"><h2>Winning-hand size by generation</h2>
-        <div class="mut" style="font-size:11px;margin-bottom:6px">Each column is one generation's benchmark games vs <b>${baseLblShort}</b> (same walls, same
-        enemy every generation, so columns compare honestly); cell brightness = the share of that generation's wins landing at that
-        faan. Floor-scraping metas glow at 3; value metas glow at 5+. Left = gen ${gensH[0].gen}, right = gen ${gensH[gensH.length - 1].gen}.</div>
-        <div style="overflow-x:auto"><table style="border-collapse:collapse">${rowsHtml}${meanRow}</table></div></div>`);
-    }
-  }
 
   for (const slot of ["kpis", "colL", "colR", "wide"]) {
     const el = document.getElementById(slot === "kpis" ? "kpis" : slot === "wide" ? "wide" : slot);
