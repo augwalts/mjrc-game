@@ -4,9 +4,9 @@
  * detection rate, false alarms, and hand-size calibration (estimated faan vs
  * the faan actually paid). Writes threat-audit.js for the panel.
  *
- *   node tools/sim/threat-audit.mjs [matches=30]
+ *   node tools/sim/threat-audit.mjs [matches=30] [tableProfile.json]
  */
-import { writeFileSync } from "node:fs";
+import { writeFileSync, readFileSync } from "node:fs";
 import { prng } from "../../engine/src/wall.js";
 import { decideAction, DEFAULT_PROFILE, type BotConfig } from "../../engine/src/bots.js";
 import { assessSeatThreat } from "../../engine/src/threat.js";
@@ -15,14 +15,20 @@ import { startMatch, startNextHand, applyAction, legalActions } from "../../engi
 import { viewFor, SEATS } from "./driver.js";
 
 const N = Number(process.argv[2] ?? 30);
+const TABLE = process.argv[3]
+  ? { ...DEFAULT_PROFILE, ...JSON.parse(readFileSync(process.argv[3], "utf8")) }
+  : DEFAULT_PROFILE;
 let wins = 0, detected = 0, flags = 0, falseFlags = 0, matchCount = 0;
+// The owner's hypothesis (2026-08-28): reads should be near-blind to winners
+// who stayed fully concealed — melds are the model's main evidence.
+let winsConcealed = 0, detConcealed = 0, winsExposed = 0, detExposed = 0;
 const errs: number[] = [];
 
 for (let m = 0; m < N; m++) {
   matchCount++;
   const seed = 950_000 + m * 7919;
   const cfgs: BotConfig[] = SEATS.map((s) => ({
-    ruleset: MJRC_STANDARD, rnd: prng((seed ^ ((s + 1) * 0x9e3779b1)) >>> 0),
+    ruleset: MJRC_STANDARD, profile: TABLE, rnd: prng((seed ^ ((s + 1) * 0x9e3779b1)) >>> 0),
   }));
   let { state, events } = startMatch({ seed, ruleset: MJRC_STANDARD, matchLength: "oneWindRound" } as any);
   // reads of each seat BY an opponent, refreshed as the hand runs
@@ -34,6 +40,9 @@ for (let m = 0; m < N; m++) {
         const w = (e.payload as { context: { seat: number } }).context.seat;
         const faan = (e.payload as { score: { faan: number } }).score.faan;
         const r = reads[w];
+        const concealed = state.seats[w]!.melds.length === 0;
+        if (concealed) { winsConcealed++; if (r && r.threat > 0.3) detConcealed++; }
+        else { winsExposed++; if (r && r.threat > 0.3) detExposed++; }
         if (r && r.threat > 0.3) detected++;
         if (r) errs.push(r.expectedFaan - faan);
         // false alarms: strongly-flagged seats that did NOT win this hand
@@ -63,6 +72,9 @@ const mae = errs.reduce((a, b) => a + Math.abs(b), 0) / Math.max(1, errs.length)
 const out = {
   matches: matchCount, wins,
   detectionRate: detected / Math.max(1, wins),
+  detectionExposed: +(detExposed / Math.max(1, winsExposed)).toFixed(2),
+  detectionConcealed: +(detConcealed / Math.max(1, winsConcealed)).toFixed(2),
+  winsConcealedShare: +(winsConcealed / Math.max(1, wins)).toFixed(2),
   falseAlarmRate: falseFlags / Math.max(1, flags),
   faanBias: +bias.toFixed(2), faanMAE: +mae.toFixed(2),
   generated: new Date().toISOString().slice(0, 16).replace("T", " "),

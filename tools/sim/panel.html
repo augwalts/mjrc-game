@@ -13,10 +13,12 @@ h1{font-size:16px;margin:0 0 2px}
 .sub{color:var(--dim);font-size:11.5px;margin-bottom:16px}
 .kpis{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin-bottom:12px}
 .kpis .card h2{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;align-items:start;margin-bottom:12px}
-.col{display:flex;flex-direction:column;gap:12px;min-width:0}
+/* masonry: cards flow into balanced columns — no more page-tall blank gaps */
+.cols{columns:2;column-gap:12px;margin-bottom:12px}
+.col{display:contents}
+.cols .card{break-inside:avoid;margin-bottom:12px;display:block}
 .scrollcard{max-height:420px;overflow-y:auto}
-@media (max-width:1000px){.kpis{grid-template-columns:repeat(2,1fr)}.cols{grid-template-columns:1fr}}
+@media (max-width:1000px){.kpis{grid-template-columns:repeat(2,1fr)}.cols{columns:1}}
 .card{background:var(--card);border:1px solid var(--line);border-radius:9px;padding:13px}
 .card h2{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--dim);
   margin:0 0 9px;font-weight:600}
@@ -160,7 +162,7 @@ else if (D.history.length === 0) {
     ? "baseline-v1 — the FROZEN era-1 champion (0 = par with yesterday's best bot)"
     : "baseline-v0 — the defenseless era-1 yardstick";
   // ── glossary: the units every number on this page is in ──
-  put("kpis", `<div class="card"><h2>How to read this page</h2>
+  put("kpis", `<div class="card" style="grid-column:1/-1"><h2>How to read this page</h2>
     <div class="mut" style="font-size:12px;line-height:1.55">
     <b>Chips are money.</b> The HK payment ladder (mjrc-standard, 3–10 faan): a win on a discard costs
     the discarder 3f=16 · 4f=32 · 5f=48 · 6f=64 · 7f=96 · 8f=128 · 9f=192 · 10f(cap)=256 chips;
@@ -304,7 +306,7 @@ else if (D.history.length === 0) {
   const K = D.keys;
   const w0 = D.defaults, wN = last.incumbentAfter;
   put('colR', `<div class="card scrollcard"><h2>Incumbent weights — hand-guessed → evolved</h2>
-    <div class="mut" style="font-size:11px;margin-bottom:8px">The bot's entire personality is these 11 dials — coefficients of its three
+    <div class="mut" style="font-size:11px;margin-bottom:8px">The bot's entire personality is these 19 dials — coefficients of its three
     decision formulas (route choice · discard choice · claim choice). Evolution never invents behaviour, it only re-balances them.
     "default" is the hand-guessed starting value; green/red Δ = evolution raised/lowered it.</div>
     <table><tr><th>weight</th><th>default</th><th>now</th><th>Δ</th></tr>
