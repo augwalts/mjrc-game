@@ -16,15 +16,16 @@ body{margin:0;background:var(--bg);color:var(--ink);
   font:13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:20px;max-width:1440px;margin:0 auto}
 h1{font-size:16px;margin:0 0 2px}
 .sub{color:var(--dim);font-size:11.5px;margin-bottom:16px}
-.kpis,.diagnostics{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin-bottom:12px}
+.kpis{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin-bottom:12px}
+.diagnostics,.trendgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-bottom:12px}
 .kpis .card h2{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* masonry: cards flow into balanced columns — no more page-tall blank gaps */
 .cols{columns:2;column-gap:12px;margin-bottom:12px}
 .col{display:contents}
 .cols .card{break-inside:avoid;margin-bottom:12px;display:block}
 .scrollcard{max-height:420px;overflow-y:auto}
-@media (max-width:1000px){.kpis,.diagnostics{grid-template-columns:repeat(2,minmax(0,1fr))}.cols{columns:1}}
-@media (max-width:700px){body{padding:12px}.kpis,.diagnostics{grid-template-columns:minmax(0,1fr)}.nav{overflow-x:auto}.scopebar{align-items:flex-start}.big{font-size:20px}}
+@media (max-width:1000px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.cols{columns:1}}
+@media (max-width:700px){body{padding:12px}.kpis,.diagnostics,.trendgrid{grid-template-columns:minmax(0,1fr)}.nav{overflow-x:auto}.scopebar{align-items:flex-start}.big{font-size:20px}}
 .card{background:var(--card);border:1px solid var(--line);border-radius:9px;padding:13px;min-width:0;overflow-wrap:anywhere}
 .kpis>*,.diagnostics>*{min-width:0}
 .card h2{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--dim);
@@ -34,6 +35,7 @@ h1{font-size:16px;margin:0 0 2px}
 .health{font-weight:750;letter-spacing:.05em}.health.stale,.pill.stale{color:var(--warn);background:#452c25}
 .table-scroll{max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
 .decision{font-size:12px}.decision td,.decision th{white-space:nowrap}.decision td:last-child,.decision th:last-child{white-space:normal;text-align:left}
+.trend{width:100%;height:170px;display:block}.trendkey{display:flex;gap:12px;flex-wrap:wrap;font-size:10px;color:var(--dim)}
 table{width:100%;border-collapse:collapse;font-size:12px;font-variant-numeric:tabular-nums}
 th{text-align:right;color:var(--dim);font-weight:600;font-size:10px;text-transform:uppercase;
   letter-spacing:.05em;padding:3px 6px;border-bottom:1px solid var(--line)}
@@ -59,11 +61,13 @@ details.match summary:hover{background:#2c2c35}
 <h1>Self-play weight evolution <span class="pill" id="status"></span></h1>
 <div class="sub" id="sub">waiting for data.js…</div>
 <div class="nav"><b class="mut" style="font-size:10px;text-transform:uppercase;letter-spacing:.08em">jump to</b>
-  <a href="#overnightbar">Health</a><a href="#seriesKpis">Overall KPIs</a><a href="#currentCycle">Current cycle</a><a href="#history">Research archive</a></div>
+  <a href="#overnightbar">Health</a><a href="#seriesKpis">Run structure</a><a href="#longitudinal">Across cycles</a><a href="#currentCycle">Within cycle</a><a href="#history">Research archive</a></div>
 <div id="overnightbar"></div>
-<div class="sectionlabel">Overall operation — across completed cycles and the live cycle</div>
-<div class="kpis" id="seriesKpis"></div>
-<div class="sectionlabel" id="currentCycle">Current cycle — generation trend, latest value</div>
+<div class="sectionlabel">Run structure</div>
+<div id="seriesKpis"></div>
+<div class="sectionlabel">Across all cycles — every archived generation, with era breaks</div>
+<div class="trendgrid" id="longitudinal"></div>
+<div class="sectionlabel" id="currentCycle">Within the current cycle — generation-by-generation movement</div>
 <div class="diagnostics" id="kpis"></div>
 <div class="sectionlabel">Latest generation and current-cycle detail</div>
 <div class="cols">
@@ -79,7 +83,7 @@ details.match summary:hover{background:#2c2c35}
 // mobile Chrome on slow networks — that was "where did the rest of the html
 // go"). Append real script tags, count them down, then boot the panel.
 (function () {
-  const files = ["overnight.js", "baselines.js", "threat-audit.js", "experiments.js", "log.js", "data.js"];
+  const files = ["overnight.js", "series-history.js", "baselines.js", "threat-audit.js", "experiments.js", "log.js", "data.js"];
   let pending = files.length;
   const done = () => { if (--pending === 0 && window.initPanel) window.initPanel(); };
   for (const f of files) {
@@ -105,12 +109,6 @@ const D = window.SIM_DATA;
     return { ...(logged || {}), ...c };
   });
   const done = cycles.filter((c) => c.heldOutChips !== null && c.heldOutChips !== undefined && !c.error);
-  const admitted = done.filter((c) => c.improved);
-  const latest = done[done.length - 1];
-  const lastAdmission = admitted[admitted.length - 1];
-  const deltaOf = (c) => c && Number.isFinite(c.reigningOnSameBlock)
-    ? +(c.heldOutChips - c.reigningOnSameBlock).toFixed(1) : null;
-  const signed = (v) => v === null || v === undefined ? "—" : `${v > 0 ? "+" : ""}${v}`;
   const now = Date.now();
   const stamps = [Date.parse(D?.updated || ""), Number(O?.now)].filter(Number.isFinite);
   const freshest = stamps.length ? Math.max(...stamps) : null;
@@ -132,15 +130,16 @@ const D = window.SIM_DATA;
   if (seriesEl) {
     const planned = Number(D?.generationsPlanned) || 16;
     const overallGenerations = done.reduce((n, c) => n + (Number(c.generations) || planned), 0) + (D?.history?.length || 0);
-    const latestDelta = deltaOf(latest);
-    const admittedDelta = deltaOf(lastAdmission);
-    const rate = done.length ? Math.round(admitted.length / done.length * 100) : 0;
-    seriesEl.innerHTML = `
-      <div class="card"><span class="scope">OVERALL SERIES</span><h2>Generations observed</h2><div class="big">${overallGenerations}</div><div class="mut">${done.length} completed cycles + ${D?.history?.length || 0} in the live cycle</div></div>
-      <div class="card"><span class="scope">OVERALL SERIES</span><h2>Completed cycles</h2><div class="big">${done.length}</div><div class="mut">cycle-end held-out exams recorded</div></div>
-      <div class="card"><span class="scope">OVERALL SERIES</span><h2>Hall-of-fame admissions</h2><div class="big">${admitted.length}</div><div class="mut">${admitted.length}/${done.length || 0} cycles · ${rate}% admission rate</div></div>
-      <div class="card"><span class="scope">OVERALL SERIES</span><h2>Latest admission decision</h2><div class="big ${latest?.improved ? "up" : latestDelta !== null && latestDelta < 0 ? "down" : ""}">${signed(latestDelta)}</div><div class="mut">cycle ${latest?.cycle ?? "—"}: candidate ${signed(latest?.heldOutChips)} vs reigning ${signed(latest?.reigningOnSameBlock)} on the same block · needs &gt; +${latest?.admissionMargin ?? 4} · <b class="${latest?.improved ? "up" : ""}">${latest ? (latest.improved ? "ADMITTED" : "REJECTED") : "NO DECISION"}</b></div></div>
-      <div class="card"><span class="scope">OVERALL SERIES</span><h2>Last successful admission</h2><div class="big up">${signed(admittedDelta)}</div><div class="mut">${lastAdmission ? `cycle ${lastAdmission.cycle}: candidate ${signed(lastAdmission.heldOutChips)} vs reigning ${signed(lastAdmission.reigningOnSameBlock)}` : "none recorded"}</div></div>`;
+    const archived = window.SERIES_HISTORY?.points || [];
+    const eras = [...new Set(archived.map((p) => p.era))];
+    const archivedCycles = new Set(archived.map((p) => `${p.era}:${p.cycle}`)).size;
+    seriesEl.innerHTML = `<div class="card scopebar" style="margin-bottom:12px">
+      <span class="scope">CURRENT ERA ${logs.length ? Math.max(...logs.map((r) => r.era || 1)) : "—"}</span>
+      <span><b>${overallGenerations} generations</b> observed</span>
+      <span><b>${done.length} completed cycles</b> + cycle ${done.length + 1} now</span>
+      <span class="mut">one cycle = ${planned} generations, then one held-out admission exam</span>
+      <span class="mut">long-term archive: ${archived.length.toLocaleString()} generation snapshots across ${archivedCycles} cycles (${eras.length} eras)</span>
+    </div>`;
   }
 }
 // The optimizer rewrites data.js after every generation; reload to pick it up.
@@ -204,6 +203,66 @@ else if (D.history.length === 0) {
   // 2026-08-28). Bench is the only honestly comparable source.
   const texture = k => H.map(g => (g.bench ?? g.control)[k]);
 
+  // Longitudinal archive: every recoverable generation, grouped by cycle and
+  // split at era boundaries because rules/benchmarks can change between eras.
+  {
+    const archived = window.SERIES_HISTORY?.points || [];
+    const eraRows = (window.SERIES_LOG || []).map((r) => r.era || 1);
+    const currentEra = eraRows.length ? Math.max(...eraRows) : 1;
+    const eraCycles = archived.filter((p) => p.era === currentEra).map((p) => p.cycle);
+    const currentCycle = window.OVERNIGHT?.cycles?.length
+      ? window.OVERNIGHT.cycles.length + 1
+      : (eraCycles.length ? Math.max(...eraCycles) + 1 : 1);
+    const live = H.map((g) => {
+      const b = g.bench ?? g.control;
+      return { era: currentEra, cycle: currentCycle, gen: g.gen, promoted: g.promoted !== null,
+        baseline: D.baseline, opponent: D.trainingOpponent,
+        chipsPerMatch: b.chipsPerMatch, refusedPerHand: b.refusedPerHand, drawRate: b.drawRate,
+        meanFaan: b.meanFaan, threatDetection: b.threatDetection, claimsPerHand: b.claimsPerHand };
+    });
+    const liveKeys = new Set(live.map((p) => `${p.era}:${p.cycle}:${p.gen}`));
+    const points = archived.filter((p) => !liveKeys.has(`${p.era}:${p.cycle}:${p.gen}`)).concat(live)
+      .sort((a, b) => a.era - b.era || a.cycle - b.cycle || a.gen - b.gen);
+    const trend = (key, { fmt = (v) => v, color = "var(--acc)", zero = false } = {}) => {
+      const values = points.map((p) => p[key]);
+      const valid = values.map((v, i) => Number.isFinite(v) ? { v, i } : null).filter(Boolean);
+      if (!valid.length) return '<div class="mut">Not recorded in the longitudinal archive.</div>';
+      let lo = Math.min(...valid.map((p) => p.v)), hi = Math.max(...valid.map((p) => p.v));
+      const pad = Math.max((hi - lo) * 0.08, Math.abs(hi || 1) * 0.01);
+      if (zero) lo = 0; else lo -= pad;
+      hi += pad;
+      if (hi === lo) hi = lo + 1;
+      const W = 720, Hh = 180, L = 42, R = 8, T = 22, B = 25;
+      const x = (i) => L + i / Math.max(1, points.length - 1) * (W - L - R);
+      const y = (v) => T + (1 - (v - lo) / (hi - lo)) * (Hh - T - B);
+      const starts = points.map((p, i) => i === 0 || p.era !== points[i - 1].era || p.cycle !== points[i - 1].cycle ? { ...p, i } : null).filter(Boolean);
+      const eras = starts.filter((p, i) => i === 0 || p.era !== starts[i - 1].era);
+      const paths = [...new Set(valid.map((p) => points[p.i].era))].map((era) => {
+        const segment = valid.filter((p) => points[p.i].era === era);
+        return `<polyline points="${segment.map((p) => `${x(p.i).toFixed(1)},${y(p.v).toFixed(1)}`).join(" ")}" fill="none" stroke="${color}" stroke-width="1.6"/>`;
+      }).join("");
+      const boundaries = starts.map((p) => `<line x1="${x(p.i)}" x2="${x(p.i)}" y1="${T}" y2="${Hh - B}" stroke="${p.gen === 0 && eras.some((e) => e.i === p.i) ? "var(--gold)" : "var(--line)"}" stroke-width="${eras.some((e) => e.i === p.i) ? 2 : 0.6}"/>`).join("");
+      const labels = eras.map((p) => `<text x="${x(p.i) + 4}" y="12" font-size="9" fill="var(--gold)">ERA ${p.era}</text>`).join("");
+      const cycleLabels = starts.filter((p, i) => i === 0 || i === starts.length - 1 || i % 5 === 0 || eras.some((e) => e.i === p.i))
+        .map((p) => `<text x="${x(p.i)}" y="${Hh - 6}" text-anchor="middle" font-size="8" fill="var(--dim)">E${p.era} C${p.cycle}</text>`).join("");
+      const promotions = valid.filter((p) => points[p.i].promoted).map((p) => `<circle cx="${x(p.i)}" cy="${y(p.v)}" r="2.8" fill="var(--gold)"><title>Era ${points[p.i].era}, cycle ${points[p.i].cycle}, gen ${points[p.i].gen}: ${fmt(p.v)} · promoted</title></circle>`).join("");
+      const cycleEnds = valid.filter((p) => p.i === points.length - 1 || points[p.i + 1].era !== points[p.i].era || points[p.i + 1].cycle !== points[p.i].cycle)
+        .map((p) => `<circle cx="${x(p.i)}" cy="${y(p.v)}" r="2.2" fill="var(--card)" stroke="${color}" stroke-width="1.5"><title>Era ${points[p.i].era}, cycle ${points[p.i].cycle} endpoint: ${fmt(p.v)}</title></circle>`).join("");
+      const ticks = [hi, (hi + lo) / 2, lo].map((v) => `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)" stroke-dasharray="3 3"/><text x="${L - 5}" y="${y(v) + 3}" text-anchor="end" font-size="9" fill="var(--dim)">${fmt(v)}</text>`).join("");
+      const last = valid[valid.length - 1];
+      return `<svg class="trend" viewBox="0 0 ${W} ${Hh}">${ticks}${boundaries}${paths}${cycleEnds}${promotions}${labels}${cycleLabels}</svg>
+        <div class="trendkey"><span>${valid.length.toLocaleString()}/${points.length.toLocaleString()} generations recorded</span><span>thin line = cycle boundary · outlined dot = cycle endpoint</span><span style="color:var(--gold)">gold line = era boundary · gold dot = promotion</span><span>latest ${fmt(last.v)}</span></div>`;
+    };
+    const metrics = [
+      ["refusedPerHand", "Refused wins per table hand", { color: "var(--warn)", zero: true, fmt: (v) => v.toFixed(2) }],
+      ["meanFaan", "Mean winning faan", { color: "var(--acc)", fmt: (v) => v.toFixed(2) }],
+      ["drawRate", "Exhaustive draw rate", { color: "var(--gold)", zero: true, fmt: (v) => `${(v * 100).toFixed(0)}%` }],
+      ["threatDetection", "Threat detection", { color: "var(--ok)", zero: true, fmt: (v) => `${(v * 100).toFixed(0)}%` }],
+    ];
+    document.getElementById("longitudinal").innerHTML = metrics.map(([key, title, opts]) =>
+      `<div class="card"><span class="scope">ACROSS ALL CYCLES · EVERY RECORDED GENERATION</span><h2>${title}</h2>${trend(key, opts)}</div>`).join("");
+  }
+
   const PATTERN_LABELS = {
     selfDraw:"self-draw 自摸", allChows:"All Chows 平糊", allPungs:"All Pungs 對對糊",
     halfFlush:"Half Flush 混一色", fullFlush:"Full Flush 清一色", dragonPung:"dragon pung 三元牌",
@@ -229,8 +288,7 @@ else if (D.history.length === 0) {
   if (benches.length) {
     const b = benches[benches.length - 1];
     const line = benches.map((x) => x.chipsPerMatch);
-    put("kpis", `<div class="card"><span class="scope">CURRENT CYCLE · FIXED BENCH</span><h2>vs ${(D.baseline||"baseline-v0.json").includes("v1") ? "baseline-v1 (era-1 champion)" : "frozen baseline-v0"} — chips/match</h2>
-      <div class="big ${b.chipsPerMatch > 0 ? "up" : b.chipsPerMatch < 0 ? "down" : ""}">${b.chipsPerMatch > 0 ? "+" : ""}${b.chipsPerMatch}</div>
+    put("kpis", `<div class="card"><span class="scope">WITHIN CURRENT CYCLE · ${benches.length} GENERATIONS</span><h2>Fixed-bench chips/match vs ${(D.baseline||"baseline-v0.json").includes("v1") ? "baseline-v1" : "baseline-v0"}</h2>
       ${spark(line, { zero: true, fmt: (v) => (v > 0 ? "+" : "") + v, color: b.chipsPerMatch >= 0 ? "var(--ok)" : "var(--warn)" })}
       <div class="mut" style="font-size:11px">won <b class="up">${b.chipsWonPerMatch}</b> · lost <b class="down">${b.chipsLostPerMatch}</b>
       ${b.winLossRatio !== undefined ? `· <b>W/L ratio ${b.winLossRatio}</b> (how humans compare — &gt;1 = net winner)` : ""} per match.
@@ -253,16 +311,10 @@ else if (D.history.length === 0) {
   {
     const tdVals = H.map((g) => g.bench?.threatDetection).filter((v) => v !== undefined);
     if (tdVals.length) {
-      const t = tdVals[tdVals.length - 1];
-      const A = window.THREAT_AUDIT;
-      put("kpis", `<div class="card"><span class="scope">LATEST GENERATION · TABLE-WIDE BENCH</span><h2>Threat-read quality</h2>
-        <div class="kv"><span>winners flagged &gt;0.3</span><b class="big">${Math.round(t * 100)}%</b></div>
-        ${A?.falseAlarmRate !== undefined ? `<div class="kv"><span>false alarms &gt;0.5 (offline audit)</span><b class="down">${Math.round(A.falseAlarmRate * 100)}%</b></div>` : ""}
+      put("kpis", `<div class="card"><span class="scope">WITHIN CURRENT CYCLE · ${tdVals.length} GENERATIONS</span><h2>Threat detection by generation</h2>
         ${spark(tdVals, { zero: true, hi: 1, fmt: (v) => Math.round(v * 100) + "%" })}
         <div class="mut" style="font-size:11px">Share of benchmark wins where the winner had been flagged (threat &gt; 0.3)
-        by an opponent's table read before the win. The sparkline covers ${tdVals.length} generations in the current cycle; the false-alarm audit is a separate source and threshold.
-        ${A?.detectionConcealed !== undefined ? `Offline audit split: exposed winners ${Math.round(A.detectionExposed * 100)}% ·
-        concealed winners ${Math.round(A.detectionConcealed * 100)}% — the model is still near-blind to concealed hands.` : ""}</div></div>`);
+        by an opponent's table read before the win. This plot compares only generations inside the active cycle; the separate offline-audit card covers false alarms and exposed/concealed splits.</div></div>`);
     }
   }
   // ── what the bots actually DO: latest generation's activity mix ──
@@ -308,22 +360,19 @@ else if (D.history.length === 0) {
   if (hasPts) {
     }
 
-  put('kpis', `<div class="card"><span class="scope">LATEST GENERATION · TABLE-WIDE BENCH</span><h2>Refused wins / hand</h2>
-    <div class="big">${texture("refusedPerHand").slice(-1)[0]}</div>
+  put('kpis', `<div class="card"><span class="scope">WITHIN CURRENT CYCLE · ${H.length} GENERATIONS</span><h2>Refused wins / hand by generation</h2>
     ${spark(texture("refusedPerHand"), {lo: 0, color: "var(--warn)", fmt: v => v})}
-    <div class="mut" style="font-size:11px">Whole-table count per hand where any seat completed a winning shape it legally could not take under the 3-faan floor. The sparkline covers the current cycle's fixed benchmark only.</div></div>`);
+    <div class="mut" style="font-size:11px">Whole-table count per hand where any seat completed a winning shape it legally could not take under the 3-faan floor. This is the current cycle only; the long-term chart above covers all archived cycles.</div></div>`);
 
-  put('kpis', `<div class="card"><span class="scope">LATEST GENERATION · TABLE-WIDE BENCH</span><h2>Draw rate 流局</h2>
-    <div class="big">${(texture("drawRate").slice(-1)[0]*100).toFixed(0)}%</div>
+  put('kpis', `<div class="card"><span class="scope">WITHIN CURRENT CYCLE · ${H.length} GENERATIONS</span><h2>Draw rate by generation 流局</h2>
     ${spark(texture("drawRate"), {lo: 0, hi: 0.7, fmt: v => (v*100).toFixed(0)+"%"})}
     <div class="mut" style="font-size:11px">流局 — the wall ran out and NOBODY won (not self-draw — 自摸 is a win).
- This is the latest fixed-bench value; the sparkline covers generations in the current cycle only.</div></div>`);
+ This plot compares generations in the current cycle only.</div></div>`);
 
-  put('kpis', `<div class="card"><span class="scope">LATEST GENERATION · TABLE-WIDE BENCH</span><h2>Mean winning faan</h2>
-    <div class="big">${texture("meanFaan").slice(-1)[0]}</div>
+  put('kpis', `<div class="card"><span class="scope">WITHIN CURRENT CYCLE · ${H.length} GENERATIONS</span><h2>Mean winning faan by generation</h2>
     ${spark(texture("meanFaan"), {zero: true, fmt: v => v})}
     <div class="mut" style="font-size:11px">Average faan of winning hands. 3.0 = everyone scrapes the minimum; rising = hands
- built for value. This is table-wide and covers the latest fixed-bench generation; the sparkline is current-cycle history.</div></div>`);
+ built for value. This plot compares generations in the current cycle only.</div></div>`);
 
   const WEIGHT_DOCS = {
     faanWeight: "Value vs speed: how much a route's payout matters over finishing fast. Low = race for any legal 3 faan; high = build big hands.",
