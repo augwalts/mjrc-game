@@ -1,6 +1,6 @@
 # Training series — era 2 (vs baseline-v1, the frozen era-1 champion)
 
-Updated 2026-08-28T14:16:40.310Z · 12.5h remaining · ruleset mjrc-standard (3-10 faan)
+Updated 2026-08-28T14:56:15.628Z · 11.8h remaining · ruleset mjrc-standard (3-10 faan)
 
 **Hall of fame vs baseline-v1: 15.1 chips/match**
 
@@ -21,5 +21,6 @@ All chip numbers here are AVERAGES per one-wind-round match over 160-match block
 | 9 | mirror | 48 | -16.6 | 48.3 |  | 30.2m |
 | 10 | baseline | 96 | 0 | 41.4 |  | 43.3m |
 | 11 | baseline | 48 | 3.5 | 46.8 |  | 30.7m |
+| 12 | mirror | 96 | -6.9 | 66.8 |  | 36.1m |
 
 Files: hall-of-fame.json (best weights) · overnight-log.jsonl · runs/cycle-NNN.js (full histories)
