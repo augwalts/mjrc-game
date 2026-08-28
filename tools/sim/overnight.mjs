@@ -108,6 +108,13 @@ while (Date.now() < deadline) {
     flushPanel(`cycle ${cycle} FAILED · cycle ${cycle + 1} evolving`);
     continue;                                                  // a bad cycle must not end the night
   }
+  // Preserve the cycle's full per-generation history before anything else
+  // touches data.js — the panel's generation table resets every cycle, this is
+  // where the detail survives (owner, 2026-08-28).
+  try {
+    if (!existsSync(`${DIR}/runs`)) (await import("node:fs")).mkdirSync(`${DIR}/runs`);
+    copyFileSync(`${DIR}/data.js`, `${DIR}/runs/era2-cycle-${String(cycle).padStart(3, "0")}.js`);
+  } catch {}
   // FAIR ADMISSION (the +3.3 mirage lesson): candidate and the reigning
   // hall-of-famer are BOTH measured on the SAME fresh block — never compare
   // scores from different blocks, that is how variance gets crowned.

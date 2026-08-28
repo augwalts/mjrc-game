@@ -117,7 +117,7 @@ else if (D.history.length === 0) {
   document.getElementById("status").textContent = D.status;
   document.getElementById("status").className = "pill" + (D.status === "running" ? " live" : "");
   document.getElementById("sub").textContent =
-    `${H.length} generations · ${promoted} promotions · ${totalMatches.toLocaleString()} games / ${totalHands.toLocaleString()} hands this run · updated ${D.updated} — refresh for latest`;
+    `${window.OVERNIGHT ? `cycle ${window.OVERNIGHT.cycles.length + 1} · ` : ""}gen ${H.length - 1} of 16 · ${promoted} promotions this cycle · ${totalMatches.toLocaleString()} games / ${totalHands.toLocaleString()} hands · updated ${D.updated} — refresh for latest`;
 
   // Mini chart with REAL axes (owner, 2026-08-28: unlabeled sparklines auto-zoom
   // tiny ranges into fake drama — draw rate "looked like it started at 60%").
@@ -478,7 +478,10 @@ else if (D.history.length === 0) {
          <td>${r.claimsPerHand ?? "—"}</td><td>${r.meanFaan ?? "—"}</td></tr>`).join("")}</table>
       <div class="mut" style="font-size:10.5px;margin-top:4px">The 69%-draw era is the audited Python prototype; today's 25-30% sits
       between that and the ~10-20% real-table feel. Permanent record: tools/sim/baselines.json.</div></div>` : "";
-    put('wide', `<div class="card scrollcard" style="max-height:680px"><h2>Training history — every generation, numbers + story</h2>
+    put('wide', `<div class="card scrollcard" style="max-height:680px"><h2>Training history — ${window.OVERNIGHT ? `cycle ${window.OVERNIGHT.cycles.length + 1} (LIVE)` : "this run"}, generation by generation</h2>
+      <div class="mut" style="font-size:11px;margin-bottom:4px"><b>This table is the CURRENT cycle only.</b> Every ~20-min cycle starts a fresh
+      16-generation evolution run, so the gen counter resets and this table repopulates; each FINISHED cycle collapses into one row of
+      "Every training cycle" further down (full per-gen histories are archived in tools/sim/runs/).</div>
       <div class="mut" style="font-size:11px;margin-bottom:6px"><b>control</b> = incumbent vs itself on the same walls (its distance from 0 IS the
       noise floor) · <b>best</b> = top challenger of 6 on seed set A · <b>confirm</b> = same challenger on unseen set B — promotion needs both, so
       most generations keep the incumbent (the noise gate working, not stagnation) · <b>vs base</b> = chips/match vs ${baseLbl} on fixed walls, all
