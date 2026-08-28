@@ -2742,6 +2742,8 @@ var chips = 0;
 var hands = 0;
 var draws = 0;
 var refused = 0;
+var tWins = 0;
+var tFlagged = 0;
 var faans = [];
 for (let i = 0; i < N; i++) {
   const seed = SEED_BASE + Math.floor(i / 4) * 7919;
@@ -2753,6 +2755,8 @@ for (let i = 0; i < N; i++) {
   hands += r.hands;
   draws += r.draws;
   refused += r.refusedWins;
+  tWins += r.threatWins;
+  tFlagged += r.threatFlagged;
   faans.push(...r.faans);
 }
 var nameOf = (i, fallback) => process.argv[i] ? process.argv[i].split("/").pop().replace(".json", "") : fallback;
@@ -2761,3 +2765,13 @@ console.log(`  chips/match     ${(chips / N).toFixed(1)}  (0 = par with that ene
 console.log(`  draw rate       ${(draws / hands * 100).toFixed(0)}%`);
 console.log(`  refused/hand    ${(refused / hands).toFixed(2)}`);
 console.log(`  mean win faan   ${(faans.reduce((a, b) => a + b, 0) / Math.max(1, faans.length)).toFixed(2)}`);
+var totF = faans.length || 1;
+var faanShares = [3, 4, 5, 6, 7, 8, 9].map((f) => faans.filter((x) => Math.round(x) === f).length / totF).concat([faans.filter((x) => Math.round(x) >= 10).length / totF]);
+console.log("STATS " + JSON.stringify({
+  chips: +(chips / N).toFixed(1),
+  drawRate: +(draws / Math.max(1, hands)).toFixed(3),
+  refusedPerHand: +(refused / Math.max(1, hands)).toFixed(2),
+  meanFaan: +(faans.reduce((a, b) => a + b, 0) / totF).toFixed(2),
+  faanShares: faanShares.map((x) => +x.toFixed(3)),
+  threatDetection: +(tFlagged / Math.max(1, tWins)).toFixed(2)
+}));

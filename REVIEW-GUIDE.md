@@ -74,3 +74,25 @@ Mobile text status: `tools/sim/STATUS.md` (pushed every cycle).
 ## Build/test
 
     npm install && npm run typecheck && npx vitest run    # full suite ~5 min (bot sims)
+
+
+## 10. Panel & sim data pipeline (added 2026-08-28 — owner wants an external audit)
+
+The dashboard is `tools/sim/panel.html` (hosted: https://augwalts.github.io/mjrc-game/tools/sim/panel.html).
+It renders five window-globals, each produced by a different tool — audit the CHAIN, not just the page:
+
+| data file | producer | contents |
+|---|---|---|
+| `data.js` (`window.SIM_DATA`) | `tools/sim/evolve.ts` (via `evalcore.ts` + `evalworker.ts` + `driver.ts`) | live cycle: per-generation history, bench vs `--baseline`, per-gen dial changes, faan histograms, threatDetection |
+| `overnight.js` (`OVERNIGHT`) | `tools/sim/overnight.mjs` | series state: cycles, hall-of-fame score |
+| `log.js` (`SERIES_LOG`) | `overnight.mjs` (from `overnight-log.jsonl`) | every cycle both eras; era-2 rows carry `enemy`, `ts`, `stats` (from headtohead's `STATS` JSON line) |
+| `experiments.js` (`EXPERIMENTS`) | curated by hand | the experiment ledger |
+| `baselines.js` (`BASELINES`) | curated | era texture reference points |
+
+Things the owner keeps catching (verify these classes of bug are gone, and hunt for more):
+1. **Wrong data source for a chart** — texture KPIs must read `bench` (fixed enemy) not `control` (opponent alternates mirror/baseline per cycle).
+2. **Unlabeled/auto-zoomed axes** — every chart must show y ticks and generation x-labels; rates zero-based.
+3. **Scores without a named enemy** — every chips number must say who it was earned against.
+4. **Fixed-seed seat-luck bias** — all benches/headtoheads must be all-seats (mirror == exactly 0). Check `evalcore.evaluate` allSeats and `headtohead.ts` seat loop.
+5. **Misattributed think blocks / stale labels** in `transcribe.ts` (fixed once — seat names must come from live wind mapping).
+6. Cross-check every number the panel shows against its producer's units (chips vs placement points; per-match vs per-hand).

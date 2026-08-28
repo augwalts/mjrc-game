@@ -5,7 +5,12 @@
 <title>MJRC self-play panel</title>
 <style>
 :root{--bg:#1c1c22;--card:#26262e;--line:#3a3a44;--ink:#e6e6ec;--dim:#9a9aa6;
-  --ok:#5dbb7a;--warn:#e08a6a;--acc:#7fb3ff}
+  --ok:#5dbb7a;--warn:#e08a6a;--acc:#7fb3ff;--gold:#d8b56a}
+.nav{position:sticky;top:0;z-index:10;background:var(--bg);padding:8px 0;margin-bottom:10px;
+  border-bottom:1px solid var(--line);display:flex;gap:16px;font-size:12px;align-items:baseline}
+.nav a{color:var(--acc);text-decoration:none}
+.nav a:hover{text-decoration:underline}
+.sectionlabel{font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--dim);margin:18px 0 6px}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);
   font:13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:20px;max-width:1440px;margin:0 auto}
@@ -46,6 +51,8 @@ details.match summary:hover{background:#2c2c35}
 <body>
 <h1>Self-play weight evolution <span class="pill" id="status"></span></h1>
 <div class="sub" id="sub">waiting for data.js…</div>
+<div class="nav"><b class="mut" style="font-size:10px;text-transform:uppercase;letter-spacing:.08em">jump to</b>
+  <a href="#overnightbar">Live now</a><a href="#history">History — the record</a><a href="#legend">Legend</a></div>
 <div id="overnightbar"></div>
 <div class="kpis" id="kpis"></div>
 <div class="cols">
@@ -53,6 +60,9 @@ details.match summary:hover{background:#2c2c35}
   <div class="col" id="colR"></div>
 </div>
 <div id="wide"></div>
+<div class="sectionlabel" id="historylabel" style="display:none">History</div>
+<div id="history"></div>
+<div id="legend"></div>
 <script>
 // Cache-busted, mobile-safe loads (document.write scripts get BLOCKED by
 // mobile Chrome on slow networks — that was "where did the rest of the html
@@ -117,7 +127,7 @@ else if (D.history.length === 0) {
   document.getElementById("status").textContent = D.status;
   document.getElementById("status").className = "pill" + (D.status === "running" ? " live" : "");
   document.getElementById("sub").textContent =
-    `${window.OVERNIGHT ? `cycle ${window.OVERNIGHT.cycles.length + 1} · ` : ""}gen ${H.length - 1} of 16 · ${promoted} promotions this cycle · ${totalMatches.toLocaleString()} games / ${totalHands.toLocaleString()} hands · updated ${D.updated} — refresh for latest`;
+    `${window.OVERNIGHT ? `cycle ${window.OVERNIGHT.cycles.length + 1} · ` : ""}gens completed ${H.length}/16 · ${promoted} promotions this cycle · ${totalMatches.toLocaleString()} games / ${totalHands.toLocaleString()} hands · updated ${D.updated} — refresh for latest`;
 
   // Mini chart with REAL axes (owner, 2026-08-28: unlabeled sparklines auto-zoom
   // tiny ranges into fake drama — draw rate "looked like it started at 60%").
@@ -149,10 +159,11 @@ else if (D.history.length === 0) {
   const bestChips = H.map(g => Math.max(...g.candidates.map(c => c.result.chipsPerMatch)));
   const hasPts = last.candidates[0].result.pointsPerMatch !== undefined;
   const bestPts = H.map(g => Math.max(...g.candidates.map(c => c.result.pointsPerMatch ?? 0)));
-  const texture = k => H.map(g => {
-    const src = g.promoted !== null ? g.candidates.find(c => c.id === g.promoted) : null;
-    return (src ? src.result : g.control)[k];
-  });
+  // Texture KPIs read from the BENCH (same frozen enemy every generation).
+  // They used to read the control/promoted set, whose opponent alternates
+  // mirror/baseline cycle to cycle — cross-cycle comparison was broken (audit
+  // 2026-08-28). Bench is the only honestly comparable source.
+  const texture = k => H.map(g => (g.bench ?? g.control)[k]);
 
   const PATTERN_LABELS = {
     selfDraw:"self-draw 自摸", allChows:"All Chows 平糊", allPungs:"All Pungs 對對糊",
@@ -174,32 +185,6 @@ else if (D.history.length === 0) {
   const BASE_LABEL = (D.baseline || "baseline-v0.json").includes("v1")
     ? "baseline-v1 — the FROZEN era-1 champion (0 = par with yesterday's best bot)"
     : "baseline-v0 — the defenseless era-1 yardstick";
-  // ── glossary: the units every number on this page is in ──
-  put("kpis", `<div class="card" style="grid-column:1/-1"><h2>How to read this page</h2>
-    <div class="mut" style="font-size:12px;line-height:1.55">
-    <b>Chips are money.</b> The HK payment ladder (mjrc-standard, 3–10 faan): a win on a discard costs
-    the discarder 3f=16 · 4f=32 · 5f=48 · 6f=64 · 7f=96 · 8f=128 · 9f=192 · 10f(cap)=256 chips;
-    a self-draw collects HALF that figure from <i>each</i> of the three losers (so 1.5× total).<br>
-    <b>Every "chips/match" number is an AVERAGE</b> over a 160-match held-out block (one match = one wind
-    round, ~5–11 hands). A single hot match can be +400 by itself — the featured best-game transcript was
-    +432 — so +40/match average is a big, real edge, not a small one.<br>
-    <b>Placement points</b> (+3/+1/−1/−3 by table finish) are a separate unit used only inside evolution's
-    promotion decisions; chips are the scoreboard.<br>
-    <b>Benchmark opponent:</b> ${BASE_LABEL}.</div>
-    <div style="border-top:1px dashed var(--line);margin-top:8px;padding-top:6px" class="mut">
-    <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px"><b>Vocabulary</b></div>
-    <table style="font-size:12px">
-      <tr><td style="white-space:nowrap"><b>hand</b> 一局</td><td>one deal: walls built, draw/discard until someone wins or the wall runs out (流局). Payments settle per hand.</td></tr>
-      <tr><td><b>game / match</b> 一圈</td><td>one wind round — four dealerships plus dealer repeats, typically 5–11 hands. Every "chips/match" number is per game.</td></tr>
-      <tr><td><b>bot / weights</b></td><td>a bot is fixed decision code plus 19 numeric dials (aggression, faanWeight, …). Training never changes the code, only the dials.</td></tr>
-      <tr><td><b>generation</b></td><td>one evolution step: the incumbent dial-set and 6 mutated copies play the same walls; a mutant must beat the incumbent twice (second time on fresh walls) to replace it.</td></tr>
-      <tr><td><b>cycle</b></td><td>one harness iteration ≈ 16 generations (~15–35 min), ending in a 160-game held-out exam vs the frozen benchmark. Only exam winners enter the hall of fame.</td></tr>
-      <tr><td><b>era</b></td><td>one benchmark regime. Era 1: trained vs baseline-v0, the defenseless default (ended +35–40 bias-free). Era 2: trains vs baseline-v1 — era 1's champion, frozen — under mjrc-standard (3–10 faan).</td></tr>
-      <tr><td><b>enemy</b></td><td>the frozen opponent a score is earned against — the single most important label on any number.
-        +40 vs the defenseless v0 and +40 vs the defending v1 are utterly different achievements; every scoreboard here names its enemy.</td></tr>
-      <tr><td><b>held-out</b></td><td>scored on walls the training never saw — the exam is never taken on the homework.</td></tr>
-      <tr><td><b>all-seats</b></td><td>every benchmark wall is played from all four chairs, so seat luck cancels exactly and a bot benched against itself scores 0.</td></tr>
-    </table></div></div>`);
   // ── THE number: incumbent vs the frozen season-start bot, fixed seeds ──
   const benches = H.map((g) => g.bench).filter(Boolean);
   if (benches.length) {
@@ -286,17 +271,7 @@ else if (D.history.length === 0) {
       with the first run after 2026-08-27.</div></div>`);
   }
   if (hasPts) {
-    put('kpis', `<div class="card"><h2>Best challenger — points/match</h2>
-      <div class="big">${bestPts[bestPts.length-1] > 0 ? "+" : ""}${bestPts[bestPts.length-1]}</div>
-      ${spark(bestPts, {fmt: v => (v>0?"+":"")+v})}
-      <div class="mut" style="font-size:11px">1st +3 · 2nd +1 · 3rd −1 · 4th −3, averaged. The selection fitness since run 3 —
-      bounded, so the promote bar (0.5) sits above the noise floor (±0.43 at 48 matches). Promotion additionally
-      requires CONFIRMING on a fresh unseen seed set. Expect few promotions; that is the design working.</div></div>`);
-  }
-  put('colR', `<div class="card"><h2>Best challenger — chips/match (recorded only)</h2>
-    <div class="big">${bestChips[bestChips.length-1] > 0 ? "+" : ""}${bestChips[bestChips.length-1]}</div>
-    ${spark(bestChips, {fmt: v => (v>0?"+":"")+v})}
-    <div class="mut" style="font-size:11px">Recorded, no longer the selection metric: one limit hand swings ±100 chips and drowns the signal.</div></div>`);
+    }
 
   put('kpis', `<div class="card"><h2>Refused wins / hand</h2>
     <div class="big">${texture("refusedPerHand").slice(-1)[0]}</div>
@@ -470,14 +445,7 @@ else if (D.history.length === 0) {
       .filter((m) => Math.abs(m.d) > 0.10).sort((a, b) => Math.abs(b.d) - Math.abs(a.d))
       .map((m) => `${m.k} ${m.d > 0 ? "+" : ""}${(m.d * 100).toFixed(0)}%`).join(" · ");
     const baseLbl = (D.baseline || "").includes("v1") ? "baseline-v1 (the frozen era-1 champion)" : "the frozen baseline";
-    const refs = window.BASELINES ? `<div style="border-top:1px dashed var(--line);margin-top:9px;padding-top:7px">
-      <div class="mut" style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px"><b>Era reference points</b> — how each era's table actually felt</div>
-      <table><tr><th>who</th><th>draws</th><th>claims/h</th><th>faan</th></tr>${window.BASELINES.rows.map((r) =>
-        `<tr><td>${r.name}<div class="mut" style="font-size:10px">${r.date ?? ""} · ${r.source}</div></td>
-         <td>${r.drawRate !== null ? (r.drawRate * 100).toFixed(0) + "%" : "—"}</td>
-         <td>${r.claimsPerHand ?? "—"}</td><td>${r.meanFaan ?? "—"}</td></tr>`).join("")}</table>
-      <div class="mut" style="font-size:10.5px;margin-top:4px">The 69%-draw era is the audited Python prototype; today's 25-30% sits
-      between that and the ~10-20% real-table feel. Permanent record: tools/sim/baselines.json.</div></div>` : "";
+    const refs = "";
     put('wide', `<div class="card scrollcard" style="max-height:680px"><h2>Training history — ${window.OVERNIGHT ? `cycle ${window.OVERNIGHT.cycles.length + 1} (LIVE)` : "this run"}, generation by generation</h2>
       <div class="mut" style="font-size:11px;margin-bottom:4px"><b>This table is the CURRENT cycle only.</b> Every ~20-min cycle starts a fresh
       16-generation evolution run, so the gen counter resets and this table repopulates; each FINISHED cycle collapses into one row of
@@ -498,42 +466,90 @@ else if (D.history.length === 0) {
 
   for (const slot of ["kpis", "colL", "colR", "wide"]) {
     const el = document.getElementById(slot === "kpis" ? "kpis" : slot === "wide" ? "wide" : slot);
-    el.innerHTML = cards.filter((c) => c.slot === slot).map((c) => c.html).join("");
+    let list = cards.filter((c) => c.slot === slot);
+    // live generation detail leads the wide section; the match browser follows
+    if (slot === "wide") list = [...list].sort((a, b) =>
+      (b.html.includes("Training history") ? 1 : 0) - (a.html.includes("Training history") ? 1 : 0));
+    el.innerHTML = list.map((c) => c.html).join("");
   }
 }
-// ── permanent history: renders whatever the LIVE run's state is ──
+// ── HISTORY: one unified, dated record — cycles, experiments, references ──
 {
-  const wide = document.getElementById("wide");
-  const blocks = [];
-  if (window.SERIES_LOG && window.SERIES_LOG.length) {
-    const rows = [...window.SERIES_LOG].reverse().map((r) => r.error
-      ? `<tr><td>${r.era ?? 1}</td><td>${r.cycle}</td><td colspan="7" class="down">${r.error}</td><td class="mut">${r.mins}m</td></tr>`
-      : `<tr><td>${r.era ?? 1}</td><td>${r.cycle}</td>
-         <td><b>${r.enemy ?? ((r.era ?? 1) === 1 ? "baseline-v0" : "baseline-v1")}</b></td>
-         <td class="mut">${r.opponent}</td><td class="mut">${r.matches}</td>
-         <td>${r.heldOutChips > 0 ? "+" : ""}${r.heldOutChips}</td>
-         <td class="mut">${r.vsV0 !== undefined ? (r.vsV0 > 0 ? "+" : "") + r.vsV0 : "—"}</td>
-         <td>${r.improved ? '<span class="up">NEW BEST</span>' : '<span class="mut">—</span>'}</td>
-         <td class="mut">${r.hofScore === null || r.hofScore === -Infinity ? "—" : r.hofScore}</td>
-         <td class="mut">${r.mins}m</td></tr>`).join("");
-    blocks.push(`<div class="card scrollcard"><h2>Every training cycle — all eras</h2>
-      <div class="mut" style="font-size:11px;margin-bottom:6px">One row per ~20-min cycle (16 generations each). <b>A score only means
-      something next to its enemy</b> — nearly anything looks good against the defenseless v0; the real test is scoring against an
-      enemy that defends. "Scored against" names the exam opponent for that row: era 1 = baseline-v0 (defenseless; champion's honest
-      mean ~+40), era 2 = baseline-v1 (the frozen era-1 champion — it defends, so <b>0 is par and anything positive is a genuinely
-      better bot than yesterday's best</b>). "vs v0" re-scores the same candidate on the old axis for cross-era continuity.</div>
-      <table><tr><th>era</th><th>cycle</th><th style="text-align:left">scored against</th><th>trained vs</th><th>matches</th><th>chips/match</th><th>vs v0</th><th>admitted</th><th>hall of fame</th><th>time</th></tr>${rows}</table></div>`);
+  const fmtC = (v) => (v === null || v === undefined || Number.isNaN(v)) ? "—" : (v > 0 ? "+" : "") + v;
+  const entries = [];
+  for (const e of (window.EXPERIMENTS || [])) {
+    entries.push({ key: `${e.date}|zz`, when: e.date, kind: "experiment", name: e.name, detail: e.setup,
+      result: e.result, verdict: e.verdict, good: false });
   }
-  if (window.EXPERIMENTS && window.EXPERIMENTS.length) {
-    const rows = [...window.EXPERIMENTS].reverse().map((e) =>
-      `<tr><td class="mut" style="white-space:nowrap">${e.date}</td><td><b>${e.name}</b></td>
-       <td class="mut">${e.setup}</td><td>${e.result}</td><td class="mut">${e.verdict}</td></tr>`).join("");
-    blocks.push(`<div class="card scrollcard"><h2>Experiment ledger — everything tried so far</h2>
-      <div class="mut" style="font-size:11px;margin-bottom:6px">Curated, append-only history of every named experiment,
-      dead end included — the dead ends are where the measurement rules came from. Lives in tools/sim/experiments.js.</div>
-      <table><tr><th>date</th><th style="text-align:left">experiment</th><th style="text-align:left">setup</th><th style="text-align:left">result</th><th style="text-align:left">verdict</th></tr>${rows}</table></div>`);
+  for (const r of (window.SERIES_LOG || [])) {
+    const era = r.era ?? 1;
+    const day = r.ts ? r.ts.slice(0, 10) : (era === 1 ? "2026-08-27" : "2026-08-28");
+    const enemy = r.enemy ?? (era === 1 ? "baseline-v0" : "baseline-v1");
+    const st = r.stats;
+    entries.push({ key: `${day}|e${era}c${String(r.cycle).padStart(4, "0")}`, when: day, kind: `era-${era} · cycle ${r.cycle}`,
+      name: `exam vs ${enemy}`,
+      detail: r.error ? "" : `trained vs ${r.opponent} · ${r.matches} matches/eval · ${r.mins}m`,
+      result: r.error ? r.error
+        : `<b>${fmtC(r.heldOutChips)}</b> chips/match vs ${enemy}` +
+          `${r.vsV0 !== undefined && r.vsV0 !== null ? ` · ${fmtC(r.vsV0)} vs v0` : ""}` +
+          `${st ? `<div class="mut" style="font-size:10.5px">draws ${Math.round(st.drawRate * 100)}% · x̄ ${st.meanFaan} faan · threat ${Math.round((st.threatDetection ?? 0) * 100)}%${st.faanShares ? " · faan " + st.faanShares.map((x, i) => `${i + 3 === 10 ? "10+" : i + 3}:${Math.round(x * 100)}%`).join(" ") : ""}</div>` : ""}`,
+      verdict: r.error ? "cycle FAILED" : (r.improved ? "NEW BEST — entered the hall of fame" : "not admitted"),
+      good: !!r.improved });
   }
-  if (blocks.length && wide) wide.insertAdjacentHTML("beforeend", blocks.join(""));
+  for (const b of (window.BASELINES?.rows || [])) {
+    entries.push({ key: `${b.date ?? "2026-07-18"}|aa`, when: b.date ?? "—", kind: "reference", name: b.name, detail: b.source,
+      result: `draws ${b.drawRate !== null ? Math.round(b.drawRate * 100) + "%" : "—"} · claims/h ${b.claimsPerHand ?? "—"} · x̄ ${b.meanFaan ?? "—"} faan`,
+      verdict: "era texture snapshot", good: false });
+  }
+  entries.sort((a, b) => b.key.localeCompare(a.key));
+  const row = (e) => `<tr>
+    <td class="mut" style="white-space:nowrap;vertical-align:top">${e.when}</td>
+    <td style="vertical-align:top;white-space:nowrap"><span class="pill${e.kind === "experiment" ? " live" : ""}">${e.kind}</span></td>
+    <td style="text-align:left;vertical-align:top"><b>${e.name}</b>${e.detail ? `<div class="mut" style="font-size:10.5px">${e.detail}</div>` : ""}</td>
+    <td style="text-align:left;vertical-align:top">${e.result}</td>
+    <td style="text-align:left;vertical-align:top" class="${e.good ? "up" : "mut"}">${e.verdict}</td></tr>`;
+  const CUT = 30;
+  if (entries.length) {
+    document.getElementById("historylabel").style.display = "";
+    document.getElementById("history").insertAdjacentHTML("beforeend",
+      `<div class="card"><h2>The record — every cycle, experiment and reference, newest first</h2>
+      <div class="mut" style="font-size:11px;margin-bottom:6px"><b>Cycles</b> are the machine's own held-out exams (all seats,
+      enemy named per row — a score only means something next to its enemy). <b>Experiments</b> are the curated studies from
+      tools/sim/experiments.js. <b>References</b> are frozen texture snapshots of how each era's table felt.</div>
+      <div style="overflow-x:auto"><table><tr><th>when</th><th>type</th><th style="text-align:left">what</th><th style="text-align:left">result</th><th style="text-align:left">verdict</th></tr>
+      ${entries.slice(0, CUT).map(row).join("")}</table></div>
+      ${entries.length > CUT ? `<details><summary class="mut" style="cursor:pointer;padding:6px 0">show ${entries.length - CUT} older entries</summary>
+      <div style="overflow-x:auto"><table>${entries.slice(CUT).map(row).join("")}</table></div></details>` : ""}</div>`);
+  }
+}
+// ── LEGEND: units + vocabulary, collapsed so it never costs a scroll ──
+{
+  const BASE = (window.SIM_DATA?.baseline || "").includes("v1")
+    ? "baseline-v1 — the FROZEN era-1 champion (0 = par with yesterday's best bot)"
+    : "baseline-v0 — the defenseless era-1 yardstick";
+  document.getElementById("legend").insertAdjacentHTML("beforeend", `<div class="card"><details>
+    <summary style="cursor:pointer"><b>Legend — how to read this page</b> <span class="mut">(chips ladder, units, vocabulary — click to expand)</span></summary>
+    <div class="mut" style="font-size:12px;line-height:1.55;margin-top:8px">
+    <b>Chips are money.</b> The HK payment ladder (mjrc-standard, 3–10 faan): a win on a discard costs the discarder
+    3f=16 · 4f=32 · 5f=48 · 6f=64 · 7f=96 · 8f=128 · 9f=192 · 10f(cap)=256 chips; a self-draw collects HALF that figure
+    from <i>each</i> of the three losers (so 1.5× total).<br>
+    <b>Every "chips/match" number is an AVERAGE</b> over a 160-match held-out block (one match = one wind round, ~5–11 hands).
+    A single hot match can be +400 by itself, so +40/match average is a big, real edge.<br>
+    <b>Placement points</b> (+3/+1/−1/−3 by table finish) are used only inside evolution's promotion decisions; chips are the scoreboard.<br>
+    <b>Benchmark opponent:</b> ${BASE}.</div>
+    <div style="border-top:1px dashed var(--line);margin-top:8px;padding-top:6px" class="mut">
+    <table style="font-size:12px">
+      <tr><td style="white-space:nowrap"><b>hand</b> 一局</td><td style="text-align:left">one deal: walls built, draw/discard until someone wins or the wall runs out (流局). Payments settle per hand.</td></tr>
+      <tr><td><b>game / match</b> 一圈</td><td style="text-align:left">one wind round — four dealerships plus dealer repeats, typically 5–11 hands. Every "chips/match" number is per game.</td></tr>
+      <tr><td><b>bot / weights</b></td><td style="text-align:left">a bot is fixed decision code plus 19 numeric dials. Training never changes the code, only the dials.</td></tr>
+      <tr><td><b>generation</b></td><td style="text-align:left">one evolution step: the incumbent dial-set and 6 mutated copies play the same walls; a mutant must beat the incumbent twice (second time on fresh walls) to replace it.</td></tr>
+      <tr><td><b>cycle</b></td><td style="text-align:left">one harness iteration ≈ 16 generations (~15–35 min), ending in a 160-game held-out exam vs the frozen benchmark. Only exam winners enter the hall of fame.</td></tr>
+      <tr><td><b>era</b></td><td style="text-align:left">one benchmark regime. Era 1: vs baseline-v0 (defenseless; ended ~+35–40 bias-free). Era 2: vs baseline-v1 — era 1's champion, frozen — under mjrc-standard (3–10 faan).</td></tr>
+      <tr><td><b>enemy</b></td><td style="text-align:left">the frozen opponent a score is earned against — the single most important label on any number. +40 vs the defenseless v0 and +40 vs the defending v1 are utterly different achievements.</td></tr>
+      <tr><td><b>held-out</b></td><td style="text-align:left">scored on walls the training never saw — the exam is never taken on the homework.</td></tr>
+      <tr><td><b>all-seats</b></td><td style="text-align:left">every benchmark wall is played from all four chairs, so seat luck cancels exactly and a bot benched against itself scores 0.</td></tr>
+      <tr><td><b>threat detection</b></td><td style="text-align:left">share of wins where an opponent's table read had flagged the winner (threat &gt; 0.3) before the win.</td></tr>
+    </table></div></details></div>`);
 }
 };
 </script>

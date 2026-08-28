@@ -27,7 +27,7 @@ function mk(p: BotProfile, seed: number): Decide {
   return (v, l, seat) => decideAction(v, l, cfgs[seat]!);
 }
 
-let chips = 0, hands = 0, draws = 0, refused = 0;
+let chips = 0, hands = 0, draws = 0, refused = 0, tWins = 0, tFlagged = 0;
 const faans: number[] = [];
 for (let i = 0; i < N; i++) {
   // All-seats (2026-08-27): the same wall is played from every chair before
@@ -40,6 +40,7 @@ for (let i = 0; i < N; i++) {
   const r = playMatch({ seed, ruleset: MJRC_STANDARD, matchLength: "oneWindRound" }, perSeat);
   chips += r.chips[mySeat]!;
   hands += r.hands; draws += r.draws; refused += r.refusedWins;
+  tWins += r.threatWins; tFlagged += r.threatFlagged;
   faans.push(...r.faans);
 }
 const nameOf = (i: number, fallback: string) =>
@@ -49,3 +50,13 @@ console.log(`  chips/match     ${(chips / N).toFixed(1)}  (0 = par with that ene
 console.log(`  draw rate       ${(draws / hands * 100).toFixed(0)}%`);
 console.log(`  refused/hand    ${(refused / hands).toFixed(2)}`);
 console.log(`  mean win faan   ${(faans.reduce((a, b) => a + b, 0) / Math.max(1, faans.length)).toFixed(2)}`);
+const totF = faans.length || 1;
+const faanShares = [3, 4, 5, 6, 7, 8, 9].map((f) => faans.filter((x) => Math.round(x) === f).length / totF)
+  .concat([faans.filter((x) => Math.round(x) >= 10).length / totF]);
+console.log("STATS " + JSON.stringify({
+  chips: +(chips / N).toFixed(1), drawRate: +(draws / Math.max(1, hands)).toFixed(3),
+  refusedPerHand: +(refused / Math.max(1, hands)).toFixed(2),
+  meanFaan: +(faans.reduce((a, b) => a + b, 0) / totF).toFixed(2),
+  faanShares: faanShares.map((x) => +x.toFixed(3)),
+  threatDetection: +(tFlagged / Math.max(1, tWins)).toFixed(2),
+}));

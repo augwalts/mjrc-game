@@ -86,7 +86,9 @@ function headtohead(profilePath, seedBlock, tablePath = ENEMY) {
   const out = execFileSync("node", [`${DIR}/headtohead.mjs`, profilePath, "160", String(seedBlock), tablePath],
     { encoding: "utf8", timeout: 30 * 60_000 });
   const m = out.match(/chips\/match\s+(-?[\d.]+)/);
-  return { chips: m ? Number(m[1]) : NaN, raw: out.trim() };
+  const sm = out.match(/^STATS (.+)$/m);
+  let stats = null; try { if (sm) stats = JSON.parse(sm[1]); } catch {}
+  return { chips: m ? Number(m[1]) : NaN, stats, raw: out.trim() };
 }
 
 let cycle = 0;
@@ -104,7 +106,7 @@ while (Date.now() < deadline) {
   const mins = ((Date.now() - t0) / 60000).toFixed(1);
   if (run.status !== 0) {
     log({ cycle, error: `evolve exited ${run.status}`, mins });
-    cyclesSoFar.push({ cycle, enemy: "baseline-v1", opponent, matches: Number(matches), mins: Number(mins), heldOutChips: null, improved: false });
+    cyclesSoFar.push({ cycle, enemy: "baseline-v1", stats: verdict.stats, opponent, matches: Number(matches), mins: Number(mins), heldOutChips: null, improved: false });
     flushPanel(`cycle ${cycle} FAILED · cycle ${cycle + 1} evolving`);
     continue;                                                  // a bad cycle must not end the night
   }
@@ -136,9 +138,9 @@ while (Date.now() < deadline) {
     writeFileSync(`${DIR}/hall-of-fame-score.txt`, String(verdict.chips));
     hofScore = verdict.chips;
   }
-  log({ era: 2, enemy: "baseline-v1", cycle, opponent, matches: Number(matches), start, mins, heldOutChips: verdict.chips,
+  log({ era: 2, enemy: "baseline-v1", ts: new Date().toISOString(), stats: verdict.stats, cycle, opponent, matches: Number(matches), start, mins, heldOutChips: verdict.chips,
         reigningOnSameBlock: reigning.chips, vsV0: vsV0.chips, improved, hofScore });
-  cyclesSoFar.push({ cycle, enemy: "baseline-v1", opponent, matches: Number(matches), mins: Number(mins), heldOutChips: verdict.chips, vsV0: vsV0.chips, improved });
+  cyclesSoFar.push({ cycle, enemy: "baseline-v1", stats: verdict.stats, opponent, matches: Number(matches), mins: Number(mins), heldOutChips: verdict.chips, vsV0: vsV0.chips, improved });
   flushPanel(`cycle ${cycle} done · cycle ${cycle + 1} evolving`);
   // ── mobile monitoring: STATUS.md pushed to GitHub every cycle ──
   while (gitBusy) await new Promise((r) => setTimeout(r, 2000));
