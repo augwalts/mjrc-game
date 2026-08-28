@@ -27,7 +27,12 @@ function mk(p: BotProfile, seed: number): Decide {
   return (v, l, seat) => decideAction(v, l, cfgs[seat]!);
 }
 
-let chips = 0, hands = 0, draws = 0, refused = 0, tWins = 0, tFlagged = 0;
+let chips = 0, chipsSq = 0, hands = 0, draws = 0, refused = 0, tWins = 0, tFlagged = 0;
+// Cycle-texture tallies (2026-08-28): table-wide claim/win mix, plus the
+// challenger's own chip decomposition — pure counters, no decision changes.
+let claims = 0, chows = 0, pungs = 0, kongs = 0, selfDraws = 0, winsOnDiscard = 0;
+let meWon = 0, meLost = 0, meDealInLoss = 0, meDealIns = 0, meTaxLoss = 0;
+let meWins = 0, meSelfDraws = 0, meFaanSum = 0;
 const faans: number[] = [];
 for (let i = 0; i < N; i++) {
   // All-seats (2026-08-27): the same wall is played from every chair before
@@ -37,11 +42,23 @@ for (let i = 0; i < N; i++) {
   const mySeat = (i % 4) as 0 | 1 | 2 | 3;
   const dc = mk(profile, seed), di = mk(tableProfile, seed);
   const perSeat: Decide[] = SEATS.map((s) => (s === mySeat ? dc : di));
-  const r = playMatch({ seed, ruleset: MJRC_STANDARD, matchLength: "oneWindRound" }, perSeat);
+  const r = playMatch({ seed, ruleset: MJRC_STANDARD, matchLength: "oneWindRound" }, perSeat,
+    { recordHands: true });
   chips += r.chips[mySeat]!;
+  chipsSq += r.chips[mySeat]! * r.chips[mySeat]!;
   hands += r.hands; draws += r.draws; refused += r.refusedWins;
   tWins += r.threatWins; tFlagged += r.threatFlagged;
   faans.push(...r.faans);
+  claims += r.claims; chows += r.chows; pungs += r.pungs; kongs += r.kongs;
+  selfDraws += r.selfDraws; winsOnDiscard += r.winsOnDiscard;
+  meWon += r.seatWon[mySeat]!; meLost += r.seatLost[mySeat]!;
+  meDealInLoss += r.seatDealInLoss[mySeat]!; meDealIns += r.seatDealInCount[mySeat]!;
+  meTaxLoss += r.seatTaxLoss[mySeat]!;
+  for (const h of r.handRecords ?? []) {
+    if (h.winner !== mySeat) continue;
+    meWins++; meFaanSum += h.faan ?? 0;
+    if (h.outcome === "selfDraw") meSelfDraws++;
+  }
 }
 const nameOf = (i: number, fallback: string) =>
   process.argv[i] ? process.argv[i]!.split("/").pop()!.replace(".json", "") : fallback;
@@ -53,10 +70,29 @@ console.log(`  mean win faan   ${(faans.reduce((a, b) => a + b, 0) / Math.max(1,
 const totF = faans.length || 1;
 const faanShares = [3, 4, 5, 6, 7, 8, 9].map((f) => faans.filter((x) => Math.round(x) === f).length / totF)
   .concat([faans.filter((x) => Math.round(x) >= 10).length / totF]);
+const wins = faans.length;
+const mean = chips / N;
 console.log("STATS " + JSON.stringify({
   chips: +(chips / N).toFixed(1), drawRate: +(draws / Math.max(1, hands)).toFixed(3),
   refusedPerHand: +(refused / Math.max(1, hands)).toFixed(2),
   meanFaan: +(faans.reduce((a, b) => a + b, 0) / totF).toFixed(2),
   faanShares: faanShares.map((x) => +x.toFixed(3)),
   threatDetection: +(tFlagged / Math.max(1, tWins)).toFixed(2),
+  // Cycle-texture block (2026-08-28) — raw counts included so the panel can
+  // draw honest ±2SE bands instead of guessing sample sizes.
+  matches: N, hands, wins,
+  chipsSD: +Math.sqrt(Math.max(0, chipsSq / N - mean * mean)).toFixed(1),
+  selfDrawShare: +(selfDraws / Math.max(1, wins)).toFixed(3),
+  claimsPerHand: +(claims / Math.max(1, hands)).toFixed(2),
+  chowShare: +(chows / Math.max(1, claims)).toFixed(3),
+  pungShare: +(pungs / Math.max(1, claims)).toFixed(3),
+  kongShare: +(kongs / Math.max(1, claims)).toFixed(3),
+  me: {
+    wonPerMatch: +(meWon / N).toFixed(1), lostPerMatch: +(meLost / N).toFixed(1),
+    dealInLossPerMatch: +(meDealInLoss / N).toFixed(1), dealInsPerMatch: +(meDealIns / N).toFixed(2),
+    taxLossPerMatch: +(meTaxLoss / N).toFixed(1),
+    wins: meWins, winShare: +(meWins / Math.max(1, wins)).toFixed(3),
+    meanFaan: +(meFaanSum / Math.max(1, meWins)).toFixed(2),
+    selfDrawShare: +(meSelfDraws / Math.max(1, meWins)).toFixed(3),
+  },
 }));

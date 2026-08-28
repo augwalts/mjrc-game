@@ -1020,13 +1020,13 @@ function decideAction(v, legal, cfg) {
   }
   for (const a of legal) if (a.type === "declareWin") return a;
   for (const a of legal) if (a.type === "claim" && a.option.kind === "win") return a;
-  const claims = legal.filter(
+  const claims2 = legal.filter(
     (a) => a.type === "claim"
   );
-  if (claims.length > 0) {
-    const picked = claimDecision(v, claims.map((a) => a.option), cfg);
+  if (claims2.length > 0) {
+    const picked = claimDecision(v, claims2.map((a) => a.option), cfg);
     if (picked !== null) {
-      const match = claims.find(
+      const match = claims2.find(
         (a) => a.option.kind === picked.kind && sameWith(a.option, picked)
       );
       if (match) return match;
@@ -1754,7 +1754,7 @@ function readingPatterns(d, ctx) {
   const ids = [];
   const tiles = readingTiles(d);
   const triplets = d.sets.filter(isTripletSet);
-  const chows = d.sets.filter((s) => s.kind === "chow");
+  const chows2 = d.sets.filter((s) => s.kind === "chow");
   const suits = new Set(tiles.filter(isSuited).map(suitOf));
   const anyHonour = tiles.some(isHonour);
   const pairTile = d.pair.tiles[0];
@@ -1773,7 +1773,7 @@ function readingPatterns(d, ctx) {
   const windSets = triplets.filter((s) => isWind(s.tiles[0])).length;
   if (windSets === 4) ids.push("bigFourWinds");
   else if (windSets === 3 && isWind(pairTile)) ids.push("smallFourWinds");
-  if (chows.length === 4) ids.push("allChows");
+  if (chows2.length === 4) ids.push("allChows");
   if (triplets.length === 4) ids.push("allPungs");
   if (d.sets.length === 4 && d.sets.every((s) => s.kind === "kong")) ids.push("allKongs");
   if (concealedTripletCount(d, !ctx.selfDraw) === 4) ids.push("fourConcealedPungs");
@@ -2801,25 +2801,62 @@ function mk(p, seed) {
   return (v, l, seat) => decideAction(v, l, cfgs[seat]);
 }
 var chips = 0;
+var chipsSq = 0;
 var hands = 0;
 var draws = 0;
 var refused = 0;
 var tWins = 0;
 var tFlagged = 0;
+var claims = 0;
+var chows = 0;
+var pungs = 0;
+var kongs = 0;
+var selfDraws = 0;
+var winsOnDiscard = 0;
+var meWon = 0;
+var meLost = 0;
+var meDealInLoss = 0;
+var meDealIns = 0;
+var meTaxLoss = 0;
+var meWins = 0;
+var meSelfDraws = 0;
+var meFaanSum = 0;
 var faans = [];
 for (let i = 0; i < N; i++) {
   const seed = SEED_BASE + Math.floor(i / 4) * 7919;
   const mySeat = i % 4;
   const dc = mk(profile, seed), di = mk(tableProfile, seed);
   const perSeat = SEATS.map((s) => s === mySeat ? dc : di);
-  const r = playMatch({ seed, ruleset: MJRC_STANDARD, matchLength: "oneWindRound" }, perSeat);
+  const r = playMatch(
+    { seed, ruleset: MJRC_STANDARD, matchLength: "oneWindRound" },
+    perSeat,
+    { recordHands: true }
+  );
   chips += r.chips[mySeat];
+  chipsSq += r.chips[mySeat] * r.chips[mySeat];
   hands += r.hands;
   draws += r.draws;
   refused += r.refusedWins;
   tWins += r.threatWins;
   tFlagged += r.threatFlagged;
   faans.push(...r.faans);
+  claims += r.claims;
+  chows += r.chows;
+  pungs += r.pungs;
+  kongs += r.kongs;
+  selfDraws += r.selfDraws;
+  winsOnDiscard += r.winsOnDiscard;
+  meWon += r.seatWon[mySeat];
+  meLost += r.seatLost[mySeat];
+  meDealInLoss += r.seatDealInLoss[mySeat];
+  meDealIns += r.seatDealInCount[mySeat];
+  meTaxLoss += r.seatTaxLoss[mySeat];
+  for (const h of r.handRecords ?? []) {
+    if (h.winner !== mySeat) continue;
+    meWins++;
+    meFaanSum += h.faan ?? 0;
+    if (h.outcome === "selfDraw") meSelfDraws++;
+  }
 }
 var nameOf = (i, fallback) => process.argv[i] ? process.argv[i].split("/").pop().replace(".json", "") : fallback;
 console.log(`${N} held-out matches (all seats): ${nameOf(2, "profile")} vs 3x ${nameOf(5, "shipping default")}:`);
@@ -2829,11 +2866,35 @@ console.log(`  refused/hand    ${(refused / hands).toFixed(2)}`);
 console.log(`  mean win faan   ${(faans.reduce((a, b) => a + b, 0) / Math.max(1, faans.length)).toFixed(2)}`);
 var totF = faans.length || 1;
 var faanShares = [3, 4, 5, 6, 7, 8, 9].map((f) => faans.filter((x) => Math.round(x) === f).length / totF).concat([faans.filter((x) => Math.round(x) >= 10).length / totF]);
+var wins = faans.length;
+var mean = chips / N;
 console.log("STATS " + JSON.stringify({
   chips: +(chips / N).toFixed(1),
   drawRate: +(draws / Math.max(1, hands)).toFixed(3),
   refusedPerHand: +(refused / Math.max(1, hands)).toFixed(2),
   meanFaan: +(faans.reduce((a, b) => a + b, 0) / totF).toFixed(2),
   faanShares: faanShares.map((x) => +x.toFixed(3)),
-  threatDetection: +(tFlagged / Math.max(1, tWins)).toFixed(2)
+  threatDetection: +(tFlagged / Math.max(1, tWins)).toFixed(2),
+  // Cycle-texture block (2026-08-28) — raw counts included so the panel can
+  // draw honest ±2SE bands instead of guessing sample sizes.
+  matches: N,
+  hands,
+  wins,
+  chipsSD: +Math.sqrt(Math.max(0, chipsSq / N - mean * mean)).toFixed(1),
+  selfDrawShare: +(selfDraws / Math.max(1, wins)).toFixed(3),
+  claimsPerHand: +(claims / Math.max(1, hands)).toFixed(2),
+  chowShare: +(chows / Math.max(1, claims)).toFixed(3),
+  pungShare: +(pungs / Math.max(1, claims)).toFixed(3),
+  kongShare: +(kongs / Math.max(1, claims)).toFixed(3),
+  me: {
+    wonPerMatch: +(meWon / N).toFixed(1),
+    lostPerMatch: +(meLost / N).toFixed(1),
+    dealInLossPerMatch: +(meDealInLoss / N).toFixed(1),
+    dealInsPerMatch: +(meDealIns / N).toFixed(2),
+    taxLossPerMatch: +(meTaxLoss / N).toFixed(1),
+    wins: meWins,
+    winShare: +(meWins / Math.max(1, wins)).toFixed(3),
+    meanFaan: +(meFaanSum / Math.max(1, meWins)).toFixed(2),
+    selfDrawShare: +(meSelfDraws / Math.max(1, meWins)).toFixed(3)
+  }
 }));
