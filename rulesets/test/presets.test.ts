@@ -22,7 +22,8 @@ import {
   PAYMENT_TABLES,
   winnerCollects,
 } from "../src/payment.js";
-import { HKOS_STANDARD, LIU, RULESETS, assertRulesetSound, enabledPatterns, ruleset } from "../src/presets.js";
+import { HKOS_STANDARD,
+  MJRC_STANDARD, LIU, RULESETS, assertRulesetSound, enabledPatterns, ruleset } from "../src/presets.js";
 
 describe("pattern catalogue", () => {
   it("gives every pattern a unique id", () => {
@@ -238,9 +239,10 @@ describe("payment tables", () => {
 });
 
 describe("ruleset presets", () => {
-  it("ships hkos-standard and liu, with unique ids", () => {
-    expect(RULESETS.map((r) => r.id).sort()).toEqual(["hkos-standard", "liu"]);
+  it("ships hkos-standard, mjrc-standard and liu, with unique ids", () => {
+    expect(RULESETS.map((r) => r.id).sort()).toEqual(["hkos-standard", "liu", "mjrc-standard"]);
     expect(ruleset("hkos-standard")).toBe(HKOS_STANDARD);
+    expect(ruleset("mjrc-standard")).toBe(MJRC_STANDARD);
     expect(ruleset("liu")).toBe(LIU);
     expect(ruleset("nope")).toBeUndefined();
   });

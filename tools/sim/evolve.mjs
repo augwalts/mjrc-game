@@ -1549,7 +1549,15 @@ var MJRC_STANDARD = {
   ...HKOS_STANDARD,
   id: "mjrc-standard",
   label: "MJRC \u6A19\u6E96 (3-10 faan)",
-  limitFaan: 10
+  limitFaan: 10,
+  // Inherited values above the cap are clamped IN THE TABLE, not just at
+  // scoring time: under a 10-cap house, "十三么 pays 10" is the price itself.
+  // Scoring output is identical either way (any single award at the cap
+  // saturates alone); what changes is that the table now tells the truth and
+  // the bots' route pricing stops valuing limit hands above what they pay.
+  faanTable: Object.fromEntries(
+    Object.entries(HKOS_STANDARD.faanTable).map(([id, faan]) => [id, Math.min(faan, 10)])
+  )
 };
 var RULESETS = [HKOS_STANDARD, MJRC_STANDARD, LIU];
 var DEFAULT_RULESET_ID = HKOS_STANDARD.id;
