@@ -36,6 +36,8 @@ export interface EvalResult {
   /** chipsWon / |chipsLost| — how humans compare players. >1 = net winner. */
   winLossRatio: number; drawRate: number; refusedPerHand: number;
   meanFaan: number; claimsPerHand: number;
+  /** Share of wins where an opponent read had flagged the winner (>0.3). */
+  threatDetection: number;
   /** Per-hand activity mix and the winning-pattern census for this eval. */
   activity: { chows: number; pungs: number; kongs: number;
               winsOnDiscard: number; selfDraws: number; hands: number;
@@ -80,7 +82,7 @@ export function evaluate(
     : seeds.map((seed, i) => ({ seed, seat: (i % 4) as 0 | 1 | 2 | 3 }));
   let chips = 0, won = 0, lost = 0, dealInLoss = 0, dealIns = 0, taxLoss = 0,
       points = 0, hands = 0, draws = 0, refused = 0, claims = 0;
-  let chows = 0, pungs = 0, kongs = 0, wod = 0, sd = 0;
+  let chows = 0, pungs = 0, kongs = 0, wod = 0, sd = 0, tWins = 0, tFlagged = 0;
   const patterns: Record<string, number> = {};
   const faans: number[] = [];
   plays.forEach(({ seed, seat: mySeat }) => {
@@ -106,7 +108,7 @@ export function evaluate(
     points += placementPoints(r.chips, mySeat);
     hands += r.hands; draws += r.draws; refused += r.refusedWins; claims += r.claims;
     chows += r.chows; pungs += r.pungs; kongs += r.kongs;
-    wod += r.winsOnDiscard; sd += r.selfDraws;
+    wod += r.winsOnDiscard; sd += r.selfDraws; tWins += r.threatWins; tFlagged += r.threatFlagged;
     for (const [k, n] of Object.entries(r.patterns)) patterns[k] = (patterns[k] ?? 0) + n;
     faans.push(...r.faans);
   });
@@ -125,6 +127,7 @@ export function evaluate(
     refusedPerHand: +(refused / hands).toFixed(2),
     meanFaan: +(faans.reduce((a, b) => a + b, 0) / Math.max(1, faans.length)).toFixed(2),
     claimsPerHand: +(claims / hands).toFixed(2),
+    threatDetection: +(tFlagged / Math.max(1, tWins)).toFixed(2),
     activity: { chows, pungs, kongs, winsOnDiscard: wod, selfDraws: sd, hands, patterns, faanHist },
   };
 }

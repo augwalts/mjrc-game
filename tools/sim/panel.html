@@ -28,7 +28,7 @@ th{text-align:right;color:var(--dim);font-weight:600;font-size:10px;text-transfo
 th:first-child,td:first-child{text-align:left}
 td{text-align:right;padding:4px 6px;border-bottom:1px solid #2e2e36}
 .up{color:var(--ok)} .down{color:var(--warn)} .mut{color:var(--dim)}
-.spark{width:100%;height:64px;display:block}
+.spark{width:100%;height:88px;display:block}
 .big{font-size:22px;font-weight:700}
 .pill{display:inline-block;font-size:10px;padding:1px 7px;border-radius:9px;
   background:#33333d;color:var(--dim);margin-left:8px}
@@ -119,17 +119,30 @@ else if (D.history.length === 0) {
   document.getElementById("sub").textContent =
     `${H.length} generations · ${promoted} promotions · ${totalMatches.toLocaleString()} games / ${totalHands.toLocaleString()} hands this run · updated ${D.updated} — refresh for latest`;
 
-  const spark = (vals, {lo, hi, fmt = v => v, color = "var(--acc)"} = {}) => {
+  // Mini chart with REAL axes (owner, 2026-08-28: unlabeled sparklines auto-zoom
+  // tiny ranges into fake drama — draw rate "looked like it started at 60%").
+  // x = generation, y = labeled value scale; zero:true pins the floor at 0.
+  const spark = (vals, {lo, hi, fmt = v => v, color = "var(--acc)", zero = false} = {}) => {
     if (!vals.length) return "";
-    lo = lo ?? Math.min(...vals); hi = hi ?? Math.max(...vals);
+    lo = lo ?? (zero ? Math.min(0, ...vals) : Math.min(...vals));
+    hi = hi ?? Math.max(...vals, zero ? lo + 1e-9 : -Infinity);
     if (hi === lo) { hi = lo + 1; }
-    const W = 300, Hh = 60, pad = 4;
-    const x = i => pad + i / Math.max(1, vals.length - 1) * (W - 2 * pad);
-    const y = v => Hh - pad - (v - lo) / (hi - lo) * (Hh - 2 * pad);
+    const W = 340, Hh = 84, L = 34, R = 4, T = 6, B = 20;
+    const x = i => L + i / Math.max(1, vals.length - 1) * (W - L - R);
+    const y = v => T + (1 - (v - lo) / (hi - lo)) * (Hh - T - B);
     const pts = vals.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
-    return `<svg class="spark" viewBox="0 0 ${W} ${Hh}" preserveAspectRatio="none">
+    const mid = (lo + hi) / 2;
+    const tick = (v) => `<line x1="${L}" x2="${W - R}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}"
+        stroke="var(--line)" stroke-width="0.6" stroke-dasharray="3 3"/>
+      <text x="${L - 4}" y="${(y(v) + 2.6).toFixed(1)}" text-anchor="end" font-size="8" fill="var(--dim)">${fmt(v)}</text>`;
+    const zeroLine = (lo < 0 && hi > 0)
+      ? `<line x1="${L}" x2="${W - R}" y1="${y(0).toFixed(1)}" y2="${y(0).toFixed(1)}" stroke="var(--dim)" stroke-width="0.8"/>` : "";
+    return `<svg class="spark" viewBox="0 0 ${W} ${Hh}">
+      ${tick(hi)}${tick(mid)}${tick(lo)}${zeroLine}
       <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.6"/>
       ${vals.map((v, i) => `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="1.8" fill="${color}"/>`).join("")}
+      <text x="${L}" y="${Hh - 6}" font-size="8" fill="var(--dim)">gen 0</text>
+      <text x="${W - R}" y="${Hh - 6}" text-anchor="end" font-size="8" fill="var(--dim)">gen ${vals.length - 1}</text>
     </svg><div class="kv"><span class="mut">start ${fmt(vals[0])}</span><b>now ${fmt(vals[vals.length-1])}</b></div>`;
   };
 
@@ -212,6 +225,21 @@ else if (D.history.length === 0) {
           it keeps meaning even after the baseline is left far behind.</div></div>`;
       })()}</div>`);
   }
+  // ── threat detection: key KPI (owner priority 2026-08-28) ──
+  {
+    const tdVals = H.map((g) => g.bench?.threatDetection).filter((v) => v !== undefined);
+    if (tdVals.length) {
+      const t = tdVals[tdVals.length - 1];
+      const A = window.THREAT_AUDIT;
+      put("kpis", `<div class="card"><h2>Threat detection — key KPI</h2>
+        <div class="big ${t >= 0.6 ? "up" : t < 0.4 ? "down" : ""}">${Math.round(t * 100)}%</div>
+        ${spark(tdVals, { zero: true, hi: 1, fmt: (v) => Math.round(v * 100) + "%" })}
+        <div class="mut" style="font-size:11px">Share of benchmark wins where the winner had been flagged (threat &gt; 0.3)
+        by an opponent's table read before the win — measured live inside every generation's bench games.
+        ${A?.detectionConcealed !== undefined ? `Offline audit split: exposed winners ${Math.round(A.detectionExposed * 100)}% ·
+        concealed winners ${Math.round(A.detectionConcealed * 100)}% — the model is still near-blind to concealed hands.` : ""}</div></div>`);
+    }
+  }
   // ── what the bots actually DO: latest generation's activity mix ──
   const actSrc = (g) => {
     const c = g.promoted !== null ? g.candidates.find(x => x.id === g.promoted) : null;
@@ -285,7 +313,7 @@ else if (D.history.length === 0) {
 
   put('kpis', `<div class="card"><h2>Mean winning faan</h2>
     <div class="big">${texture("meanFaan").slice(-1)[0]}</div>
-    ${spark(texture("meanFaan"), {fmt: v => v})}
+    ${spark(texture("meanFaan"), {zero: true, fmt: v => v})}
     <div class="mut" style="font-size:11px">Average faan of winning hands. 3.0 = everyone scrapes the minimum; rising = hands
  built for value. The owner's principle says neither extreme survives — this shows where the mix settles.</div></div>`);
 
@@ -405,17 +433,24 @@ else if (D.history.length === 0) {
         dd(g.control.meanFaan, nw.meanFaan, "faan", (v) => v);
         story = `dials moved: ${moves || "only sub-5% nudges"}${tex.length ? ` · same-wall texture old→new: ${tex.join(" · ")}` : ""}`;
       }
-      const fh = g.bench?.activity?.faanHist ?? g.control?.activity?.faanHist;
+      const histOf = (gg) => gg.bench?.activity?.faanHist ?? gg.control?.activity?.faanHist;
+      const sharesOf = (h) => {
+        const tot = h.reduce((a, b) => a + b, 0) || 1;
+        return [3, 4, 5, 6, 7, 8, 9].map((f) => h[f] / tot).concat([h.slice(10).reduce((a, b) => a + b, 0) / tot]);
+      };
+      const fh = histOf(g);
       let faanCells = '<td colspan="8" class="mut" style="border:0">—</td>', meanCell = "—";
       if (fh) {
-        const buckets = [3, 4, 5, 6, 7, 8, 9].map((f) => fh[f]).concat([fh.slice(10).reduce((a, b) => a + b, 0)]);
-        const tot = fh.reduce((a, b) => a + b, 0) || 1, peak = Math.max(...buckets, 1);
-        faanCells = buckets.map((n, bi) => {
-          const share = n / tot, rel = n / peak;
-          return `<td title="gen ${g.gen} · ${bi === 7 ? "10+" : bi + 3} faan: ${n} wins (${Math.round(share * 100)}%)" style="padding:1px;border:0">` +
-            `<div style="height:16px;min-width:26px;border-radius:2px;display:flex;align-items:center;justify-content:center;` +
-            `font-size:9px;color:${rel > 0.55 ? "#10121a" : "var(--dim)"};` +
-            `background:rgba(127,179,255,${n ? (0.05 + rel * 0.9).toFixed(2) : 0})">${n ? Math.round(share * 100) : ""}</div></td>`;
+        const cur = sharesOf(fh);
+        const prevH = i > 0 ? histOf(H[i - 1]) : null;
+        const prev = prevH ? sharesOf(prevH) : null;
+        faanCells = cur.map((sh, bi) => {
+          const d = prev ? (sh - prev[bi]) * 100 : 0;
+          const delta = prev && Math.abs(d) >= 0.5
+            ? `<span style="font-size:8.5px;color:${d > 0 ? "var(--acc)" : "var(--warn)"}">${d > 0 ? "\u25b2" : "\u25bc"}${Math.abs(d).toFixed(0)}</span>`
+            : "";
+          return `<td class="mut" title="gen ${g.gen} · ${bi === 7 ? "10+" : bi + 3} faan: ${(sh * 100).toFixed(1)}% of wins` +
+            `${prev ? ` (prev gen ${(prev[bi] * 100).toFixed(1)}%)` : ""}">${Math.round(sh * 100)}${delta}</td>`;
         }).join("");
         meanCell = g.bench?.meanFaan ?? g.control?.meanFaan ?? "—";
       }
@@ -424,10 +459,11 @@ else if (D.history.length === 0) {
         <td>${g.promoted === null ? '<span class="mut">kept</span>' : '<span class="up">PROMOTED #' + g.promoted + "</span>"}</td>
         <td>${g.bench ? (g.bench.chipsPerMatch > 0 ? "+" : "") + g.bench.chipsPerMatch : "—"}</td>
         ${faanCells}<td class="mut">${meanCell}</td>
+        <td>${g.bench?.threatDetection !== undefined ? Math.round(g.bench.threatDetection * 100) + "%" : '<span class="mut">—</span>'}</td>
         <td class="mut">${g.work ? g.work.matches : "~336"}</td>
         <td class="mut">${g.work ? g.work.hands.toLocaleString() : "~2,400"}</td>
         <td class="mut">${(g.ms / 1000).toFixed(0)}</td></tr>
-        <tr><td style="border-bottom:1px solid var(--line)"></td><td colspan="17" class="mut" style="text-align:left;font-size:11px;border-bottom:1px solid var(--line)">${story}</td></tr>`;
+        <tr><td style="border-bottom:1px solid var(--line)"></td><td colspan="18" class="mut" style="text-align:left;font-size:11px;border-bottom:1px solid var(--line)">${story}</td></tr>`;
     });
     const start = D.defaults, end = last.incumbentAfter;
     const drift = D.keys.map((k) => ({ k, d: start[k] ? end[k] / start[k] - 1 : 0 }))
@@ -446,11 +482,13 @@ else if (D.history.length === 0) {
       <div class="mut" style="font-size:11px;margin-bottom:6px"><b>control</b> = incumbent vs itself on the same walls (its distance from 0 IS the
       noise floor) · <b>best</b> = top challenger of 6 on seed set A · <b>confirm</b> = same challenger on unseen set B — promotion needs both, so
       most generations keep the incumbent (the noise gate working, not stagnation) · <b>vs base</b> = chips/match vs ${baseLbl} on fixed walls, all
-      seats · <b>games/hands</b> = the full workload that generation · <b>3f…10+ columns</b> = that generation's winning-hand
-      sizes in its benchmark games (% of wins at each faan, brightness relative to the row's peak) — watch the mass migrate as the
-      meta shifts; <b>x̄</b> = mean winning faan.
+      seats · <b>games/hands</b> = the full workload that generation · <b>3f…10+ columns</b> = % of that generation's benchmark wins at each hand size, with \u25b2/\u25bc marking the change vs the
+      PREVIOUS generation in percentage points. Rows with no arrows are identical on purpose: the bench replays the same bot on the
+      same walls, so nothing moves until a promotion actually changes the bot — when arrows appear, the meta really shifted.
+      <b>x̄</b> = mean winning faan · <b>threat</b> = share of benchmark wins where an opponent's table read had flagged the winner
+      before the win (the threat model catching real hands).
       ${drift ? `<br><b>Net drift this run vs its start:</b> ${drift}` : ""}</div>
-      <table><tr><th>gen</th><th>control</th><th>best</th><th>confirm</th><th>outcome</th><th>vs base</th><th>3f</th><th>4f</th><th>5f</th><th>6f</th><th>7f</th><th>8f</th><th>9f</th><th>10+</th><th>x̄ faan</th><th>games</th><th>hands</th><th>secs</th></tr>
+      <table><tr><th>gen</th><th>control</th><th>best</th><th>confirm</th><th>outcome</th><th>vs base</th><th>3f</th><th>4f</th><th>5f</th><th>6f</th><th>7f</th><th>8f</th><th>9f</th><th>10+</th><th>x̄ faan</th><th>threat</th><th>games</th><th>hands</th><th>secs</th></tr>
       ${[...rows].reverse().join("")}</table>${refs}</div>`);
   }
 

@@ -2618,6 +2618,8 @@ function playMatch(config, decide, opts = {}) {
     kongs: 0,
     winsOnDiscard: 0,
     selfDraws: 0,
+    threatWins: 0,
+    threatFlagged: 0,
     patterns: {},
     seatWon: [0, 0, 0, 0],
     seatLost: [0, 0, 0, 0],
@@ -2682,6 +2684,18 @@ function playMatch(config, decide, opts = {}) {
       if (e.type === "winOnDiscard" || e.type === "selfDraw") {
         if (e.type === "selfDraw") r.selfDraws++;
         else r.winsOnDiscard++;
+        const winSeat = e.payload.context?.seat;
+        if (winSeat !== void 0) {
+          r.threatWins++;
+          for (const s of SEATS) {
+            if (s === winSeat) continue;
+            const read = assessSeatThreat(viewFor(state, s), winSeat, config.ruleset);
+            if (read.threat > 0.3) {
+              r.threatFlagged++;
+              break;
+            }
+          }
+        }
         const p = e.payload;
         for (const a of p.score?.awards ?? []) r.patterns[a.id] = (r.patterns[a.id] ?? 0) + 1;
         if (r.handRecords) {
@@ -2736,7 +2750,7 @@ function placementPoints(chips, seat) {
 function evaluate(candidate, incumbent2, seeds, sample, opts) {
   const plays = opts?.allSeats ? seeds.flatMap((seed) => [0, 1, 2, 3].map((seat) => ({ seed, seat }))) : seeds.map((seed, i) => ({ seed, seat: i % 4 }));
   let chips = 0, won = 0, lost = 0, dealInLoss = 0, dealIns = 0, taxLoss = 0, points = 0, hands = 0, draws = 0, refused = 0, claims = 0;
-  let chows = 0, pungs = 0, kongs = 0, wod = 0, sd = 0;
+  let chows = 0, pungs = 0, kongs = 0, wod = 0, sd = 0, tWins = 0, tFlagged = 0;
   const patterns = {};
   const faans = [];
   plays.forEach(({ seed, seat: mySeat }) => {
@@ -2767,6 +2781,8 @@ function evaluate(candidate, incumbent2, seeds, sample, opts) {
     kongs += r.kongs;
     wod += r.winsOnDiscard;
     sd += r.selfDraws;
+    tWins += r.threatWins;
+    tFlagged += r.threatFlagged;
     for (const [k, n] of Object.entries(r.patterns)) patterns[k] = (patterns[k] ?? 0) + n;
     faans.push(...r.faans);
   });
@@ -2785,6 +2801,7 @@ function evaluate(candidate, incumbent2, seeds, sample, opts) {
     refusedPerHand: +(refused / hands).toFixed(2),
     meanFaan: +(faans.reduce((a, b) => a + b, 0) / Math.max(1, faans.length)).toFixed(2),
     claimsPerHand: +(claims / hands).toFixed(2),
+    threatDetection: +(tFlagged / Math.max(1, tWins)).toFixed(2),
     activity: { chows, pungs, kongs, winsOnDiscard: wod, selfDraws: sd, hands, patterns, faanHist }
   };
 }

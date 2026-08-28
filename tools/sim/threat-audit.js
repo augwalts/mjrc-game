@@ -1,1 +1,1 @@
-window.THREAT_AUDIT = {"matches":40,"wins":221,"detectionRate":0.4434389140271493,"detectionExposed":0.87,"detectionConcealed":0.02,"winsConcealedShare":0.5,"falseAlarmRate":0.7309417040358744,"faanBias":0.48,"faanMAE":1.41,"generated":"2026-08-28 07:05"};
+window.THREAT_AUDIT = {"matches":40,"wins":214,"detectionRate":0.6542056074766355,"detectionExposed":0.93,"detectionConcealed":0.1,"winsConcealedShare":0.33,"falseAlarmRate":0.6723549488054608,"faanBias":-0.79,"faanMAE":1.85,"generated":"2026-08-28 15:33"};

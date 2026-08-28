@@ -9,6 +9,7 @@ import {
   type MatchState, type Applied, type MatchConfig,
 } from "../../engine/src/reducer.js";
 import type { SeatView } from "../../engine/src/bots.js";
+import { assessSeatThreat } from "../../engine/src/threat.js";
 
 export const SEATS: SeatIndex[] = [0, 1, 2, 3];
 
@@ -66,6 +67,11 @@ export interface MatchResult {
   kongs: number;
   winsOnDiscard: number;
   selfDraws: number;
+  /** Threat-model scoreboard: of the hands somebody won, how many winners had
+   * been flagged (threat > 0.3) by at least one opponent's table read at the
+   * moment of the win. Owner priority 2026-08-28. */
+  threatWins: number;
+  threatFlagged: number;
   patterns: Record<string, number>;
   /** Chips gained on winning hands / bled on losing ones, per seat — the two
    * halves of "maximize chip wins, minimize chip losses". Sum = chips. */
@@ -88,7 +94,7 @@ export function playMatch(
 ): MatchResult {
   let { state, events } = startMatch(config);
   const r: MatchResult = { chips: [0, 0, 0, 0], hands: 0, draws: 0, wins: 0, refusedWins: 0, claims: 0, faans: [],
-    chows: 0, pungs: 0, kongs: 0, winsOnDiscard: 0, selfDraws: 0, patterns: {},
+    chows: 0, pungs: 0, kongs: 0, winsOnDiscard: 0, selfDraws: 0, threatWins: 0, threatFlagged: 0, patterns: {},
     seatWon: [0, 0, 0, 0], seatLost: [0, 0, 0, 0],
     seatDealInLoss: [0, 0, 0, 0], seatDealInCount: [0, 0, 0, 0], seatTaxLoss: [0, 0, 0, 0] };
   if (opts.recordHands) r.handRecords = [];
@@ -143,6 +149,15 @@ export function playMatch(
       if (e.type === "concealedKong" || e.type === "addedKong") r.kongs++;
       if (e.type === "winOnDiscard" || e.type === "selfDraw") {
         if (e.type === "selfDraw") r.selfDraws++; else r.winsOnDiscard++;
+        const winSeat = (e.payload as { context?: { seat?: number } }).context?.seat;
+        if (winSeat !== undefined) {
+          r.threatWins++;
+          for (const s of SEATS) {
+            if (s === winSeat) continue;
+            const read = assessSeatThreat(viewFor(state, s), winSeat as SeatIndex, config.ruleset);
+            if (read.threat > 0.3) { r.threatFlagged++; break; }
+          }
+        }
         const p = e.payload as {
           context?: { winningTile?: number };
           concealed?: number[];
