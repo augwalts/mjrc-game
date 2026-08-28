@@ -1,8 +1,8 @@
 # Training series — era 2 (vs baseline-v1, the frozen era-1 champion)
 
-Updated 2026-08-28T08:25:26.938Z · 18.3h remaining · ruleset mjrc-standard (3-10 faan)
+Updated 2026-08-28T09:03:53.633Z · 17.7h remaining · ruleset mjrc-standard (3-10 faan)
 
-**Hall of fame vs baseline-v1: 23.4 chips/match**
+**Hall of fame vs baseline-v1: 15.1 chips/match**
 
 Units: chips are the HK payment ladder (a 3-faan discard win moves 16 chips; the 10-faan cap moves 256).
 All chip numbers here are AVERAGES per one-wind-round match over 160-match blocks — a single great match can swing +400 by itself.
@@ -12,5 +12,6 @@ All chip numbers here are AVERAGES per one-wind-round match over 160-match block
 |---|---|---|---|---|---|---|
 | 1 | baseline | 48 | 23.4 | 51.9 | **NEW BEST** | 41.8m |
 | 2 | baseline | 96 | -22.6 | 55.5 |  | 51.1m |
+| 3 | mirror | 48 | 15.1 | 25 | **NEW BEST** | 35m |
 
 Files: hall-of-fame.json (best weights) · overnight-log.jsonl · runs/cycle-NNN.js (full histories)
