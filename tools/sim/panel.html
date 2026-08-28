@@ -16,17 +16,24 @@ body{margin:0;background:var(--bg);color:var(--ink);
   font:13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:20px;max-width:1440px;margin:0 auto}
 h1{font-size:16px;margin:0 0 2px}
 .sub{color:var(--dim);font-size:11.5px;margin-bottom:16px}
-.kpis{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin-bottom:12px}
+.kpis,.diagnostics{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin-bottom:12px}
 .kpis .card h2{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* masonry: cards flow into balanced columns — no more page-tall blank gaps */
 .cols{columns:2;column-gap:12px;margin-bottom:12px}
 .col{display:contents}
 .cols .card{break-inside:avoid;margin-bottom:12px;display:block}
 .scrollcard{max-height:420px;overflow-y:auto}
-@media (max-width:1000px){.kpis{grid-template-columns:repeat(2,1fr)}.cols{columns:1}}
-.card{background:var(--card);border:1px solid var(--line);border-radius:9px;padding:13px}
+@media (max-width:1000px){.kpis,.diagnostics{grid-template-columns:repeat(2,minmax(0,1fr))}.cols{columns:1}}
+@media (max-width:700px){body{padding:12px}.kpis,.diagnostics{grid-template-columns:minmax(0,1fr)}.nav{overflow-x:auto}.scopebar{align-items:flex-start}.big{font-size:20px}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:9px;padding:13px;min-width:0;overflow-wrap:anywhere}
+.kpis>*,.diagnostics>*{min-width:0}
 .card h2{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--dim);
   margin:0 0 9px;font-weight:600}
+.scope{display:block;color:var(--acc);font-size:9px;font-weight:700;letter-spacing:.11em;margin-bottom:3px}
+.scopebar{display:flex;gap:16px;align-items:baseline;flex-wrap:wrap}
+.health{font-weight:750;letter-spacing:.05em}.health.stale,.pill.stale{color:var(--warn);background:#452c25}
+.table-scroll{max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
+.decision{font-size:12px}.decision td,.decision th{white-space:nowrap}.decision td:last-child,.decision th:last-child{white-space:normal;text-align:left}
 table{width:100%;border-collapse:collapse;font-size:12px;font-variant-numeric:tabular-nums}
 th{text-align:right;color:var(--dim);font-weight:600;font-size:10px;text-transform:uppercase;
   letter-spacing:.05em;padding:3px 6px;border-bottom:1px solid var(--line)}
@@ -52,15 +59,19 @@ details.match summary:hover{background:#2c2c35}
 <h1>Self-play weight evolution <span class="pill" id="status"></span></h1>
 <div class="sub" id="sub">waiting for data.js…</div>
 <div class="nav"><b class="mut" style="font-size:10px;text-transform:uppercase;letter-spacing:.08em">jump to</b>
-  <a href="#overnightbar">Live now</a><a href="#history">History — the record</a><a href="#legend">Legend</a></div>
+  <a href="#overnightbar">Health</a><a href="#seriesKpis">Overall KPIs</a><a href="#currentCycle">Current cycle</a><a href="#history">Research archive</a></div>
 <div id="overnightbar"></div>
-<div class="kpis" id="kpis"></div>
+<div class="sectionlabel">Overall operation — across completed cycles and the live cycle</div>
+<div class="kpis" id="seriesKpis"></div>
+<div class="sectionlabel" id="currentCycle">Current cycle — generation trend, latest value</div>
+<div class="diagnostics" id="kpis"></div>
+<div class="sectionlabel">Latest generation and current-cycle detail</div>
 <div class="cols">
   <div class="col" id="colL"></div>
   <div class="col" id="colR"></div>
 </div>
 <div id="wide"></div>
-<div class="sectionlabel" id="historylabel" style="display:none">History</div>
+<div class="sectionlabel" id="historylabel" style="display:none">Research archive</div>
 <div id="history"></div>
 <div id="legend"></div>
 <script>
@@ -82,30 +93,54 @@ details.match summary:hover{background:#2c2c35}
 <script>
 window.initPanel = function initPanel() {
 const D = window.SIM_DATA;
-// ── overnight series strip (present only while/after a series runs) ──
+// ── operational health + series-level KPIs ──
 {
   const O = window.OVERNIGHT;
   const el = document.getElementById("overnightbar");
-  if (O && el) {
-    const hoursLeft = Math.max(0, (O.deadline - O.now) / 3600e3).toFixed(1);
-    const done = O.cycles.filter((c) => c.heldOutChips !== null);
-    const best = O.hofScore === null || O.hofScore === -Infinity ? "—" : O.hofScore;
-    let prevBest = null;
-    const line = done.map((c) => {
-      const v = c.heldOutChips;
-      const cls = c.improved ? "up" : "mut";
-      const delta = c.improved && prevBest !== null ? ` (Δ+${(v - prevBest).toFixed(1)})` : "";
-      if (c.improved) prevBest = v;
-      return `<span class="${cls}" title="cycle ${c.cycle} · ${c.opponent} · ${c.matches}m${c.vsV0 !== undefined && c.vsV0 !== null ? ` · vs v0 ${c.vsV0}` : ""}">${v > 0 ? "+" : ""}${v}${delta}</span>`;
-    }).join(" → ");
-    el.innerHTML = `<div class="card" style="margin-bottom:12px;display:flex;gap:18px;align-items:baseline;flex-wrap:wrap">
-      <b>Overnight series</b>
-      <span class="mut">${O.statusLine} · ${hoursLeft}h remaining</span>
-      <span>hall of fame vs baseline-v1: <b class="${typeof best === "number" && best > 0 ? "up" : ""}">${typeof best === "number" && best > 0 ? "+" : ""}${best}</b> chips/match <span class="mut" style="font-size:11px">(v1 = era-1 champion; 0 is par)</span></span>
-      ${(() => { const withV0 = done.filter((c) => c.vsV0 !== undefined && c.vsV0 !== null); if (!withV0.length) return ""; const lastV0 = withV0[withV0.length - 1].vsV0; return `<span class="mut" style="font-size:11px">continuity vs old v0: ${lastV0 > 0 ? "+" : ""}${lastV0}</span>`; })()}
-      ${line ? `<span class="mut" style="font-size:11px">held-out by cycle: ${line}</span>` : ""}
-      <span class="mut" style="font-size:11px">(the cards below are the LIVE cycle, updating per generation)</span>
-    </div>`;
+  const seriesEl = document.getElementById("seriesKpis");
+  const logs = (window.SERIES_LOG || []).filter((r) => r.era === 2);
+  const rawCycles = O?.cycles?.length ? O.cycles : logs;
+  const cycles = rawCycles.map((c) => {
+    const logged = [...logs].reverse().find((r) => r.cycle === c.cycle && r.heldOutChips === c.heldOutChips);
+    return { ...(logged || {}), ...c };
+  });
+  const done = cycles.filter((c) => c.heldOutChips !== null && c.heldOutChips !== undefined && !c.error);
+  const admitted = done.filter((c) => c.improved);
+  const latest = done[done.length - 1];
+  const lastAdmission = admitted[admitted.length - 1];
+  const deltaOf = (c) => c && Number.isFinite(c.reigningOnSameBlock)
+    ? +(c.heldOutChips - c.reigningOnSameBlock).toFixed(1) : null;
+  const signed = (v) => v === null || v === undefined ? "—" : `${v > 0 ? "+" : ""}${v}`;
+  const now = Date.now();
+  const stamps = [Date.parse(D?.updated || ""), Number(O?.now)].filter(Number.isFinite);
+  const freshest = stamps.length ? Math.max(...stamps) : null;
+  const ageMinutes = freshest === null ? null : Math.max(0, (now - freshest) / 60_000);
+  const active = ["starting", "running"].includes(D?.status) || /evolving|starting/i.test(O?.statusLine || "");
+  const stale = active && (ageMinutes === null || ageMinutes > 8);
+  const health = stale ? "STALE" : active ? "RUNNING" : /fail/i.test(O?.statusLine || "") ? "FAILED" : "FINISHED";
+  const healthClass = stale || health === "FAILED" ? "stale" : health === "RUNNING" ? "up" : "";
+  const ageLabel = ageMinutes === null ? "no heartbeat" : ageMinutes < 1 ? "updated &lt;1m ago" : `updated ${Math.floor(ageMinutes)}m ago`;
+  const hoursLeft = O?.deadline ? Math.max(0, (O.deadline - now) / 3600e3).toFixed(1) : null;
+  const elapsedHours = O?.startedAt ? Math.max(0, (now - O.startedAt) / 3600e3).toFixed(1) : null;
+  if (el) el.innerHTML = `<div class="card scopebar" style="margin-bottom:12px">
+    <span class="scope">CURRENT OPERATION</span>
+    <span class="health ${healthClass}">${health}</span>
+    <span>${O?.statusLine || D?.status || "status unavailable"}</span>
+    <span class="mut">${ageLabel}${elapsedHours ? ` · ${elapsedHours}h elapsed` : ""}${hoursLeft ? ` · ${hoursLeft}h remaining` : ""}</span>
+    ${stale ? '<span class="down"><b>Telemetry is older than the 8-minute heartbeat limit.</b> The process or publication path may have stopped.</span>' : ""}
+  </div>`;
+  if (seriesEl) {
+    const planned = Number(D?.generationsPlanned) || 16;
+    const overallGenerations = done.reduce((n, c) => n + (Number(c.generations) || planned), 0) + (D?.history?.length || 0);
+    const latestDelta = deltaOf(latest);
+    const admittedDelta = deltaOf(lastAdmission);
+    const rate = done.length ? Math.round(admitted.length / done.length * 100) : 0;
+    seriesEl.innerHTML = `
+      <div class="card"><span class="scope">OVERALL SERIES</span><h2>Generations observed</h2><div class="big">${overallGenerations}</div><div class="mut">${done.length} completed cycles + ${D?.history?.length || 0} in the live cycle</div></div>
+      <div class="card"><span class="scope">OVERALL SERIES</span><h2>Completed cycles</h2><div class="big">${done.length}</div><div class="mut">cycle-end held-out exams recorded</div></div>
+      <div class="card"><span class="scope">OVERALL SERIES</span><h2>Hall-of-fame admissions</h2><div class="big">${admitted.length}</div><div class="mut">${admitted.length}/${done.length || 0} cycles · ${rate}% admission rate</div></div>
+      <div class="card"><span class="scope">OVERALL SERIES</span><h2>Latest admission decision</h2><div class="big ${latest?.improved ? "up" : latestDelta !== null && latestDelta < 0 ? "down" : ""}">${signed(latestDelta)}</div><div class="mut">cycle ${latest?.cycle ?? "—"}: candidate ${signed(latest?.heldOutChips)} vs reigning ${signed(latest?.reigningOnSameBlock)} on the same block · needs &gt; +${latest?.admissionMargin ?? 4} · <b class="${latest?.improved ? "up" : ""}">${latest ? (latest.improved ? "ADMITTED" : "REJECTED") : "NO DECISION"}</b></div></div>
+      <div class="card"><span class="scope">OVERALL SERIES</span><h2>Last successful admission</h2><div class="big up">${signed(admittedDelta)}</div><div class="mut">${lastAdmission ? `cycle ${lastAdmission.cycle}: candidate ${signed(lastAdmission.heldOutChips)} vs reigning ${signed(lastAdmission.reigningOnSameBlock)}` : "none recorded"}</div></div>`;
   }
 }
 // The optimizer rewrites data.js after every generation; reload to pick it up.
@@ -122,12 +157,16 @@ else if (D.history.length === 0) {
   const H = D.history;
   const last = H[H.length - 1];
   const promoted = H.filter(g => g.promoted !== null).length;
-  const totalMatches = H.reduce((n, g) => n + (g.work ? g.work.matches : 168), 0);
-  const totalHands = H.reduce((n, g) => n + (g.work ? g.work.hands : 1200), 0);
+  const exactWork = H.every((g) => g.work?.breakdown);
+  const totalMatches = exactWork ? H.reduce((n, g) => n + g.work.matches, 0) : null;
+  const totalHands = exactWork ? H.reduce((n, g) => n + g.work.hands, 0) : null;
+  const workLabel = exactWork
+    ? `${totalMatches.toLocaleString()} matches / ${totalHands.toLocaleString()} hands this cycle`
+    : "exact workload unavailable in this run's legacy telemetry";
   document.getElementById("status").textContent = D.status;
   document.getElementById("status").className = "pill" + (D.status === "running" ? " live" : "");
   document.getElementById("sub").textContent =
-    `${window.OVERNIGHT ? `cycle ${window.OVERNIGHT.cycles.length + 1} · ` : ""}gens completed ${H.length}/16 · ${promoted} promotions this cycle · ${totalMatches.toLocaleString()} games / ${totalHands.toLocaleString()} hands · updated ${D.updated} — refresh for latest`;
+    `CURRENT CYCLE · ${window.OVERNIGHT ? `cycle ${window.OVERNIGHT.cycles.length + 1} · ` : ""}generations ${H.length}/${D.generationsPlanned || 16} · ${promoted} promotions · ${workLabel} · opponent ${D.trainingOpponentLabel || "not recorded"}`;
 
   // Mini chart with REAL axes (owner, 2026-08-28: unlabeled sparklines auto-zoom
   // tiny ranges into fake drama — draw rate "looked like it started at 60%").
@@ -190,14 +229,14 @@ else if (D.history.length === 0) {
   if (benches.length) {
     const b = benches[benches.length - 1];
     const line = benches.map((x) => x.chipsPerMatch);
-    put("kpis", `<div class="card"><h2>vs ${(D.baseline||"baseline-v0.json").includes("v1") ? "baseline-v1 (era-1 champion)" : "frozen baseline-v0"} — chips/match</h2>
+    put("kpis", `<div class="card"><span class="scope">CURRENT CYCLE · FIXED BENCH</span><h2>vs ${(D.baseline||"baseline-v0.json").includes("v1") ? "baseline-v1 (era-1 champion)" : "frozen baseline-v0"} — chips/match</h2>
       <div class="big ${b.chipsPerMatch > 0 ? "up" : b.chipsPerMatch < 0 ? "down" : ""}">${b.chipsPerMatch > 0 ? "+" : ""}${b.chipsPerMatch}</div>
       ${spark(line, { zero: true, fmt: (v) => (v > 0 ? "+" : "") + v, color: b.chipsPerMatch >= 0 ? "var(--ok)" : "var(--warn)" })}
       <div class="mut" style="font-size:11px">won <b class="up">${b.chipsWonPerMatch}</b> · lost <b class="down">${b.chipsLostPerMatch}</b>
       ${b.winLossRatio !== undefined ? `· <b>W/L ratio ${b.winLossRatio}</b> (how humans compare — &gt;1 = net winner)` : ""} per match.
       ${b.dealInLossPerMatch !== undefined ? `The loss, attributed: <b class="down">${b.dealInLossPerMatch}</b> from deal-ins
       (${b.dealInsPerMatch}/match — YOUR discard fed the win) + <b>${b.taxLossPerMatch}</b> self-draw tax (dodgeable only by winning first).` : ""}
-      Same frozen opponent and walls every generation. 0 = exactly as good as the benchmark bot.</div>
+      Same frozen opponent and ${D.benchMatches || 192} all-seat matches every generation. This trend covers ${benches.length} generations in the current cycle only. 0 = exactly as good as the benchmark bot.</div>
       ${(() => {
         const prevs = H.map((g) => g.benchPrev).filter(Boolean);
         if (!prevs.length) return "";
@@ -216,28 +255,24 @@ else if (D.history.length === 0) {
     if (tdVals.length) {
       const t = tdVals[tdVals.length - 1];
       const A = window.THREAT_AUDIT;
-      put("kpis", `<div class="card"><h2>Threat detection — key KPI</h2>
-        <div class="big ${t >= 0.6 ? "up" : t < 0.4 ? "down" : ""}">${Math.round(t * 100)}%</div>
+      put("kpis", `<div class="card"><span class="scope">LATEST GENERATION · TABLE-WIDE BENCH</span><h2>Threat-read quality</h2>
+        <div class="kv"><span>winners flagged &gt;0.3</span><b class="big">${Math.round(t * 100)}%</b></div>
+        ${A?.falseAlarmRate !== undefined ? `<div class="kv"><span>false alarms &gt;0.5 (offline audit)</span><b class="down">${Math.round(A.falseAlarmRate * 100)}%</b></div>` : ""}
         ${spark(tdVals, { zero: true, hi: 1, fmt: (v) => Math.round(v * 100) + "%" })}
         <div class="mut" style="font-size:11px">Share of benchmark wins where the winner had been flagged (threat &gt; 0.3)
-        by an opponent's table read before the win — measured live inside every generation's bench games.
+        by an opponent's table read before the win. The sparkline covers ${tdVals.length} generations in the current cycle; the false-alarm audit is a separate source and threshold.
         ${A?.detectionConcealed !== undefined ? `Offline audit split: exposed winners ${Math.round(A.detectionExposed * 100)}% ·
         concealed winners ${Math.round(A.detectionConcealed * 100)}% — the model is still near-blind to concealed hands.` : ""}</div></div>`);
     }
   }
   // ── what the bots actually DO: latest generation's activity mix ──
-  const actSrc = (g) => {
-    const c = g.promoted !== null ? g.candidates.find(x => x.id === g.promoted) : null;
-    return (c ? c.result : g.control).activity;
-  };
-  const act = actSrc(last);
+  const act = (last.bench ?? last.control).activity;
   if (act) {
     const per = (n) => (n / act.hands).toFixed(2);
     const winsTotal = act.winsOnDiscard + act.selfDraws;
     const pats = Object.entries(act.patterns).sort((a, b) => b[1] - a[1]).slice(0, 12);
-    put('colR', `<div class="card"><h2>What the bots are actually doing — latest generation</h2>
-      <div class="mut" style="font-size:11px;margin-bottom:5px">All rates are <b>average count per hand played</b> —
-      "0.53 chows" means a typical hand contains about half a chow claim across the whole table (four seats).</div>
+    put('colR', `<div class="card"><span class="scope">LATEST GENERATION · TABLE TEXTURE</span><h2>One incumbent + three ${D.baseline?.split("/").pop()?.replace(".json", "") || "benchmark opponents"}</h2>
+      <div class="mut" style="font-size:11px;margin-bottom:5px">These are <b>whole-table counts</b>, not incumbent-only behavior. The fixed bench rotates the incumbent through all seats; every match still contains one incumbent and three benchmark opponents.</div>
       <table>
         <tr><td>chows 上</td><td>${per(act.chows)} / hand</td></tr>
         <tr><td>pungs 碰</td><td>${per(act.pungs)} / hand</td></tr>
@@ -273,24 +308,22 @@ else if (D.history.length === 0) {
   if (hasPts) {
     }
 
-  put('kpis', `<div class="card"><h2>Refused wins / hand</h2>
+  put('kpis', `<div class="card"><span class="scope">LATEST GENERATION · TABLE-WIDE BENCH</span><h2>Refused wins / hand</h2>
     <div class="big">${texture("refusedPerHand").slice(-1)[0]}</div>
     ${spark(texture("refusedPerHand"), {lo: 0, color: "var(--warn)", fmt: v => v})}
-    <div class="mut" style="font-size:11px">Times per hand a bot completed a winning shape it legally could not take
- (under the 3-faan floor) — the single most rage-inducing texture flaw for a human. Steered mainly by the
- belowMinimumPenalty dial below; both runs so far raised that dial on their own.</div></div>`);
+    <div class="mut" style="font-size:11px">Whole-table count per hand where any seat completed a winning shape it legally could not take under the 3-faan floor. The sparkline covers the current cycle's fixed benchmark only.</div></div>`);
 
-  put('kpis', `<div class="card"><h2>Draw rate 流局</h2>
+  put('kpis', `<div class="card"><span class="scope">LATEST GENERATION · TABLE-WIDE BENCH</span><h2>Draw rate 流局</h2>
     <div class="big">${(texture("drawRate").slice(-1)[0]*100).toFixed(0)}%</div>
     ${spark(texture("drawRate"), {lo: 0, hi: 0.7, fmt: v => (v*100).toFixed(0)+"%"})}
     <div class="mut" style="font-size:11px">流局 — the wall ran out and NOBODY won (not self-draw — 自摸 is a win).
- Prototype baseline was 69%; real tables feel like 10–20%. Most draws here are authentic: someone was ready, the tile never came.</div></div>`);
+ This is the latest fixed-bench value; the sparkline covers generations in the current cycle only.</div></div>`);
 
-  put('kpis', `<div class="card"><h2>Mean winning faan</h2>
+  put('kpis', `<div class="card"><span class="scope">LATEST GENERATION · TABLE-WIDE BENCH</span><h2>Mean winning faan</h2>
     <div class="big">${texture("meanFaan").slice(-1)[0]}</div>
     ${spark(texture("meanFaan"), {zero: true, fmt: v => v})}
     <div class="mut" style="font-size:11px">Average faan of winning hands. 3.0 = everyone scrapes the minimum; rising = hands
- built for value. The owner's principle says neither extreme survives — this shows where the mix settles.</div></div>`);
+ built for value. This is table-wide and covers the latest fixed-bench generation; the sparkline is current-cycle history.</div></div>`);
 
   const WEIGHT_DOCS = {
     faanWeight: "Value vs speed: how much a route's payout matters over finishing fast. Low = race for any legal 3 faan; high = build big hands.",
@@ -310,16 +343,17 @@ else if (D.history.length === 0) {
   };
   const K = D.keys;
   const w0 = D.defaults, wN = last.incumbentAfter;
-  put('colR', `<div class="card scrollcard"><h2>Incumbent weights — hand-guessed → evolved</h2>
+  put('colR', `<div class="card scrollcard"><span class="scope">CURRENT CYCLE</span><h2>Incumbent weights — cycle start → now</h2>
     <div class="mut" style="font-size:11px;margin-bottom:8px">The bot's entire personality is these 19 dials — coefficients of its three
     decision formulas (route choice · discard choice · claim choice). Evolution never invents behaviour, it only re-balances them.
     "default" is the hand-guessed starting value; green/red Δ = evolution raised/lowered it.</div>
     <table><tr><th>weight</th><th>default</th><th>now</th><th>Δ</th></tr>
     ${K.map(k => {
-      const d = wN[k] / w0[k] - 1;
-      const cls = Math.abs(d) < 0.05 ? "mut" : d > 0 ? "up" : "down";
+      const d = w0[k] === 0 ? null : wN[k] / w0[k] - 1;
+      const cls = d === null || Math.abs(d) < 0.05 ? "mut" : d > 0 ? "up" : "down";
+      const delta = d === null ? (wN[k] === 0 ? "unchanged" : `0→${wN[k]}`) : `${d > 0 ? "+" : ""}${(d*100).toFixed(0)}%`;
       return `<tr><td>${k}<div class="mut" style="font-size:10.5px;line-height:1.35;max-width:300px;white-space:normal">${WEIGHT_DOCS[k] ?? ""}</div></td><td class="mut">${w0[k]}</td><td><b>${wN[k]}</b></td>
-        <td class="${cls}">${d > 0 ? "+" : ""}${(d*100).toFixed(0)}%</td></tr>`;
+        <td class="${cls}">${delta}</td></tr>`;
     }).join("")}</table></div>`);
 
   // ── the matches themselves: latest generation's control set, hand by hand ──
@@ -348,10 +382,11 @@ else if (D.history.length === 0) {
       return `<span class="tiles">${[concealed, melds, win].filter(Boolean).join(" ")}</span>` +
         (awards ? `<div class="mut" style="font-size:10.5px">${awards}</div>` : "");
     };
-    const matchHtml = (m) => {
+    const matchHtml = (m, matchIndex) => {
       const top = Math.max(...m.chips);
+      const candidateSeat = m.candidateSeat ?? (matchIndex % 4);
       const chipsLine = m.chips
-        .map((c, s) => { const t = `S${s} ${c > 0 ? "+" : ""}${c}`; return c === top ? `<b>${t}</b>` : t; })
+        .map((c, s) => { const t = `S${s}${s === candidateSeat ? " (incumbent)" : ""} ${c > 0 ? "+" : ""}${c}`; return c === top ? `<b>${t}</b>` : t; })
         .join(" · ");
       const rows = (m.handRecords ?? []).map((h, i) =>
         `<tr><td class="mut">${i}</td><td>${OUTCOME_LABELS[h.outcome] ?? h.outcome}</td>
@@ -362,17 +397,17 @@ else if (D.history.length === 0) {
         <table><tr><th>#</th><th>outcome</th><th>winner</th><th>faan</th><th style="text-align:left">winning hand</th></tr>
         ${rows}</table></details>`;
     };
-    put('wide', `<div class="card"><h2>Matches — latest generation control set</h2>
-      <div class="mut" style="font-size:11px;margin-bottom:8px">The incumbent playing itself on the control seeds —
+    put('wide', `<div class="card"><details><summary><span class="scope">LATEST GENERATION · SAMPLE MATCHES</span><b>Match inspector — control set</b></summary>
+      <div class="mut" style="font-size:11px;margin:8px 0">One incumbent seat versus three <b>${D.trainingOpponentLabel || "opponents not recorded in this legacy run"}</b> on the control seeds —
       ${D.sampleMatches.length} full matches. Click a match to see every hand: who won, the faan, and the winning
-      hand face up (melds bracketed, winning tile highlighted). Seats are S0–S3; the top chip take is bold.</div>
-      <div class="matchlist">${D.sampleMatches.map(matchHtml).join("")}</div></div>`);
+      hand face up (melds bracketed, winning tile highlighted). The incumbent seat is named in each row; the top chip take is bold.</div>
+      <div class="matchlist">${D.sampleMatches.map(matchHtml).join("")}</div></details></div>`);
   }
 
   // ── threat-detection quality (from tools/sim/threat-audit.mjs) ──
   if (window.THREAT_AUDIT) {
     const T = window.THREAT_AUDIT;
-    put("colR", `<div class="card"><h2>Threat detection — does the table read work?</h2>
+    put("colR", `<div class="card"><span class="scope">OFFLINE AUDIT · ${T.generated}</span><h2>Threat detection — does the table read work?</h2>
       <div class="kv"><span>winners flagged before their win (threat &gt; 0.3)</span><b>${(T.detectionRate * 100).toFixed(0)}%</b></div>
       <div class="kv"><span>false alarms (flagged &gt; 0.5, did not win the hand)</span><b>${(T.falseAlarmRate * 100).toFixed(0)}%</b></div>
       <div class="kv"><span>hand-size calibration (est − actual faan, mean)</span><b>${T.faanBias > 0 ? "+" : ""}${T.faanBias}</b></div>
@@ -380,96 +415,49 @@ else if (D.history.length === 0) {
       <div class="mut" style="font-size:11px;margin-top:5px">${T.matches} matches, ${T.wins} wins audited · ${T.generated}.
       Regenerate: node tools/sim/threat-audit.mjs</div></div>`);
   }
-  // ── training history: numbers + story per generation, plus era references ──
+  // ── current-cycle generation decision log ──
   {
     const BAR = 0.5;
-    const pts = (v) => (v > 0 ? "+" : "") + (v ?? 0);
-    const rows = H.map((g, i) => {
+    const rows = H.map((g) => {
       const best = [...g.candidates].sort((a, b) => (b.result.pointsPerMatch ?? 0) - (a.result.pointsPerMatch ?? 0))[0];
       const bestPts = best?.result.pointsPerMatch ?? 0;
       const ctrl = g.control.pointsPerMatch ?? 0;
-      let story;
-      if (g.promoted === null) {
-        if (g.confirm) story = `challenger #${best.id} won its seed set (${pts(bestPts)}pt vs control ${pts(ctrl)}) but FAILED the fresh-seed confirm (${pts(g.confirm.pointsPerMatch)}pt &lt; bar ${BAR}) — rejected as luck`;
-        else if (bestPts > ctrl) story = `best challenger ${pts(bestPts)}pt vs control ${pts(ctrl)} — under the ${BAR} bar, not worth the risk`;
-        else story = `no challenger beat the incumbent (best ${pts(bestPts)}pt vs control ${pts(ctrl)})`;
-      } else {
-        const prev = i > 0 ? H[i - 1].incumbentAfter : D.defaults;
-        const now = g.incumbentAfter;
-        const moves = D.keys.map((k) => ({ k, from: prev[k], to: now[k], d: prev[k] ? now[k] / prev[k] - 1 : 0 }))
-          .filter((m) => Math.abs(m.d) > 0.05).sort((a, b) => Math.abs(b.d) - Math.abs(a.d)).slice(0, 5)
-          .map((m) => `${m.k} ${m.from}→<b>${m.to}</b> (${m.d > 0 ? "+" : ""}${(m.d * 100).toFixed(0)}%)`).join(" · ");
-        const nw = g.candidates.find((c) => c.id === g.promoted).result;
-        const tex = [];
-        const dd = (a, b, label, fmt) => { if (a !== undefined && b !== undefined && a !== b) tex.push(`${label} ${fmt(a)}→${fmt(b)}`); };
-        dd(g.control.refusedPerHand, nw.refusedPerHand, "refused/hand", (v) => v);
-        dd(g.control.drawRate, nw.drawRate, "draws", (v) => (v * 100).toFixed(0) + "%");
-        dd(g.control.claimsPerHand, nw.claimsPerHand, "claims/hand", (v) => v);
-        dd(g.control.meanFaan, nw.meanFaan, "faan", (v) => v);
-        story = `dials moved: ${moves || "only sub-5% nudges"}${tex.length ? ` · same-wall texture old→new: ${tex.join(" · ")}` : ""}`;
-      }
-      const histOf = (gg) => gg.bench?.activity?.faanHist ?? gg.control?.activity?.faanHist;
-      const sharesOf = (h) => {
-        const tot = h.reduce((a, b) => a + b, 0) || 1;
-        return [3, 4, 5, 6, 7, 8, 9].map((f) => h[f] / tot).concat([h.slice(10).reduce((a, b) => a + b, 0) / tot]);
-      };
-      const fh = histOf(g);
-      let faanCells = '<td colspan="8" class="mut" style="border:0">—</td>', meanCell = "—";
-      if (fh) {
-        const cur = sharesOf(fh);
-        const prevH = i > 0 ? histOf(H[i - 1]) : null;
-        const prev = prevH ? sharesOf(prevH) : null;
-        faanCells = cur.map((sh, bi) => {
-          const d = prev ? (sh - prev[bi]) * 100 : 0;
-          const delta = prev && Math.abs(d) >= 0.5
-            ? `<span style="font-size:8.5px;color:${d > 0 ? "var(--acc)" : "var(--warn)"}">${d > 0 ? "\u25b2" : "\u25bc"}${Math.abs(d).toFixed(0)}</span>`
-            : "";
-          return `<td class="mut" title="gen ${g.gen} · ${bi === 7 ? "10+" : bi + 3} faan: ${(sh * 100).toFixed(1)}% of wins` +
-            `${prev ? ` (prev gen ${(prev[bi] * 100).toFixed(1)}%)` : ""}">${Math.round(sh * 100)}${delta}</td>`;
-        }).join("");
-        meanCell = g.bench?.meanFaan ?? g.control?.meanFaan ?? "—";
-      }
-      return `<tr><td><b>${g.gen}</b></td><td class="mut">${pts(ctrl)}</td><td>${pts(bestPts)}</td>
-        <td class="mut">${g.confirm ? pts(g.confirm.pointsPerMatch) : "—"}</td>
-        <td>${g.promoted === null ? '<span class="mut">kept</span>' : '<span class="up">PROMOTED #' + g.promoted + "</span>"}</td>
+      const gateA = bestPts - ctrl;
+      const gateB = g.confirm && g.confirmControl
+        ? g.confirm.pointsPerMatch - g.confirmControl.pointsPerMatch : null;
+      const moved = Object.keys(g.changed || {});
+      const changed = moved.length ? moved.slice(0, 3).join(", ") + (moved.length > 3 ? ` +${moved.length - 3}` : "") : "—";
+      const delta = (v) => v === null ? "—" : `${v > 0 ? "+" : ""}${v.toFixed(2)}`;
+      const outcome = g.promoted !== null
+        ? `<span class="up">PROMOTED #${g.promoted}</span>`
+        : g.confirm && !g.confirmControl
+          ? '<span class="mut" title="Legacy record: confirmation control was not stored">kept · gate B comparison not recorded</span>'
+          : gateB !== null
+            ? `<span class="mut">kept · gate B ${delta(gateB)} ≤ +${BAR}</span>`
+            : `<span class="mut">kept · gate A ${delta(gateA)} ≤ +${BAR}</span>`;
+      const matchCount = g.work?.breakdown ? g.work.matches.toLocaleString() : "legacy count unavailable";
+      return `<tr><td><b>${g.gen}</b></td>
+        <td class="${gateA > BAR ? "up" : "mut"}">${delta(gateA)}</td>
+        <td class="${gateB !== null && gateB > BAR ? "up" : "mut"}">${delta(gateB)}</td>
+        <td>${outcome}</td>
         <td>${g.bench ? (g.bench.chipsPerMatch > 0 ? "+" : "") + g.bench.chipsPerMatch : "—"}</td>
-        ${faanCells}<td class="mut">${meanCell}</td>
-        <td>${g.bench?.threatDetection !== undefined ? Math.round(g.bench.threatDetection * 100) + "%" : '<span class="mut">—</span>'}</td>
-        <td class="mut">${g.work ? g.work.matches : "~336"}</td>
-        <td class="mut">${g.work ? g.work.hands.toLocaleString() : "~2,400"}</td>
-        <td class="mut">${(g.ms / 1000).toFixed(0)}</td></tr>
-        <tr><td style="border-bottom:1px solid var(--line)"></td><td colspan="18" class="mut" style="text-align:left;font-size:11px;border-bottom:1px solid var(--line)">${story}</td></tr>`;
+        <td class="mut">${matchCount}</td><td class="mut">${(g.ms / 1000).toFixed(0)}</td><td>${changed}</td></tr>`;
     });
-    const start = D.defaults, end = last.incumbentAfter;
-    const drift = D.keys.map((k) => ({ k, d: start[k] ? end[k] / start[k] - 1 : 0 }))
-      .filter((m) => Math.abs(m.d) > 0.10).sort((a, b) => Math.abs(b.d) - Math.abs(a.d))
-      .map((m) => `${m.k} ${m.d > 0 ? "+" : ""}${(m.d * 100).toFixed(0)}%`).join(" · ");
     const baseLbl = (D.baseline || "").includes("v1") ? "baseline-v1 (the frozen era-1 champion)" : "the frozen baseline";
-    const refs = "";
-    put('wide', `<div class="card scrollcard" style="max-height:680px"><h2>Training history — ${window.OVERNIGHT ? `cycle ${window.OVERNIGHT.cycles.length + 1} (LIVE)` : "this run"}, generation by generation</h2>
-      <div class="mut" style="font-size:11px;margin-bottom:4px"><b>This table is the CURRENT cycle only.</b> Every ~20-min cycle starts a fresh
-      16-generation evolution run, so the gen counter resets and this table repopulates; each FINISHED cycle collapses into one row of
-      "Every training cycle" further down (full per-gen histories are archived in tools/sim/runs/).</div>
-      <div class="mut" style="font-size:11px;margin-bottom:6px"><b>control</b> = incumbent vs itself on the same walls (its distance from 0 IS the
-      noise floor) · <b>best</b> = top challenger of 6 on seed set A · <b>confirm</b> = same challenger on unseen set B — promotion needs both, so
-      most generations keep the incumbent (the noise gate working, not stagnation) · <b>vs base</b> = chips/match vs ${baseLbl} on fixed walls, all
-      seats · <b>games/hands</b> = the full workload that generation · <b>3f…10+ columns</b> = % of that generation's benchmark wins at each hand size, with \u25b2/\u25bc marking the change vs the
-      PREVIOUS generation in percentage points. Rows with no arrows are identical on purpose: the bench replays the same bot on the
-      same walls, so nothing moves until a promotion actually changes the bot — when arrows appear, the meta really shifted.
-      <b>x̄</b> = mean winning faan · <b>threat</b> = share of benchmark wins where an opponent's table read had flagged the winner
-      before the win (the threat model catching real hands).
-      ${drift ? `<br><b>Net drift this run vs its start:</b> ${drift}` : ""}</div>
-      <table><tr><th>gen</th><th>control</th><th>best</th><th>confirm</th><th>outcome</th><th>vs base</th><th>3f</th><th>4f</th><th>5f</th><th>6f</th><th>7f</th><th>8f</th><th>9f</th><th>10+</th><th>x̄ faan</th><th>threat</th><th>games</th><th>hands</th><th>secs</th></tr>
-      ${[...rows].reverse().join("")}</table>${refs}</div>`);
+    put('wide', `<div class="card"><span class="scope">CURRENT CYCLE · ALL ${H.length} COMPLETED GENERATIONS</span>
+      <h2>Generation decision log</h2>
+      <div class="mut" style="font-size:11px;margin-bottom:7px"><b>Gate A</b> = best challenger minus incumbent on seed set A. <b>Gate B</b> = the same challenger minus incumbent on fresh seed set B. Both must exceed +${BAR} placement points/match. Training opponent: <b>${D.trainingOpponentLabel || "not recorded in this legacy run"}</b>. Fixed bench is against ${baseLbl}; it is diagnostic, not a promotion gate.</div>
+      <div class="table-scroll"><table class="decision"><tr><th>gen</th><th>gate A Δ</th><th>gate B Δ</th><th>decision</th><th>fixed bench<br>chips/match</th><th>matches</th><th>secs</th><th>dials changed</th></tr>
+      ${[...rows].reverse().join("")}</table></div></div>`);
   }
 
 
   for (const slot of ["kpis", "colL", "colR", "wide"]) {
     const el = document.getElementById(slot === "kpis" ? "kpis" : slot === "wide" ? "wide" : slot);
     let list = cards.filter((c) => c.slot === slot);
-    // live generation detail leads the wide section; the match browser follows
+    // live generation decisions lead the wide section; research details follow
     if (slot === "wide") list = [...list].sort((a, b) =>
-      (b.html.includes("Training history") ? 1 : 0) - (a.html.includes("Training history") ? 1 : 0));
+      (b.html.includes("Generation decision log") ? 1 : 0) - (a.html.includes("Generation decision log") ? 1 : 0));
     el.innerHTML = list.map((c) => c.html).join("");
   }
 }
@@ -486,14 +474,17 @@ else if (D.history.length === 0) {
     const day = r.ts ? r.ts.slice(0, 10) : (era === 1 ? "2026-08-27" : "2026-08-28");
     const enemy = r.enemy ?? (era === 1 ? "baseline-v0" : "baseline-v1");
     const st = r.stats;
+    const admissionDelta = Number.isFinite(r.reigningOnSameBlock)
+      ? +(r.heldOutChips - r.reigningOnSameBlock).toFixed(1) : null;
     entries.push({ key: `${day}|e${era}c${String(r.cycle).padStart(4, "0")}`, when: day, kind: `era-${era} · cycle ${r.cycle}`,
       name: `exam vs ${enemy}`,
       detail: r.error ? "" : `trained vs ${r.opponent} · ${r.matches} matches/eval · ${r.mins}m`,
       result: r.error ? r.error
         : `<b>${fmtC(r.heldOutChips)}</b> chips/match vs ${enemy}` +
+          `${admissionDelta !== null ? ` · reigning ${fmtC(r.reigningOnSameBlock)} on same block · admission Δ <b>${fmtC(admissionDelta)}</b> (needs &gt;+4)` : ""}` +
           `${r.vsV0 !== undefined && r.vsV0 !== null ? ` · ${fmtC(r.vsV0)} vs v0` : ""}` +
           `${st ? `<div class="mut" style="font-size:10.5px">draws ${Math.round(st.drawRate * 100)}% · x̄ ${st.meanFaan} faan · threat ${Math.round((st.threatDetection ?? 0) * 100)}%${st.faanShares ? " · faan " + st.faanShares.map((x, i) => `${i + 3 === 10 ? "10+" : i + 3}:${Math.round(x * 100)}%`).join(" ") : ""}</div>` : ""}`,
-      verdict: r.error ? "cycle FAILED" : (r.improved ? "NEW BEST — entered the hall of fame" : "not admitted"),
+      verdict: r.error ? "cycle FAILED" : (r.improved ? "ADMITTED — beat reigning player on same block" : "not admitted on same-block gate"),
       good: !!r.improved });
   }
   for (const b of (window.BASELINES?.rows || [])) {
@@ -512,14 +503,14 @@ else if (D.history.length === 0) {
   if (entries.length) {
     document.getElementById("historylabel").style.display = "";
     document.getElementById("history").insertAdjacentHTML("beforeend",
-      `<div class="card"><h2>The record — every cycle, experiment and reference, newest first</h2>
+      `<div class="card"><details><summary><span class="scope">RESEARCH ARCHIVE · ALL RECORDED ERAS</span><b>Every cycle, experiment and reference</b></summary>
       <div class="mut" style="font-size:11px;margin-bottom:6px"><b>Cycles</b> are the machine's own held-out exams (all seats,
       enemy named per row — a score only means something next to its enemy). <b>Experiments</b> are the curated studies from
       tools/sim/experiments.js. <b>References</b> are frozen texture snapshots of how each era's table felt.</div>
-      <div style="overflow-x:auto"><table><tr><th>when</th><th>type</th><th style="text-align:left">what</th><th style="text-align:left">result</th><th style="text-align:left">verdict</th></tr>
+      <div class="table-scroll"><table><tr><th>when</th><th>type</th><th style="text-align:left">what</th><th style="text-align:left">result</th><th style="text-align:left">verdict</th></tr>
       ${entries.slice(0, CUT).map(row).join("")}</table></div>
       ${entries.length > CUT ? `<details><summary class="mut" style="cursor:pointer;padding:6px 0">show ${entries.length - CUT} older entries</summary>
-      <div style="overflow-x:auto"><table>${entries.slice(CUT).map(row).join("")}</table></div></details>` : ""}</div>`);
+      <div class="table-scroll"><table>${entries.slice(CUT).map(row).join("")}</table></div></details>` : ""}</details></div>`);
   }
 }
 // ── LEGEND: units + vocabulary, collapsed so it never costs a scroll ──
@@ -533,8 +524,7 @@ else if (D.history.length === 0) {
     <b>Chips are money.</b> The HK payment ladder (mjrc-standard, 3–10 faan): a win on a discard costs the discarder
     3f=16 · 4f=32 · 5f=48 · 6f=64 · 7f=96 · 8f=128 · 9f=192 · 10f(cap)=256 chips; a self-draw collects HALF that figure
     from <i>each</i> of the three losers (so 1.5× total).<br>
-    <b>Every "chips/match" number is an AVERAGE</b> over a 160-match held-out block (one match = one wind round, ~5–11 hands).
-    A single hot match can be +400 by itself, so +40/match average is a big, real edge.<br>
+    <b>Every "chips/match" number is an average per one-wind-round match.</b> The sample size is stated beside each primary score: cycle-end admission exams use 160 matches, while selection and fixed-bench diagnostics use their own recorded counts. A single hot match can be +400, so sample source matters.<br>
     <b>Placement points</b> (+3/+1/−1/−3 by table finish) are used only inside evolution's promotion decisions; chips are the scoreboard.<br>
     <b>Benchmark opponent:</b> ${BASE}.</div>
     <div style="border-top:1px dashed var(--line);margin-top:8px;padding-top:6px" class="mut">
