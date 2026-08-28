@@ -17,10 +17,5 @@
   "leftFeedWeight": 0.5832,
   "urgencyWeight": 0.4197,
   "suitContestWeight": 1.1045,
-  "claimSupplyWeight": 0.7508,
-  "leadDefense": 0.3,
-  "trailSwing": 0.3,
-  "winFastLead": 0.3,
-  "foldThreshold": 0.5,
-  "feedDenial": 0.3
+  "claimSupplyWeight": 0.7508
 }

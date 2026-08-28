@@ -162,11 +162,11 @@ while (Date.now() < deadline) {
     const rows = cyclesSoFar.map((c) =>
       `| ${c.cycle} | ${c.opponent} | ${c.matches} | ${c.heldOutChips ?? "FAIL"} | ${c.vsV0 ?? ""} | ${c.improved ? "**NEW BEST**" : ""} | ${c.mins}m |`).join("\n");
     writeFileSync(`${DIR}/STATUS.md`, [
-      `# Training series — era 2 (vs baseline-v1, the frozen era-1 champion)`,
+      `# Training series — era ${ERA} (vs ${ENEMY.split("/").pop()}, fitness: ${FITNESS})`,
       ``,
       `Updated ${new Date().toISOString()} · ${((deadline - Date.now()) / 3600_000).toFixed(1)}h remaining · ruleset mjrc-standard (3-10 faan)`,
       ``,
-      `**Hall of fame vs baseline-v1: ${hofScore === -Infinity ? "none yet — v1 IS yesterday's champion, so 0 is par" : hofScore + " chips/match"}**`,
+      `**Hall of fame vs ${ENEMY.split("/").pop().replace(".json", "")}: ${hofScore === -Infinity ? "none yet — the enemy IS the reigning champion, so 0 is par" : hofScore + " chips/match"}**`,
       ``,
       `Units: chips are the HK payment ladder (a 3-faan discard win moves 16 chips; the 10-faan cap moves 256).`,
       `All chip numbers here are AVERAGES per one-wind-round match over 160-match blocks — a single great match can swing +400 by itself.`,
@@ -187,9 +187,9 @@ while (Date.now() < deadline) {
     }
   } catch {} finally { gitBusy = false; }
   const status = [
-    `era-2 training — cycle ${cycle} done (${mins} min) · ${((deadline - Date.now()) / 3600_000).toFixed(1)}h remaining`,
+    `era-${ERA} training — cycle ${cycle} done (${mins} min) · ${((deadline - Date.now()) / 3600_000).toFixed(1)}h remaining`,
     `latest cycle: opponent=${opponent} matches/eval=${matches} start=${start}`,
-    `held-out vs baseline-v1: ${verdict.chips} chips/match ${improved ? "— NEW HALL OF FAME" : ""} · vs v0: ${vsV0.chips}`,
+    `held-out vs ${ENEMY.split("/").pop().replace(".json", "")}: ${verdict.chips} chips/match ${improved ? "— NEW HALL OF FAME" : ""} · vs v0: ${vsV0.chips}`,
     `hall of fame: ${hofScore === -Infinity ? "none yet (0 = par vs the champion)" : hofScore + " chips/match"} (${HOF})`,
   ].join("\n");
   writeFileSync(`${DIR}/overnight-status.txt`, status + "\n");
