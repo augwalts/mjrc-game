@@ -43,6 +43,9 @@ const OPPONENT = flag("--opponent", "mirror");
 /** Offset for the mutation stream so a retry explores DIFFERENT mutants —
  * without it, identical seeds replay the identical run. */
 const MUTSEED = Number(flag("--mutseed", "0"));
+/** Base mutation step. The harness grows this while cycles keep failing
+ * (inverted 1/5 success rule: explore harder on stall, reset on admission). */
+const SIGMA = Number(flag("--sigma", "0.35"));
 import { readFileSync as rfs, existsSync as exs } from "node:fs";
 /** The frozen season-start bot (linear faan, no table reading). Every
  * generation the CURRENT incumbent plays 3× this on a FIXED held-out seed set,
@@ -111,7 +114,7 @@ async function runEval(
 function mutate(base: BotProfile, rnd: () => number, sigma: number, wild = false): BotProfile {
   const out = { ...base };
   const kicks = 1 + Math.floor(rnd() * 5);
-  const s = (wild ? 2.5 : 1) * Math.max(sigma, 0.35);
+  const s = (wild ? 2.5 : 1) * sigma;
   const picked = new Set<number>();
   while (picked.size < kicks) picked.add(Math.floor(rnd() * KEYS.length));
   for (const i of picked) {
@@ -169,7 +172,7 @@ function flush(status: string): void {
   const payload = {
     status, updated: new Date().toISOString(),
     defaults: DEFAULT_PROFILE, keys: KEYS, history, sampleMatches,
-    baseline: BASELINE_PATH, ruleset: MJRC_STANDARD.id, fitness: FITNESS, gens: GENS,
+    baseline: BASELINE_PATH, ruleset: MJRC_STANDARD.id, fitness: FITNESS, gens: GENS, sigma: SIGMA,
     trainingOpponent: OPPONENT,
     trainingOpponentLabel: OPPONENT === "baseline" ? baselineName : "current incumbent (mirror)",
     selectionMatches: MATCHES,
@@ -192,8 +195,7 @@ for (let gen = 0; gen < GENS; gen++) {
   // spaced by a prime — adjacent seeds replay each other's walls (transcriber finding 2026-08-27)
   const seeds = Array.from({ length: MATCHES }, (_, i) => seedBase + i * 7919);
   const mrnd = prng((0xabc0 + gen + MUTSEED) >>> 0);
-  // anneal: broad early, fine late
-  const sigma = 0.3 * Math.pow(0.93, gen);
+  const sigma = SIGMA;
 
   const controlSample: SampleMatch[] = [];
   const opp = OPPONENT === "baseline" ? BASELINE : incumbent;

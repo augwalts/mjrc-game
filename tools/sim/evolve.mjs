@@ -2880,6 +2880,7 @@ var GENS = Number(flag("--gens", "20"));
 var SERIAL = args.includes("--serial");
 var OPPONENT = flag("--opponent", "mirror");
 var MUTSEED = Number(flag("--mutseed", "0"));
+var SIGMA = Number(flag("--sigma", "0.35"));
 var BASELINE_PATH = flag("--baseline", "tools/sim/baseline-v0.json");
 var BASELINE = {
   ...DEFAULT_PROFILE,
@@ -2920,7 +2921,7 @@ async function runEval(c, i, seeds, sample, allSeats) {
 function mutate(base, rnd, sigma, wild = false) {
   const out = { ...base };
   const kicks = 1 + Math.floor(rnd() * 5);
-  const s = (wild ? 2.5 : 1) * Math.max(sigma, 0.35);
+  const s = (wild ? 2.5 : 1) * sigma;
   const picked = /* @__PURE__ */ new Set();
   while (picked.size < kicks) picked.add(Math.floor(rnd() * KEYS.length));
   for (const i of picked) {
@@ -2949,6 +2950,7 @@ function flush(status) {
     ruleset: MJRC_STANDARD.id,
     fitness: FITNESS,
     gens: GENS,
+    sigma: SIGMA,
     trainingOpponent: OPPONENT,
     trainingOpponentLabel: OPPONENT === "baseline" ? baselineName : "current incumbent (mirror)",
     selectionMatches: MATCHES,
@@ -2967,7 +2969,7 @@ for (let gen = 0; gen < GENS; gen++) {
   const seedBase = 5e5 + gen * 1e3;
   const seeds = Array.from({ length: MATCHES }, (_, i) => seedBase + i * 7919);
   const mrnd = prng(43968 + gen + MUTSEED >>> 0);
-  const sigma = 0.3 * Math.pow(0.93, gen);
+  const sigma = SIGMA;
   const controlSample = [];
   const opp = OPPONENT === "baseline" ? BASELINE : incumbent;
   const mutants = Array.from({ length: CANDIDATES }, (_, id) => ({ id, profile: mutate(incumbent, mrnd, sigma, id === CANDIDATES - 1) }));

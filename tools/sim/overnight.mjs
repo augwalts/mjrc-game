@@ -106,7 +106,13 @@ function headtohead(profilePath, seedBlock, tablePath = ENEMY) {
   return { chips: m ? Number(m[1]) : NaN, stats, raw: out.trim() };
 }
 
+// ADAPTIVE STEP SIZE (owner-approved 2026-08-28, inverted 1/5 rule): every
+// failed cycle grows the mutation step 1.25x (cap ~0.85); any admission
+// resets to base. Stall = explore harder, success = refine.
+let sigmaStall = 0;
+const sigmaFor = () => Math.min(0.85, 0.35 * Math.pow(1.25, Math.min(sigmaStall, 4))).toFixed(3);
 let cycle = 0;
+let this_sigma = "0.35";
 while (Date.now() < deadline) {
   cycle++;
   const opponent = cycle % 3 === 0 ? "mirror" : "baseline";   // mostly the enemy, mirror as a check
@@ -115,7 +121,7 @@ while (Date.now() < deadline) {
   const start = restart || !existsSync(HOF) ? SEED_PROFILE : HOF;
   const t0 = Date.now();
   const args = [`${DIR}/evolve.mjs`, "--gens", GENS, "--matches", matches, "--out", DIR,
-                "--start", start, "--opponent", opponent, "--baseline", ENEMY, "--fitness", FITNESS,
+                "--start", start, "--opponent", opponent, "--baseline", ENEMY, "--fitness", FITNESS, "--sigma", (this_sigma = sigmaFor()),
                 "--mutseed", String(9000 + cycle * 137)];
   const run = await runChild("node", args, 4 * 3600_000);
   const mins = ((Date.now() - t0) / 60000).toFixed(1);
@@ -131,7 +137,7 @@ while (Date.now() < deadline) {
   try {
     if (!existsSync(`${DIR}/runs`)) (await import("node:fs")).mkdirSync(`${DIR}/runs`);
     copyFileSync(`${DIR}/data.js`, `${DIR}/runs/era${ERA}-cycle-${String(cycle).padStart(3, "0")}.js`);
-    updateSeriesHistory({ dataPath: `${DIR}/data.js`, outPath: `${DIR}/series-history.js`, era: 2, cycle,
+    updateSeriesHistory({ dataPath: `${DIR}/data.js`, outPath: `${DIR}/series-history.js`, era: ERA, cycle,
       completedAt: new Date().toISOString(), opponent });
   } catch {}
   // FAIR ADMISSION (the +3.3 mirage lesson): candidate and the reigning
@@ -150,12 +156,13 @@ while (Date.now() < deadline) {
   const improved = Number.isFinite(verdict.chips) &&
     (!existsSync(HOF) ? verdict.chips > MARGIN
                       : verdict.chips > (reigning.chips ?? -Infinity) + MARGIN);
+  if (improved) sigmaStall = 0; else sigmaStall++;
   if (improved) {
     copyFileSync(`${DIR}/best-profile.json`, HOF);
     writeFileSync(`${DIR}/hall-of-fame-score.txt`, String(verdict.chips));
     hofScore = verdict.chips;
   }
-  log({ era: ERA, enemy: ENEMY.split("/").pop().replace(".json", ""), fitness: FITNESS, ts: new Date().toISOString(), stats: verdict.stats, cycle, opponent, matches: Number(matches), generations: 16, start, mins, heldOutChips: verdict.chips,
+  log({ era: ERA, enemy: ENEMY.split("/").pop().replace(".json", ""), fitness: FITNESS, sigma: Number(this_sigma), ts: new Date().toISOString(), stats: verdict.stats, cycle, opponent, matches: Number(matches), generations: 16, start, mins, heldOutChips: verdict.chips,
         reigningOnSameBlock: reigning.chips, vsV0: vsV0.chips, improved, hofScore });
   cyclesSoFar.push({ cycle, enemy: ENEMY.split("/").pop().replace(".json", ""), stats: verdict.stats, opponent, matches: Number(matches), generations: 16, mins: Number(mins), heldOutChips: verdict.chips,
                     reigningOnSameBlock: reigning.chips, admissionMargin: MARGIN, vsV0: vsV0.chips, improved });
@@ -185,7 +192,7 @@ while (Date.now() < deadline) {
     ].join("\n") + "\n");
     for (const args of [["add", `${DIR}/STATUS.md`, `${DIR}/overnight-log.jsonl`, `${DIR}/hall-of-fame.json`, `${DIR}/hall-of-fame-score.txt`,
                           `${DIR}/data.js`, `${DIR}/overnight.js`, `${DIR}/log.js`, `${DIR}/series-history.js`, `${DIR}/experiments.js`, `${DIR}/baselines.js`, `${DIR}/threat-audit.js`, `${DIR}/panel.html`, "-f"],
-                        ["commit", "-q", "-m", `era2: cycle ${cycle} — ${verdict.chips} vs v1, ${vsV0.chips} vs v0`],
+                        ["commit", "-q", "-m", `era${ERA}: cycle ${cycle} — ${verdict.chips} vs ${ENEMY.split("/").pop().replace(".json", "")}, ${vsV0.chips} vs v0`],
                         ["push", "-q"]]) {
       const g = spawnSync("git", args, { stdio: "ignore", timeout: 120_000 });
       if (g.status !== 0 && args[0] !== "commit") break;   // offline push must not kill the night
