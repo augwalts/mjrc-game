@@ -52,3 +52,4 @@
 {"cycle":16,"error":"evolve exited 1","mins":"26.4"}
 {"era":2,"cycle":17,"opponent":"baseline","matches":48,"start":"tools/sim/hall-of-fame.json","mins":"34.7","heldOutChips":0.7,"reigningOnSameBlock":0.7,"vsV0":47.8,"improved":false,"hofScore":15.1}
 {"era":2,"cycle":18,"opponent":"mirror","matches":96,"start":"tools/sim/hall-of-fame.json","mins":"38.1","heldOutChips":0.3,"reigningOnSameBlock":0.3,"vsV0":53.3,"improved":false,"hofScore":15.1}
+{"era":3,"enemy":"baseline-v2","fitness":"chips","ts":"2026-08-28T19:59:29.482Z","stats":{"chips":-37.8,"drawRate":0.303,"refusedPerHand":0.46,"meanFaan":5.29,"faanShares":[0.216,0.254,0.15,0.114,0.104,0.077,0.049,0.036],"threatDetection":0.75},"cycle":1,"opponent":"baseline","matches":48,"generations":16,"start":"tools/sim/era3-start.json","mins":"19.8","heldOutChips":-37.8,"reigningOnSameBlock":null,"vsV0":38.1,"improved":false,"hofScore":null}
