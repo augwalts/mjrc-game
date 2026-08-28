@@ -134,3 +134,10 @@ feed relationship dominates.
 | Left-feed awareness | ✗ | new feature |
 | Hand-size-conditioned defense | partial (`discardSafetyWeight`) | condition on own route faan |
 | Late kong refusal | ✗ | new rule |
+
+## Owner rulings — 2026-08-28 (score, folding, concealed threats)
+
+1. **Chips are the objective, not placement.** "In practice placement does not matter in mj. The number of chips is how much you lose." Consequence: evolution's promotion fitness (placement points +3/+1/−1/−3) contradicts the owner's objective — switch to chips/match for era 3.
+2. **Score-aware play** (approved as a capability): when LEADING — win fast OR take big swings, but above all try very hard not to lose (defense scales up with a lead). When LOSING — take bigger swings; losing matters slightly less (loss-aversion scales down).
+3. **Concealed threat reading: deprioritized.** A concealed threat is either a super-rare massive hand (unreadable) or a concealed chow hand at minimum points (fast but small) — neither worth defending against. The correct response to a suspected concealed chow racer is TEMPO, not defense.
+4. **Folding**: small hand vs a shown ~7-point threat → fold; a 7+ hand vs the same → maybe push. The owner is explicit that the mathematically correct threshold is unknown — this is exactly what evolution should be allowed to find (fold trigger as evolvable dials).
