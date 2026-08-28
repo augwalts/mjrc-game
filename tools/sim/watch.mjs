@@ -949,7 +949,13 @@ var LIU = {
     // three suit-dragon hands.
   }
 };
-var RULESETS = [HKOS_STANDARD, LIU];
+var MJRC_STANDARD = {
+  ...HKOS_STANDARD,
+  id: "mjrc-standard",
+  label: "MJRC \u6A19\u6E96 (3-10 faan)",
+  limitFaan: 10
+};
+var RULESETS = [HKOS_STANDARD, MJRC_STANDARD, LIU];
 var DEFAULT_RULESET_ID = HKOS_STANDARD.id;
 var ruleset = (id) => RULESETS.find((r) => r.id === id);
 
@@ -2614,9 +2620,9 @@ function autopsy(state) {
   }
 }
 function playMatch(seed, tally2) {
-  const config = { seed, ruleset: HKOS_STANDARD, matchLength: "oneWindRound" };
+  const config = { seed, ruleset: MJRC_STANDARD, matchLength: "oneWindRound" };
   const configs = SEATS.map((s) => ({
-    ruleset: HKOS_STANDARD,
+    ruleset: MJRC_STANDARD,
     rnd: prng((seed ^ (s + 1) * 2654435761) >>> 0)
   }));
   let { state, events } = startMatch(config);

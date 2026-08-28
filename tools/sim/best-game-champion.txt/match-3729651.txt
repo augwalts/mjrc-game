@@ -1,0 +1,1775 @@
+══ tile legend ══════════════════════════════════════════════════════════
+  suits    N萬 = characters ("man")   N| = bamboo (sticks)   N● = circles (dots)
+  winds    東 East   南 South   西 West   北 North
+  dragons  中 red    發 green   白 white
+  flowers  梅 plum 蘭 orchid 菊 mum 竹 bamboo · seasons 春 spr 夏 sum 秋 aut 冬 win
+  terms    食糊 win on a discard · 自摸 self-draw win · 摸切 drew-and-cut
+           碰 pung · 上 chow · 槓 kong (暗槓 concealed · 加槓 added) · 流局 nobody won
+═════════════════════════════════════════════════════════════════════════
+MATCH transcribe-3729651 · seed 3729651 · ruleset hkos-standard (香港舊章 Hong Kong Old Style)
+floor 3 faan · limit 13 faan 爆棚 · one wind round
+OMNISCIENT LOG — all four hands are face up in this file. Server-side eyes only.
+bots: chair dealt East in hand 0 plays the --hero profile; the other three play --table.
+(no flags given = shipping DEFAULT_PROFILE for that side). Chair names rotate with the deal.
+★ marks the hero bot on every line — follow the star through the wind rotations.
+Seats are named East/South/West/North by their seat wind for the hand in play;
+winds rotate when the deal passes, so the same chair changes name between hands.
+
+hand 0 · dealer East 東 · round wind East 東 · wall seed 1970368850
+  deal  East★ : 1萬 7萬 2| 5| 7| 8| 8| 1● 8● 9● 發 白  flowers: 蘭
+        South : 3萬 6萬 1| 3| 2● 3● 5● 5● 8● 中 發  flowers: 春 夏
+        West  : 6萬 4| 6| 7| 9| 2● 4● 西 北 發 白 白  flowers: 秋
+        North : 1萬 2萬 7萬 4| 4| 6| 1● 3● 4● 4● 7● 9●  flowers: 冬
+  East★  reveals flower 蘭 · replacement 西
+  South  reveals flower 春 · replacement 西
+  South  reveals flower 夏 · replacement 7●
+  West   reveals flower 秋 · replacement 8萬
+  North  reveals flower 冬 · replacement 1|
+  East★  draws 北 · cuts 1萬 │ 7萬 2| 5| 7| 8| 8| 1● 8● 9● 西 北 發 白
+  South  draws 3● · cuts 3萬 │ 6萬 1| 3| 2● 3● 3● 5● 5● 7● 8● 西 中 發
+  West   draws 2| · cuts 北 │ 6萬 8萬 2| 4| 6| 7| 9| 2● 4● 西 發 白 白
+  North  draws 3| · cuts 1萬 │ 2萬 7萬 1| 3| 4| 4| 6| 1● 3● 4● 4● 7● 9●
+  East★  draws 竹 — a flower · replacement 7● · cuts 1● │ 7萬 2| 5| 7| 8| 8| 7● 8● 9● 西 北 發 白
+  South  chows 1● from East★ → [chow 1● 2● 3●] · cuts 6萬 │ 1| 3| 3● 5● 5● 7● 8● 西 中 發 ‖ 上1●2●3●
+  West   draws 8| · cuts 西 │ 6萬 8萬 2| 4| 6| 7| 8| 9| 2● 4● 發 白 白
+  North  draws 5| · cuts 4| │ 2萬 7萬 1| 3| 4| 5| 6| 1● 3● 4● 4● 7● 9●
+  ┈┈ East★ thinking (discard 8) ┈┈
+     table read:
+     South     threat 0.23 · est 3 faan (1× floor payout) · 1/4 melded · collecting ● (0.58)
+     race pressure 0.23 → distant plans discounted harder
+     plans considered:
+       → balanced/chows   score  -2.63 · pays 2 faan · 3 away · wastes 0 tiles
+         flush |          score  -4.36 · pays 4 faan · 5 away · wastes 0 tiles
+         pung-flush |     score  -4.69 · pays 7 faan · 6 away · wastes 0 tiles
+  East★  draws 西 · cuts 7萬 │ 2| 5| 7| 8| 8| 7● 8● 9● 西 西 北 發 白
+  South  draws 7| · cuts it right back (drew and cut 摸切) │ 1| 3| 3● 5● 5● 7● 8● 西 中 發 ‖ 上1●2●3●
+      (West passes on chow×2 of 7|)
+  West   draws 6● · cuts 2● │ 6萬 8萬 2| 4| 6| 7| 8| 9| 4● 6● 發 白 白
+      (North passes on chow×2 of 2●)
+  North  draws 4| · cuts it right back (drew and cut 摸切) │ 2萬 7萬 1| 3| 4| 5| 6| 1● 3● 4● 4● 7● 9●
+  East★  draws 6| · cuts 9● │ 2| 5| 6| 7| 8| 8| 7● 8● 西 西 北 發 白
+      (South passes on chow of 9●)
+  South  draws 9| · cuts it right back (drew and cut 摸切) │ 1| 3| 3● 5● 5● 7● 8● 西 中 發 ‖ 上1●2●3●
+      (West passes on chow of 9|)
+  West   draws 9| · cuts it right back (drew and cut 摸切) │ 6萬 8萬 2| 4| 6| 7| 8| 9| 4● 6● 發 白 白
+  North  draws 5● · cuts 1● │ 2萬 7萬 1| 3| 4| 5| 6| 3● 4● 4● 5● 7● 9●
+  ┈┈ East★ thinking (discard 16) ┈┈
+     table read:
+     South     threat 0.27 · est 6 faan (4× floor payout) · 1/4 melded · collecting ● (0.83) · suit-phased cuts → BIG-hand read
+     West      threat 0.00 · est 5 faan (3× floor payout) · value honours early → suspicious
+     North     threat 0.00 · est 3 faan (1× floor payout) · all suits cut early → all-pungs read
+     race pressure 0.27 → distant plans discounted harder
+     plans considered:
+       → balanced/chows   score  -2.63 · pays 2 faan · 3 away · wastes 0 tiles
+         flush |          score  -2.97 · pays 4 faan · 4 away · wastes 0 tiles
+         pung-flush |     score  -4.40 · pays 7 faan · 6 away · wastes 0 tiles
+  East★  draws 東 · cuts 8● │ 2| 5| 6| 7| 8| 8| 7● 東 西 西 北 發 白
+  South  draws 9● · cuts 西 │ 1| 3| 3● 5● 5● 7● 8● 9● 中 發 ‖ 上1●2●3●
+      (East★ passes on pung of 西)
+  West   draws 3萬 · cuts 9| │ 3萬 6萬 8萬 2| 4| 6| 7| 8| 4● 6● 發 白 白
+  North  draws 1| · cuts it right back (drew and cut 摸切) │ 2萬 7萬 1| 3| 4| 5| 6| 3● 4● 4● 5● 7● 9●
+  East★  draws 4萬 · cuts it right back (drew and cut 摸切) │ 2| 5| 6| 7| 8| 8| 7● 東 西 西 北 發 白
+  South  draws 中 · cuts 3● │ 1| 3| 5● 5● 7● 8● 9● 中 中 發 ‖ 上1●2●3●
+  West   draws 3萬 · cuts it right back (drew and cut 摸切) │ 3萬 6萬 8萬 2| 4| 6| 7| 8| 4● 6● 發 白 白
+  North  draws 6萬 · cuts 3● │ 2萬 6萬 7萬 1| 3| 4| 5| 6| 4● 4● 5● 7● 9●
+  ┈┈ East★ thinking (discard 24) ┈┈
+     table read:
+     South     threat 0.54 · est 4 faan (2× floor payout) · 1/4 melded · collecting ● (0.58) · suit-phased cuts → BIG-hand read · all suits cut early → all-pungs read · honours late → near-ready read
+     West      threat 0.00 · est 4 faan (2× floor payout) · all suits cut early → all-pungs read · value honours early → suspicious
+     North     threat 0.00 · est 3 faan (1× floor payout) · all suits cut early → all-pungs read
+     race pressure 0.54 → distant plans discounted harder
+     plans considered:
+       → flush |          score  -1.33 · pays 5 faan · 3 away · wastes 0 tiles
+         balanced/chows   score  -2.44 · pays 3 faan · 3 away · wastes 0 tiles
+         pung-flush |     score  -2.54 · pays 8 faan · 5 away · wastes 0 tiles
+  East★  draws 白 · cuts 7● │ 2| 5| 6| 7| 8| 8| 東 西 西 北 發 白 白
+      (South passes on chow of 7●)
+  South  draws 菊 — a flower · replacement 5| · cuts 1| │ 3| 5| 5● 5● 7● 8● 9● 中 中 發 ‖ 上1●2●3●
+  West   draws 6萬 · cuts 3萬 │ 6萬 6萬 8萬 2| 4| 6| 7| 8| 4● 6● 發 白 白
+  North  draws 9萬 · cuts 9● │ 2萬 6萬 7萬 9萬 1| 3| 4| 5| 6| 4● 4● 5● 7●
+  East★  draws 7● · cuts it right back (drew and cut 摸切) │ 2| 5| 6| 7| 8| 8| 東 西 西 北 發 白 白
+      (South passes on chow of 7●)
+  South  draws 東 · cuts it right back (drew and cut 摸切) │ 3| 5| 5● 5● 7● 8● 9● 中 中 發 ‖ 上1●2●3●
+  West   draws 4萬 · cuts 6萬 │ 4萬 6萬 8萬 2| 4| 6| 7| 8| 4● 6● 發 白 白
+  North  draws 北 · cuts 6萬 │ 2萬 7萬 9萬 1| 3| 4| 5| 6| 4● 4● 5● 7● 北
+  ┈┈ East★ thinking (discard 32) ┈┈
+     table read:
+     South     threat 0.37 · est 3 faan (1× floor payout) · 1/4 melded · collecting ● (0.65) · all suits cut early → all-pungs read
+     West      threat 0.15 · est 6 faan (4× floor payout) · suit-phased cuts → BIG-hand read · all suits cut early → all-pungs read · value honours early → suspicious
+     North     threat 0.00 · est 3 faan (1× floor payout) · all suits cut early → all-pungs read
+     race pressure 0.37 → distant plans discounted harder
+     plans considered:
+       → flush |          score   0.61 · pays 5 faan · 2 away · wastes 0 tiles
+         balanced/chows   score  -1.17 · pays 3 faan · 2 away · wastes 0 tiles
+         pung-flush |     score  -2.70 · pays 8 faan · 5 away · wastes 0 tiles
+  East★  draws 3| · cuts 北 │ 2| 3| 5| 6| 7| 8| 8| 東 西 西 發 白 白
+  South  draws 8| · cuts 發 │ 3| 5| 8| 5● 5● 7● 8● 9● 中 中 ‖ 上1●2●3●
+  West   draws 3| · cuts 發 │ 4萬 6萬 8萬 2| 3| 4| 6| 7| 8| 4● 6● 白 白
+  North  draws 2萬 · cuts 北 │ 2萬 2萬 7萬 9萬 1| 3| 4| 5| 6| 4● 4● 5● 7●
+  East★  draws 5萬 · cuts it right back (drew and cut 摸切) │ 2| 3| 5| 6| 7| 8| 8| 東 西 西 發 白 白
+  South  draws 3● · cuts it right back (drew and cut 摸切) │ 3| 5| 8| 5● 5● 7● 8● 9● 中 中 ‖ 上1●2●3●
+  West   draws 5萬 · cuts 8萬 │ 4萬 5萬 6萬 2| 3| 4| 6| 7| 8| 4● 6● 白 白
+      (North passes on chow of 8萬)
+  North  draws 2● · cuts it right back (drew and cut 摸切) │ 2萬 2萬 7萬 9萬 1| 3| 4| 5| 6| 4● 4● 5● 7●
+  ┈┈ East★ thinking (discard 40) ┈┈
+     table read:
+     South     threat 0.40 · est 3 faan (1× floor payout) · 1/4 melded · collecting ● (0.53) · all suits cut early → all-pungs read · honours late → near-ready read
+     West      threat 0.25 · est 6 faan (4× floor payout) · suit-phased cuts → BIG-hand read · all suits cut early → all-pungs read · value honours early → suspicious
+     North     threat 0.30 · est 3 faan (1× floor payout) · all suits cut early → all-pungs read · honours late → near-ready read
+     race pressure 0.40 → distant plans discounted harder
+     plans considered:
+       → flush |          score   0.47 · pays 5 faan · 2 away · wastes 0 tiles
+         balanced/chows   score  -1.18 · pays 3 faan · 2 away · wastes 0 tiles
+         pung-flush |     score  -2.84 · pays 8 faan · 5 away · wastes 0 tiles
+  East★  draws 8● · cuts it right back (drew and cut 摸切) │ 2| 3| 5| 6| 7| 8| 8| 東 西 西 發 白 白
+      (South passes on chow of 8●)
+  South  draws 8萬 · cuts it right back (drew and cut 摸切) │ 3| 5| 8| 5● 5● 7● 8● 9● 中 中 ‖ 上1●2●3●
+  West   draws 1萬 · cuts it right back (drew and cut 摸切) │ 4萬 5萬 6萬 2| 3| 4| 6| 7| 8| 4● 6● 白 白
+  North  draws 6| · cuts 1| │ 2萬 2萬 7萬 9萬 3| 4| 5| 6| 6| 4● 4● 5● 7●
+      (East★ passes on chow of 1|)
+  East★  draws 4萬 · cuts it right back (drew and cut 摸切) │ 2| 3| 5| 6| 7| 8| 8| 東 西 西 發 白 白
+  South  draws 9萬 · cuts it right back (drew and cut 摸切) │ 3| 5| 8| 5● 5● 7● 8● 9● 中 中 ‖ 上1●2●3●
+  West   draws 5| · cuts 2| │ 4萬 5萬 6萬 3| 4| 5| 6| 7| 8| 4● 6● 白 白
+      (North passes on chow of 2|)
+  North  draws 2| · cuts 7● │ 2萬 2萬 7萬 9萬 2| 3| 4| 5| 6| 6| 4● 4● 5●
+  ┈┈ East★ thinking (discard 48) ┈┈
+     table read:
+     South     threat 0.31 · est 3 faan (1× floor payout) · 1/4 melded · collecting ● (0.58) · all suits cut early → all-pungs read
+     West      threat 0.17 · est 4 faan (2× floor payout) · all suits cut early → all-pungs read · value honours early → suspicious
+     North     threat 0.30 · est 3 faan (1× floor payout) · all suits cut early → all-pungs read · honours late → near-ready read
+     race pressure 0.31 → distant plans discounted harder
+     plans considered:
+       → flush |          score   0.61 · pays 5 faan · 2 away · wastes 0 tiles
+         balanced/chows   score  -1.15 · pays 3 faan · 2 away · wastes 0 tiles
+         pung-flush |     score  -2.70 · pays 8 faan · 5 away · wastes 0 tiles
+  East★  draws 1● · cuts it right back (drew and cut 摸切) │ 2| 3| 5| 6| 7| 8| 8| 東 西 西 發 白 白
+  South  draws 9| · cuts it right back (drew and cut 摸切) │ 3| 5| 8| 5● 5● 7● 8● 9● 中 中 ‖ 上1●2●3●
+      (West passes on chow of 9|)
+  West   draws 北 · cuts it right back (drew and cut 摸切) │ 4萬 5萬 6萬 3| 4| 5| 6| 7| 8| 4● 6● 白 白
+  North  draws 中 · cuts 2| │ 2萬 2萬 7萬 9萬 3| 4| 5| 6| 6| 4● 4● 5● 中
+  East★  draws 5萬 · cuts it right back (drew and cut 摸切) │ 2| 3| 5| 6| 7| 8| 8| 東 西 西 發 白 白
+  South  draws 5● · cuts 8| │ 3| 5| 5● 5● 5● 7● 8● 9● 中 中 ‖ 上1●2●3●
+      (West passes on chow of 8|)
+      (East★ passes on pung of 8|)
+  West   draws 8● · cuts it right back (drew and cut 摸切) │ 4萬 5萬 6萬 3| 4| 5| 6| 7| 8| 4● 6● 白 白
+  North  draws 發 · cuts it right back (drew and cut 摸切) │ 2萬 2萬 7萬 9萬 3| 4| 5| 6| 6| 4● 4● 5● 中
+  ┈┈ East★ thinking (discard 56) ┈┈
+     table read:
+     South     threat 0.22 · est 3 faan (1× floor payout) · 1/4 melded · collecting ● (0.62) · all suits cut early → all-pungs read
+     West      threat 0.07 · est 4 faan (2× floor payout) · all suits cut early → all-pungs read · value honours early → suspicious
+     North     threat 0.15 · est 3 faan (1× floor payout) · all suits cut early → all-pungs read
+     race pressure 0.22 → distant plans discounted harder
+     plans considered:
+       → flush |          score   2.83 · pays 5 faan · 1 away · wastes 0 tiles
+         balanced/chows   score   0.54 · pays 3 faan · 1 away · wastes 0 tiles
+         pung-flush |     score  -2.52 · pays 8 faan · 5 away · wastes 0 tiles
+  East★  draws 1| · cuts 發 │ 1| 2| 3| 5| 6| 7| 8| 8| 東 西 西 白 白
+  South  draws 南 · cuts it right back (drew and cut 摸切) │ 3| 5| 5● 5● 5● 7● 8● 9● 中 中 ‖ 上1●2●3●
+  West   draws 東 · cuts it right back (drew and cut 摸切) │ 4萬 5萬 6萬 3| 4| 5| 6| 7| 8| 4● 6● 白 白
+  North  draws 5萬 · cuts it right back (drew and cut 摸切) │ 2萬 2萬 7萬 9萬 3| 4| 5| 6| 6| 4● 4● 5● 中
+  East★  draws 8萬 · cuts it right back (drew and cut 摸切) │ 1| 2| 3| 5| 6| 7| 8| 8| 東 西 西 白 白
+  South  draws 南 · cuts it right back (drew and cut 摸切) │ 3| 5| 5● 5● 5● 7● 8● 9● 中 中 ‖ 上1●2●3●
+  West   draws 2● · cuts it right back (drew and cut 摸切) │ 4萬 5萬 6萬 3| 4| 5| 6| 7| 8| 4● 6● 白 白
+  North  draws 南 · cuts it right back (drew and cut 摸切) │ 2萬 2萬 7萬 9萬 3| 4| 5| 6| 6| 4● 4● 5● 中
+  ┈┈ East★ thinking (discard 64) ┈┈
+     table read:
+     South     threat 0.34 · est 3 faan (1× floor payout) · 1/4 melded · collecting ● (0.65) · all suits cut early → all-pungs read
+     West      threat 0.12 · est 4 faan (2× floor payout) · all suits cut early → all-pungs read · value honours early → suspicious
+     North     threat 0.20 · est 3 faan (1× floor payout) · all suits cut early → all-pungs read · honours late → near-ready read
+     race pressure 0.34 → distant plans discounted harder
+     plans considered:
+       → flush |          score   2.63 · pays 5 faan · 1 away · wastes 0 tiles
+         balanced/chows   score   0.50 · pays 3 faan · 1 away · wastes 0 tiles
+         pung-flush |     score  -2.75 · pays 8 faan · 5 away · wastes 0 tiles
+  East★  draws 6● · cuts it right back (drew and cut 摸切) │ 1| 2| 3| 5| 6| 7| 8| 8| 東 西 西 白 白
+      (South passes on chow×2 of 6●)
+  South  draws 東 · cuts it right back (drew and cut 摸切) │ 3| 5| 5● 5● 5● 7● 8● 9● 中 中 ‖ 上1●2●3●
+  West   draws 9● · cuts it right back (drew and cut 摸切) │ 4萬 5萬 6萬 3| 4| 5| 6| 7| 8| 4● 6● 白 白
+  North  draws 梅 — a flower · replacement 南 · cuts it right back (drew and cut 摸切) │ 2萬 2萬 7萬 9萬 3| 4| 5| 6| 6| 4● 4● 5● 中
+  East★  draws 9萬 · cuts it right back (drew and cut 摸切) │ 1| 2| 3| 5| 6| 7| 8| 8| 東 西 西 白 白
+  South  draws 1● · cuts it right back (drew and cut 摸切) │ 3| 5| 5● 5● 5● 7● 8● 9● 中 中 ‖ 上1●2●3●
+  West   draws 1萬 · cuts it right back (drew and cut 摸切) │ 4萬 5萬 6萬 3| 4| 5| 6| 7| 8| 4● 6● 白 白
+  North  draws 2| · cuts it right back (drew and cut 摸切) │ 2萬 2萬 7萬 9萬 3| 4| 5| 6| 6| 4● 4● 5● 中
+      (East★ passes on chow of 2|)
+  ┈┈ East★ thinking (discard 72) ┈┈
+     table read:
+     South     threat 0.36 · est 3 faan (1× floor payout) · 1/4 melded · collecting ● (0.58) · all suits cut early → all-pungs read
+     West      threat 0.12 · est 4 faan (2× floor payout) · all suits cut early → all-pungs read · value honours early → suspicious
+     North     threat 0.22 · est 3 faan (1× floor payout) · all suits cut early → all-pungs read · honours late → near-ready read
+     race pressure 0.36 → distant plans discounted harder
+     plans considered:
+       → flush |          score   2.70 · pays 5 faan · 1 away · wastes 0 tiles
+         balanced/chows   score   0.49 · pays 3 faan · 1 away · wastes 0 tiles
+         pung-flush |     score  -2.69 · pays 8 faan · 5 away · wastes 0 tiles
+  East★  draws 4萬 · cuts it right back (drew and cut 摸切) │ 1| 2| 3| 5| 6| 7| 8| 8| 東 西 西 白 白
+  South  draws 6● · cuts 9● │ 3| 5| 5● 5● 5● 6● 7● 8● 中 中 ‖ 上1●2●3●
+  West   draws 2萬 · cuts it right back (drew and cut 摸切) │ 4萬 5萬 6萬 3| 4| 5| 6| 7| 8| 4● 6● 白 白
+      (North passes on pung of 2萬)
+  North  draws 6● · cuts 4● │ 2萬 2萬 7萬 9萬 3| 4| 5| 6| 6| 4● 5● 6● 中
+  East★  draws 7萬 · cuts it right back (drew and cut 摸切) │ 1| 2| 3| 5| 6| 7| 8| 8| 東 西 西 白 白
+  South  draws 9萬 · cuts it right back (drew and cut 摸切) │ 3| 5| 5● 5● 5● 6● 7● 8● 中 中 ‖ 上1●2●3●
+  West   draws 7| · cuts it right back (drew and cut 摸切) │ 4萬 5萬 6萬 3| 4| 5| 6| 7| 8| 4● 6● 白 白
+      (North passes on chow of 7|)
+  North  draws 3萬 · cuts 2萬 │ 2萬 3萬 7萬 9萬 3| 4| 5| 6| 6| 4● 5● 6● 中
+  ┈┈ East★ thinking (discard 80) ┈┈
+     table read:
+     South     threat 0.35 · est 3 faan (1× floor payout) · 1/4 melded · collecting ● (0.53) · all suits cut early → all-pungs read
+     West      threat 0.06 · est 4 faan (2× floor payout) · all suits cut early → all-pungs read · value honours early → suspicious
+     North     threat 0.15 · est 3 faan (1× floor payout) · all suits cut early → all-pungs read
+     race pressure 0.35 → distant plans discounted harder
+     plans considered:
+       → flush |          score   2.55 · pays 5 faan · 1 away · wastes 0 tiles
+         balanced/chows   score   0.49 · pays 3 faan · 1 away · wastes 0 tiles
+         pung-flush |     score  -2.83 · pays 8 faan · 5 away · wastes 0 tiles
+  East★  draws 中 · cuts 東 │ 1| 2| 3| 5| 6| 7| 8| 8| 西 西 中 白 白
+  South  draws 4● · cuts it right back (drew and cut 摸切) │ 3| 5| 5● 5● 5● 6● 7● 8● 中 中 ‖ 上1●2●3●
+  West   draws 8萬 · cuts it right back (drew and cut 摸切) │ 4萬 5萬 6萬 3| 4| 5| 6| 7| 8| 4● 6● 白 白
+      (North passes on chow of 8萬)
+  North  draws 2萬 · cuts it right back (drew and cut 摸切) │ 2萬 3萬 7萬 9萬 3| 4| 5| 6| 6| 4● 5● 6● 中
+  East★  draws 7萬 · cuts it right back (drew and cut 摸切) │ 1| 2| 3| 5| 6| 7| 8| 8| 西 西 中 白 白
+  == wall exhausted 流局 — nobody wins · all four hands:
+     East★  (1 away): 1| 2| 3| 5| 6| 7| 8| 8| 西 西 中 白 白 · flowers: 蘭 竹
+     South  (ready ): 3| 5| 5● 5● 5● 6● 7● 8● 中 中 · melds: [chow 1● 2● 3●] · flowers: 菊 春 夏
+     West   (ready ): 4萬 5萬 6萬 3| 4| 5| 6| 7| 8| 4● 6● 白 白 · flowers: 秋
+     North  (1 away): 2萬 3萬 7萬 9萬 3| 4| 5| 6| 6| 4● 5● 6● 中 · flowers: 梅 冬
+  == hand 0 ends: chips East★ 0  South 0  West 0  North 0 · totals East★ 0  South 0  West 0  North 0 · dealer repeats 連莊
+
+hand 1 · dealer East 東 · round wind East 東 · wall seed 3610900385
+  deal  East★ : 3萬 4萬 6萬 5| 7| 8| 1● 7● 8● 9● 9● 中 發
+        South : 1萬 3萬 5萬 8萬 1| 7| 2● 4● 東 南 西 中  flowers: 秋
+        West  : 2萬 6萬 1| 4| 8| 9| 9| 4● 4● 8● 東 南 中
+        North : 4萬 2| 2| 4| 5| 6| 8| 1● 2● 東 北 白  flowers: 菊
+  South  reveals flower 秋 · replacement 6萬
+  North  reveals flower 菊 · replacement 4萬
+  East★  draws 4| · cuts 9● │ 3萬 4萬 6萬 4| 5| 7| 8| 1● 7● 8● 9● 中 發
+  South  draws 3● · cuts 西 │ 1萬 3萬 5萬 6萬 8萬 1| 7| 2● 3● 4● 東 南 中
+  West   draws 5● · cuts 4● │ 2萬 6萬 1| 4| 8| 9| 9| 4● 5● 8● 東 南 中
+  North  draws 9萬 · cuts 北 │ 4萬 4萬 9萬 2| 2| 4| 5| 6| 8| 1● 2● 東 白
+  East★  draws 白 · cuts 發 │ 3萬 4萬 6萬 4| 5| 7| 8| 1● 7● 8● 9● 中 白
+  South  draws 7萬 · cuts 南 │ 1萬 3萬 5萬 6萬 7萬 8萬 1| 7| 2● 3● 4● 東 中
+  West   draws 1● · cuts it right back (drew and cut 摸切) │ 2萬 6萬 1| 4| 8| 9| 9| 4● 5● 8● 東 南 中
+  North  draws 北 · cuts it right back (drew and cut 摸切) │ 4萬 4萬 9萬 2| 2| 4| 5| 6| 8| 1● 2● 東 白
+  ┈┈ East★ thinking (discard 8) ┈┈
+     table read: all quiet — no signals yet
+     plans considered:
+       → balanced/chows   score  -1.82 · pays 2 faan · 2 away · wastes 0 tiles
+         flush |          score  -7.33 · pays 4 faan · 5 away · wastes 2 tiles
+         pung-flush |     score  -7.98 · pays 7 faan · 8 away · wastes 0 tiles
+  East★  draws 3| · cuts 1● │ 3萬 4萬 6萬 3| 4| 5| 7| 8| 7● 8● 9● 中 白
+      (South passes on chow of 1●)
+  South  draws 3● · cuts it right back (drew and cut 摸切) │ 1萬 3萬 5萬 6萬 7萬 8萬 1| 7| 2● 3● 4● 東 中
+      (West passes on chow of 3●)
+  West   draws 蘭 — a flower · replacement 8萬 · cuts 8● │ 2萬 6萬 8萬 1| 4| 8| 9| 9| 4● 5● 東 南 中
+  North  draws 6● · cuts 東 │ 4萬 4萬 9萬 2| 2| 4| 5| 6| 8| 1● 2● 6● 白
+  East★  draws 北 · cuts it right back (drew and cut 摸切) │ 3萬 4萬 6萬 3| 4| 5| 7| 8| 7● 8● 9● 中 白
+  South  draws 3萬 · cuts 東 │ 1萬 3萬 3萬 5萬 6萬 7萬 8萬 1| 7| 2● 3● 4● 中
+  West   draws 6● · cuts 2萬 │ 6萬 8萬 1| 4| 8| 9| 9| 4● 5● 6● 東 南 中
+  North  draws 6| · cuts 9萬 │ 4萬 4萬 2| 2| 4| 5| 6| 6| 8| 1● 2● 6● 白
+  ┈┈ East★ thinking (discard 16) ┈┈
+     table read:
+     South     threat 0.00 · est 5 faan (3× floor payout) · value honours early → suspicious
+     North     threat 0.00 · est 5 faan (3× floor payout) · value honours early → suspicious
+     plans considered:
+       → balanced/chows   score  -1.82 · pays 2 faan · 2 away · wastes 0 tiles
+         flush |          score  -7.33 · pays 4 faan · 5 away · wastes 2 tiles
+         pung-flush |     score  -7.98 · pays 7 faan · 8 away · wastes 0 tiles
+  East★  draws 1萬 · cuts 中 │ 1萬 3萬 4萬 6萬 3| 4| 5| 7| 8| 7● 8● 9● 白
+  South  draws 1萬 · cuts 1| │ 1萬 1萬 3萬 3萬 5萬 6萬 7萬 8萬 7| 2● 3● 4● 中
+  West   draws 西 · cuts 東 │ 6萬 8萬 1| 4| 8| 9| 9| 4● 5● 6● 南 西 中
+  North  draws 發 · cuts it right back (drew and cut 摸切) │ 4萬 4萬 2| 2| 4| 5| 6| 6| 8| 1● 2● 6● 白
+  East★  draws 2● · cuts 白 │ 1萬 3萬 4萬 6萬 3| 4| 5| 7| 8| 2● 7● 8● 9●
+  South  draws 2萬 · cuts 7| │ 1萬 1萬 2萬 3萬 3萬 5萬 6萬 7萬 8萬 2● 3● 4● 中
+      (West passes on chow of 7|)
+  West   draws 中 · cuts 西 │ 6萬 8萬 1| 4| 8| 9| 9| 4● 5● 6● 南 中 中
+  North  draws 南 · cuts it right back (drew and cut 摸切) │ 4萬 4萬 2| 2| 4| 5| 6| 6| 8| 1● 2● 6● 白
+  ┈┈ East★ thinking (discard 24) ┈┈
+     table read:
+     South     threat 0.00 · est 5 faan (3× floor payout) · value honours early → suspicious
+     West      threat 0.30 · est 3 faan (1× floor payout) · honours late → near-ready read
+     North     threat 0.12 · est 5 faan (3× floor payout) · value honours early → suspicious
+     race pressure 0.30 → distant plans discounted harder
+     plans considered:
+       → balanced/chows   score  -1.70 · pays 2 faan · 2 away · wastes 0 tiles
+         all-pungs 對對糊    score  -6.39 · pays 4 faan · 7 away · wastes 0 tiles
+         pung-flush |     score  -7.58 · pays 10 faan · 7 away · wastes 1 tiles
+  East★  draws 5| · cuts it right back (drew and cut 摸切) │ 1萬 3萬 4萬 6萬 3| 4| 5| 7| 8| 2● 7● 8● 9●
+  South  draws 夏 — a flower · replacement 2● · cuts it right back (drew and cut 摸切) │ 1萬 1萬 2萬 3萬 3萬 5萬 6萬 7萬 8萬 2● 3● 4● 中
+  West   draws 5| · cuts 南 │ 6萬 8萬 1| 4| 5| 8| 9| 9| 4● 5● 6● 中 中
+  North  draws 1| · cuts 6● │ 4萬 4萬 1| 2| 2| 4| 5| 6| 6| 8| 1● 2● 白
+      (East★ passes on chow of 6●)
+  East★  draws 4| · cuts 2● │ 1萬 3萬 4萬 6萬 3| 4| 4| 5| 7| 8| 7● 8● 9●
+      (South passes on chow of 2●)
+  South  draws 2| · cuts it right back (drew and cut 摸切) │ 1萬 1萬 2萬 3萬 3萬 5萬 6萬 7萬 8萬 2● 3● 4● 中
+  North  pungs 2| from South → [pung 2| 2| 2|] · cuts 白 │ 4萬 4萬 1| 4| 5| 6| 6| 8| 1● 2● ‖ 碰2|
+  East★  draws 9| · cuts 4| │ 1萬 3萬 4萬 6萬 3| 4| 5| 7| 8| 9| 7● 8● 9●
+  ┈┈ South thinking (discard 32) ┈┈
+     table read:
+     East★     threat 0.15 · est 7 faan (6× floor payout) · suit-phased cuts → BIG-hand read · value honours early → suspicious
+     West      threat 0.20 · est 3 faan (1× floor payout) · honours late → near-ready read
+     North     threat 0.40 · est 6 faan (4× floor payout) · 1/4 melded · collecting | (0.83) · value honours early → suspicious
+     race pressure 0.40 → distant plans discounted harder
+     plans considered:
+       → balanced/chows   score   0.18 · pays 3 faan · 1 away · wastes 0 tiles
+         flush 萬          score  -3.20 · pays 8 faan · 3 away · wastes 1 tiles
+         all-pungs 對對糊    score  -4.76 · pays 5 faan · 6 away · wastes 0 tiles
+  South  draws 1● · cuts it right back (drew and cut 摸切) │ 1萬 1萬 2萬 3萬 3萬 5萬 6萬 7萬 8萬 2● 3● 4● 中
+  West   draws 6| · cuts 1| │ 6萬 8萬 4| 5| 6| 8| 9| 9| 4● 5● 6● 中 中
+  North  draws 8| · cuts 1| │ 4萬 4萬 4| 5| 6| 6| 8| 8| 1● 2● ‖ 碰2|
+  East★  draws 3● · cuts it right back (drew and cut 摸切) │ 1萬 3萬 4萬 6萬 3| 4| 5| 7| 8| 9| 7● 8● 9●
+      (South passes on chow of 3●)
+  South  draws 3| · cuts it right back (drew and cut 摸切) │ 1萬 1萬 2萬 3萬 3萬 5萬 6萬 7萬 8萬 2● 3● 4● 中
+      (West passes on chow of 3|)
+  West   draws 北 · cuts it right back (drew and cut 摸切) │ 6萬 8萬 4| 5| 6| 8| 9| 9| 4● 5● 6● 中 中
+  North  draws 5萬 · cuts 4萬 │ 4萬 5萬 4| 5| 6| 6| 8| 8| 1● 2● ‖ 碰2|
+  East★  draws 9| · cuts it right back (drew and cut 摸切) │ 1萬 3萬 4萬 6萬 3| 4| 5| 7| 8| 9| 7● 8● 9●
+      (West passes on pung of 9|)
+  ┈┈ South thinking (discard 40) ┈┈
+     table read:
+     East★     threat 0.22 · est 5 faan (3× floor payout) · value honours early → suspicious
+     West      threat 0.15 · est 3 faan (1× floor payout) · quiet
+     North     threat 0.45 · est 6 faan (4× floor payout) · 1/4 melded · collecting | (0.68) · value honours early → suspicious
+     race pressure 0.45 → distant plans discounted harder
+     plans considered:
+       → balanced/chows   score   0.16 · pays 3 faan · 1 away · wastes 0 tiles
+         flush 萬          score  -3.32 · pays 8 faan · 3 away · wastes 1 tiles
+         all-pungs 對對糊    score  -4.77 · pays 5 faan · 6 away · wastes 0 tiles
+  South  draws 6| · cuts it right back (drew and cut 摸切) │ 1萬 1萬 2萬 3萬 3萬 5萬 6萬 7萬 8萬 2● 3● 4● 中
+      (West passes on chow of 6|)
+  North  pungs 6| from South → [pung 6| 6| 6|] · cuts 1● │ 4萬 5萬 4| 5| 8| 8| 2● ‖ 碰2| 碰6|
+  East★  draws 3| · cuts 4萬 │ 1萬 3萬 6萬 3| 3| 4| 5| 7| 8| 9| 7● 8● 9●
+  South  chows 4萬 from East★ → [chow 4萬 5萬 6萬] · cuts 2● │ 1萬 1萬 2萬 3萬 3萬 7萬 8萬 3● 4● 中 ‖ 上4萬5萬6萬
+  West   draws 白 · cuts it right back (drew and cut 摸切) │ 6萬 8萬 4| 5| 6| 8| 9| 9| 4● 5● 6● 中 中
+  North  draws 7● · cuts 2● │ 4萬 5萬 4| 5| 8| 8| 7● ‖ 碰2| 碰6|
+  East★  draws 7● · cuts 3| │ 1萬 3萬 6萬 3| 4| 5| 7| 8| 9| 7● 7● 8● 9●
+  South  draws 4萬 · cuts 3萬 │ 1萬 1萬 2萬 3萬 4萬 7萬 8萬 3● 4● 中 ‖ 上4萬5萬6萬
+  ┈┈ West thinking (discard 48) ┈┈
+     table read:
+     East★     threat 0.30 · est 5 faan (3× floor payout) · value honours early → suspicious
+     South     threat 0.33 · est 6 faan (4× floor payout) · 1/4 melded · collecting 萬 (0.70) · value honours early → suspicious
+     North     threat 0.59 · est 6 faan (4× floor payout) · 2/4 melded · collecting | (1.00) · value honours early → suspicious
+     race pressure 0.59 → distant plans discounted harder
+     plans considered:
+       → balanced/chows   score   0.10 · pays 3 faan · 1 away · wastes 0 tiles
+         all-pungs 對對糊    score  -4.78 · pays 5 faan · 6 away · wastes 0 tiles
+         pung-flush |     score  -5.54 · pays 8 faan · 6 away · wastes 0 tiles
+  West   draws 9萬 · cuts it right back (drew and cut 摸切) │ 6萬 8萬 4| 5| 6| 8| 9| 9| 4● 5● 6● 中 中
+  North  draws 9萬 · cuts it right back (drew and cut 摸切) │ 4萬 5萬 4| 5| 8| 8| 7● ‖ 碰2| 碰6|
+  East★  draws 白 · cuts it right back (drew and cut 摸切) │ 1萬 3萬 6萬 3| 4| 5| 7| 8| 9| 7● 7● 8● 9●
+  South  draws 2萬 · cuts it right back (drew and cut 摸切) │ 1萬 1萬 2萬 3萬 4萬 7萬 8萬 3● 4● 中 ‖ 上4萬5萬6萬
+  West   draws 1萬 · cuts 9| │ 1萬 6萬 8萬 4| 5| 6| 8| 9| 4● 5● 6● 中 中
+  North  draws 7萬 · cuts 4萬 │ 5萬 7萬 4| 5| 8| 8| 7● ‖ 碰2| 碰6|
+  East★  draws 2萬 · cuts 7● │ 1萬 2萬 3萬 6萬 3| 4| 5| 7| 8| 9| 7● 8● 9●
+  South  draws 5萬 · cuts 2萬 │ 1萬 1萬 3萬 4萬 5萬 7萬 8萬 3● 4● 中 ‖ 上4萬5萬6萬
+  ┈┈ West thinking (discard 56) ┈┈
+     table read:
+     East★     threat 0.36 · est 5 faan (3× floor payout) · value honours early → suspicious
+     South     threat 0.22 · est 5 faan (3× floor payout) · 1/4 melded · collecting 萬 (0.49) · value honours early → suspicious
+     North     threat 0.59 · est 6 faan (4× floor payout) · 2/4 melded · collecting | (1.00) · value honours early → suspicious
+     race pressure 0.59 → distant plans discounted harder
+     plans considered:
+       → balanced/chows   score   0.10 · pays 3 faan · 1 away · wastes 0 tiles
+         all-pungs 對對糊    score  -4.78 · pays 5 faan · 6 away · wastes 0 tiles
+         pung-flush |     score  -7.39 · pays 8 faan · 7 away · wastes 0 tiles
+  West   draws 8萬 · cuts it right back (drew and cut 摸切) │ 1萬 6萬 8萬 4| 5| 6| 8| 9| 4● 5● 6● 中 中
+  North  draws 5● · cuts 5萬 │ 7萬 4| 5| 8| 8| 5● 7● ‖ 碰2| 碰6|
+  East★  draws 6● · cuts 9● │ 1萬 2萬 3萬 6萬 3| 4| 5| 7| 8| 9| 6● 7● 8●
+  South  draws 6萬 · cuts 3● │ 1萬 1萬 3萬 4萬 5萬 6萬 7萬 8萬 4● 中 ‖ 上4萬5萬6萬
+      (West passes on chow of 3●)
+  West   draws 7| · cuts 1萬 │ 6萬 8萬 4| 5| 6| 7| 8| 9| 4● 5● 6● 中 中
+  South  pungs 1萬 from West → [pung 1萬 1萬 1萬] · cuts 4● │ 3萬 4萬 5萬 6萬 7萬 8萬 中 ‖ 上4萬5萬6萬 碰1萬
+      (West passes on chow of 4●)
+  West   draws 7| · cuts it right back (drew and cut 摸切) │ 6萬 8萬 4| 5| 6| 7| 8| 9| 4● 5● 6● 中 中
+  North  draws 梅 — a flower · replacement 8● · cuts it right back (drew and cut 摸切) │ 7萬 4| 5| 8| 8| 5● 7● ‖ 碰2| 碰6|
+      (East★ passes on chow of 8●)
+  ┈┈ East★ thinking (discard 64) ┈┈
+     table read:
+     South     threat 0.50 · est 6 faan (4× floor payout) · 2/4 melded · collecting 萬 (0.87) · value honours early → suspicious
+     North     threat 0.59 · est 6 faan (4× floor payout) · 2/4 melded · collecting | (1.00) · value honours early → suspicious
+     race pressure 0.59 → distant plans discounted harder
+     plans considered:
+       → balanced/chows   score   0.90 · pays 2 faan · 0 away · wastes 0 tiles
+         all-pungs 對對糊    score  -8.00 · pays 4 faan · 8 away · wastes 0 tiles
+         pung-flush |     score  -9.49 · pays 10 faan · 8 away · wastes 0 tiles
+  East★  draws 8萬 · cuts it right back (drew and cut 摸切) │ 1萬 2萬 3萬 6萬 3| 4| 5| 7| 8| 9| 6● 7● 8●
+      (South passes on chow of 8萬)
+  South  draws 西 · cuts it right back (drew and cut 摸切) │ 3萬 4萬 5萬 6萬 7萬 8萬 中 ‖ 上4萬5萬6萬 碰1萬
+  West   draws 2| · cuts it right back (drew and cut 摸切) │ 6萬 8萬 4| 5| 6| 7| 8| 9| 4● 5● 6● 中 中
+  North  draws 9萬 · cuts it right back (drew and cut 摸切) │ 7萬 4| 5| 8| 8| 5● 7● ‖ 碰2| 碰6|
+  East★  draws 南 · cuts it right back (drew and cut 摸切) │ 1萬 2萬 3萬 6萬 3| 4| 5| 7| 8| 9| 6● 7● 8●
+  South  draws 7● · cuts it right back (drew and cut 摸切) │ 3萬 4萬 5萬 6萬 7萬 8萬 中 ‖ 上4萬5萬6萬 碰1萬
+      (West passes on chow of 7●)
+  West   draws 5萬 · cuts 8萬 │ 5萬 6萬 4| 5| 6| 7| 8| 9| 4● 5● 6● 中 中
+  North  draws 冬 — a flower · replacement 發 · cuts 7萬 │ 4| 5| 8| 8| 5● 7● 發 ‖ 碰2| 碰6|
+  !! West hit a winning shape on North's 7萬 but holds 2 faan — REFUSED (under the 3-faan floor)
+     held: 5萬 6萬 4| 5| 6| 7| 8| 9| 4● 5● 6● 中 中 · flowers: 蘭 · would score: All Chows 平糊 1 + Fully Concealed 門前清 1
+  ┈┈ East★ thinking (discard 72) ┈┈
+     table read:
+     South     threat 0.58 · est 6 faan (4× floor payout) · 2/4 melded · collecting 萬 (0.90) · value honours early → suspicious
+     West      threat 0.00 · est 5 faan (3× floor payout) · value honours early → suspicious
+     North     threat 0.67 · est 6 faan (4× floor payout) · 2/4 melded · collecting | (1.00) · value honours early → suspicious
+     race pressure 0.67 → distant plans discounted harder
+     plans considered:
+       → balanced/chows   score   0.90 · pays 2 faan · 0 away · wastes 0 tiles
+         all-pungs 對對糊    score  -8.00 · pays 4 faan · 8 away · wastes 0 tiles
+         pung-flush |     score  -9.56 · pays 10 faan · 8 away · wastes 0 tiles
+  East★  draws 4● · cuts it right back (drew and cut 摸切) │ 1萬 2萬 3萬 6萬 3| 4| 5| 7| 8| 9| 6● 7● 8●
+  South  draws 發 · cuts it right back (drew and cut 摸切) │ 3萬 4萬 5萬 6萬 7萬 8萬 中 ‖ 上4萬5萬6萬 碰1萬
+  West   draws 東 · cuts it right back (drew and cut 摸切) │ 5萬 6萬 4| 5| 6| 7| 8| 9| 4● 5● 6● 中 中
+  North  draws 7萬 · cuts it right back (drew and cut 摸切) │ 4| 5| 8| 8| 5● 7● 發 ‖ 碰2| 碰6|
+  !! West hit a winning shape on North's 7萬 but holds 2 faan — REFUSED (under the 3-faan floor)
+     held: 5萬 6萬 4| 5| 6| 7| 8| 9| 4● 5● 6● 中 中 · flowers: 蘭 · would score: All Chows 平糊 1 + Fully Concealed 門前清 1
+  East★  draws 5● · cuts 8● │ 1萬 2萬 3萬 6萬 3| 4| 5| 7| 8| 9| 5● 6● 7●
+  South  draws 3| · cuts it right back (drew and cut 摸切) │ 3萬 4萬 5萬 6萬 7萬 8萬 中 ‖ 上4萬5萬6萬 碰1萬
+      (West passes on chow of 3|)
+  West   draws 1| · cuts it right back (drew and cut 摸切) │ 5萬 6萬 4| 5| 6| 7| 8| 9| 4● 5● 6● 中 中
+  North  draws 3● · cuts it right back (drew and cut 摸切) │ 4| 5| 8| 8| 5● 7● 發 ‖ 碰2| 碰6|
+  ┈┈ East★ thinking (discard 80) ┈┈
+     table read:
+     South     threat 0.70 · est 6 faan (4× floor payout) · 2/4 melded · collecting 萬 (0.93) · value honours early → suspicious
+     West      threat 0.05 · est 5 faan (3× floor payout) · value honours early → suspicious
+     North     threat 0.70 · est 6 faan (4× floor payout) · 2/4 melded · collecting | (1.00) · value honours early → suspicious
+     race pressure 0.70 → distant plans discounted harder
+     plans considered:
+       → balanced/chows   score   0.90 · pays 2 faan · 0 away · wastes 0 tiles
+         all-pungs 對對糊    score  -8.00 · pays 4 faan · 8 away · wastes 0 tiles
+         pung-flush 萬     score  -9.55 · pays 10 faan · 8 away · wastes 1 tiles
+  East★  draws 7萬 · cuts it right back (drew and cut 摸切) │ 1萬 2萬 3萬 6萬 3| 4| 5| 7| 8| 9| 5● 6● 7●
+  !! West hit a winning shape on East★'s 7萬 but holds 2 faan — REFUSED (under the 3-faan floor)
+     held: 5萬 6萬 4| 5| 6| 7| 8| 9| 4● 5● 6● 中 中 · flowers: 蘭 · would score: All Chows 平糊 1 + Fully Concealed 門前清 1
+      (South passes on chow×2 of 7萬)
+  South  draws 9● · cuts it right back (drew and cut 摸切) │ 3萬 4萬 5萬 6萬 7萬 8萬 中 ‖ 上4萬5萬6萬 碰1萬
+  West   draws 5● · cuts it right back (drew and cut 摸切) │ 5萬 6萬 4| 5| 6| 7| 8| 9| 4● 5● 6● 中 中
+  North  draws 9● · cuts it right back (drew and cut 摸切) │ 4| 5| 8| 8| 5● 7● 發 ‖ 碰2| 碰6|
+  East★  draws 6● · cuts it right back (drew and cut 摸切) │ 1萬 2萬 3萬 6萬 3| 4| 5| 7| 8| 9| 5● 6● 7●
+  South  draws 8● · cuts it right back (drew and cut 摸切) │ 3萬 4萬 5萬 6萬 7萬 8萬 中 ‖ 上4萬5萬6萬 碰1萬
+  West   draws 春 — a flower · replacement 竹 — a flower · replacement 西 · cuts it right back (drew and cut 摸切) │ 5萬 6萬 4| 5| 6| 7| 8| 9| 4● 5● 6● 中 中
+  North  draws 3萬 · cuts it right back (drew and cut 摸切) │ 4| 5| 8| 8| 5● 7● 發 ‖ 碰2| 碰6|
+      (East★ passes on chow of 3萬)
+  == wall exhausted 流局 — nobody wins · all four hands:
+     East★  (ready ): 1萬 2萬 3萬 6萬 3| 4| 5| 7| 8| 9| 5● 6● 7●
+     South  (ready ): 3萬 4萬 5萬 6萬 7萬 8萬 中 · melds: [chow 4萬 5萬 6萬] [pung 1萬 1萬 1萬] · flowers: 夏 秋
+     West   (ready ): 5萬 6萬 4| 5| 6| 7| 8| 9| 4● 5● 6● 中 中 · flowers: 蘭 竹 春
+     North  (1 away): 4| 5| 8| 8| 5● 7● 發 · melds: [pung 2| 2| 2|] [pung 6| 6| 6|] · flowers: 梅 菊 冬
+  == hand 1 ends: chips East★ 0  South 0  West 0  North 0 · totals East★ 0  South 0  West 0  North 0 · dealer repeats 連莊
+
+hand 2 · dealer East 東 · round wind East 東 · wall seed 956464624
+  deal  East★ : 5萬 6萬 9萬 1| 3| 1● 3● 4● 5● 7● 北 北 發
+        South : 2萬 3萬 5萬 6萬 8萬 8萬 5| 6| 2● 5● 西 中  flowers: 夏
+        West  : 1萬 2| 2| 7| 8| 8| 9● 東 南 南 發 白 白
+        North : 4萬 4萬 8萬 1| 1| 1| 3| 5| 9| 1● 7● 8● 東
+  South  reveals flower 夏 · replacement 8●
+  East★  draws 8萬 · cuts 發 │ 5萬 6萬 8萬 9萬 1| 3| 1● 3● 4● 5● 7● 北 北
+  South  draws 菊 — a flower · replacement 7萬 · cuts 中 │ 2萬 3萬 5萬 6萬 7萬 8萬 8萬 5| 6| 2● 5● 8● 西
+  West   draws 白 · cuts 1萬 │ 2| 2| 7| 8| 8| 9● 東 南 南 發 白 白 白
+  North  draws 9● · cuts 東 │ 4萬 4萬 8萬 1| 1| 1| 3| 5| 9| 1● 7● 8● 9●
+  East★  draws 南 · cuts it right back (drew and cut 摸切) │ 5萬 6萬 8萬 9萬 1| 3| 1● 3● 4● 5● 7● 北 北
+  West   pungs 南 from East★ → [pung 南 南 南] · cuts 9● │ 2| 2| 7| 8| 8| 東 發 白 白 白 ‖ 碰南
+      (North passes on chow of 9●)
+  North  draws 3● · cuts 9| │ 4萬 4萬 8萬 1| 1| 1| 3| 5| 1● 3● 7● 8● 9●
+  East★  draws 3● · cuts 9萬 │ 5萬 6萬 8萬 1| 3| 1● 3● 3● 4● 5● 7● 北 北
+      (South passes on chow of 9萬)
+  ┈┈ South thinking (discard 8) ┈┈
+     table read:
+     West      threat 0.15 · est 3 faan (1× floor payout) · 1/4 melded
+     race pressure 0.15 → distant plans discounted harder
+     plans considered:
+       → balanced/chows   score  -1.49 · pays 3 faan · 2 away · wastes 0 tiles
+         flush 萬          score  -5.58 · pays 8 faan · 4 away · wastes 2 tiles
+         pung-flush 萬     score  -6.28 · pays 11 faan · 7 away · wastes 0 tiles
+  South  draws 4| · cuts 8● │ 2萬 3萬 5萬 6萬 7萬 8萬 8萬 4| 5| 6| 2● 5● 西
+  West   draws 5萬 · cuts it right back (drew and cut 摸切) │ 2| 2| 7| 8| 8| 東 發 白 白 白 ‖ 碰南
+  North  draws 6| · cuts 8萬 │ 4萬 4萬 1| 1| 1| 3| 5| 6| 1● 3● 7● 8● 9●
+      (South passes on pung of 8萬)
+  East★  draws 4● · cuts 8萬 │ 5萬 6萬 1| 3| 1● 3● 3● 4● 4● 5● 7● 北 北
+      (South passes on pung/chow of 8萬)
+  South  draws 中 · cuts it right back (drew and cut 摸切) │ 2萬 3萬 5萬 6萬 7萬 8萬 8萬 4| 5| 6| 2● 5● 西
+  West   draws 2| · cuts 發 │ 2| 2| 2| 7| 8| 8| 東 白 白 白 ‖ 碰南
+  North  draws 6● · cuts 9● │ 4萬 4萬 1| 1| 1| 3| 5| 6| 1● 3● 6● 7● 8●
+  East★  draws 4萬 · cuts 5萬 │ 4萬 6萬 1| 3| 1● 3● 3● 4● 4● 5● 7● 北 北
+      (South passes on chow of 5萬)
+  ┈┈ South thinking (discard 16) ┈┈
+     table read:
+     East★     threat 0.00 · est 5 faan (3× floor payout) · value honours early → suspicious
+     West      threat 0.15 · est 3 faan (1× floor payout) · 1/4 melded
+     North     threat 0.00 · est 4 faan (2× floor payout) · all suits cut early → all-pungs read · value honours early → suspicious
+     race pressure 0.15 → distant plans discounted harder
+     plans considered:
+       → balanced/chows   score  -1.29 · pays 3 faan · 2 away · wastes 0 tiles
+         flush 萬          score  -3.20 · pays 8 faan · 4 away · wastes 1 tiles
+         pung-flush 萬     score  -3.49 · pays 11 faan · 6 away · wastes 0 tiles
+  South  draws 6萬 · cuts 2● │ 2萬 3萬 5萬 6萬 6萬 7萬 8萬 8萬 4| 5| 6| 5● 西
+  West   draws 3萬 · cuts it right back (drew and cut 摸切) │ 2| 2| 2| 7| 8| 8| 東 白 白 白 ‖ 碰南
+  North  draws 西 · cuts it right back (drew and cut 摸切) │ 4萬 4萬 1| 1| 1| 3| 5| 6| 1● 3● 6● 7● 8●
+  East★  draws 4| · cuts 1| │ 4萬 6萬 3| 4| 1● 3● 3● 4● 4● 5● 7● 北 北
+      (North passes on kong/pung of 1|)
+  South  draws 竹 — a flower · replacement 6● · cuts 西 │ 2萬 3萬 5萬 6萬 6萬 7萬 8萬 8萬 4| 5| 6| 5● 6●
+  West   draws 2|
+  West   declares concealed kong 暗槓 2| · replacement 4| · cuts 東 │ 4| 7| 8| 8| 白 白 白 ‖ 碰南 暗槓2|
+  North  draws 9萬 · cuts it right back (drew and cut 摸切) │ 4萬 4萬 1| 1| 1| 3| 5| 6| 1● 3● 6● 7● 8●
+  East★  draws 4● · cuts 6萬 │ 4萬 3| 4| 1● 3● 3● 4● 4● 4● 5● 7● 北 北
+  ┈┈ South thinking (discard 24) ┈┈
+     table read:
+     East★     threat 0.00 · est 5 faan (3× floor payout) · value honours early → suspicious
+     West      threat 0.59 · est 4 faan (2× floor payout) · 2/4 melded · collecting | (0.94)
+     North     threat 0.15 · est 4 faan (2× floor payout) · all suits cut early → all-pungs read · value honours early → suspicious
+     race pressure 0.59 → distant plans discounted harder
+     plans considered:
+       → balanced/chows   score  -0.51 · pays 2 faan · 1 away · wastes 0 tiles
+         pung-flush 萬     score  -3.66 · pays 10 faan · 5 away · wastes 0 tiles
+         all-pungs 對對糊    score  -4.38 · pays 4 faan · 5 away · wastes 0 tiles
+  South  pungs 6萬 from East★ → [pung 6萬 6萬 6萬] · cuts 6● │ 2萬 3萬 5萬 7萬 8萬 8萬 4| 5| 6| 5● ‖ 碰6萬
+  West   draws 7● · cuts it right back (drew and cut 摸切) │ 4| 7| 8| 8| 白 白 白 ‖ 碰南 暗槓2|
+      (North passes on chow of 7●)
+  North  draws 北 · cuts it right back (drew and cut 摸切) │ 4萬 4萬 1| 1| 1| 3| 5| 6| 1● 3● 6● 7● 8●
+  East★  pungs 北 from North → [pung 北 北 北] · cuts 4萬 │ 3| 4| 1● 3● 3● 4● 4● 4● 5● 7● ‖ 碰北
+      (South passes on chow×2 of 4萬)
+      (North passes on pung of 4萬)
+  South  draws 1萬 · cuts 5● │ 1萬 2萬 3萬 5萬 7萬 8萬 8萬 4| 5| 6| ‖ 碰6萬
+  West   draws 2● · cuts it right back (drew and cut 摸切) │ 4| 7| 8| 8| 白 白 白 ‖ 碰南 暗槓2|
+      (North passes on chow of 2●)
+  North  draws 5| · cuts 1● │ 4萬 4萬 1| 1| 1| 3| 5| 5| 6| 3● 6● 7● 8●
+  East★  draws 6● · cuts 1● │ 3| 4| 3● 3● 4● 4● 4● 5● 6● 7● ‖ 碰北
+  ┈┈ South thinking (discard 32) ┈┈
+     table read:
+     East★     threat 0.15 · est 5 faan (3× floor payout) · 1/4 melded · value honours early → suspicious
+     West      threat 0.51 · est 4 faan (2× floor payout) · 2/4 melded · collecting | (0.94)
+     North     threat 0.00 · est 4 faan (2× floor payout) · all suits cut early → all-pungs read · value honours early → suspicious
+     race pressure 0.51 → distant plans discounted harder
+     plans considered:
+       → balanced/chows   score   0.90 · pays 2 faan · 0 away · wastes 0 tiles
+         flush 萬          score  -1.89 · pays 7 faan · 2 away · wastes 2 tiles
+         pung-flush 萬     score  -3.63 · pays 10 faan · 5 away · wastes 0 tiles
+  South  draws 9● · cuts it right back (drew and cut 摸切) │ 1萬 2萬 3萬 5萬 7萬 8萬 8萬 4| 5| 6| ‖ 碰6萬
+  West   draws 3萬 · cuts it right back (drew and cut 摸切) │ 4| 7| 8| 8| 白 白 白 ‖ 碰南 暗槓2|
+  North  draws 9| · cuts it right back (drew and cut 摸切) │ 4萬 4萬 1| 1| 1| 3| 5| 5| 6| 3● 6● 7● 8●
+  East★  draws 8| · cuts it right back (drew and cut 摸切) │ 3| 4| 3● 3● 4● 4● 4● 5● 6● 7● ‖ 碰北
+  West   pungs 8| from East★ → [pung 8| 8| 8|] · cuts 7| │ 4| 白 白 白 ‖ 碰南 暗槓2| 碰8|
+      (North passes on chow of 7|)
+  North  draws 西 · cuts it right back (drew and cut 摸切) │ 4萬 4萬 1| 1| 1| 3| 5| 5| 6| 3● 6● 7● 8●
+  East★  draws 7萬 · cuts it right back (drew and cut 摸切) │ 3| 4| 3● 3● 4● 4● 4● 5● 6● 7● ‖ 碰北
+  South  draws 6● · cuts it right back (drew and cut 摸切) │ 1萬 2萬 3萬 5萬 7萬 8萬 8萬 4| 5| 6| ‖ 碰6萬
+  ┈┈ West thinking (discard 40) ┈┈
+     table read:
+     East★     threat 0.22 · est 5 faan (3× floor payout) · 1/4 melded · value honours early → suspicious
+     South     threat 0.42 · est 8 faan (8× floor payout) · 1/4 melded · collecting 萬 (0.83) · suit-phased cuts → BIG-hand read · value honours early → suspicious
+     North     threat 0.10 · est 4 faan (2× floor payout) · all suits cut early → all-pungs read · value honours early → suspicious
+     race pressure 0.42 → distant plans discounted harder
+     plans considered:
+       → pung-flush |     score   9.76 · pays 7 faan · 0 away · wastes 0 tiles
+         all-pungs 對對糊    score   3.60 · pays 4 faan · 0 away · wastes 0 tiles
+         balanced/chows   score  -8.00 · pays 2 faan · 8 away · wastes 0 tiles
+  West   draws 蘭 — a flower · replacement 6| · cuts 白 │ 4| 6| 白 白 ‖ 碰南 暗槓2| 碰8|
+  North  draws 4| · cuts 3● │ 4萬 4萬 1| 1| 1| 3| 4| 5| 5| 6| 6● 7● 8●
+  East★  pungs 3● from North → [pung 3● 3● 3●] · cuts 3| │ 4| 4● 4● 4● 5● 6● 7● ‖ 碰北 碰3●
+      (South passes on chow of 3|)
+  South  draws 8● · cuts it right back (drew and cut 摸切) │ 1萬 2萬 3萬 5萬 7萬 8萬 8萬 4| 5| 6| ‖ 碰6萬
+  West   draws 1● · cuts it right back (drew and cut 摸切) │ 4| 6| 白 白 ‖ 碰南 暗槓2| 碰8|
+  North  draws 2萬 · cuts it right back (drew and cut 摸切) │ 4萬 4萬 1| 1| 1| 3| 4| 5| 5| 6| 6● 7● 8●
+  East★  draws 9| · cuts it right back (drew and cut 摸切) │ 4| 4● 4● 4● 5● 6● 7● ‖ 碰北 碰3●
+  South  draws 6| · cuts it right back (drew and cut 摸切) │ 1萬 2萬 3萬 5萬 7萬 8萬 8萬 4| 5| 6| ‖ 碰6萬
+  ┈┈ West thinking (discard 48) ┈┈
+     table read:
+     East★     threat 0.47 · est 6 faan (4× floor payout) · 2/4 melded · collecting ● (0.68) · value honours early → suspicious
+     South     threat 0.50 · est 8 faan (8× floor payout) · 1/4 melded · collecting 萬 (0.83) · suit-phased cuts → BIG-hand read · value honours early → suspicious
+     North     threat 0.10 · est 4 faan (2× floor payout) · all suits cut early → all-pungs read · value honours early → suspicious
+     race pressure 0.50 → distant plans discounted harder
+     plans considered:
+       → pung-flush |     score   4.97 · pays 7 faan · 1 away · wastes 0 tiles
+         all-pungs 對對糊    score   1.59 · pays 4 faan · 1 away · wastes 0 tiles
+         balanced/chows   score  -7.85 · pays 2 faan · 8 away · wastes 0 tiles
+  West   draws 中 · cuts it right back (drew and cut 摸切) │ 4| 6| 白 白 ‖ 碰南 暗槓2| 碰8|
+  North  draws 7|
+  North  WINS by self-draw 自摸 on 7| · 3 faan: Self-Draw 自摸 1 + Fully Concealed 門前清 1 + No Flowers or Seasons 無花 1
+        winning hand: 4萬 4萬 1| 1| 1| 3| 4| 5| 5| 6| 7| 6● 7● 8●
+  == hand 2 ends: chips East★ -8  South -8  West -8  North +24 · totals East★ -8  South -8  West -8  North 24 · dealer rotates
+
+hand 3 · dealer East 東 · round wind East 東 · wall seed 2357645767
+  deal  East  : 2萬 4萬 5萬 8萬 3| 4| 7| 8| 6● 9● 東 北 白
+        South : 3萬 5萬 7萬 9萬 9萬 3● 4● 7● 9● 南 北 白  flowers: 春
+        West  : 6萬 7萬 1| 2| 4| 5| 6| 8| 9| 9| 9| 6● 西
+        North★: 4萬 5萬 7萬 2| 3| 5| 7| 8● 8● 9● 9● 發  flowers: 秋
+  South  reveals flower 春 · replacement 2●
+  North★ reveals flower 秋 · replacement 5●
+  East   draws 1● · cuts 北 │ 2萬 4萬 5萬 8萬 3| 4| 7| 8| 1● 6● 9● 東 白
+  South  draws 9萬 · cuts 北 │ 3萬 5萬 7萬 9萬 9萬 9萬 2● 3● 4● 7● 9● 南 白
+  West   draws 6萬 · cuts it right back (drew and cut 摸切) │ 6萬 7萬 1| 2| 4| 5| 6| 8| 9| 9| 9| 6● 西
+      (North★ passes on chow×2 of 6萬)
+  North★ draws 1● · cuts 7萬 │ 4萬 5萬 2| 3| 5| 7| 1● 5● 8● 8● 9● 9● 發
+  East   draws 4● · cuts 東 │ 2萬 4萬 5萬 8萬 3| 4| 7| 8| 1● 4● 6● 9● 白
+  South  draws 東 · cuts it right back (drew and cut 摸切) │ 3萬 5萬 7萬 9萬 9萬 9萬 2● 3● 4● 7● 9● 南 白
+  West   draws 菊 — a flower · replacement 冬 — a flower · replacement 西 · cuts 8| │ 6萬 7萬 1| 2| 4| 5| 6| 9| 9| 9| 6● 西 西
+  North★ draws 5● · cuts 2| │ 4萬 5萬 3| 5| 7| 1● 5● 5● 8● 8● 9● 9● 發
+      (East passes on chow of 2|)
+  ┈┈ East thinking (discard 8) ┈┈
+     table read: all quiet — no signals yet
+     plans considered:
+       → balanced/chows   score  -3.96 · pays 2 faan · 4 away · wastes 0 tiles
+         pung-flush ●     score  -7.95 · pays 10 faan · 8 away · wastes 0 tiles
+         flush ●          score  -7.98 · pays 7 faan · 8 away · wastes 0 tiles
+  East   draws 3● · cuts 8| │ 2萬 4萬 5萬 8萬 3| 4| 7| 1● 3● 4● 6● 9● 白
+  South  draws 南 · cuts 7萬 │ 3萬 5萬 9萬 9萬 9萬 2● 3● 4● 7● 9● 南 南 白
+  West   draws 8● · cuts 7萬 │ 6萬 1| 2| 4| 5| 6| 9| 9| 9| 6● 8● 西 西
+  North★ draws 7| · cuts it right back (drew and cut 摸切) │ 4萬 5萬 3| 5| 7| 1● 5● 5● 8● 8● 9● 9● 發
+  East   draws 9萬 · cuts 7| │ 2萬 4萬 5萬 8萬 9萬 3| 4| 1● 3● 4● 6● 9● 白
+  South  draws 1萬 · cuts 白 │ 1萬 3萬 5萬 9萬 9萬 9萬 2● 3● 4● 7● 9● 南 南
+  West   draws 3● · cuts 6萬 │ 1| 2| 4| 5| 6| 9| 9| 9| 3● 6● 8● 西 西
+      (North★ passes on chow of 6萬)
+  North★ draws 中 · cuts 7| │ 4萬 5萬 3| 5| 1● 5● 5● 8● 8● 9● 9● 中 發
+  ┈┈ East thinking (discard 16) ┈┈
+     table read:
+     South     threat 0.00 · est 5 faan (3× floor payout) · value honours early → suspicious
+     plans considered:
+       → balanced/chows   score  -3.96 · pays 2 faan · 4 away · wastes 0 tiles
+         flush 萬          score  -7.48 · pays 4 faan · 6 away · wastes 1 tiles
+         flush ●          score  -7.97 · pays 4 faan · 6 away · wastes 1 tiles
+  East   draws 中 · cuts 白 │ 2萬 4萬 5萬 8萬 9萬 3| 4| 1● 3● 4● 6● 9● 中
+  South  draws 1| · cuts it right back (drew and cut 摸切) │ 1萬 3萬 5萬 9萬 9萬 9萬 2● 3● 4● 7● 9● 南 南
+  West   draws 2| · cuts 3● │ 1| 2| 2| 4| 5| 6| 9| 9| 9| 6● 8● 西 西
+  North★ draws 4● · cuts 5萬 │ 4萬 3| 5| 1● 4● 5● 5● 8● 8● 9● 9● 中 發
+  East   draws 5● · cuts 5萬 │ 2萬 4萬 8萬 9萬 3| 4| 1● 3● 4● 5● 6● 9● 中
+  South  draws 5| · cuts 5萬 │ 1萬 3萬 9萬 9萬 9萬 5| 2● 3● 4● 7● 9● 南 南
+  West   draws 北 · cuts it right back (drew and cut 摸切) │ 1| 2| 2| 4| 5| 6| 9| 9| 9| 6● 8● 西 西
+  North★ draws 7● · cuts 4萬 │ 3| 5| 1● 4● 5● 5● 7● 8● 8● 9● 9● 中 發
+  ┈┈ East thinking (discard 24) ┈┈
+     table read:
+     South     threat 0.00 · est 5 faan (3× floor payout) · value honours early → suspicious
+     West      threat 0.30 · est 3 faan (1× floor payout) · all suits cut early → all-pungs read · honours late → near-ready read
+     race pressure 0.30 → distant plans discounted harder
+     plans considered:
+       → balanced/chows   score  -2.95 · pays 2 faan · 3 away · wastes 0 tiles
+         all-pungs 對對糊    score  -8.00 · pays 4 faan · 8 away · wastes 0 tiles
+         flush ●          score  -8.13 · pays 7 faan · 5 away · wastes 2 tiles
+  East   draws 8| · cuts it right back (drew and cut 摸切) │ 2萬 4萬 8萬 9萬 3| 4| 1● 3● 4● 5● 6● 9● 中
+  South  draws 9| · cuts it right back (drew and cut 摸切) │ 1萬 3萬 9萬 9萬 9萬 5| 2● 3● 4● 7● 9● 南 南
+  West   kongs 9| from South → [kong 9| 9| 9| 9|] · replacement 6● · cuts it right back (drew and cut 摸切) │ 1| 2| 2| 4| 5| 6| 6● 8● 西 西 ‖ 槓9|
+      (North★ passes on chow×3 of 6●)
+  North★ draws 1● · cuts 5| │ 3| 1● 1● 4● 5● 5● 7● 8● 8● 9● 9● 中 發
+      (East passes on chow of 5|)
+  East   draws 夏 — a flower · replacement 發 · cuts 4萬 │ 2萬 8萬 9萬 3| 4| 1● 3● 4● 5● 6● 9● 中 發
+  South  draws 梅 — a flower · replacement 蘭 — a flower · replacement 4| · cuts 5| │ 1萬 3萬 9萬 9萬 9萬 4| 2● 3● 4● 7● 9● 南 南
+      (West passes on chow of 5|)
+  West   draws 4● · cuts 8● │ 1| 2| 2| 4| 5| 6| 4● 6● 西 西 ‖ 槓9|
+  North★ pungs 8● from West → [pung 8● 8● 8●] · cuts 3| │ 1● 1● 4● 5● 5● 7● 9● 9● 中 發 ‖ 碰8●
+  ┈┈ East thinking (discard 32) ┈┈
+     table read:
+     North★    threat 0.35 · est 4 faan (2× floor payout) · 1/4 melded · collecting ● (0.83)
+     South     threat 0.07 · est 5 faan (3× floor payout) · value honours early → suspicious
+     West      threat 0.56 · est 3 faan (1× floor payout) · 1/4 melded · collecting | (0.73) · all suits cut early → all-pungs read · honours late → near-ready read
+     race pressure 0.56 → distant plans discounted harder
+     plans considered:
+       → balanced/chows   score  -2.97 · pays 2 faan · 3 away · wastes 0 tiles
+         flush ●          score  -7.56 · pays 4 faan · 5 away · wastes 1 tiles
+         all-pungs 對對糊    score  -8.00 · pays 4 faan · 8 away · wastes 0 tiles
+  East   draws 8| · cuts it right back (drew and cut 摸切) │ 2萬 8萬 9萬 3| 4| 1● 3● 4● 5● 6● 9● 中 發
+  South  draws 西 · cuts it right back (drew and cut 摸切) │ 1萬 3萬 9萬 9萬 9萬 4| 2● 3● 4● 7● 9● 南 南
+  West   pungs 西 from South → [pung 西 西 西] · cuts 1| │ 2| 2| 4| 5| 6| 4● 6● ‖ 槓9| 碰西
+  North★ draws 7● · cuts 4● │ 1● 1● 5● 5● 7● 7● 9● 9● 中 發 ‖ 碰8●
+      (East passes on chow×2 of 4●)
+  East   draws 北 · cuts it right back (drew and cut 摸切) │ 2萬 8萬 9萬 3| 4| 1● 3● 4● 5● 6● 9● 中 發
+  South  draws 白 · cuts it right back (drew and cut 摸切) │ 1萬 3萬 9萬 9萬 9萬 4| 2● 3● 4● 7● 9● 南 南
+  West   draws 7萬 · cuts it right back (drew and cut 摸切) │ 2| 2| 4| 5| 6| 4● 6● ‖ 槓9| 碰西
+  North★ draws 5萬 · cuts it right back (drew and cut 摸切) │ 1● 1● 5● 5● 7● 7● 9● 9● 中 發 ‖ 碰8●
+  ┈┈ East thinking (discard 40) ┈┈
+     table read:
+     North★    threat 0.32 · est 4 faan (2× floor payout) · 1/4 melded · collecting ● (0.68)
+     South     threat 0.15 · est 5 faan (3× floor payout) · value honours early → suspicious
+     West      threat 0.39 · est 3 faan (1× floor payout) · 2/4 melded · collecting | (0.61) · all suits cut early → all-pungs read
+     race pressure 0.39 → distant plans discounted harder
+     plans considered:
+       → balanced/chows   score  -2.96 · pays 2 faan · 3 away · wastes 0 tiles
+         flush ●          score  -6.05 · pays 4 faan · 5 away · wastes 0 tiles
+         all-pungs 對對糊    score  -8.00 · pays 4 faan · 8 away · wastes 0 tiles
+  East   draws 竹 — a flower · replacement 白 · cuts it right back (drew and cut 摸切) │ 2萬 8萬 9萬 3| 4| 1● 3● 4● 5● 6● 9● 中 發
+  South  draws 3| · cuts 9● │ 1萬 3萬 9萬 9萬 9萬 3| 4| 2● 3● 4● 7● 南 南
+  North★ pungs 9● from South → [pung 9● 9● 9●] · cuts 發 │ 1● 1● 5● 5● 7● 7● 中 ‖ 碰8● 碰9●
+  East   draws 6| · cuts 9● │ 2萬 8萬 9萬 3| 4| 6| 1● 3● 4● 5● 6● 中 發
+  South  draws 東 · cuts it right back (drew and cut 摸切) │ 1萬 3萬 9萬 9萬 9萬 3| 4| 2● 3● 4● 7● 南 南
+  West   draws 3萬 · cuts it right back (drew and cut 摸切) │ 2| 2| 4| 5| 6| 4● 6● ‖ 槓9| 碰西
+  North★ draws 1| · cuts it right back (drew and cut 摸切) │ 1● 1● 5● 5● 7● 7● 中 ‖ 碰8● 碰9●
+  East   draws 3萬 · cuts it right back (drew and cut 摸切) │ 2萬 8萬 9萬 3| 4| 6| 1● 3● 4● 5● 6● 中 發
+  ┈┈ South thinking (discard 48) ┈┈
+     table read:
+     North★    threat 0.70 · est 4 faan (2× floor payout) · 2/4 melded · collecting ● (1.00) · honours late → near-ready read
+     East      threat 0.12 · est 5 faan (3× floor payout) · value honours early → suspicious
+     West      threat 0.39 · est 3 faan (1× floor payout) · 2/4 melded · collecting | (0.64) · all suits cut early → all-pungs read
+     race pressure 0.70 → distant plans discounted harder
+     plans considered:
+       → balanced/chows   score   0.82 · pays 4 faan · 1 away · wastes 0 tiles
+         all-pungs 對對糊    score  -2.57 · pays 6 faan · 4 away · wastes 0 tiles
+         pung-flush 萬     score  -4.72 · pays 9 faan · 4 away · wastes 2 tiles
+  South  draws 3萬 · cuts it right back (drew and cut 摸切) │ 1萬 3萬 9萬 9萬 9萬 3| 4| 2● 3● 4● 7● 南 南
+  West   draws 發 · cuts it right back (drew and cut 摸切) │ 2| 2| 4| 5| 6| 4● 6● ‖ 槓9| 碰西
+  North★ draws 2● · cuts it right back (drew and cut 摸切) │ 1● 1● 5● 5● 7● 7● 中 ‖ 碰8● 碰9●
+      (East passes on chow×2 of 2●)
+  East   draws 2萬 · cuts 發 │ 2萬 2萬 8萬 9萬 3| 4| 6| 1● 3● 4● 5● 6● 中
+  South  draws 1萬 · cuts 3萬 │ 1萬 1萬 9萬 9萬 9萬 3| 4| 2● 3● 4● 7● 南 南
+  West   draws 東 · cuts it right back (drew and cut 摸切) │ 2| 2| 4| 5| 6| 4● 6● ‖ 槓9| 碰西
+  North★ draws 2萬 · cuts it right back (drew and cut 摸切) │ 1● 1● 5● 5● 7● 7● 中 ‖ 碰8● 碰9●
+      (East passes on pung of 2萬)
+  East   draws 發 · cuts it right back (drew and cut 摸切) │ 2萬 2萬 8萬 9萬 3| 4| 6| 1● 3● 4● 5● 6● 中
+  ┈┈ South thinking (discard 56) ┈┈
+     table read:
+     North★    threat 0.69 · est 4 faan (2× floor payout) · 2/4 melded · collecting ● (0.95) · honours late → near-ready read
+     East      threat 0.13 · est 5 faan (3× floor payout) · value honours early → suspicious
+     West      threat 0.55 · est 3 faan (1× floor payout) · 2/4 melded · collecting | (0.69) · all suits cut early → all-pungs read · honours late → near-ready read
+     race pressure 0.69 → distant plans discounted harder
+     plans considered:
+       → balanced/chows   score   3.60 · pays 4 faan · 0 away · wastes 0 tiles
+         all-pungs 對對糊    score  -2.57 · pays 6 faan · 4 away · wastes 0 tiles
+         pung-flush 萬     score  -5.98 · pays 9 faan · 4 away · wastes 3 tiles
+  South  draws 5| · cuts 7● │ 1萬 1萬 9萬 9萬 9萬 3| 4| 5| 2● 3● 4● 南 南
+  North★ pungs 7● from South → [pung 7● 7● 7●] · cuts 中 │ 1● 1● 5● 5● ‖ 碰8● 碰9● 碰7●
+  East   draws 7● · cuts it right back (drew and cut 摸切) │ 2萬 2萬 8萬 9萬 3| 4| 6| 1● 3● 4● 5● 6● 中
+  South  draws 4| · cuts it right back (drew and cut 摸切) │ 1萬 1萬 9萬 9萬 9萬 3| 4| 5| 2● 3● 4● 南 南
+      (West passes on chow of 4|)
+  West   draws 西 · cuts it right back (drew and cut 摸切) │ 2| 2| 4| 5| 6| 4● 6● ‖ 槓9| 碰西
+  North★ draws 4萬 · cuts it right back (drew and cut 摸切) │ 1● 1● 5● 5● ‖ 碰8● 碰9● 碰7●
+  East   draws 2| · cuts 中 │ 2萬 2萬 8萬 9萬 2| 3| 4| 6| 1● 3● 4● 5● 6●
+  South  draws 7| · cuts it right back (drew and cut 摸切) │ 1萬 1萬 9萬 9萬 9萬 3| 4| 5| 2● 3● 4● 南 南
+      (West passes on chow of 7|)
+  ┈┈ West thinking (discard 64) ┈┈
+     table read:
+     North★    threat 0.68 · est 4 faan (2× floor payout) · 3/4 melded · collecting ● (1.00)
+     East      threat 0.11 · est 5 faan (3× floor payout) · value honours early → suspicious
+     South     threat 0.15 · est 5 faan (3× floor payout) · value honours early → suspicious
+     race pressure 0.68 → distant plans discounted harder
+     plans considered:
+       → balanced/chows   score   1.80 · pays 3 faan · 0 away · wastes 0 tiles
+         pung-flush |     score  -1.61 · pays 8 faan · 3 away · wastes 0 tiles
+         all-pungs 對對糊    score  -2.10 · pays 5 faan · 3 away · wastes 0 tiles
+  West   draws 中 · cuts it right back (drew and cut 摸切) │ 2| 2| 4| 5| 6| 4● 6● ‖ 槓9| 碰西
+  North★ draws 1●
+  North★ WINS by self-draw 自摸 on 1● · 10 faan: All Pungs 對對糊 3 + Full Flush 清一色 6 + Self-Draw 自摸 1
+        winning hand: 1● 1● 1● 5● 5● · melds: [pung 8● 8● 8●] [pung 9● 9● 9●] [pung 7● 7● 7●] · flowers: 秋
+  == hand 3 ends: chips East -128  South -128  West -128  North★ +384 · totals East -136  South -136  West -104  North★ 376 · dealer rotates
+
+hand 4 · dealer East 東 · round wind East 東 · wall seed 3998177302
+  deal  East  : 5萬 7萬 3| 3| 4| 7| 7| 1● 5● 8● 西 中  flowers: 春
+        South : 1萬 7萬 1| 6| 1● 2● 6● 7● 8● 北 發 白  flowers: 梅
+        West★ : 1萬 2萬 2萬 3萬 6萬 7萬 9萬 9萬 3| 6| 7● 南 北
+        North : 4萬 5| 5| 8| 9| 2● 6● 9● 9● 南 北 北 白
+  East   reveals flower 春 · replacement 8萬
+  South  reveals flower 梅 · replacement 2|
+  East   draws 2| · cuts 1● │ 5萬 7萬 8萬 2| 3| 3| 4| 7| 7| 5● 8● 西 中
+  South  draws 5萬 · cuts 白 │ 1萬 5萬 7萬 1| 2| 6| 1● 2● 6● 7● 8● 北 發
+  West★  draws 2萬 · cuts 3| │ 1萬 2萬 2萬 2萬 3萬 6萬 7萬 9萬 9萬 6| 7● 南 北
+  East   pungs 3| from West★ → [pung 3| 3| 3|] · cuts 8萬 │ 5萬 7萬 2| 4| 7| 7| 5● 8● 西 中 ‖ 碰3|
+  South  draws 7萬 · cuts it right back (drew and cut 摸切) │ 1萬 5萬 7萬 1| 2| 6| 1● 2● 6● 7● 8● 北 發
+  West★  draws 3● · cuts it right back (drew and cut 摸切) │ 1萬 2萬 2萬 2萬 3萬 6萬 7萬 9萬 9萬 6| 7● 南 北
+  North  draws 7| · cuts 4萬 │ 5| 5| 7| 8| 9| 2● 6● 9● 9● 南 北 北 白
+  East   draws 5● · cuts 8● │ 5萬 7萬 2| 4| 7| 7| 5● 5● 西 中 ‖ 碰3|
+      (South passes on chow of 8●)
+  ┈┈ South thinking (discard 8) ┈┈
+     table read:
+     East      threat 0.23 · est 3 faan (1× floor payout) · 1/4 melded · collecting | (0.58)
+     race pressure 0.23 → distant plans discounted harder
+     plans considered:
+       → balanced/chows   score  -1.86 · pays 2 faan · 2 away · wastes 0 tiles
+         flush ●          score  -5.58 · pays 4 faan · 4 away · wastes 2 tiles
+         pung-flush ●     score  -7.26 · pays 7 faan · 8 away · wastes 0 tiles
+  South  draws 3● · cuts 發 │ 1萬 5萬 7萬 1| 2| 6| 1● 2● 3● 6● 7● 8● 北
+  West★  draws 1萬 · cuts 7● │ 1萬 1萬 2萬 2萬 2萬 3萬 6萬 7萬 9萬 9萬 6| 南 北
+  North  draws 6| · cuts 5| │ 5| 6| 7| 8| 9| 2● 6● 9● 9● 南 北 北 白
+  East   draws 4● · cuts 5● │ 5萬 7萬 2| 4| 7| 7| 4● 5● 西 中 ‖ 碰3|
+      (South passes on chow of 5●)
+  South  draws 8萬 · cuts it right back (drew and cut 摸切) │ 1萬 5萬 7萬 1| 2| 6| 1● 2● 3● 6● 7● 8● 北
+      (West★ passes on chow×2 of 8萬)
+  West★  draws 7| · cuts it right back (drew and cut 摸切) │ 1萬 1萬 2萬 2萬 2萬 3萬 6萬 7萬 9萬 9萬 6| 南 北
+      (North passes on chow×3 of 7|)
+  East   pungs 7| from West★ → [pung 7| 7| 7|] · cuts 7萬 │ 5萬 2| 4| 4● 5● 西 中 ‖ 碰3| 碰7|
+  South  draws 3● · cuts 1萬 │ 5萬 7萬 1| 2| 6| 1● 2● 3● 3● 6● 7● 8● 北
+  ┈┈ West★ thinking (discard 16) ┈┈
+     table read:
+     East      threat 0.44 · est 4 faan (2× floor payout) · 2/4 melded · collecting | (1.00)
+     South     threat 0.00 · est 5 faan (3× floor payout) · value honours early → suspicious
+     race pressure 0.44 → distant plans discounted harder
+     plans considered:
+       → flush 萬          score  -1.58 · pays 3 faan · 2 away · wastes 0 tiles
+         pung-flush 萬     score  -2.00 · pays 6 faan · 3 away · wastes 0 tiles
+         all-pungs 對對糊    score  -2.26 · pays 3 faan · 3 away · wastes 0 tiles
+  West★  pungs 1萬 from South → [pung 1萬 1萬 1萬] · cuts 6| │ 2萬 2萬 2萬 3萬 6萬 7萬 9萬 9萬 南 北 ‖ 碰1萬
+      (North passes on chow×2 of 6|)
+  North  draws 秋 — a flower · replacement 4| · cuts 白 │ 4| 5| 6| 7| 8| 9| 2● 6● 9● 9● 南 北 北
+  East   draws 4| · cuts 5萬 │ 2| 4| 4| 4● 5● 西 中 ‖ 碰3| 碰7|
+  South  draws 南 · cuts 3● │ 5萬 7萬 1| 2| 6| 1● 2● 3● 6● 7● 8● 南 北
+  West★  draws 2萬 · cuts 南 │ 2萬 2萬 2萬 2萬 3萬 6萬 7萬 9萬 9萬 北 ‖ 碰1萬
+  North  draws 8| · cuts 南 │ 4| 5| 6| 7| 8| 8| 9| 2● 6● 9● 9● 北 北
+  East   draws 西 · cuts 中 │ 2| 4| 4| 4● 5● 西 西 ‖ 碰3| 碰7|
+  South  draws 8| · cuts 7萬 │ 5萬 1| 2| 6| 8| 1● 2● 3● 6● 7● 8● 南 北
+  ┈┈ West★ thinking (discard 24) ┈┈
+     table read:
+     North     threat 0.00 · est 5 faan (3× floor payout) · value honours early → suspicious
+     East      threat 0.74 · est 4 faan (2× floor payout) · 2/4 melded · collecting | (1.00) · honours late → near-ready read
+     South     threat 0.00 · est 5 faan (3× floor payout) · value honours early → suspicious
+     race pressure 0.74 → distant plans discounted harder
+     plans considered:
+       → flush 萬          score   2.85 · pays 6 faan · 1 away · wastes 0 tiles
+         pung-flush 萬     score  -0.78 · pays 9 faan · 3 away · wastes 0 tiles
+         all-pungs 對對糊    score  -2.31 · pays 3 faan · 3 away · wastes 0 tiles
+  West★  draws 9● · cuts it right back (drew and cut 摸切) │ 2萬 2萬 2萬 2萬 3萬 6萬 7萬 9萬 9萬 北 ‖ 碰1萬
+      (North passes on pung of 9●)
+  North  draws 9萬 · cuts it right back (drew and cut 摸切) │ 4| 5| 6| 7| 8| 8| 9| 2● 6● 9● 9● 北 北
+  West★  pungs 9萬 from North → [pung 9萬 9萬 9萬]
+  West★  declares concealed kong 暗槓 2萬 · replacement 1| · cuts it right back (drew and cut 摸切) │ 3萬 6萬 7萬 北 ‖ 碰1萬 碰9萬 暗槓2萬
+  North  draws 3● · cuts 8| │ 4| 5| 6| 7| 8| 9| 2● 3● 6● 9● 9● 北 北
+  East   draws 5萬 · cuts it right back (drew and cut 摸切) │ 2| 4| 4| 4● 5● 西 西 ‖ 碰3| 碰7|
+  South  draws 白 · cuts it right back (drew and cut 摸切) │ 5萬 1| 2| 6| 8| 1● 2● 3● 6● 7● 8● 南 北
+  West★  draws 中 · cuts 3萬 │ 6萬 7萬 北 中 ‖ 碰1萬 碰9萬 暗槓2萬
+  North  draws 1● · cuts 6● │ 4| 5| 6| 7| 8| 9| 1● 2● 3● 9● 9● 北 北
+      (East passes on chow of 6●)
+  ┈┈ East thinking (discard 32) ┈┈
+     table read:
+     West★     threat 0.59 · est 4 faan (2× floor payout) · 3/4 melded · collecting 萬 (1.00)
+     North     threat 0.00 · est 4 faan (2× floor payout) · all suits cut early → all-pungs read · value honours early → suspicious
+     South     threat 0.10 · est 5 faan (3× floor payout) · value honours early → suspicious
+     race pressure 0.59 → distant plans discounted harder
+     plans considered:
+       → pung-flush |     score   1.40 · pays 7 faan · 2 away · wastes 1 tiles
+         all-pungs 對對糊    score   0.14 · pays 4 faan · 2 away · wastes 0 tiles
+         balanced/chows   score  -0.30 · pays 2 faan · 1 away · wastes 0 tiles
+  East   draws 夏 — a flower · replacement 3萬 · cuts it right back (drew and cut 摸切) │ 2| 4| 4| 4● 5● 西 西 ‖ 碰3| 碰7|
+  South  draws 2| · cuts 南 │ 5萬 1| 2| 2| 6| 8| 1● 2● 3● 6● 7● 8● 北
+  West★  draws 3萬 · cuts it right back (drew and cut 摸切) │ 6萬 7萬 北 中 ‖ 碰1萬 碰9萬 暗槓2萬
+  North  draws 發 · cuts it right back (drew and cut 摸切) │ 4| 5| 6| 7| 8| 9| 1● 2● 3● 9● 9● 北 北
+  East   draws 1| · cuts 5● │ 1| 2| 4| 4| 4● 西 西 ‖ 碰3| 碰7|
+      (South passes on chow of 5●)
+  South  draws 4萬 · cuts 1| │ 4萬 5萬 2| 2| 6| 8| 1● 2● 3● 6● 7● 8● 北
+  West★  draws 9| · cuts it right back (drew and cut 摸切) │ 6萬 7萬 北 中 ‖ 碰1萬 碰9萬 暗槓2萬
+      (North passes on chow of 9|)
+  North  draws 5| · cuts it right back (drew and cut 摸切) │ 4| 5| 6| 7| 8| 9| 1● 2● 3● 9● 9● 北 北
+  ┈┈ East thinking (discard 40) ┈┈
+     table read:
+     West★     threat 0.53 · est 4 faan (2× floor payout) · 3/4 melded · collecting 萬 (1.00)
+     North     threat 0.10 · est 4 faan (2× floor payout) · all suits cut early → all-pungs read · value honours early → suspicious
+     South     threat 0.15 · est 5 faan (3× floor payout) · value honours early → suspicious
+     race pressure 0.53 → distant plans discounted harder
+     plans considered:
+       → pung-flush |     score   2.94 · pays 7 faan · 2 away · wastes 0 tiles
+         all-pungs 對對糊    score   1.57 · pays 4 faan · 1 away · wastes 0 tiles
+         balanced/chows   score  -0.06 · pays 2 faan · 1 away · wastes 0 tiles
+  East   draws 4● · cuts it right back (drew and cut 摸切) │ 1| 2| 4| 4| 4● 西 西 ‖ 碰3| 碰7|
+      (South passes on chow of 4●)
+  South  draws 5● · cuts it right back (drew and cut 摸切) │ 4萬 5萬 2| 2| 6| 8| 1● 2● 3● 6● 7● 8● 北
+  West★  draws 8| · cuts it right back (drew and cut 摸切) │ 6萬 7萬 北 中 ‖ 碰1萬 碰9萬 暗槓2萬
+      (North passes on chow×2 of 8|)
+  North  draws 9| · cuts it right back (drew and cut 摸切) │ 4| 5| 6| 7| 8| 9| 1● 2● 3● 9● 9● 北 北
+  East   draws 菊 — a flower · replacement 5萬 · cuts 4● │ 5萬 1| 2| 4| 4| 西 西 ‖ 碰3| 碰7|
+      (South passes on chow of 4●)
+  South  draws 1| · cuts it right back (drew and cut 摸切) │ 4萬 5萬 2| 2| 6| 8| 1● 2● 3● 6● 7● 8● 北
+  West★  draws 4| · cuts it right back (drew and cut 摸切) │ 6萬 7萬 北 中 ‖ 碰1萬 碰9萬 暗槓2萬
+      (North passes on chow of 4|)
+  East   pungs 4| from West★ → [pung 4| 4| 4|] · cuts 5萬 │ 1| 2| 西 西 ‖ 碰3| 碰7| 碰4|
+  ┈┈ South thinking (discard 48) ┈┈
+     table read:
+     West★     threat 0.53 · est 4 faan (2× floor payout) · 3/4 melded · collecting 萬 (1.00)
+     North     threat 0.10 · est 4 faan (2× floor payout) · all suits cut early → all-pungs read · value honours early → suspicious
+     East      threat 0.82 · est 4 faan (2× floor payout) · 3/4 melded · collecting | (1.00)
+     race pressure 0.82 → distant plans discounted harder
+     plans considered:
+       → balanced/chows   score  -0.56 · pays 2 faan · 1 away · wastes 0 tiles
+         flush ●          score  -6.25 · pays 4 faan · 4 away · wastes 2 tiles
+         all-pungs 對對糊    score  -6.40 · pays 4 faan · 7 away · wastes 0 tiles
+  South  draws 西 · cuts it right back (drew and cut 摸切) │ 4萬 5萬 2| 2| 6| 8| 1● 2● 3● 6● 7● 8● 北
+  East   pungs 西 from South → [pung 西 西 西] · cuts 1| │ 2| ‖ 碰3| 碰7| 碰4| 碰西
+  South  draws 9| · cuts it right back (drew and cut 摸切) │ 4萬 5萬 2| 2| 6| 8| 1● 2● 3● 6● 7● 8● 北
+  West★  draws 南 · cuts it right back (drew and cut 摸切) │ 6萬 7萬 北 中 ‖ 碰1萬 碰9萬 暗槓2萬
+  North  draws 東 · cuts it right back (drew and cut 摸切) │ 4| 5| 6| 7| 8| 9| 1● 2● 3● 9● 9● 北 北
+  East   draws 5● · cuts it right back (drew and cut 摸切) │ 2| ‖ 碰3| 碰7| 碰4| 碰西
+      (South passes on chow of 5●)
+  South  draws 8● · cuts it right back (drew and cut 摸切) │ 4萬 5萬 2| 2| 6| 8| 1● 2● 3● 6● 7● 8● 北
+  West★  draws 6● · cuts it right back (drew and cut 摸切) │ 6萬 7萬 北 中 ‖ 碰1萬 碰9萬 暗槓2萬
+  ┈┈ North thinking (discard 56) ┈┈
+     table read:
+     West★     threat 0.74 · est 4 faan (2× floor payout) · 3/4 melded · collecting 萬 (1.00)
+     East      threat 0.89 · est 4 faan (2× floor payout) · 4/4 melded · collecting | (1.00)
+     South     threat 0.00 · est 5 faan (3× floor payout) · value honours early → suspicious
+     race pressure 0.89 → distant plans discounted harder
+     plans considered:
+       → balanced/chows   score   1.80 · pays 3 faan · 0 away · wastes 0 tiles
+         all-pungs 對對糊    score  -4.79 · pays 5 faan · 6 away · wastes 0 tiles
+         pung-flush ●     score  -4.95 · pays 8 faan · 6 away · wastes 0 tiles
+  North  draws 西 · cuts it right back (drew and cut 摸切) │ 4| 5| 6| 7| 8| 9| 1● 2● 3● 9● 9● 北 北
+  East   draws 東 · cuts 2| │ 東 ‖ 碰3| 碰7| 碰4| 碰西
+      (South passes on pung of 2|)
+  South  draws 7● · cuts it right back (drew and cut 摸切) │ 4萬 5萬 2| 2| 6| 8| 1● 2● 3● 6● 7● 8● 北
+  West★  draws 4● · cuts it right back (drew and cut 摸切) │ 6萬 7萬 北 中 ‖ 碰1萬 碰9萬 暗槓2萬
+      (North passes on chow of 4●)
+  North  draws 9萬 · cuts it right back (drew and cut 摸切) │ 4| 5| 6| 7| 8| 9| 1● 2● 3● 9● 9● 北 北
+  East   draws 4萬 · cuts it right back (drew and cut 摸切) │ 東 ‖ 碰3| 碰7| 碰4| 碰西
+  South  draws 4萬 · cuts it right back (drew and cut 摸切) │ 4萬 5萬 2| 2| 6| 8| 1● 2● 3● 6● 7● 8● 北
+  West★  draws 2| · cuts it right back (drew and cut 摸切) │ 6萬 7萬 北 中 ‖ 碰1萬 碰9萬 暗槓2萬
+      (South passes on pung of 2|)
+  ┈┈ North thinking (discard 64) ┈┈
+     table read:
+     West★     threat 0.68 · est 4 faan (2× floor payout) · 3/4 melded · collecting 萬 (1.00)
+     East      threat 0.82 · est 4 faan (2× floor payout) · 4/4 melded · collecting | (1.00)
+     South     threat 0.00 · est 5 faan (3× floor payout) · value honours early → suspicious
+     race pressure 0.82 → distant plans discounted harder
+     plans considered:
+       → balanced/chows   score   1.80 · pays 3 faan · 0 away · wastes 0 tiles
+         all-pungs 對對糊    score  -4.79 · pays 5 faan · 6 away · wastes 0 tiles
+         pung-flush ●     score  -6.15 · pays 8 faan · 6 away · wastes 1 tiles
+  North  draws 8萬 · cuts it right back (drew and cut 摸切) │ 4| 5| 6| 7| 8| 9| 1● 2● 3● 9● 9● 北 北
+  East   draws 1萬 · cuts it right back (drew and cut 摸切) │ 東 ‖ 碰3| 碰7| 碰4| 碰西
+  South  draws 3萬 · cuts 北 │ 3萬 4萬 5萬 2| 2| 6| 8| 1● 2● 3● 6● 7● 8●
+  !! North hit a winning shape on South's 北 but holds 2 faan — REFUSED (under the 3-faan floor)
+     held: 4| 5| 6| 7| 8| 9| 1● 2● 3● 9● 9● 北 北 · flowers: 秋 · would score: Pung of Seat Wind 門風 1 + Fully Concealed 門前清 1
+  West★  draws 東 · cuts it right back (drew and cut 摸切) │ 6萬 7萬 北 中 ‖ 碰1萬 碰9萬 暗槓2萬
+  East   WINS 食糊 on 東 from West★ · 7 faan: All Pungs 對對糊 3 + Half Flush 混一色 3 + Own Season 正花 1
+        winning hand: 東 東 · melds: [pung 3| 3| 3|] [pung 7| 7| 7|] [pung 4| 4| 4|] [pung 西 西 西] · flowers: 菊 春 夏
+  == hand 4 ends: chips East +96  South 0  West★ -96  North 0 · totals East -40  South -104  West★ 280  North -136 · dealer repeats 連莊
+
+hand 5 · dealer East 東 · round wind East 東 · wall seed 1343741541
+  deal  East  : 4萬 7萬 7萬 8萬 9萬 1| 3| 4| 6| 4● 8● 白 白
+        South : 2萬 1| 2| 4● 5● 7● 8● 9● 9● 東 南 西 發
+        West★ : 1萬 3萬 4萬 7萬 8萬 5| 7| 7| 9| 9| 6● 南 北
+        North : 4萬 5萬 9萬 9萬 9萬 7| 6● 6● 7● 7● 北 中  flowers: 菊
+  North  reveals flower 菊 · replacement 發
+  East   draws 6萬 · cuts 7萬 │ 4萬 6萬 7萬 8萬 9萬 1| 3| 4| 6| 4● 8● 白 白
+  South  draws 8| · cuts it right back (drew and cut 摸切) │ 2萬 1| 2| 4● 5● 7● 8● 9● 9● 東 南 西 發
+      (West★ passes on chow of 8|)
+  West★  draws 5| · cuts 1萬 │ 3萬 4萬 7萬 8萬 5| 5| 7| 7| 9| 9| 6● 南 北
+  North  draws 2萬 · cuts 北 │ 2萬 4萬 5萬 9萬 9萬 9萬 7| 6● 6● 7● 7● 中 發
+  East   draws 3萬 · cuts 9萬 │ 3萬 4萬 6萬 7萬 8萬 1| 3| 4| 6| 4● 8● 白 白
+  North  kongs 9萬 from East → [kong 9萬 9萬 9萬 9萬] · replacement 5萬 · cuts 發 │ 2萬 4萬 5萬 5萬 7| 6● 6● 7● 7● 中 ‖ 槓9萬
+  East   draws 3● · cuts 1| │ 3萬 4萬 6萬 7萬 8萬 3| 4| 6| 3● 4● 8● 白 白
+  South  draws 5● · cuts 2萬 │ 1| 2| 4● 5● 5● 7● 8● 9● 9● 東 南 西 發
+      (West★ passes on chow of 2萬)
+  ┈┈ West★ thinking (discard 8) ┈┈
+     table read:
+     North     threat 0.25 · est 4 faan (2× floor payout) · 1/4 melded · collecting 萬 (0.69)
+     race pressure 0.25 → distant plans discounted harder
+     plans considered:
+       → all-pungs 對對糊    score  -1.44 · pays 4 faan · 4 away · wastes 0 tiles
+         pung-flush |     score  -1.57 · pays 7 faan · 4 away · wastes 1 tiles
+         balanced/chows   score  -2.30 · pays 2 faan · 3 away · wastes 0 tiles
+  West★  draws 北 · cuts 7萬 │ 3萬 4萬 8萬 5| 5| 7| 7| 9| 9| 6● 南 北 北
+  North  draws 2● · cuts 中 │ 2萬 4萬 5萬 5萬 7| 2● 6● 6● 7● 7● ‖ 槓9萬
+  East   draws 8萬 · cuts it right back (drew and cut 摸切) │ 3萬 4萬 6萬 7萬 8萬 3| 4| 6| 3● 4● 8● 白 白
+  South  draws 南 · cuts 發 │ 1| 2| 4● 5● 5● 7● 8● 9● 9● 東 南 南 西
+  West★  draws 6| · cuts 8萬 │ 3萬 4萬 5| 5| 6| 7| 7| 9| 9| 6● 南 北 北
+  North  draws 2萬 · cuts 4萬 │ 2萬 2萬 5萬 5萬 7| 2● 6● 6● 7● 7● ‖ 槓9萬
+  East   draws 7| · cuts 4萬 │ 3萬 6萬 7萬 8萬 3| 4| 6| 7| 3● 4● 8● 白 白
+  South  draws 3萬 · cuts it right back (drew and cut 摸切) │ 1| 2| 4● 5● 5● 7● 8● 9● 9● 東 南 南 西
+  ┈┈ West★ thinking (discard 16) ┈┈
+     table read:
+     North     threat 0.23 · est 5 faan (3× floor payout) · 1/4 melded · collecting 萬 (0.57) · value honours early → suspicious
+     South     threat 0.00 · est 5 faan (3× floor payout) · value honours early → suspicious
+     race pressure 0.23 → distant plans discounted harder
+     plans considered:
+       → pung-flush |     score  -0.34 · pays 7 faan · 4 away · wastes 0 tiles
+         balanced/chows   score  -1.15 · pays 2 faan · 2 away · wastes 0 tiles
+         all-pungs 對對糊    score  -1.43 · pays 4 faan · 4 away · wastes 0 tiles
+  West★  draws 6萬 · cuts 3萬 │ 4萬 6萬 5| 5| 6| 7| 7| 9| 9| 6● 南 北 北
+  North  draws 4| · cuts 2● │ 2萬 2萬 5萬 5萬 4| 7| 6● 6● 7● 7● ‖ 槓9萬
+      (East passes on chow of 2●)
+  East   draws 西 · cuts 3萬 │ 6萬 7萬 8萬 3| 4| 6| 7| 3● 4● 8● 西 白 白
+  South  draws 6| · cuts it right back (drew and cut 摸切) │ 1| 2| 4● 5● 5● 7● 8● 9● 9● 東 南 南 西
+      (West★ passes on chow of 6|)
+  West★  draws 6萬 · cuts 4萬 │ 6萬 6萬 5| 5| 6| 7| 7| 9| 9| 6● 南 北 北
+  North  draws 8● · cuts 7| │ 2萬 2萬 5萬 5萬 4| 6● 6● 7● 7● 8● ‖ 槓9萬
+  West★  pungs 7| from North → [pung 7| 7| 7|] · cuts 6● │ 6萬 6萬 5| 5| 6| 9| 9| 南 北 北 ‖ 碰7|
+  North  pungs 6● from West★ → [pung 6● 6● 6●] · cuts 8● │ 2萬 2萬 5萬 5萬 4| 7● 7● ‖ 槓9萬 碰6●
+  ┈┈ East thinking (discard 24) ┈┈
+     table read:
+     West★     threat 0.27 · est 6 faan (4× floor payout) · 1/4 melded · collecting | (0.83) · suit-phased cuts → BIG-hand read
+     North     threat 0.40 · est 6 faan (4× floor payout) · 2/4 melded · collecting 萬 (0.69) · value honours early → suspicious
+     South     threat 0.00 · est 5 faan (3× floor payout) · value honours early → suspicious
+     race pressure 0.40 → distant plans discounted harder
+     plans considered:
+       → balanced/chows   score  -1.58 · pays 3 faan · 2 away · wastes 0 tiles
+         pung-flush ●     score  -5.69 · pays 8 faan · 7 away · wastes 0 tiles
+         flush ●          score  -6.20 · pays 5 faan · 6 away · wastes 1 tiles
+  East   draws 1● · cuts 8● │ 6萬 7萬 8萬 3| 4| 6| 7| 1● 3● 4● 西 白 白
+  South  chows 8● from East → [chow 7● 8● 9●] · cuts 5● │ 1| 2| 4● 5● 8● 9● 東 南 南 西 ‖ 上7●8●9●
+  West★  draws 西 · cuts 6萬 │ 6萬 5| 5| 6| 9| 9| 南 西 北 北 ‖ 碰7|
+  North  draws 白 · cuts it right back (drew and cut 摸切) │ 2萬 2萬 5萬 5萬 4| 7● 7● ‖ 槓9萬 碰6●
+      (East passes on pung of 白)
+  East   draws 東 · cuts 西 │ 6萬 7萬 8萬 3| 4| 6| 7| 1● 3● 4● 東 白 白
+  South  draws 6萬 · cuts it right back (drew and cut 摸切) │ 1| 2| 4● 5● 8● 9● 東 南 南 西 ‖ 上7●8●9●
+  West★  draws 5● · cuts 6萬 │ 5| 5| 6| 9| 9| 5● 南 西 北 北 ‖ 碰7|
+  North  draws 7● · cuts 4| │ 2萬 2萬 5萬 5萬 7● 7● 7● ‖ 槓9萬 碰6●
+  ┈┈ East thinking (discard 32) ┈┈
+     table read:
+     West★     threat 0.35 · est 6 faan (4× floor payout) · 1/4 melded · collecting | (0.83) · suit-phased cuts → BIG-hand read
+     North     threat 0.56 · est 6 faan (4× floor payout) · 2/4 melded · collecting 萬 (0.76) · value honours early → suspicious
+     South     threat 0.32 · est 5 faan (3× floor payout) · 1/4 melded · collecting ● (0.62) · all suits cut early → all-pungs read · value honours early → suspicious
+     race pressure 0.56 → distant plans discounted harder
+     plans considered:
+       → balanced/chows   score  -1.63 · pays 3 faan · 2 away · wastes 0 tiles
+         all-pungs 對對糊    score  -6.40 · pays 5 faan · 7 away · wastes 0 tiles
+         pung-flush ●     score  -6.54 · pays 8 faan · 7 away · wastes 0 tiles
+  East   draws 中 · cuts it right back (drew and cut 摸切) │ 6萬 7萬 8萬 3| 4| 6| 7| 1● 3● 4● 東 白 白
+  South  draws 夏 — a flower · replacement 3| · cuts 西 │ 1| 2| 3| 4● 5● 8● 9● 東 南 南 ‖ 上7●8●9●
+  West★  draws 2● · cuts 5● │ 5| 5| 6| 9| 9| 2● 南 西 北 北 ‖ 碰7|
+  North  draws 8萬 · cuts it right back (drew and cut 摸切) │ 2萬 2萬 5萬 5萬 7● 7● 7● ‖ 槓9萬 碰6●
+      (East passes on chow of 8萬)
+  East   draws 3| · cuts 7| │ 6萬 7萬 8萬 3| 3| 4| 6| 1● 3● 4● 東 白 白
+  South  draws 1萬 · cuts it right back (drew and cut 摸切) │ 1| 2| 3| 4● 5● 8● 9● 東 南 南 ‖ 上7●8●9●
+  West★  draws 3● · cuts 2● │ 5| 5| 6| 9| 9| 3● 南 西 北 北 ‖ 碰7|
+  North  draws 蘭 — a flower · replacement 4| · cuts it right back (drew and cut 摸切) │ 2萬 2萬 5萬 5萬 7● 7● 7● ‖ 槓9萬 碰6●
+  ┈┈ East thinking (discard 40) ┈┈
+     table read:
+     West★     threat 0.35 · est 4 faan (2× floor payout) · 1/4 melded · collecting | (0.83)
+     North     threat 0.47 · est 6 faan (4× floor payout) · 2/4 melded · collecting 萬 (0.64) · value honours early → suspicious
+     South     threat 0.47 · est 5 faan (3× floor payout) · 1/4 melded · collecting ● (0.67) · all suits cut early → all-pungs read · value honours early → suspicious
+     race pressure 0.47 → distant plans discounted harder
+     plans considered:
+       → balanced/chows   score   0.15 · pays 3 faan · 1 away · wastes 0 tiles
+         all-pungs 對對糊    score  -4.77 · pays 5 faan · 6 away · wastes 0 tiles
+         pung-flush |     score  -5.38 · pays 8 faan · 6 away · wastes 0 tiles
+  East   draws 5| · cuts 東 │ 6萬 7萬 8萬 3| 3| 4| 5| 6| 1● 3● 4● 白 白
+  South  draws 8| · cuts 東 │ 1| 2| 3| 8| 4● 5● 8● 9● 南 南 ‖ 上7●8●9●
+  West★  draws 秋 — a flower · replacement 2| · cuts 3● │ 2| 5| 5| 6| 9| 9| 南 西 北 北 ‖ 碰7|
+  North  draws 6●
+  North  adds 6● to the exposed pung (added kong 加槓) · replacement 2| · cuts it right back (drew and cut 摸切) │ 2萬 2萬 5萬 5萬 7● 7● 7● ‖ 槓9萬 槓6●
+      (East passes on chow of 2|)
+  East   draws 8| · cuts it right back (drew and cut 摸切) │ 6萬 7萬 8萬 3| 3| 4| 5| 6| 1● 3● 4● 白 白
+  South  draws 9| · cuts 8● │ 1| 2| 3| 8| 9| 4● 5● 9● 南 南 ‖ 上7●8●9●
+  West★  draws 1萬 · cuts it right back (drew and cut 摸切) │ 2| 5| 5| 6| 9| 9| 南 西 北 北 ‖ 碰7|
+  North  draws 1| · cuts it right back (drew and cut 摸切) │ 2萬 2萬 5萬 5萬 7● 7● 7● ‖ 槓9萬 槓6●
+  ┈┈ East thinking (discard 48) ┈┈
+     table read:
+     West★     threat 0.27 · est 4 faan (2× floor payout) · 1/4 melded · collecting | (0.83)
+     North     threat 0.47 · est 6 faan (4× floor payout) · 2/4 melded · collecting 萬 (0.69) · value honours early → suspicious
+     South     threat 0.31 · est 4 faan (2× floor payout) · 1/4 melded · collecting ● (0.56) · all suits cut early → all-pungs read · value honours early → suspicious
+     race pressure 0.47 → distant plans discounted harder
+     plans considered:
+       → balanced/chows   score   1.80 · pays 3 faan · 0 away · wastes 0 tiles
+         all-pungs 對對糊    score  -4.35 · pays 5 faan · 5 away · wastes 0 tiles
+         pung-flush |     score  -5.80 · pays 8 faan · 5 away · wastes 1 tiles
+  East   draws 3| · cuts 1● │ 6萬 7萬 8萬 3| 3| 3| 4| 5| 6| 3● 4● 白 白
+  South  draws 8● · cuts it right back (drew and cut 摸切) │ 1| 2| 3| 8| 9| 4● 5● 9● 南 南 ‖ 上7●8●9●
+  West★  draws 東 · cuts 西 │ 2| 5| 5| 6| 9| 9| 東 南 北 北 ‖ 碰7|
+  North  draws 冬 — a flower · replacement 3● · cuts it right back (drew and cut 摸切) │ 2萬 2萬 5萬 5萬 7● 7● 7● ‖ 槓9萬 槓6●
+  East   draws 5萬 · cuts 8萬 │ 5萬 6萬 7萬 3| 3| 3| 4| 5| 6| 3● 4● 白 白
+  South  draws 5● · cuts it right back (drew and cut 摸切) │ 1| 2| 3| 8| 9| 4● 5● 9● 南 南 ‖ 上7●8●9●
+  !! East hit a winning shape on South's 5● but holds 2 faan — REFUSED (under the 3-faan floor)
+     held: 5萬 6萬 7萬 3| 3| 3| 4| 5| 6| 3● 4● 白 白 · would score: Fully Concealed 門前清 1 + No Flowers or Seasons 無花 1
+  West★  draws 2萬 · cuts it right back (drew and cut 摸切) │ 2| 5| 5| 6| 9| 9| 東 南 北 北 ‖ 碰7|
+  North  WINS 食糊 on 2萬 from West★ · 4 faan: All Pungs 對對糊 3 + Own Season 正花 1
+        winning hand: 2萬 2萬 2萬 5萬 5萬 7● 7● 7● · melds: [kong 9萬 9萬 9萬 9萬] [kong 6● 6● 6● 6●] · flowers: 蘭 菊 冬
+  == hand 5 ends: chips East 0  South 0  West★ -32  North +32 · totals East -40  South -104  West★ 248  North -104 · dealer rotates
+
+hand 6 · dealer East 東 · round wind East 東 · wall seed 2984273076
+  deal  East  : 7萬 9萬 1| 7| 8| 1● 5● 6● 7● 南 發 發  flowers: 梅
+        South★: 5萬 6萬 7萬 9萬 1| 4| 6| 6| 9| 2● 5● 9● 9●
+        West  : 1萬 2萬 1| 3| 5| 8| 9| 9| 3● 5● 9● 東  flowers: 竹
+        North : 5萬 5萬 5萬 7萬 9萬 2| 3| 5| 西 北 北 北 中
+  East   reveals flower 梅 · replacement 白
+  West   reveals flower 竹 · replacement 5|
+  East   draws 白 · cuts 南 │ 7萬 9萬 1| 7| 8| 1● 5● 6● 7● 發 發 白 白
+  South★ draws 6萬 · cuts 9萬 │ 5萬 6萬 6萬 7萬 1| 4| 6| 6| 9| 2● 5● 9● 9●
+  West   draws 中 · cuts 9● │ 1萬 2萬 1| 3| 5| 5| 8| 9| 9| 3● 5● 東 中
+      (South★ passes on pung of 9●)
+  North  draws 7● · cuts 2| │ 5萬 5萬 5萬 7萬 9萬 3| 5| 7● 西 北 北 北 中
+  East   draws 西 · cuts it right back (drew and cut 摸切) │ 7萬 9萬 1| 7| 8| 1● 5● 6● 7● 發 發 白 白
+  South★ draws 2| · cuts 1| │ 5萬 6萬 6萬 7萬 2| 4| 6| 6| 9| 2● 5● 9● 9●
+  West   draws 菊 — a flower · replacement 白 · cuts 中 │ 1萬 2萬 1| 3| 5| 5| 8| 9| 9| 3● 5● 東 白
+  North  draws 6| · cuts 3| │ 5萬 5萬 5萬 7萬 9萬 5| 6| 7● 西 北 北 北 中
+  ┈┈ East thinking (discard 8) ┈┈
+     table read: all quiet — no signals yet
+     plans considered:
+       → balanced/chows   score  -0.31 · pays 5 faan · 2 away · wastes 0 tiles
+         pung-flush ●     score  -4.20 · pays 10 faan · 6 away · wastes 0 tiles
+         all-pungs 對對糊    score  -4.57 · pays 7 faan · 6 away · wastes 0 tiles
+  East   draws 3萬 · cuts 1| │ 3萬 7萬 9萬 7| 8| 1● 5● 6● 7● 發 發 白 白
+  South★ draws 中 · cuts it right back (drew and cut 摸切) │ 5萬 6萬 6萬 7萬 2| 4| 6| 6| 9| 2● 5● 9● 9●
+  West   draws 1萬 · cuts it right back (drew and cut 摸切) │ 1萬 2萬 1| 3| 5| 5| 8| 9| 9| 3● 5● 東 白
+  North  draws 3● · cuts 7● │ 5萬 5萬 5萬 7萬 9萬 5| 6| 3● 西 北 北 北 中
+      (East passes on chow of 7●)
+  East   draws 8萬 · cuts 1● │ 3萬 7萬 8萬 9萬 7| 8| 5● 6● 7● 發 發 白 白
+  South★ draws 1● · cuts 9| │ 5萬 6萬 6萬 7萬 2| 4| 6| 6| 1● 2● 5● 9● 9●
+  West   pungs 9| from South★ → [pung 9| 9| 9|] · cuts 東 │ 1萬 2萬 1| 3| 5| 5| 8| 3● 5● 白 ‖ 碰9|
+  North  draws 1● · cuts it right back (drew and cut 摸切) │ 5萬 5萬 5萬 7萬 9萬 5| 6| 3● 西 北 北 北 中
+  ┈┈ East thinking (discard 16) ┈┈
+     table read:
+     South★    threat 0.00 · est 5 faan (3× floor payout) · value honours early → suspicious
+     West      threat 0.27 · est 6 faan (4× floor payout) · 1/4 melded · collecting | (0.83) · value honours early → suspicious
+     North     threat 0.00 · est 5 faan (3× floor payout) · suit-phased cuts → BIG-hand read
+     race pressure 0.27 → distant plans discounted harder
+     plans considered:
+       → balanced/chows   score   2.09 · pays 5 faan · 1 away · wastes 0 tiles
+         pung-flush ●     score  -4.18 · pays 10 faan · 6 away · wastes 0 tiles
+         all-pungs 對對糊    score  -4.68 · pays 7 faan · 6 away · wastes 0 tiles
+  East   draws 南 · cuts it right back (drew and cut 摸切) │ 3萬 7萬 8萬 9萬 7| 8| 5● 6● 7● 發 發 白 白
+  South★ draws 8萬 · cuts 1● │ 5萬 6萬 6萬 7萬 8萬 2| 4| 6| 6| 2● 5● 9● 9●
+  West   draws 西 · cuts it right back (drew and cut 摸切) │ 1萬 2萬 1| 3| 5| 5| 8| 3● 5● 白 ‖ 碰9|
+  North  draws 2● · cuts it right back (drew and cut 摸切) │ 5萬 5萬 5萬 7萬 9萬 5| 6| 3● 西 北 北 北 中
+  East   draws 8● · cuts it right back (drew and cut 摸切) │ 3萬 7萬 8萬 9萬 7| 8| 5● 6● 7● 發 發 白 白
+  South★ draws 4萬 · cuts 2● │ 4萬 5萬 6萬 6萬 7萬 8萬 2| 4| 6| 6| 5● 9● 9●
+  West   draws 2萬 · cuts 1萬 │ 2萬 2萬 1| 3| 5| 5| 8| 3● 5● 白 ‖ 碰9|
+  North  draws 發 · cuts 3● │ 5萬 5萬 5萬 7萬 9萬 5| 6| 西 北 北 北 中 發
+  ┈┈ East thinking (discard 24) ┈┈
+     table read:
+     South★    threat 0.00 · est 4 faan (2× floor payout) · all suits cut early → all-pungs read · value honours early → suspicious
+     West      threat 0.37 · est 6 faan (4× floor payout) · 1/4 melded · collecting | (0.83) · value honours early → suspicious
+     North     threat 0.00 · est 5 faan (3× floor payout) · suit-phased cuts → BIG-hand read
+     race pressure 0.37 → distant plans discounted harder
+     plans considered:
+       → balanced/chows   score   2.56 · pays 5 faan · 1 away · wastes 0 tiles
+         all-pungs 對對糊    score  -2.77 · pays 7 faan · 5 away · wastes 0 tiles
+         pung-flush 萬     score  -2.91 · pays 10 faan · 5 away · wastes 0 tiles
+  East   draws 3萬 · cuts 8| │ 3萬 3萬 7萬 8萬 9萬 7| 5● 6● 7● 發 發 白 白
+  South★ draws 南 · cuts it right back (drew and cut 摸切) │ 4萬 5萬 6萬 6萬 7萬 8萬 2| 4| 6| 6| 5● 9● 9●
+  West   draws 2| · cuts 8| │ 2萬 2萬 1| 2| 3| 5| 5| 3● 5● 白 ‖ 碰9|
+  North  draws 9| · cuts it right back (drew and cut 摸切) │ 5萬 5萬 5萬 7萬 9萬 5| 6| 西 北 北 北 中 發
+  East   draws 1萬 · cuts 7| │ 1萬 3萬 3萬 7萬 8萬 9萬 5● 6● 7● 發 發 白 白
+  South★ draws 4● · cuts 9● │ 4萬 5萬 6萬 6萬 7萬 8萬 2| 4| 6| 6| 4● 5● 9●
+  West   draws 6萬 · cuts it right back (drew and cut 摸切) │ 2萬 2萬 1| 2| 3| 5| 5| 3● 5● 白 ‖ 碰9|
+      (North passes on chow of 6萬)
+  South★ pungs 6萬 from West → [pung 6萬 6萬 6萬] · cuts 9● │ 4萬 5萬 7萬 8萬 2| 4| 6| 6| 4● 5● ‖ 碰6萬
+  ┈┈ West thinking (discard 32) ┈┈
+     table read:
+     South★    threat 0.24 · est 5 faan (3× floor payout) · 1/4 melded · collecting 萬 (0.65) · all suits cut early → all-pungs read · value honours early → suspicious
+     race pressure 0.24 → distant plans discounted harder
+     plans considered:
+       → balanced/chows   score  -0.23 · pays 2 faan · 1 away · wastes 0 tiles
+         all-pungs 對對糊    score  -2.53 · pays 4 faan · 4 away · wastes 0 tiles
+         pung-flush |     score  -4.56 · pays 10 faan · 5 away · wastes 0 tiles
+  West   draws 4萬 · cuts 2萬 │ 2萬 4萬 1| 2| 3| 5| 5| 3● 5● 白 ‖ 碰9|
+  North  draws 2萬 · cuts 中 │ 2萬 5萬 5萬 5萬 7萬 9萬 5| 6| 西 北 北 北 發
+  East   draws 8| · cuts 1萬 │ 3萬 3萬 7萬 8萬 9萬 8| 5● 6● 7● 發 發 白 白
+  South★ draws 2● · cuts it right back (drew and cut 摸切) │ 4萬 5萬 7萬 8萬 2| 4| 6| 6| 4● 5● ‖ 碰6萬
+  West   draws 7| · cuts it right back (drew and cut 摸切) │ 2萬 4萬 1| 2| 3| 5| 5| 3● 5● 白 ‖ 碰9|
+      (North passes on chow of 7|)
+  North  draws 蘭 — a flower · replacement 東 · cuts 西 │ 2萬 5萬 5萬 5萬 7萬 9萬 5| 6| 東 北 北 北 發
+  East   draws 4萬 · cuts 8| │ 3萬 3萬 4萬 7萬 8萬 9萬 5● 6● 7● 發 發 白 白
+  South★ draws 北 · cuts 2| │ 4萬 5萬 7萬 8萬 4| 6| 6| 4● 5● 北 ‖ 碰6萬
+      (West passes on chow of 2|)
+  ┈┈ West thinking (discard 40) ┈┈
+     table read:
+     South★    threat 0.25 · est 5 faan (3× floor payout) · 1/4 melded · collecting 萬 (0.68) · all suits cut early → all-pungs read · value honours early → suspicious
+     North     threat 0.30 · est 3 faan (1× floor payout) · honours late → near-ready read
+     race pressure 0.30 → distant plans discounted harder
+     plans considered:
+       → balanced/chows   score  -0.45 · pays 2 faan · 1 away · wastes 0 tiles
+         all-pungs 對對糊    score  -4.35 · pays 4 faan · 5 away · wastes 0 tiles
+         pung-flush |     score  -4.49 · pays 10 faan · 5 away · wastes 0 tiles
+  West   draws 8萬 · cuts it right back (drew and cut 摸切) │ 2萬 4萬 1| 2| 3| 5| 5| 3● 5● 白 ‖ 碰9|
+  North  chows 8萬 from West → [chow 7萬 8萬 9萬] · cuts 東 │ 2萬 5萬 5萬 5萬 5| 6| 北 北 北 發 ‖ 上7萬8萬9萬
+  East   draws 3| · cuts 3萬 │ 3萬 4萬 7萬 8萬 9萬 3| 5● 6● 7● 發 發 白 白
+      (South★ passes on chow of 3萬)
+  South★ draws 冬 — a flower · replacement 東 · cuts it right back (drew and cut 摸切) │ 4萬 5萬 7萬 8萬 4| 6| 6| 4● 5● 北 ‖ 碰6萬
+  West   draws 8| · cuts it right back (drew and cut 摸切) │ 2萬 4萬 1| 2| 3| 5| 5| 3● 5● 白 ‖ 碰9|
+  North  draws 9● · cuts it right back (drew and cut 摸切) │ 2萬 5萬 5萬 5萬 5| 6| 北 北 北 發 ‖ 上7萬8萬9萬
+  East   draws 3萬 · cuts it right back (drew and cut 摸切) │ 3萬 4萬 7萬 8萬 9萬 3| 5● 6● 7● 發 發 白 白
+      (South★ passes on chow of 3萬)
+  South★ draws 7● · cuts it right back (drew and cut 摸切) │ 4萬 5萬 7萬 8萬 4| 6| 6| 4● 5● 北 ‖ 碰6萬
+  ┈┈ West thinking (discard 48) ┈┈
+     table read:
+     South★    threat 0.43 · est 5 faan (3× floor payout) · 1/4 melded · collecting 萬 (0.71) · all suits cut early → all-pungs read · value honours early → suspicious
+     North     threat 0.45 · est 4 faan (2× floor payout) · 1/4 melded · collecting 萬 (0.83) · honours late → near-ready read
+     East      threat 0.22 · est 3 faan (1× floor payout) · quiet
+     race pressure 0.45 → distant plans discounted harder
+     plans considered:
+       → balanced/chows   score  -0.48 · pays 2 faan · 1 away · wastes 0 tiles
+         all-pungs 對對糊    score  -4.37 · pays 4 faan · 5 away · wastes 0 tiles
+         pung-flush |     score  -4.72 · pays 10 faan · 5 away · wastes 0 tiles
+  West   draws 1萬 · cuts it right back (drew and cut 摸切) │ 2萬 4萬 1| 2| 3| 5| 5| 3● 5● 白 ‖ 碰9|
+  North  draws 夏 — a flower · replacement 2| · cuts it right back (drew and cut 摸切) │ 2萬 5萬 5萬 5萬 5| 6| 北 北 北 發 ‖ 上7萬8萬9萬
+  East   draws 6● · cuts 3| │ 3萬 4萬 7萬 8萬 9萬 5● 6● 6● 7● 發 發 白 白
+  South★ draws 2● · cuts it right back (drew and cut 摸切) │ 4萬 5萬 7萬 8萬 4| 6| 6| 4● 5● 北 ‖ 碰6萬
+  West   draws 5● · cuts 3● │ 2萬 4萬 1| 2| 3| 5| 5| 5● 5● 白 ‖ 碰9|
+  North  draws 7萬 · cuts 2萬 │ 5萬 5萬 5萬 7萬 5| 6| 北 北 北 發 ‖ 上7萬8萬9萬
+  East   chows 2萬 from North → [chow 2萬 3萬 4萬] · cuts 6● │ 7萬 8萬 9萬 5● 6● 7● 發 發 白 白 ‖ 上2萬3萬4萬
+      (South★ passes on chow of 6●)
+  South★ draws 1| · cuts it right back (drew and cut 摸切) │ 4萬 5萬 7萬 8萬 4| 6| 6| 4● 5● 北 ‖ 碰6萬
+      (West passes on chow of 1|)
+  ┈┈ West thinking (discard 56) ┈┈
+     table read:
+     South★    threat 0.43 · est 5 faan (3× floor payout) · 1/4 melded · collecting 萬 (0.73) · all suits cut early → all-pungs read · value honours early → suspicious
+     North     threat 0.45 · est 4 faan (2× floor payout) · 1/4 melded · collecting 萬 (0.83) · honours late → near-ready read
+     East      threat 0.50 · est 3 faan (1× floor payout) · 1/4 melded · collecting 萬 (0.51)
+     race pressure 0.50 → distant plans discounted harder
+     plans considered:
+       → balanced/chows   score   0.14 · pays 3 faan · 1 away · wastes 0 tiles
+         all-pungs 對對糊    score  -2.54 · pays 5 faan · 4 away · wastes 0 tiles
+         flush |          score  -3.68 · pays 8 faan · 3 away · wastes 1 tiles
+  West   draws 秋 — a flower · replacement 4| · cuts 1| │ 2萬 4萬 2| 3| 4| 5| 5| 5● 5● 白 ‖ 碰9|
+  North  draws 7| · cuts 7萬 │ 5萬 5萬 5萬 5| 6| 7| 北 北 北 發 ‖ 上7萬8萬9萬
+      (East passes on chow of 7萬)
+  East   draws 8萬 · cuts it right back (drew and cut 摸切) │ 7萬 8萬 9萬 5● 6● 7● 發 發 白 白 ‖ 上2萬3萬4萬
+  South★ draws 4| · cuts 8萬 │ 4萬 5萬 7萬 4| 4| 6| 6| 4● 5● 北 ‖ 碰6萬
+  West   draws 1● · cuts it right back (drew and cut 摸切) │ 2萬 4萬 2| 3| 4| 5| 5| 5● 5● 白 ‖ 碰9|
+  North  draws 9萬 · cuts it right back (drew and cut 摸切) │ 5萬 5萬 5萬 5| 6| 7| 北 北 北 發 ‖ 上7萬8萬9萬
+      (East passes on chow of 9萬)
+  East   draws 白
+  East   WINS by self-draw 自摸 on 白 · 3 faan: Pung of Dragons 三元牌 1 + Self-Draw 自摸 1 + Own Flower 正花 1
+        winning hand: 7萬 8萬 9萬 5● 6● 7● 發 發 白 白 白 · melds: [chow 2萬 3萬 4萬] · flowers: 梅
+  == hand 6 ends: chips East +24  South★ -8  West -8  North -8 · totals East -80  South★ 240  West -112  North -48 · dealer repeats 連莊
+
+hand 7 · dealer East 東 · round wind East 東 · wall seed 90486923
+  deal  East  : 4萬 8萬 9萬 3| 9| 2● 5● 6● 7● 9● 北 北 白
+        South★: 6萬 9萬 3| 4| 8| 9| 2● 4● 9● 中  flowers: 蘭 菊 冬
+        West  : 3萬 7萬 3| 4| 6| 8| 8| 7● 8● 東 西 西 發
+        North : 5萬 6萬 8| 1● 5● 5● 6● 6● 8● 南  flowers: 梅 春 夏
+  South★ reveals flower 蘭 · replacement 8●
+  South★ reveals flower 菊 · replacement 4●
+  South★ reveals flower 冬 · replacement 3萬
+  North  reveals flower 梅 · replacement 白
+  North  reveals flower 春 · replacement 西
+  North  reveals flower 夏 · replacement 2|
+  East   draws 中 · cuts 9● │ 4萬 8萬 9萬 3| 9| 2● 5● 6● 7● 北 北 中 白
+  South★ draws 2| · cuts 9萬 │ 3萬 6萬 2| 3| 4| 8| 9| 2● 4● 4● 8● 9● 中
+  West   draws 5| · cuts 7萬 │ 3萬 3| 4| 5| 6| 8| 8| 7● 8● 東 西 西 發
+      (North passes on chow of 7萬)
+  North  draws 4萬 · cuts 2| │ 4萬 5萬 6萬 8| 1● 5● 5● 6● 6● 8● 南 西 白
+  East   draws 7萬 · cuts 中 │ 4萬 7萬 8萬 9萬 3| 9| 2● 5● 6● 7● 北 北 白
+  South★ draws 6萬 · cuts 中 │ 3萬 6萬 6萬 2| 3| 4| 8| 9| 2● 4● 4● 8● 9●
+  West   draws 發 · cuts 3萬 │ 3| 4| 5| 6| 8| 8| 7● 8● 東 西 西 發 發
+      (North passes on chow of 3萬)
+  North  draws 北 · cuts 8| │ 4萬 5萬 6萬 1● 5● 5● 6● 6● 8● 南 西 北 白
+  ┈┈ West thinking (discard 8) ┈┈
+     table read: all quiet — no signals yet
+     plans considered:
+       → balanced/chows   score   0.33 · pays 3 faan · 1 away · wastes 0 tiles
+         flush |          score   0.28 · pays 5 faan · 2 away · wastes 0 tiles
+         pung-flush |     score  -1.35 · pays 8 faan · 4 away · wastes 0 tiles
+  West   pungs 8| from North → [pung 8| 8| 8|] · cuts 東 │ 3| 4| 5| 6| 7● 8● 西 西 發 發 ‖ 碰8|
+  North  draws 2| · cuts it right back (drew and cut 摸切) │ 4萬 5萬 6萬 1● 5● 5● 6● 6● 8● 南 西 北 白
+  East   draws 4● · cuts 白 │ 4萬 7萬 8萬 9萬 3| 9| 2● 4● 5● 6● 7● 北 北
+  South★ draws 中 · cuts it right back (drew and cut 摸切) │ 3萬 6萬 6萬 2| 3| 4| 8| 9| 2● 4● 4● 8● 9●
+  West   draws 1● · cuts it right back (drew and cut 摸切) │ 3| 4| 5| 6| 7● 8● 西 西 發 發 ‖ 碰8|
+  North  draws 竹 — a flower · replacement 5萬 · cuts it right back (drew and cut 摸切) │ 4萬 5萬 6萬 1● 5● 5● 6● 6● 8● 南 西 北 白
+  East   draws 7| · cuts 4萬 │ 7萬 8萬 9萬 3| 7| 9| 2● 4● 5● 6● 7● 北 北
+  South★ draws 白 · cuts it right back (drew and cut 摸切) │ 3萬 6萬 6萬 2| 3| 4| 8| 9| 2● 4● 4● 8● 9●
+  ┈┈ West thinking (discard 16) ┈┈
+     table read:
+     South★    threat 0.00 · est 5 faan (3× floor payout) · value honours early → suspicious
+     East      threat 0.00 · est 5 faan (3× floor payout) · value honours early → suspicious
+     plans considered:
+       → pung-flush |     score   2.74 · pays 8 faan · 3 away · wastes 0 tiles
+         flush |          score   1.81 · pays 5 faan · 1 away · wastes 1 tiles
+         balanced/chows   score   0.61 · pays 3 faan · 1 away · wastes 0 tiles
+  West   draws 6| · cuts 8● │ 3| 4| 5| 6| 6| 7● 西 西 發 發 ‖ 碰8|
+  North  draws 東 · cuts 白 │ 4萬 5萬 6萬 1● 5● 5● 6● 6● 8● 東 南 西 北
+  East   draws 1| · cuts 9| │ 7萬 8萬 9萬 1| 3| 7| 2● 4● 5● 6● 7● 北 北
+  South★ draws 2● · cuts 8| │ 3萬 6萬 6萬 2| 3| 4| 9| 2● 2● 4● 4● 8● 9●
+  West   draws 1| · cuts 7● │ 1| 3| 4| 5| 6| 6| 西 西 發 發 ‖ 碰8|
+      (North passes on chow×2 of 7●)
+  North  draws 8● · cuts 東 │ 4萬 5萬 6萬 1● 5● 5● 6● 6● 8● 8● 南 西 北
+  East   draws 9萬 · cuts it right back (drew and cut 摸切) │ 7萬 8萬 9萬 1| 3| 7| 2● 4● 5● 6● 7● 北 北
+  South★ draws 東 · cuts 9| │ 3萬 6萬 6萬 2| 3| 4| 2● 2● 4● 4● 8● 9● 東
+  ┈┈ West thinking (discard 24) ┈┈
+     table read:
+     South★    threat 0.00 · est 5 faan (3× floor payout) · value honours early → suspicious
+     East      threat 0.00 · est 4 faan (2× floor payout) · all suits cut early → all-pungs read · value honours early → suspicious
+     plans considered:
+       → flush |          score   3.74 · pays 5 faan · 1 away · wastes 0 tiles
+         pung-flush |     score   3.47 · pays 8 faan · 3 away · wastes 0 tiles
+         balanced/chows   score   0.61 · pays 3 faan · 1 away · wastes 0 tiles
+  West   draws 5萬 · cuts it right back (drew and cut 摸切) │ 1| 3| 4| 5| 6| 6| 西 西 發 發 ‖ 碰8|
+      (North passes on chow of 5萬)
+  North  draws 7| · cuts it right back (drew and cut 摸切) │ 4萬 5萬 6萬 1● 5● 5● 6● 6● 8● 8● 南 西 北
+  East   draws 1● · cuts it right back (drew and cut 摸切) │ 7萬 8萬 9萬 1| 3| 7| 2● 4● 5● 6● 7● 北 北
+  South★ draws 4萬 · cuts it right back (drew and cut 摸切) │ 3萬 6萬 6萬 2| 3| 4| 2● 2● 4● 4● 8● 9● 東
+  West   draws 3| · cuts 1| │ 3| 3| 4| 5| 6| 6| 西 西 發 發 ‖ 碰8|
+  North  draws 5| · cuts it right back (drew and cut 摸切) │ 4萬 5萬 6萬 1● 5● 5● 6● 6● 8● 8● 南 西 北
+  East   draws 7● · cuts it right back (drew and cut 摸切) │ 7萬 8萬 9萬 1| 3| 7| 2● 4● 5● 6● 7● 北 北
+      (South★ passes on chow of 7●)
+  South★ draws 5萬 · cuts it right back (drew and cut 摸切) │ 3萬 6萬 6萬 2| 3| 4| 2● 2● 4● 4● 8● 9● 東
+  ┈┈ West thinking (discard 32) ┈┈
+     table read:
+     South★    threat 0.15 · est 5 faan (3× floor payout) · value honours early → suspicious
+     North     threat 0.07 · est 5 faan (3× floor payout) · suit-phased cuts → BIG-hand read
+     East      threat 0.07 · est 4 faan (2× floor payout) · all suits cut early → all-pungs read · value honours early → suspicious
+     race pressure 0.15 → distant plans discounted harder
+     plans considered:
+       → pung-flush |     score   4.91 · pays 8 faan · 2 away · wastes 0 tiles
+         flush |          score   2.90 · pays 5 faan · 1 away · wastes 0 tiles
+         all-pungs 對對糊    score   1.25 · pays 5 faan · 2 away · wastes 0 tiles
+  West   draws 9● · cuts it right back (drew and cut 摸切) │ 3| 3| 4| 5| 6| 6| 西 西 發 發 ‖ 碰8|
+  North  draws 4● · cuts 1● │ 4萬 5萬 6萬 4● 5● 5● 6● 6● 8● 8● 南 西 北
+  East   draws 2萬 · cuts 7| │ 2萬 7萬 8萬 9萬 1| 3| 2● 4● 5● 6● 7● 北 北
+  South★ draws 5| · cuts 2| │ 3萬 6萬 6萬 3| 4| 5| 2● 2● 4● 4● 8● 9● 東
+      (West passes on chow of 2|)
+  West   draws 南 · cuts it right back (drew and cut 摸切) │ 3| 3| 4| 5| 6| 6| 西 西 發 發 ‖ 碰8|
+  North  draws 發 · cuts 南 │ 4萬 5萬 6萬 4● 5● 5● 6● 6● 8● 8● 西 北 發
+  East   draws 白 · cuts it right back (drew and cut 摸切) │ 2萬 7萬 8萬 9萬 1| 3| 2● 4● 5● 6● 7● 北 北
+  South★ draws 7萬 · cuts it right back (drew and cut 摸切) │ 3萬 6萬 6萬 3| 4| 5| 2● 2● 4● 4● 8● 9● 東
+  ┈┈ West thinking (discard 40) ┈┈
+     table read:
+     South★    threat 0.22 · est 5 faan (3× floor payout) · value honours early → suspicious
+     East      threat 0.17 · est 4 faan (2× floor payout) · all suits cut early → all-pungs read · value honours early → suspicious
+     race pressure 0.22 → distant plans discounted harder
+     plans considered:
+       → pung-flush |     score   7.57 · pays 9 faan · 2 away · wastes 0 tiles
+         flush |          score   3.99 · pays 6 faan · 1 away · wastes 0 tiles
+         all-pungs 對對糊    score   1.88 · pays 6 faan · 2 away · wastes 0 tiles
+  West   draws 秋 — a flower · replacement 5| · cuts it right back (drew and cut 摸切) │ 3| 3| 4| 5| 6| 6| 西 西 發 發 ‖ 碰8|
+  North  draws 3● · cuts 北 │ 4萬 5萬 6萬 3● 4● 5● 5● 6● 6● 8● 8● 西 發
+      (East passes on pung of 北)
+  East   draws 東 · cuts it right back (drew and cut 摸切) │ 2萬 7萬 8萬 9萬 1| 3| 2● 4● 5● 6● 7● 北 北
+  South★ draws 7| · cuts it right back (drew and cut 摸切) │ 3萬 6萬 6萬 3| 4| 5| 2● 2● 4● 4● 8● 9● 東
+      (West passes on chow of 7|)
+  West   draws 1萬 · cuts it right back (drew and cut 摸切) │ 3| 3| 4| 5| 6| 6| 西 西 發 發 ‖ 碰8|
+  North  draws 1萬 · cuts it right back (drew and cut 摸切) │ 4萬 5萬 6萬 3● 4● 5● 5● 6● 6● 8● 8● 西 發
+  East   draws 3● · cuts 2萬 │ 7萬 8萬 9萬 1| 3| 2● 3● 4● 5● 6● 7● 北 北
+  South★ draws 3● · cuts 3萬 │ 6萬 6萬 3| 4| 5| 2● 2● 3● 4● 4● 8● 9● 東
+  ┈┈ West thinking (discard 48) ┈┈
+     table read:
+     South★    threat 0.30 · est 5 faan (3× floor payout) · value honours early → suspicious
+     North     threat 0.15 · est 3 faan (1× floor payout) · quiet
+     East      threat 0.22 · est 4 faan (2× floor payout) · all suits cut early → all-pungs read · value honours early → suspicious
+     race pressure 0.30 → distant plans discounted harder
+     plans considered:
+       → pung-flush |     score   7.20 · pays 9 faan · 2 away · wastes 0 tiles
+         flush |          score   3.89 · pays 6 faan · 1 away · wastes 0 tiles
+         all-pungs 對對糊    score   1.75 · pays 6 faan · 2 away · wastes 0 tiles
+  West   draws 2| · cuts it right back (drew and cut 摸切) │ 3| 3| 4| 5| 6| 6| 西 西 發 發 ‖ 碰8|
+  East   WINS 食糊 on 2| from West · 3 faan: All Chows 平糊 1 + Fully Concealed 門前清 1 + No Flowers or Seasons 無花 1
+        winning hand: 7萬 8萬 9萬 1| 2| 3| 2● 3● 4● 5● 6● 7● 北 北
+  == hand 7 ends: chips East +16  South★ 0  West -16  North 0 · totals East -64  South★ 240  West -128  North -48 · dealer repeats 連莊
+
+hand 8 · dealer East 東 · round wind East 東 · wall seed 1731018458
+  deal  East  : 5萬 9萬 5| 9| 1● 3● 5● 6● 9● 南 西 發 白
+        South★: 4萬 2| 2| 3| 5| 8| 8| 3● 4● 6● 8● 北  flowers: 冬
+        West  : 3萬 8萬 9萬 1| 4| 2● 7● 9● 東 發  flowers: 梅 竹 春
+        North : 2萬 3萬 6萬 6萬 1| 2| 2| 1● 2● 2● 5● 9● 東
+  South★ reveals flower 冬 · replacement 9|
+  West   reveals flower 梅 · replacement 西
+  West   reveals flower 竹 · replacement 8萬
+  West   reveals flower 春 · replacement 東
+  East   draws 7● · cuts 9萬 │ 5萬 5| 9| 1● 3● 5● 6● 7● 9● 南 西 發 白
+  South★ draws 1萬 · cuts it right back (drew and cut 摸切) │ 4萬 2| 2| 3| 5| 8| 8| 9| 3● 4● 6● 8● 北
+  West   draws 2萬 · cuts 1| │ 2萬 3萬 8萬 8萬 9萬 4| 2● 7● 9● 東 東 西 發
+  North  draws 中 · cuts 1| │ 2萬 3萬 6萬 6萬 2| 2| 1● 2● 2● 5● 9● 東 中
+  East   draws 6萬 · cuts 9| │ 5萬 6萬 5| 1● 3● 5● 6● 7● 9● 南 西 發 白
+  South★ draws 7● · cuts 4萬 │ 2| 2| 3| 5| 8| 8| 9| 3● 4● 6● 7● 8● 北
+  West   chows 4萬 from South★ → [chow 2萬 3萬 4萬] · cuts 2● │ 8萬 8萬 9萬 4| 7● 9● 東 東 西 發 ‖ 上2萬3萬4萬
+  North  pungs 2● from West → [pung 2● 2● 2●] · cuts 中 │ 2萬 3萬 6萬 6萬 2| 2| 1● 5● 9● 東 ‖ 碰2●
+  ┈┈ East thinking (discard 8) ┈┈
+     table read:
+     West      threat 0.23 · est 3 faan (1× floor payout) · 1/4 melded · collecting 萬 (0.58)
+     North     threat 0.23 · est 3 faan (1× floor payout) · 1/4 melded · collecting ● (0.58)
+     race pressure 0.23 → distant plans discounted harder
+     plans considered:
+       → balanced/chows   score  -3.82 · pays 2 faan · 4 away · wastes 0 tiles
+         flush ●          score  -5.05 · pays 4 faan · 5 away · wastes 0 tiles
+         all-pungs 對對糊    score  -6.39 · pays 4 faan · 7 away · wastes 0 tiles
+  East   draws 3● · cuts 5| │ 5萬 6萬 1● 3● 3● 5● 6● 7● 9● 南 西 發 白
+  South★ draws 1萬 · cuts it right back (drew and cut 摸切) │ 2| 2| 3| 5| 8| 8| 9| 3● 4● 6● 7● 8● 北
+  West   draws 2● · cuts it right back (drew and cut 摸切) │ 8萬 8萬 9萬 4| 7● 9● 東 東 西 發 ‖ 上2萬3萬4萬
+  North  draws 6萬 · cuts 東 │ 2萬 3萬 6萬 6萬 6萬 2| 2| 1● 5● 9● ‖ 碰2●
+      (West passes on pung of 東)
+  East   draws 7| · cuts it right back (drew and cut 摸切) │ 5萬 6萬 1● 3● 3● 5● 6● 7● 9● 南 西 發 白
+      (South★ passes on chow of 7|)
+  South★ draws 南 · cuts 4● │ 2| 2| 3| 5| 8| 8| 9| 3● 6● 7● 8● 南 北
+  West   draws 9| · cuts it right back (drew and cut 摸切) │ 8萬 8萬 9萬 4| 7● 9● 東 東 西 發 ‖ 上2萬3萬4萬
+  North  draws 8● · cuts 1● │ 2萬 3萬 6萬 6萬 6萬 2| 2| 5● 8● 9● ‖ 碰2●
+  ┈┈ East thinking (discard 16) ┈┈
+     table read:
+     West      threat 0.23 · est 3 faan (1× floor payout) · 1/4 melded · collecting 萬 (0.58)
+     North     threat 0.22 · est 5 faan (3× floor payout) · 1/4 melded · collecting ● (0.46) · value honours early → suspicious
+     race pressure 0.23 → distant plans discounted harder
+     plans considered:
+       → balanced/chows   score  -2.63 · pays 2 faan · 3 away · wastes 0 tiles
+         flush ●          score  -3.63 · pays 4 faan · 4 away · wastes 0 tiles
+         all-pungs 對對糊    score  -4.76 · pays 4 faan · 6 away · wastes 0 tiles
+  East   draws 南 · cuts 1● │ 5萬 6萬 3● 3● 5● 6● 7● 9● 南 南 西 發 白
+  South★ draws 2萬 · cuts it right back (drew and cut 摸切) │ 2| 2| 3| 5| 8| 8| 9| 3● 6● 7● 8● 南 北
+  West   draws 3| · cuts 9萬 │ 8萬 8萬 3| 4| 7● 9● 東 東 西 發 ‖ 上2萬3萬4萬
+  North  draws 9● · cuts 8● │ 2萬 3萬 6萬 6萬 6萬 2| 2| 5● 9● 9● ‖ 碰2●
+  East   chows 8● from North → [chow 7● 8● 9●] · cuts 白 │ 5萬 6萬 3● 3● 5● 6● 南 南 西 發 ‖ 上7●8●9●
+  South★ draws 8| · cuts 3● │ 2| 2| 3| 5| 8| 8| 8| 9| 6● 7● 8● 南 北
+      (East passes on pung of 3●)
+  West   draws 北 · cuts 發 │ 8萬 8萬 3| 4| 7● 9● 東 東 西 北 ‖ 上2萬3萬4萬
+  North  draws 白 · cuts it right back (drew and cut 摸切) │ 2萬 3萬 6萬 6萬 6萬 2| 2| 5● 9● 9● ‖ 碰2●
+  ┈┈ East thinking (discard 24) ┈┈
+     table read:
+     South★    threat 0.00 · est 5 faan (3× floor payout) · suit-phased cuts → BIG-hand read
+     West      threat 0.23 · est 3 faan (1× floor payout) · 1/4 melded · collecting 萬 (0.53) · all suits cut early → all-pungs read
+     North     threat 0.23 · est 5 faan (3× floor payout) · 1/4 melded · collecting ● (0.53) · value honours early → suspicious
+     race pressure 0.23 → distant plans discounted harder
+     plans considered:
+       → flush ●          score  -2.74 · pays 3 faan · 3 away · wastes 0 tiles
+         balanced/chows   score  -5.46 · pays 1 faan · 1 away · wastes 0 tiles · CANNOT reach the 3-faan floor
+  East   draws 7萬 · cuts 發 │ 5萬 6萬 7萬 3● 3● 5● 6● 南 南 西 ‖ 上7●8●9●
+  South★ draws 8● · cuts it right back (drew and cut 摸切) │ 2| 2| 3| 5| 8| 8| 8| 9| 6● 7● 8● 南 北
+      (West passes on chow of 8●)
+  West   draws 夏 — a flower · replacement 中 · cuts it right back (drew and cut 摸切) │ 8萬 8萬 3| 4| 7● 9● 東 東 西 北 ‖ 上2萬3萬4萬
+  North  draws 7萬 · cuts it right back (drew and cut 摸切) │ 2萬 3萬 6萬 6萬 6萬 2| 2| 5● 9● 9● ‖ 碰2●
+      (East passes on chow of 7萬)
+  East   draws 北 · cuts 西 │ 5萬 6萬 7萬 3● 3● 5● 6● 南 南 北 ‖ 上7●8●9●
+  South★ draws 5| · cuts 8● │ 2| 2| 3| 5| 5| 8| 8| 8| 9| 6● 7● 南 北
+      (West passes on chow of 8●)
+  West   draws 白 · cuts it right back (drew and cut 摸切) │ 8萬 8萬 3| 4| 7● 9● 東 東 西 北 ‖ 上2萬3萬4萬
+  North  draws 東 · cuts it right back (drew and cut 摸切) │ 2萬 3萬 6萬 6萬 6萬 2| 2| 5● 9● 9● ‖ 碰2●
+      (West passes on pung of 東)
+  ┈┈ East thinking (discard 32) ┈┈
+     table read:
+     West      threat 0.44 · est 3 faan (1× floor payout) · 1/4 melded · collecting 萬 (0.62) · all suits cut early → all-pungs read · honours late → near-ready read
+     North     threat 0.32 · est 5 faan (3× floor payout) · 1/4 melded · collecting ● (0.62) · all suits cut early → all-pungs read · value honours early → suspicious
+     race pressure 0.44 → distant plans discounted harder
+     plans considered:
+       → flush ●          score  -2.54 · pays 3 faan · 3 away · wastes 0 tiles
+         balanced/chows   score  -5.30 · pays 1 faan · 1 away · wastes 0 tiles · CANNOT reach the 3-faan floor
+  East   draws 6● · cuts 3● │ 5萬 6萬 7萬 3● 5● 6● 6● 南 南 北 ‖ 上7●8●9●
+  South★ draws 發 · cuts 7● │ 2| 2| 3| 5| 5| 8| 8| 8| 9| 6● 南 北 發
+  West   draws 3● · cuts it right back (drew and cut 摸切) │ 8萬 8萬 3| 4| 7● 9● 東 東 西 北 ‖ 上2萬3萬4萬
+  North  draws 7| · cuts it right back (drew and cut 摸切) │ 2萬 3萬 6萬 6萬 6萬 2| 2| 5● 9● 9● ‖ 碰2●
+  East   draws 5萬 · cuts it right back (drew and cut 摸切) │ 5萬 6萬 7萬 3● 5● 6● 6● 南 南 北 ‖ 上7●8●9●
+  South★ draws 6| · cuts 6● │ 2| 2| 3| 5| 5| 6| 8| 8| 8| 9| 南 北 發
+      (East passes on pung of 6●)
+  West   draws 2萬 · cuts it right back (drew and cut 摸切) │ 8萬 8萬 3| 4| 7● 9● 東 東 西 北 ‖ 上2萬3萬4萬
+  North  draws 1萬 · cuts 5● │ 1萬 2萬 3萬 6萬 6萬 6萬 2| 2| 9● 9● ‖ 碰2●
+  ┈┈ East thinking (discard 40) ┈┈
+     table read:
+     South★    threat 0.07 · est 5 faan (3× floor payout) · suit-phased cuts → BIG-hand read
+     West      threat 0.40 · est 3 faan (1× floor payout) · 1/4 melded · collecting 萬 (0.50) · all suits cut early → all-pungs read
+     North     threat 0.45 · est 4 faan (2× floor payout) · 1/4 melded · collecting ● (0.50) · all suits cut early → all-pungs read · value honours early → suspicious
+     race pressure 0.45 → distant plans discounted harder
+     plans considered:
+       → flush ●          score  -3.98 · pays 3 faan · 3 away · wastes 1 tiles
+         balanced/chows   score  -5.48 · pays 1 faan · 1 away · wastes 0 tiles · CANNOT reach the 3-faan floor
+  East   draws 9萬 · cuts it right back (drew and cut 摸切) │ 5萬 6萬 7萬 3● 5● 6● 6● 南 南 北 ‖ 上7●8●9●
+  South★ draws 1| · cuts 發 │ 1| 2| 2| 3| 5| 5| 6| 8| 8| 8| 9| 南 北
+  West   draws 6| · cuts 西 │ 8萬 8萬 3| 4| 6| 7● 9● 東 東 北 ‖ 上2萬3萬4萬
+  North  draws 1萬 · cuts it right back (drew and cut 摸切) │ 1萬 2萬 3萬 6萬 6萬 6萬 2| 2| 9● 9● ‖ 碰2●
+  East   draws 8萬 · cuts 5萬 │ 6萬 7萬 8萬 3● 5● 6● 6● 南 南 北 ‖ 上7●8●9●
+  South★ draws 西 · cuts it right back (drew and cut 摸切) │ 1| 2| 2| 3| 5| 5| 6| 8| 8| 8| 9| 南 北
+  West   draws 3| · cuts 東 │ 8萬 8萬 3| 3| 4| 6| 7● 9● 東 北 ‖ 上2萬3萬4萬
+  North  draws 9萬 · cuts it right back (drew and cut 摸切) │ 1萬 2萬 3萬 6萬 6萬 6萬 2| 2| 9● 9● ‖ 碰2●
+      (East passes on chow of 9萬)
+  ┈┈ East thinking (discard 48) ┈┈
+     table read:
+     South★    threat 0.30 · est 5 faan (3× floor payout) · suit-phased cuts → BIG-hand read · honours late → near-ready read
+     West      threat 0.43 · est 3 faan (1× floor payout) · 1/4 melded · collecting 萬 (0.56) · all suits cut early → all-pungs read
+     North     threat 0.38 · est 4 faan (2× floor payout) · 1/4 melded · collecting ● (0.56) · all suits cut early → all-pungs read · value honours early → suspicious
+     race pressure 0.43 → distant plans discounted harder
+     plans considered:
+       → flush ●          score  -3.01 · pays 3 faan · 2 away · wastes 1 tiles
+         balanced/chows   score  -4.55 · pays 1 faan · 0 away · wastes 0 tiles · CANNOT reach the 3-faan floor
+  East   draws 4● · cuts 北 │ 6萬 7萬 8萬 3● 4● 5● 6● 6● 南 南 ‖ 上7●8●9●
+  South★ draws 菊 — a flower · replacement 6● · cuts it right back (drew and cut 摸切) │ 1| 2| 2| 3| 5| 5| 6| 8| 8| 8| 9| 南 北
+  !! East hit a winning shape on South★'s 6● but holds 1 faan — REFUSED (under the 3-faan floor)
+     held: 6萬 7萬 8萬 3● 4● 5● 6● 6● 南 南 · melds: [chow 7● 8● 9●] · would score: No Flowers or Seasons 無花 1
+  West   draws 4| · cuts 東 │ 8萬 8萬 3| 3| 4| 4| 6| 7● 9● 北 ‖ 上2萬3萬4萬
+  North  draws 5● · cuts it right back (drew and cut 摸切) │ 1萬 2萬 3萬 6萬 6萬 6萬 2| 2| 9● 9● ‖ 碰2●
+      (East passes on chow×2 of 5●)
+  East   draws 中 · cuts it right back (drew and cut 摸切) │ 6萬 7萬 8萬 3● 4● 5● 6● 6● 南 南 ‖ 上7●8●9●
+  South★ draws 發 · cuts it right back (drew and cut 摸切) │ 1| 2| 2| 3| 5| 5| 6| 8| 8| 8| 9| 南 北
+  West   draws 北 · cuts it right back (drew and cut 摸切) │ 8萬 8萬 3| 3| 4| 4| 6| 7● 9● 北 ‖ 上2萬3萬4萬
+  North  draws 9| · cuts it right back (drew and cut 摸切) │ 1萬 2萬 3萬 6萬 6萬 6萬 2| 2| 9● 9● ‖ 碰2●
+  ┈┈ East thinking (discard 56) ┈┈
+     table read:
+     South★    threat 0.38 · est 3 faan (1× floor payout) · honours late → near-ready read
+     West      threat 0.48 · est 3 faan (1× floor payout) · 1/4 melded · collecting 萬 (0.60) · all suits cut early → all-pungs read · honours late → near-ready read
+     North     threat 0.37 · est 4 faan (2× floor payout) · 1/4 melded · collecting ● (0.49) · all suits cut early → all-pungs read · value honours early → suspicious
+     race pressure 0.48 → distant plans discounted harder
+     plans considered:
+       → flush ●          score  -4.07 · pays 3 faan · 2 away · wastes 2 tiles
+         balanced/chows   score  -4.55 · pays 1 faan · 0 away · wastes 0 tiles · CANNOT reach the 3-faan floor
+  East   draws 6| · cuts it right back (drew and cut 摸切) │ 6萬 7萬 8萬 3● 4● 5● 6● 6● 南 南 ‖ 上7●8●9●
+  South★ draws 4萬 · cuts it right back (drew and cut 摸切) │ 1| 2| 2| 3| 5| 5| 6| 8| 8| 8| 9| 南 北
+  West   draws 8萬 · cuts 北 │ 8萬 8萬 8萬 3| 3| 4| 4| 6| 7● 9● ‖ 上2萬3萬4萬
+  North  draws 中 · cuts it right back (drew and cut 摸切) │ 1萬 2萬 3萬 6萬 6萬 6萬 2| 2| 9● 9● ‖ 碰2●
+  East   draws 7萬 · cuts it right back (drew and cut 摸切) │ 6萬 7萬 8萬 3● 4● 5● 6● 6● 南 南 ‖ 上7●8●9●
+  South★ draws 4| · cuts 北 │ 1| 2| 2| 3| 4| 5| 5| 6| 8| 8| 8| 9| 南
+  West   draws 3萬 · cuts it right back (drew and cut 摸切) │ 8萬 8萬 8萬 3| 3| 4| 4| 6| 7● 9● ‖ 上2萬3萬4萬
+      (North passes on chow of 3萬)
+  North  draws 7● · cuts it right back (drew and cut 摸切) │ 1萬 2萬 3萬 6萬 6萬 6萬 2| 2| 9● 9● ‖ 碰2●
+      (East passes on chow of 7●)
+  ┈┈ East thinking (discard 64) ┈┈
+     table read:
+     South★    threat 0.22 · est 3 faan (1× floor payout) · honours late → near-ready read
+     West      threat 0.45 · est 4 faan (2× floor payout) · 1/4 melded · collecting 萬 (0.53) · all suits cut early → all-pungs read · value honours early → suspicious
+     North     threat 0.35 · est 4 faan (2× floor payout) · 1/4 melded · collecting ● (0.43) · all suits cut early → all-pungs read · value honours early → suspicious
+     race pressure 0.45 → distant plans discounted harder
+     plans considered:
+       → flush ●          score  -3.87 · pays 3 faan · 2 away · wastes 2 tiles
+         balanced/chows   score  -4.55 · pays 1 faan · 0 away · wastes 0 tiles · CANNOT reach the 3-faan floor
+  East   draws 4| · cuts it right back (drew and cut 摸切) │ 6萬 7萬 8萬 3● 4● 5● 6● 6● 南 南 ‖ 上7●8●9●
+      (South★ passes on chow×3 of 4|)
+      (West passes on pung of 4|)
+  South★ draws 4● · cuts it right back (drew and cut 摸切) │ 1| 2| 2| 3| 4| 5| 5| 6| 8| 8| 8| 9| 南
+  West   draws 7萬 · cuts it right back (drew and cut 摸切) │ 8萬 8萬 8萬 3| 3| 4| 4| 6| 7● 9● ‖ 上2萬3萬4萬
+  North  draws 1| · cuts it right back (drew and cut 摸切) │ 1萬 2萬 3萬 6萬 6萬 6萬 2| 2| 9● 9● ‖ 碰2●
+  East   draws 1● · cuts it right back (drew and cut 摸切) │ 6萬 7萬 8萬 3● 4● 5● 6● 6● 南 南 ‖ 上7●8●9●
+  South★ draws 8● · cuts it right back (drew and cut 摸切) │ 1| 2| 2| 3| 4| 5| 5| 6| 8| 8| 8| 9| 南
+      (West passes on chow of 8●)
+  West   draws 5| · cuts 4| │ 8萬 8萬 8萬 3| 3| 4| 5| 6| 7● 9● ‖ 上2萬3萬4萬
+  North  draws 4萬 · cuts 1萬 │ 2萬 3萬 4萬 6萬 6萬 6萬 2| 2| 9● 9● ‖ 碰2●
+  ┈┈ East thinking (discard 72) ┈┈
+     table read:
+     South★    threat 0.22 · est 3 faan (1× floor payout) · quiet
+     West      threat 0.52 · est 4 faan (2× floor payout) · 1/4 melded · collecting 萬 (0.48) · all suits cut early → all-pungs read · value honours early → suspicious
+     North     threat 0.35 · est 4 faan (2× floor payout) · 1/4 melded · collecting ● (0.48) · all suits cut early → all-pungs read · value honours early → suspicious
+     race pressure 0.52 → distant plans discounted harder
+     plans considered:
+       → flush ●          score  -4.08 · pays 3 faan · 2 away · wastes 2 tiles
+         balanced/chows   score  -4.55 · pays 1 faan · 0 away · wastes 0 tiles · CANNOT reach the 3-faan floor
+  East   draws 3萬 · cuts it right back (drew and cut 摸切) │ 6萬 7萬 8萬 3● 4● 5● 6● 6● 南 南 ‖ 上7●8●9●
+  South★ draws 5萬 · cuts it right back (drew and cut 摸切) │ 1| 2| 2| 3| 4| 5| 5| 6| 8| 8| 8| 9| 南
+  West   draws 7| · cuts it right back (drew and cut 摸切) │ 8萬 8萬 8萬 3| 3| 4| 5| 6| 7● 9● ‖ 上2萬3萬4萬
+  North  draws 5● · cuts it right back (drew and cut 摸切) │ 2萬 3萬 4萬 6萬 6萬 6萬 2| 2| 9● 9● ‖ 碰2●
+      (East passes on chow×2 of 5●)
+  East   draws 4● · cuts it right back (drew and cut 摸切) │ 6萬 7萬 8萬 3● 4● 5● 6● 6● 南 南 ‖ 上7●8●9●
+  South★ draws 1● · cuts it right back (drew and cut 摸切) │ 1| 2| 2| 3| 4| 5| 5| 6| 8| 8| 8| 9| 南
+  West   draws 5萬 · cuts it right back (drew and cut 摸切) │ 8萬 8萬 8萬 3| 3| 4| 5| 6| 7● 9● ‖ 上2萬3萬4萬
+      (North passes on chow×2 of 5萬)
+  North  draws 南 · cuts it right back (drew and cut 摸切) │ 2萬 3萬 4萬 6萬 6萬 6萬 2| 2| 9● 9● ‖ 碰2●
+  !! East hit a winning shape on North's 南 but holds 1 faan — REFUSED (under the 3-faan floor)
+     held: 6萬 7萬 8萬 3● 4● 5● 6● 6● 南 南 · melds: [chow 7● 8● 9●] · would score: No Flowers or Seasons 無花 1
+  ┈┈ East thinking (discard 80) ┈┈
+     table read:
+     South★    threat 0.15 · est 3 faan (1× floor payout) · quiet
+     West      threat 0.53 · est 4 faan (2× floor payout) · 1/4 melded · collecting 萬 (0.44) · all suits cut early → all-pungs read · value honours early → suspicious
+     North     threat 0.39 · est 4 faan (2× floor payout) · 1/4 melded · collecting ● (0.44) · all suits cut early → all-pungs read · value honours early → suspicious
+     race pressure 0.53 → distant plans discounted harder
+     plans considered:
+       → flush ●          score  -3.94 · pays 3 faan · 2 away · wastes 2 tiles
+         balanced/chows   score  -4.55 · pays 1 faan · 0 away · wastes 0 tiles · CANNOT reach the 3-faan floor
+  East   draws 蘭 — a flower · replacement 秋 — a flower · replacement 4萬 · cuts it right back (drew and cut 摸切) │ 6萬 7萬 8萬 3● 4● 5● 6● 6● 南 南 ‖ 上7●8●9●
+  South★ draws 6| · cuts 9| │ 1| 2| 2| 3| 4| 5| 5| 6| 6| 8| 8| 8| 南
+  West   draws 7| · cuts it right back (drew and cut 摸切) │ 8萬 8萬 8萬 3| 3| 4| 5| 6| 7● 9● ‖ 上2萬3萬4萬
+  North  draws 西 · cuts it right back (drew and cut 摸切) │ 2萬 3萬 4萬 6萬 6萬 6萬 2| 2| 9● 9● ‖ 碰2●
+  East   draws 白 · cuts it right back (drew and cut 摸切) │ 6萬 7萬 8萬 3● 4● 5● 6● 6● 南 南 ‖ 上7●8●9●
+  South★ draws 3| · cuts 南 │ 1| 2| 2| 3| 3| 4| 5| 5| 6| 6| 8| 8| 8|
+  !! East hit a winning shape on South★'s 南 but holds 0 faan — REFUSED (under the 3-faan floor)
+     held: 6萬 7萬 8萬 3● 4● 5● 6● 6● 南 南 · melds: [chow 7● 8● 9●] · flowers: 蘭 秋 · would score: no scoring patterns at all
+  West   draws 8| · cuts it right back (drew and cut 摸切) │ 8萬 8萬 8萬 3| 3| 4| 5| 6| 7● 9● ‖ 上2萬3萬4萬
+  South★ kongs 8| from West → [kong 8| 8| 8| 8|]
+  == wall exhausted 流局 — nobody wins · all four hands:
+     East   (ready ): 6萬 7萬 8萬 3● 4● 5● 6● 6● 南 南 · melds: [chow 7● 8● 9●] · flowers: 蘭 秋
+     South★ (ready ): 1| 2| 2| 3| 3| 4| 5| 5| 6| 6| · melds: [kong 8| 8| 8| 8|] · flowers: 菊 冬
+     West   (ready ): 8萬 8萬 8萬 3| 3| 4| 5| 6| 7● 9● · melds: [chow 2萬 3萬 4萬] · flowers: 梅 竹 春 夏
+     North  (ready ): 2萬 3萬 4萬 6萬 6萬 6萬 2| 2| 9● 9● · melds: [pung 2● 2● 2●]
+  == hand 8 ends: chips East 0  South★ 0  West 0  North 0 · totals East -64  South★ 240  West -128  North -48 · dealer repeats 連莊
+
+hand 9 · dealer East 東 · round wind East 東 · wall seed 3371549993
+  deal  East  : 4萬 5萬 5萬 6萬 8萬 5| 6| 8| 9| 3● 4● 北 中
+        South★: 2萬 4萬 8萬 9萬 4| 1● 4● 7● 8● 9● 西 發  flowers: 梅
+        West  : 1萬 3萬 3萬 1| 2| 5| 6| 6| 1● 6● 東 白  flowers: 菊
+        North : 3萬 7萬 7萬 8萬 3| 9| 3● 3● 5● 5● 8● 9● 中
+  South★ reveals flower 梅 · replacement 9萬
+  West   reveals flower 菊 · replacement 1萬
+  East   draws 9萬 · cuts 5萬 │ 4萬 5萬 6萬 8萬 9萬 5| 6| 8| 9| 3● 4● 北 中
+  South★ draws 1萬 · cuts 1● │ 1萬 2萬 4萬 8萬 9萬 9萬 4| 4● 7● 8● 9● 西 發
+  West   draws 8萬 · cuts 1● │ 1萬 1萬 3萬 3萬 8萬 1| 2| 5| 6| 6| 6● 東 白
+  North  draws 2● · cuts 7萬 │ 3萬 7萬 8萬 3| 9| 2● 3● 3● 5● 5● 8● 9● 中
+      (East passes on chow×3 of 7萬)
+  East   draws 6● · cuts 中 │ 4萬 5萬 6萬 8萬 9萬 5| 6| 8| 9| 3● 4● 6● 北
+  South★ draws 南 · cuts 4● │ 1萬 2萬 4萬 8萬 9萬 9萬 4| 7● 8● 9● 南 西 發
+  West   draws 4| · cuts 白 │ 1萬 1萬 3萬 3萬 8萬 1| 2| 4| 5| 6| 6| 6● 東
+  North  draws 3| · cuts 9| │ 3萬 7萬 8萬 3| 3| 2● 3● 3● 5● 5● 8● 9● 中
+  ┈┈ East thinking (discard 8) ┈┈
+     table read: all quiet — no signals yet
+     plans considered:
+       → balanced/chows   score  -1.82 · pays 2 faan · 2 away · wastes 0 tiles
+         flush 萬          score  -7.20 · pays 7 faan · 4 away · wastes 3 tiles
+         all-pungs 對對糊    score  -7.99 · pays 4 faan · 8 away · wastes 0 tiles
+  East   draws 7萬 · cuts 9| │ 4萬 5萬 6萬 7萬 8萬 9萬 5| 6| 8| 3● 4● 6● 北
+  South★ draws 中 · cuts 8萬 │ 1萬 2萬 4萬 9萬 9萬 4| 7● 8● 9● 南 西 中 發
+  West   draws 6| · cuts 8萬 │ 1萬 1萬 3萬 3萬 1| 2| 4| 5| 6| 6| 6| 6● 東
+  North  draws 南 · cuts 3萬 │ 7萬 8萬 3| 3| 2● 3● 3● 5● 5● 8● 9● 南 中
+      (East passes on chow of 3萬)
+      (West passes on pung of 3萬)
+  East   draws 4| · cuts 北 │ 4萬 5萬 6萬 7萬 8萬 9萬 4| 5| 6| 8| 3● 4● 6●
+  South★ draws 1● · cuts 2萬 │ 1萬 4萬 9萬 9萬 4| 1● 7● 8● 9● 南 西 中 發
+      (West passes on chow of 2萬)
+  West   draws 9| · cuts 6● │ 1萬 1萬 3萬 3萬 1| 2| 4| 5| 6| 6| 6| 9| 東
+  North  draws 7● · cuts 中 │ 7萬 8萬 3| 3| 2● 3● 3● 5● 5● 7● 8● 9● 南
+  ┈┈ East thinking (discard 16) ┈┈
+     table read:
+     South★    threat 0.00 · est 5 faan (3× floor payout) · suit-phased cuts → BIG-hand read
+     West      threat 0.00 · est 5 faan (3× floor payout) · value honours early → suspicious
+     plans considered:
+       → balanced/chows   score   0.90 · pays 2 faan · 0 away · wastes 0 tiles
+         all-pungs 對對糊    score  -6.38 · pays 4 faan · 7 away · wastes 0 tiles
+         pung-flush 萬     score  -7.28 · pays 10 faan · 8 away · wastes 0 tiles
+  East   draws 8| · cuts 6● │ 4萬 5萬 6萬 7萬 8萬 9萬 4| 5| 6| 8| 8| 3● 4●
+      (South★ passes on chow of 6●)
+  South★ draws 白 · cuts 8● │ 1萬 4萬 9萬 9萬 4| 1● 7● 9● 南 西 中 發 白
+  West   draws 3萬 · cuts 9| │ 1萬 1萬 3萬 3萬 3萬 1| 2| 4| 5| 6| 6| 6| 東
+  North  draws 5萬 · cuts 8萬 │ 5萬 7萬 3| 3| 2● 3● 3● 5● 5● 7● 8● 9● 南
+      (East passes on chow×2 of 8萬)
+  East   draws 3| · cuts 6| │ 4萬 5萬 6萬 7萬 8萬 9萬 3| 4| 5| 8| 8| 3● 4●
+      (West passes on kong/pung of 6|)
+  South★ draws 3● · cuts 7● │ 1萬 4萬 9萬 9萬 4| 1● 3● 9● 南 西 中 發 白
+  West   draws 7| · cuts 6| │ 1萬 1萬 3萬 3萬 3萬 1| 2| 4| 5| 6| 6| 7| 東
+  North  draws 發 · cuts 5● │ 5萬 7萬 3| 3| 2● 3● 3● 5● 7● 8● 9● 南 發
+  East   WINS 食糊 on 5● from North · 3 faan: All Chows 平糊 1 + Fully Concealed 門前清 1 + No Flowers or Seasons 無花 1
+        winning hand: 4萬 5萬 6萬 7萬 8萬 9萬 3| 4| 5| 8| 8| 3● 4● 5●
+  == hand 9 ends: chips East +16  South★ 0  West 0  North -16 · totals East -48  South★ 240  West -128  North -64 · dealer repeats 連莊
+
+hand 10 · dealer East 東 · round wind East 東 · wall seed 717114232
+  deal  East  : 2萬 4萬 7萬 2| 3| 6| 1● 1● 7● 東 中  flowers: 菊 冬
+        South★: 1萬 6萬 1| 2| 3| 3| 4| 2● 3● 4● 5● 中 發
+        West  : 4萬 6萬 7萬 7萬 3| 6| 7| 9| 3● 9● 東 南 南
+        North : 1萬 2萬 5萬 9萬 1| 4| 9| 3● 6● 8● 北  flowers: 梅 春
+  East   reveals flower 菊 · replacement 竹
+  East   reveals flower 竹 · replacement 2●
+  East   reveals flower 冬 · replacement 5●
+  North  reveals flower 梅 · replacement 6●
+  North  reveals flower 春 · replacement 5萬
+  East   draws 2| · cuts it right back (drew and cut 摸切) │ 2萬 4萬 7萬 2| 3| 6| 1● 1● 2● 5● 7● 東 中
+      (South★ passes on chow×2 of 2|)
+  South★ draws 1| · cuts 1萬 │ 6萬 1| 1| 2| 3| 3| 4| 2● 3● 4● 5● 中 發
+  West   draws 6萬 · cuts 9| │ 4萬 6萬 6萬 7萬 7萬 3| 6| 7| 3● 9● 東 南 南
+  North  draws 夏 — a flower · replacement 北 · cuts 9| │ 1萬 2萬 5萬 5萬 9萬 1| 4| 3● 6● 6● 8● 北 北
+  East   draws 5| · cuts 中 │ 2萬 4萬 7萬 2| 3| 5| 6| 1● 1● 2● 5● 7● 東
+  South★ draws 2萬 · cuts 2● │ 2萬 6萬 1| 1| 2| 3| 3| 4| 3● 4● 5● 中 發
+  West   draws 9| · cuts it right back (drew and cut 摸切) │ 4萬 6萬 6萬 7萬 7萬 3| 6| 7| 3● 9● 東 南 南
+  North  draws 5萬 · cuts 1| │ 1萬 2萬 5萬 5萬 5萬 9萬 4| 3● 6● 6● 8● 北 北
+      (East passes on chow of 1|)
+  ┈┈ South★ thinking (discard 8) ┈┈
+     table read: all quiet — no signals yet
+     plans considered:
+       → pung-flush |     score  -4.34 · pays 6 faan · 5 away · wastes 0 tiles
+         all-pungs 對對糊    score  -4.35 · pays 3 faan · 5 away · wastes 0 tiles
+         balanced/chows   score  -6.75 · pays 1 faan · 2 away · wastes 0 tiles · CANNOT reach the 3-faan floor
+  South★ pungs 1| from North → [pung 1| 1| 1|] · cuts 2萬 │ 6萬 2| 3| 3| 4| 3● 4● 5● 中 發 ‖ 碰1|
+  West   draws 7● · cuts 3| │ 4萬 6萬 6萬 7萬 7萬 6| 7| 3● 7● 9● 東 南 南
+  South★ pungs 3| from West → [pung 3| 3| 3|] · cuts 6萬 │ 2| 4| 3● 4● 5● 中 發 ‖ 碰1| 碰3|
+  West   pungs 6萬 from South★ → [pung 6萬 6萬 6萬] · cuts 3● │ 4萬 7萬 7萬 6| 7| 7● 9● 東 南 南 ‖ 碰6萬
+  North  draws 5萬
+  North  declares concealed kong 暗槓 5萬 · replacement 白 · cuts 3● │ 1萬 2萬 9萬 4| 6● 6● 8● 北 北 白 ‖ 暗槓5萬
+      (East passes on chow of 3●)
+  East   draws 2● · cuts 3| │ 2萬 4萬 7萬 2| 5| 6| 1● 1● 2● 2● 5● 7● 東
+      (South★ passes on chow of 3|)
+  South★ draws 9萬 · cuts it right back (drew and cut 摸切) │ 2| 4| 3● 4● 5● 中 發 ‖ 碰1| 碰3|
+  West   draws 8萬 · cuts it right back (drew and cut 摸切) │ 4萬 7萬 7萬 6| 7| 7● 9● 東 南 南 ‖ 碰6萬
+  ┈┈ North thinking (discard 16) ┈┈
+     table read:
+     South★    threat 0.44 · est 4 faan (2× floor payout) · 2/4 melded · collecting | (1.00)
+     West      threat 0.22 · est 3 faan (1× floor payout) · 1/4 melded · collecting 萬 (0.46) · all suits cut early → all-pungs read
+     East      threat 0.00 · est 5 faan (3× floor payout) · value honours early → suspicious
+     race pressure 0.44 → distant plans discounted harder
+     plans considered:
+       → all-pungs 對對糊    score  -2.51 · pays 5 faan · 4 away · wastes 0 tiles
+         balanced/chows   score  -2.59 · pays 3 faan · 3 away · wastes 0 tiles
+         pung-flush 萬     score  -4.96 · pays 8 faan · 5 away · wastes 0 tiles
+  North  draws 1| · cuts 9萬 │ 1萬 2萬 1| 4| 6● 6● 8● 北 北 白 ‖ 暗槓5萬
+  East   draws 1● · cuts 2| │ 2萬 4萬 7萬 5| 6| 1● 1● 1● 2● 2● 5● 7● 東
+  South★ draws 9● · cuts it right back (drew and cut 摸切) │ 2| 4| 3● 4● 5● 中 發 ‖ 碰1| 碰3|
+  West   draws 4● · cuts 4萬 │ 7萬 7萬 6| 7| 4● 7● 9● 東 南 南 ‖ 碰6萬
+  North  draws 8● · cuts 1| │ 1萬 2萬 4| 6● 6● 8● 8● 北 北 白 ‖ 暗槓5萬
+  East   draws 西 · cuts 7萬 │ 2萬 4萬 5| 6| 1● 1● 1● 2● 2● 5● 7● 東 西
+  West   pungs 7萬 from East → [pung 7萬 7萬 7萬] · cuts 東 │ 6| 7| 4● 7● 9● 南 南 ‖ 碰6萬 碰7萬
+  North  draws 秋 — a flower · replacement 6● · cuts 4| │ 1萬 2萬 6● 6● 6● 8● 8● 北 北 白 ‖ 暗槓5萬
+      (East passes on chow of 4|)
+  ┈┈ East thinking (discard 24) ┈┈
+     table read:
+     South★    threat 0.44 · est 4 faan (2× floor payout) · 2/4 melded · collecting | (1.00)
+     West      threat 0.69 · est 5 faan (3× floor payout) · 2/4 melded · collecting 萬 (0.67) · suit-phased cuts → BIG-hand read · all suits cut early → all-pungs read · honours late → near-ready read
+     North     threat 0.24 · est 3 faan (1× floor payout) · 1/4 melded · collecting 萬 (0.64) · all suits cut early → all-pungs read
+     race pressure 0.69 → distant plans discounted harder
+     plans considered:
+       → balanced/chows   score  -1.25 · pays 4 faan · 2 away · wastes 0 tiles
+         pung-flush ●     score  -2.51 · pays 9 faan · 4 away · wastes 0 tiles
+         all-pungs 對對糊    score  -2.57 · pays 6 faan · 4 away · wastes 0 tiles
+  East   draws 東 · cuts 4萬 │ 2萬 5| 6| 1● 1● 1● 2● 2● 5● 7● 東 東 西
+  South★ draws 8萬 · cuts it right back (drew and cut 摸切) │ 2| 4| 3● 4● 5● 中 發 ‖ 碰1| 碰3|
+  West   draws 4● · cuts 9● │ 6| 7| 4● 4● 7● 南 南 ‖ 碰6萬 碰7萬
+  North  draws 北 · cuts 白 │ 1萬 2萬 6● 6● 6● 8● 8● 北 北 北 ‖ 暗槓5萬
+  East   draws 3萬 · cuts 2萬 │ 3萬 5| 6| 1● 1● 1● 2● 2● 5● 7● 東 東 西
+  South★ draws 8| · cuts 3● │ 2| 4| 8| 4● 5● 中 發 ‖ 碰1| 碰3|
+  West   draws 蘭 — a flower · replacement 5| · cuts 7● │ 5| 6| 7| 4● 4● 南 南 ‖ 碰6萬 碰7萬
+      (North passes on chow of 7●)
+  North  draws 6| · cuts it right back (drew and cut 摸切) │ 1萬 2萬 6● 6● 6● 8● 8● 北 北 北 ‖ 暗槓5萬
+  ┈┈ East thinking (discard 32) ┈┈
+     table read:
+     South★    threat 0.52 · est 4 faan (2× floor payout) · 2/4 melded · collecting | (1.00)
+     West      threat 0.49 · est 3 faan (1× floor payout) · 2/4 melded · collecting 萬 (0.79) · all suits cut early → all-pungs read
+     North     threat 0.63 · est 3 faan (1× floor payout) · 1/4 melded · collecting 萬 (0.73) · all suits cut early → all-pungs read · honours late → near-ready read
+     race pressure 0.63 → distant plans discounted harder
+     plans considered:
+       → balanced/chows   score   0.88 · pays 4 faan · 1 away · wastes 0 tiles
+         all-pungs 對對糊    score  -2.53 · pays 6 faan · 4 away · wastes 0 tiles
+         pung-flush ●     score  -2.56 · pays 9 faan · 4 away · wastes 0 tiles
+  East   draws 7| · cuts 3萬 │ 5| 6| 7| 1● 1● 1● 2● 2● 5● 7● 東 東 西
+  !! North hit a winning shape on East's 3萬 but holds 2 faan — REFUSED (under the 3-faan floor)
+     held: 1萬 2萬 6● 6● 6● 8● 8● 北 北 北 · melds: [kong · concealed 5萬 5萬 5萬 5萬] · flowers: 梅 春 夏 秋 · would score: Pung of Seat Wind 門風 1 + Fully Concealed 門前清 1
+  South★ draws 1萬 · cuts it right back (drew and cut 摸切) │ 2| 4| 8| 4● 5● 中 發 ‖ 碰1| 碰3|
+  West   draws 4| · cuts it right back (drew and cut 摸切) │ 5| 6| 7| 4● 4● 南 南 ‖ 碰6萬 碰7萬
+  North  draws 白 · cuts it right back (drew and cut 摸切) │ 1萬 2萬 6● 6● 6● 8● 8● 北 北 北 ‖ 暗槓5萬
+  East   draws 8萬 · cuts it right back (drew and cut 摸切) │ 5| 6| 7| 1● 1● 1● 2● 2● 5● 7● 東 東 西
+  South★ draws 6| · cuts 5● │ 2| 4| 6| 8| 4● 中 發 ‖ 碰1| 碰3|
+  West   draws 5● · cuts it right back (drew and cut 摸切) │ 5| 6| 7| 4● 4● 南 南 ‖ 碰6萬 碰7萬
+  North  draws 9● · cuts it right back (drew and cut 摸切) │ 1萬 2萬 6● 6● 6● 8● 8● 北 北 北 ‖ 暗槓5萬
+  ┈┈ East thinking (discard 40) ┈┈
+     table read:
+     South★    threat 0.59 · est 4 faan (2× floor payout) · 2/4 melded · collecting | (1.00)
+     West      threat 0.57 · est 3 faan (1× floor payout) · 2/4 melded · collecting 萬 (0.87) · all suits cut early → all-pungs read
+     North     threat 0.41 · est 3 faan (1× floor payout) · 1/4 melded · collecting 萬 (0.78) · all suits cut early → all-pungs read
+     race pressure 0.59 → distant plans discounted harder
+     plans considered:
+       → balanced/chows   score   0.91 · pays 4 faan · 1 away · wastes 0 tiles
+         pung-flush ●     score  -2.28 · pays 9 faan · 4 away · wastes 0 tiles
+         all-pungs 對對糊    score  -2.51 · pays 6 faan · 4 away · wastes 0 tiles
+  East   draws 3萬 · cuts it right back (drew and cut 摸切) │ 5| 6| 7| 1● 1● 1● 2● 2● 5● 7● 東 東 西
+  !! North hit a winning shape on East's 3萬 but holds 2 faan — REFUSED (under the 3-faan floor)
+     held: 1萬 2萬 6● 6● 6● 8● 8● 北 北 北 · melds: [kong · concealed 5萬 5萬 5萬 5萬] · flowers: 梅 春 夏 秋 · would score: Pung of Seat Wind 門風 1 + Fully Concealed 門前清 1
+  South★ draws 2| · cuts 4● │ 2| 2| 4| 6| 8| 中 發 ‖ 碰1| 碰3|
+  !! West hit a winning shape on South★'s 4● but holds 0 faan — REFUSED (under the 3-faan floor)
+     held: 5| 6| 7| 4● 4● 南 南 · melds: [pung 6萬 6萬 6萬] [pung 7萬 7萬 7萬] · flowers: 蘭 · would score: no scoring patterns at all
+  West   draws 發 · cuts it right back (drew and cut 摸切) │ 5| 6| 7| 4● 4● 南 南 ‖ 碰6萬 碰7萬
+  North  draws 南 · cuts it right back (drew and cut 摸切) │ 1萬 2萬 6● 6● 6● 8● 8● 北 北 北 ‖ 暗槓5萬
+  !! West hit a winning shape on North's 南 but holds 0 faan — REFUSED (under the 3-faan floor)
+     held: 5| 6| 7| 4● 4● 南 南 · melds: [pung 6萬 6萬 6萬] [pung 7萬 7萬 7萬] · flowers: 蘭 · would score: no scoring patterns at all
+  East   draws 1●
+  East   declares concealed kong 暗槓 1● · replacement 5| · cuts it right back (drew and cut 摸切) │ 5| 6| 7| 2● 2● 5● 7● 東 東 西 ‖ 暗槓1●
+      (South★ passes on chow of 5|)
+  South★ draws 8| · cuts 中 │ 2| 2| 4| 6| 8| 8| 發 ‖ 碰1| 碰3|
+  West   draws 東 · cuts it right back (drew and cut 摸切) │ 5| 6| 7| 4● 4● 南 南 ‖ 碰6萬 碰7萬
+  East   pungs 東 from West → [pung 東 東 東] · cuts 西 │ 5| 6| 7| 2● 2● 5● 7● ‖ 暗槓1● 碰東
+  ┈┈ South★ thinking (discard 48) ┈┈
+     table read:
+     West      threat 0.65 · est 3 faan (1× floor payout) · 2/4 melded · collecting 萬 (0.89) · all suits cut early → all-pungs read
+     North     threat 0.47 · est 3 faan (1× floor payout) · 1/4 melded · collecting 萬 (0.79) · all suits cut early → all-pungs read · honours late → near-ready read
+     East      threat 0.66 · est 6 faan (4× floor payout) · 2/4 melded · collecting ● (0.94) · value honours early → suspicious
+     race pressure 0.66 → distant plans discounted harder
+     plans considered:
+       → pung-flush |     score   5.39 · pays 9 faan · 2 away · wastes 0 tiles
+         flush |          score   3.34 · pays 6 faan · 1 away · wastes 0 tiles
+         all-pungs 對對糊    score  -0.46 · pays 3 faan · 2 away · wastes 0 tiles
+  South★ draws 9萬 · cuts it right back (drew and cut 摸切) │ 2| 2| 4| 6| 8| 8| 發 ‖ 碰1| 碰3|
+  West   draws 6萬 · cuts it right back (drew and cut 摸切) │ 5| 6| 7| 4● 4● 南 南 ‖ 碰6萬 碰7萬
+  North  draws 西 · cuts it right back (drew and cut 摸切) │ 1萬 2萬 6● 6● 6● 8● 8● 北 北 北 ‖ 暗槓5萬
+  East   draws 4萬 · cuts it right back (drew and cut 摸切) │ 5| 6| 7| 2● 2● 5● 7● ‖ 暗槓1● 碰東
+  South★ draws 7| · cuts 4| │ 2| 2| 6| 7| 8| 8| 發 ‖ 碰1| 碰3|
+      (West passes on chow of 4|)
+  West   draws 西 · cuts it right back (drew and cut 摸切) │ 5| 6| 7| 4● 4● 南 南 ‖ 碰6萬 碰7萬
+  North  draws 北
+  North  declares concealed kong 暗槓 北 · replacement 西 · cuts it right back (drew and cut 摸切) │ 1萬 2萬 6● 6● 6● 8● 8● ‖ 暗槓5萬 暗槓北
+  East   draws 7● · cuts 5● │ 5| 6| 7| 2● 2● 7● 7● ‖ 暗槓1● 碰東
+  ┈┈ South★ thinking (discard 56) ┈┈
+     table read:
+     West      threat 0.77 · est 3 faan (1× floor payout) · 2/4 melded · collecting 萬 (0.82) · all suits cut early → all-pungs read · honours late → near-ready read
+     North     threat 0.55 · est 3 faan (1× floor payout) · 2/4 melded · collecting 萬 (0.82) · all suits cut early → all-pungs read · honours late → near-ready read
+     East      threat 0.72 · est 6 faan (4× floor payout) · 2/4 melded · collecting ● (0.83) · value honours early → suspicious
+     race pressure 0.77 → distant plans discounted harder
+     plans considered:
+       → pung-flush |     score   4.66 · pays 9 faan · 2 away · wastes 0 tiles
+         flush |          score   2.96 · pays 6 faan · 1 away · wastes 0 tiles
+         all-pungs 對對糊    score  -0.50 · pays 3 faan · 2 away · wastes 0 tiles
+  South★ draws 2● · cuts it right back (drew and cut 摸切) │ 2| 2| 6| 7| 8| 8| 發 ‖ 碰1| 碰3|
+  !! East hit a winning shape on South★'s 2● but holds 2 faan — REFUSED (under the 3-faan floor)
+     held: 5| 6| 7| 2● 2● 7● 7● · melds: [kong · concealed 1● 1● 1● 1●] [pung 東 東 東] · flowers: 菊 竹 冬 · would score: Pung of Seat Wind 門風 1 + Pung of Round Wind 圈風 1
+  West   draws 8萬 · cuts it right back (drew and cut 摸切) │ 5| 6| 7| 4● 4● 南 南 ‖ 碰6萬 碰7萬
+  North  draws 3● · cuts it right back (drew and cut 摸切) │ 1萬 2萬 6● 6● 6● 8● 8● ‖ 暗槓5萬 暗槓北
+  East   draws 白 · cuts it right back (drew and cut 摸切) │ 5| 6| 7| 2● 2● 7● 7● ‖ 暗槓1● 碰東
+  South★ draws 8| · cuts 發 │ 2| 2| 6| 7| 8| 8| 8| ‖ 碰1| 碰3|
+  West   draws 1萬 · cuts it right back (drew and cut 摸切) │ 5| 6| 7| 4● 4● 南 南 ‖ 碰6萬 碰7萬
+  North  draws 7| · cuts it right back (drew and cut 摸切) │ 1萬 2萬 6● 6● 6● 8● 8● ‖ 暗槓5萬 暗槓北
+      (East passes on chow of 7|)
+  East   draws 9萬 · cuts it right back (drew and cut 摸切) │ 5| 6| 7| 2● 2● 7● 7● ‖ 暗槓1● 碰東
+  ┈┈ South★ thinking (discard 64) ┈┈
+     table read:
+     West      threat 0.59 · est 3 faan (1× floor payout) · 2/4 melded · collecting 萬 (0.67) · all suits cut early → all-pungs read · honours late → near-ready read
+     North     threat 0.54 · est 3 faan (1× floor payout) · 2/4 melded · collecting 萬 (0.84) · all suits cut early → all-pungs read
+     East      threat 0.70 · est 6 faan (4× floor payout) · 2/4 melded · collecting ● (0.84) · honours late → near-ready read · value honours early → suspicious
+     race pressure 0.70 → distant plans discounted harder
+     plans considered:
+       → pung-flush |     score  10.80 · pays 9 faan · 1 away · wastes 0 tiles
+         flush |          score   6.80 · pays 6 faan · -1 away · wastes 0 tiles
+         all-pungs 對對糊    score   0.47 · pays 3 faan · 1 away · wastes 0 tiles
+  South★ draws 5|
+  South★ WINS by self-draw 自摸 on 5| · 8 faan: Full Flush 清一色 6 + Self-Draw 自摸 1 + No Flowers or Seasons 無花 1
+        winning hand: 2| 2| 5| 6| 7| 8| 8| 8| · melds: [pung 1| 1| 1|] [pung 3| 3| 3|]
+  == hand 10 ends: chips East -64  South★ +192  West -64  North -64 · totals East -112  South★ 432  West -192  North -128 · dealer rotates · round wind advances to South 南
+
+== MATCH ENDS (windRoundComplete) after 11 hands: 1st South★ +432 · 2nd East -112 · 3rd North -128 · 4th West -192
+   (final placements name seats by their LAST hand's wind)

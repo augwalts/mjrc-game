@@ -1545,7 +1545,13 @@ var LIU = {
     // three suit-dragon hands.
   }
 };
-var RULESETS = [HKOS_STANDARD, LIU];
+var MJRC_STANDARD = {
+  ...HKOS_STANDARD,
+  id: "mjrc-standard",
+  label: "MJRC \u6A19\u6E96 (3-10 faan)",
+  limitFaan: 10
+};
+var RULESETS = [HKOS_STANDARD, MJRC_STANDARD, LIU];
 var DEFAULT_RULESET_ID = HKOS_STANDARD.id;
 var ruleset = (id) => RULESETS.find((r) => r.id === id);
 
@@ -2704,7 +2710,7 @@ function playMatch(config, decide, opts = {}) {
 // tools/sim/evalcore.ts
 function mkDecide(profile, seed) {
   const cfgs = SEATS.map((s) => ({
-    ruleset: HKOS_STANDARD,
+    ruleset: MJRC_STANDARD,
     profile,
     rnd: prng((seed ^ (s + 1) * 2654435761) >>> 0)
   }));
@@ -2719,18 +2725,18 @@ function placementPoints(chips, seat) {
   for (let k = 0; k < equal; k++) sum += PLACEMENT[better + k];
   return sum / equal;
 }
-function evaluate(candidate, incumbent2, seeds, sample) {
+function evaluate(candidate, incumbent2, seeds, sample, opts) {
+  const plays = opts?.allSeats ? seeds.flatMap((seed) => [0, 1, 2, 3].map((seat) => ({ seed, seat }))) : seeds.map((seed, i) => ({ seed, seat: i % 4 }));
   let chips = 0, won = 0, lost = 0, dealInLoss = 0, dealIns = 0, taxLoss = 0, points = 0, hands = 0, draws = 0, refused = 0, claims = 0;
   let chows = 0, pungs = 0, kongs = 0, wod = 0, sd = 0;
   const patterns = {};
   const faans = [];
-  seeds.forEach((seed, i) => {
-    const mySeat = i % 4;
+  plays.forEach(({ seed, seat: mySeat }) => {
     const decideC = mkDecide(candidate, seed);
     const decideI = mkDecide(incumbent2, seed);
     const perSeat = SEATS.map((s) => s === mySeat ? (v, l, st) => decideC(v, l, st) : (v, l, st) => decideI(v, l, st));
     const r = playMatch(
-      { seed, ruleset: HKOS_STANDARD, matchLength: "oneWindRound" },
+      { seed, ruleset: MJRC_STANDARD, matchLength: "oneWindRound" },
       perSeat,
       { recordHands: sample !== void 0 }
     );
@@ -2759,14 +2765,14 @@ function evaluate(candidate, incumbent2, seeds, sample) {
   const faanHist = new Array(14).fill(0);
   for (const f of faans) faanHist[Math.max(0, Math.min(13, Math.round(f)))]++;
   return {
-    pointsPerMatch: +(points / seeds.length).toFixed(2),
-    chipsPerMatch: +(chips / seeds.length).toFixed(1),
-    chipsWonPerMatch: +(won / seeds.length).toFixed(1),
-    chipsLostPerMatch: +(lost / seeds.length).toFixed(1),
+    pointsPerMatch: +(points / plays.length).toFixed(2),
+    chipsPerMatch: +(chips / plays.length).toFixed(1),
+    chipsWonPerMatch: +(won / plays.length).toFixed(1),
+    chipsLostPerMatch: +(lost / plays.length).toFixed(1),
     winLossRatio: +(won / Math.max(1, Math.abs(lost))).toFixed(2),
-    dealInLossPerMatch: +(dealInLoss / seeds.length).toFixed(1),
-    dealInsPerMatch: +(dealIns / seeds.length).toFixed(2),
-    taxLossPerMatch: +(taxLoss / seeds.length).toFixed(1),
+    dealInLossPerMatch: +(dealInLoss / plays.length).toFixed(1),
+    dealInsPerMatch: +(dealIns / plays.length).toFixed(2),
+    taxLossPerMatch: +(taxLoss / plays.length).toFixed(1),
     drawRate: +(draws / hands).toFixed(3),
     refusedPerHand: +(refused / hands).toFixed(2),
     meanFaan: +(faans.reduce((a, b) => a + b, 0) / Math.max(1, faans.length)).toFixed(2),
@@ -2787,9 +2793,10 @@ var GENS = Number(flag("--gens", "20"));
 var SERIAL = args.includes("--serial");
 var OPPONENT = flag("--opponent", "mirror");
 var MUTSEED = Number(flag("--mutseed", "0"));
+var BASELINE_PATH = flag("--baseline", "tools/sim/baseline-v0.json");
 var BASELINE = {
   ...DEFAULT_PROFILE,
-  ...exs("tools/sim/baseline-v0.json") ? JSON.parse(rfs("tools/sim/baseline-v0.json", "utf8")) : {}
+  ...exs(BASELINE_PATH) ? JSON.parse(rfs(BASELINE_PATH, "utf8")) : {}
 };
 var BENCH_SEEDS = Array.from({ length: 48 }, (_, i) => 88e4 + i * 7919);
 var OUT = flag("--out", "tools/sim");
@@ -2798,7 +2805,7 @@ var MATCHES = Number(flag("--matches", "48"));
 var PROMOTE_MARGIN = 0.5;
 var KEYS = Object.keys(DEFAULT_PROFILE);
 var WORKER = pjoin(dirname(fileURLToPath(import.meta.url)), "evalworker.mjs");
-function evaluateRemote(candidate, incumbent2, seeds, collect) {
+function evaluateRemote(candidate, incumbent2, seeds, collect, allSeats) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [WORKER], { stdio: ["pipe", "pipe", "inherit"] });
     let out = "";
@@ -2812,12 +2819,12 @@ function evaluateRemote(candidate, incumbent2, seeds, collect) {
         reject(e);
       }
     });
-    child.stdin.end(JSON.stringify({ candidate, incumbent: incumbent2, seeds, collect }));
+    child.stdin.end(JSON.stringify({ candidate, incumbent: incumbent2, seeds, collect, allSeats }));
   });
 }
-async function runEval(c, i, seeds, sample) {
-  if (SERIAL) return evaluate(c, i, seeds, sample);
-  const { result, sample: got } = await evaluateRemote(c, i, seeds, sample !== void 0);
+async function runEval(c, i, seeds, sample, allSeats) {
+  if (SERIAL) return evaluate(c, i, seeds, sample, { allSeats });
+  const { result, sample: got } = await evaluateRemote(c, i, seeds, sample !== void 0, allSeats);
   if (sample && got) sample.push(...got);
   return result;
 }
@@ -2842,7 +2849,9 @@ function flush(status) {
     defaults: DEFAULT_PROFILE,
     keys: KEYS,
     history,
-    sampleMatches
+    sampleMatches,
+    baseline: BASELINE_PATH,
+    ruleset: MJRC_STANDARD.id
   };
   writeFileSync(join(OUT, "data.js"), "window.SIM_DATA = " + JSON.stringify(payload) + ";\n");
   writeFileSync(join(OUT, "best-profile.json"), JSON.stringify(incumbent, null, 2) + "\n");
@@ -2851,6 +2860,7 @@ var START_PROFILE = { ...incumbent };
 flush("starting");
 for (let gen = 0; gen < GENS; gen++) {
   const t0 = Date.now();
+  const incumbentBefore = incumbent;
   const seedBase = 5e5 + gen * 1e3;
   const seeds = Array.from({ length: MATCHES }, (_, i) => seedBase + i * 7919);
   const mrnd = prng(43968 + gen + MUTSEED >>> 0);
@@ -2880,14 +2890,17 @@ for (let gen = 0; gen < GENS; gen++) {
     }
   }
   const [bench, benchPrev] = await Promise.all([
-    runEval(incumbent, BASELINE, BENCH_SEEDS),
-    runEval(incumbent, START_PROFILE, BENCH_SEEDS)
+    runEval(incumbent, BASELINE, BENCH_SEEDS, void 0, true),
+    runEval(incumbent, START_PROFILE, BENCH_SEEDS, void 0, true)
   ]);
   const evalHands = (r) => r.activity.hands;
   const work = {
     matches: MATCHES * (7 + (confirm ? 2 : 0) + 1),
     hands: evalHands(control) + candidates.reduce((n, c) => n + evalHands(c.result), 0) + (confirm ? evalHands(confirm) * 2 : 0) + evalHands(bench)
   };
+  const changed = promoted === null ? null : Object.fromEntries(
+    Object.keys(incumbent).filter((k) => Math.abs(incumbent[k] - incumbentBefore[k]) > 1e-9).map((k) => [k, { from: +incumbentBefore[k].toFixed(4), to: +incumbent[k].toFixed(4) }])
+  );
   history.push({
     gen,
     seeds: [seeds[0], seeds[seeds.length - 1]],
@@ -2896,6 +2909,7 @@ for (let gen = 0; gen < GENS; gen++) {
     bench,
     benchPrev,
     work,
+    changed,
     candidates: candidates.map((c) => ({ id: c.id, result: c.result, profile: c.profile })),
     promoted,
     incumbentAfter: incumbent,

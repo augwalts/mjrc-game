@@ -6,12 +6,12 @@
  */
 import { prng } from "../../engine/src/wall.js";
 import { decideAction, type BotProfile, type BotConfig } from "../../engine/src/bots.js";
-import { HKOS_STANDARD } from "../../rulesets/src/presets.js";
+import { MJRC_STANDARD } from "../../rulesets/src/presets.js";
 import { playMatch, SEATS, type Decide } from "./driver.js";
 
 export function mkDecide(profile: BotProfile, seed: number): Decide {
   const cfgs: BotConfig[] = SEATS.map((s) => ({
-    ruleset: HKOS_STANDARD, profile,
+    ruleset: MJRC_STANDARD, profile,
     rnd: prng((seed ^ ((s + 1) * 0x9e3779b1)) >>> 0),
   }));
   return (view, legal, seat) => decideAction(view, legal, cfgs[seat]!);
@@ -69,14 +69,21 @@ export interface SampleMatch {
 export function evaluate(
   candidate: BotProfile, incumbent: BotProfile, seeds: number[],
   sample?: SampleMatch[],
+  opts?: { allSeats?: boolean },
 ): EvalResult {
+  // allSeats: play every wall four times with the candidate in each chair.
+  // Chips are zero-sum across seats, so a mirror scores EXACTLY 0 — this kills
+  // the constant wall-luck bias a fixed (seed, seat) pairing bakes into a
+  // fixed-seed benchmark (the "+62 in a mirror" finding, 2026-08-27).
+  const plays = opts?.allSeats
+    ? seeds.flatMap((seed) => ([0, 1, 2, 3] as const).map((seat) => ({ seed, seat })))
+    : seeds.map((seed, i) => ({ seed, seat: (i % 4) as 0 | 1 | 2 | 3 }));
   let chips = 0, won = 0, lost = 0, dealInLoss = 0, dealIns = 0, taxLoss = 0,
       points = 0, hands = 0, draws = 0, refused = 0, claims = 0;
   let chows = 0, pungs = 0, kongs = 0, wod = 0, sd = 0;
   const patterns: Record<string, number> = {};
   const faans: number[] = [];
-  seeds.forEach((seed, i) => {
-    const mySeat = (i % 4) as 0 | 1 | 2 | 3;
+  plays.forEach(({ seed, seat: mySeat }) => {
     const decideC = mkDecide(candidate, seed);
     const decideI = mkDecide(incumbent, seed);
     const perSeat: Decide[] = SEATS.map((s) =>
@@ -84,7 +91,7 @@ export function evaluate(
         ? (v, l, st) => decideC(v, l, st)
         : (v, l, st) => decideI(v, l, st));
     const r = playMatch(
-      { seed, ruleset: HKOS_STANDARD, matchLength: "oneWindRound" }, perSeat,
+      { seed, ruleset: MJRC_STANDARD, matchLength: "oneWindRound" }, perSeat,
       { recordHands: sample !== undefined },
     );
     if (sample) {
@@ -106,14 +113,14 @@ export function evaluate(
   const faanHist = new Array(14).fill(0);
   for (const f of faans) faanHist[Math.max(0, Math.min(13, Math.round(f)))]++;
   return {
-    pointsPerMatch: +(points / seeds.length).toFixed(2),
-    chipsPerMatch: +(chips / seeds.length).toFixed(1),
-    chipsWonPerMatch: +(won / seeds.length).toFixed(1),
-    chipsLostPerMatch: +(lost / seeds.length).toFixed(1),
+    pointsPerMatch: +(points / plays.length).toFixed(2),
+    chipsPerMatch: +(chips / plays.length).toFixed(1),
+    chipsWonPerMatch: +(won / plays.length).toFixed(1),
+    chipsLostPerMatch: +(lost / plays.length).toFixed(1),
     winLossRatio: +(won / Math.max(1, Math.abs(lost))).toFixed(2),
-    dealInLossPerMatch: +(dealInLoss / seeds.length).toFixed(1),
-    dealInsPerMatch: +(dealIns / seeds.length).toFixed(2),
-    taxLossPerMatch: +(taxLoss / seeds.length).toFixed(1),
+    dealInLossPerMatch: +(dealInLoss / plays.length).toFixed(1),
+    dealInsPerMatch: +(dealIns / plays.length).toFixed(2),
+    taxLossPerMatch: +(taxLoss / plays.length).toFixed(1),
     drawRate: +(draws / hands).toFixed(3),
     refusedPerHand: +(refused / hands).toFixed(2),
     meanFaan: +(faans.reduce((a, b) => a + b, 0) / Math.max(1, faans.length)).toFixed(2),

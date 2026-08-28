@@ -18,7 +18,7 @@ import {
   type MatchState, type Applied, type MatchConfig,
 } from "../../engine/src/reducer.js";
 import { decideAction, type SeatView, type BotConfig } from "../../engine/src/bots.js";
-import { HKOS_STANDARD } from "../../rulesets/src/presets.js";
+import { MJRC_STANDARD } from "../../rulesets/src/presets.js";
 import { score } from "../../engine/src/scoring.js";
 
 const SEATS: SeatIndex[] = [0, 1, 2, 3];
@@ -83,9 +83,9 @@ interface Tally {
 }
 
 function playMatch(seed: number, tally: Tally): void {
-  const config: MatchConfig = { seed, ruleset: HKOS_STANDARD, matchLength: "oneWindRound" };
+  const config: MatchConfig = { seed, ruleset: MJRC_STANDARD, matchLength: "oneWindRound" };
   const configs: BotConfig[] = SEATS.map((s) => ({
-    ruleset: HKOS_STANDARD, rnd: prng((seed ^ ((s + 1) * 0x9e3779b1)) >>> 0),
+    ruleset: MJRC_STANDARD, rnd: prng((seed ^ ((s + 1) * 0x9e3779b1)) >>> 0),
   }));
   let { state, events } = startMatch(config);
   const log = (a: Applied): void => { state = a.state; events = a.events; };

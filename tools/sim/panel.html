@@ -56,7 +56,7 @@ details.match summary:hover{background:#2c2c35}
 // mobile Chrome on slow networks — that was "where did the rest of the html
 // go"). Append real script tags, count them down, then boot the panel.
 (function () {
-  const files = ["overnight.js", "baselines.js", "threat-audit.js", "data.js"];
+  const files = ["overnight.js", "baselines.js", "threat-audit.js", "experiments.js", "log.js", "data.js"];
   let pending = files.length;
   const done = () => { if (--pending === 0 && window.initPanel) window.initPanel(); };
   for (const f of files) {
@@ -84,12 +84,13 @@ const D = window.SIM_DATA;
       const cls = c.improved ? "up" : "mut";
       const delta = c.improved && prevBest !== null ? ` (Δ+${(v - prevBest).toFixed(1)})` : "";
       if (c.improved) prevBest = v;
-      return `<span class="${cls}" title="cycle ${c.cycle} · ${c.opponent} · ${c.matches}m">${v > 0 ? "+" : ""}${v}${delta}</span>`;
+      return `<span class="${cls}" title="cycle ${c.cycle} · ${c.opponent} · ${c.matches}m${c.vsV0 !== undefined && c.vsV0 !== null ? ` · vs v0 ${c.vsV0}` : ""}">${v > 0 ? "+" : ""}${v}${delta}</span>`;
     }).join(" → ");
     el.innerHTML = `<div class="card" style="margin-bottom:12px;display:flex;gap:18px;align-items:baseline;flex-wrap:wrap">
       <b>Overnight series</b>
       <span class="mut">${O.statusLine} · ${hoursLeft}h remaining</span>
-      <span>hall of fame vs baseline: <b class="${typeof best === "number" && best > 0 ? "up" : ""}">${typeof best === "number" && best > 0 ? "+" : ""}${best}</b> chips/match</span>
+      <span>hall of fame vs baseline-v1: <b class="${typeof best === "number" && best > 0 ? "up" : ""}">${typeof best === "number" && best > 0 ? "+" : ""}${best}</b> chips/match <span class="mut" style="font-size:11px">(v1 = era-1 champion; 0 is par)</span></span>
+      ${(() => { const withV0 = done.filter((c) => c.vsV0 !== undefined && c.vsV0 !== null); if (!withV0.length) return ""; const lastV0 = withV0[withV0.length - 1].vsV0; return `<span class="mut" style="font-size:11px">continuity vs old v0: ${lastV0 > 0 ? "+" : ""}${lastV0}</span>`; })()}
       ${line ? `<span class="mut" style="font-size:11px">held-out by cycle: ${line}</span>` : ""}
       <span class="mut" style="font-size:11px">(the cards below are the LIVE cycle, updating per generation)</span>
     </div>`;
@@ -109,11 +110,12 @@ else if (D.history.length === 0) {
   const H = D.history;
   const last = H[H.length - 1];
   const promoted = H.filter(g => g.promoted !== null).length;
-  const totalMatches = H.length * (1 + 6) * 24;
+  const totalMatches = H.reduce((n, g) => n + (g.work ? g.work.matches : 168), 0);
+  const totalHands = H.reduce((n, g) => n + (g.work ? g.work.hands : 1200), 0);
   document.getElementById("status").textContent = D.status;
   document.getElementById("status").className = "pill" + (D.status === "running" ? " live" : "");
   document.getElementById("sub").textContent =
-    `${H.length} generations · ${promoted} promotions · ~${totalMatches.toLocaleString()} matches simulated · updated ${D.updated} — refresh for latest`;
+    `${H.length} generations · ${promoted} promotions · ${totalMatches.toLocaleString()} games / ${totalHands.toLocaleString()} hands this run · updated ${D.updated} — refresh for latest`;
 
   const spark = (vals, {lo, hi, fmt = v => v, color = "var(--acc)"} = {}) => {
     if (!vals.length) return "";
@@ -154,19 +156,34 @@ else if (D.history.length === 0) {
   };
   const cards = [];
   const put = (slot, html) => cards.push({ slot, html });
+  const BASE_LABEL = (D.baseline || "baseline-v0.json").includes("v1")
+    ? "baseline-v1 — the FROZEN era-1 champion (0 = par with yesterday's best bot)"
+    : "baseline-v0 — the defenseless era-1 yardstick";
+  // ── glossary: the units every number on this page is in ──
+  put("kpis", `<div class="card"><h2>How to read this page</h2>
+    <div class="mut" style="font-size:12px;line-height:1.55">
+    <b>Chips are money.</b> The HK payment ladder (mjrc-standard, 3–10 faan): a win on a discard costs
+    the discarder 3f=16 · 4f=32 · 5f=48 · 6f=64 · 7f=96 · 8f=128 · 9f=192 · 10f(cap)=256 chips;
+    a self-draw collects HALF that figure from <i>each</i> of the three losers (so 1.5× total).<br>
+    <b>Every "chips/match" number is an AVERAGE</b> over a 160-match held-out block (one match = one wind
+    round, ~5–11 hands). A single hot match can be +400 by itself — the featured best-game transcript was
+    +432 — so +40/match average is a big, real edge, not a small one.<br>
+    <b>Placement points</b> (+3/+1/−1/−3 by table finish) are a separate unit used only inside evolution's
+    promotion decisions; chips are the scoreboard.<br>
+    <b>Benchmark opponent:</b> ${BASE_LABEL}.</div></div>`);
   // ── THE number: incumbent vs the frozen season-start bot, fixed seeds ──
   const benches = H.map((g) => g.bench).filter(Boolean);
   if (benches.length) {
     const b = benches[benches.length - 1];
     const line = benches.map((x) => x.chipsPerMatch);
-    put("kpis", `<div class="card"><h2>vs frozen baseline — chips/match</h2>
+    put("kpis", `<div class="card"><h2>vs ${(D.baseline||"baseline-v0.json").includes("v1") ? "baseline-v1 (era-1 champion)" : "frozen baseline-v0"} — chips/match</h2>
       <div class="big ${b.chipsPerMatch > 0 ? "up" : b.chipsPerMatch < 0 ? "down" : ""}">${b.chipsPerMatch > 0 ? "+" : ""}${b.chipsPerMatch}</div>
       ${spark(line, { fmt: (v) => (v > 0 ? "+" : "") + v, color: b.chipsPerMatch >= 0 ? "var(--ok)" : "var(--warn)" })}
       <div class="mut" style="font-size:11px">won <b class="up">${b.chipsWonPerMatch}</b> · lost <b class="down">${b.chipsLostPerMatch}</b>
       ${b.winLossRatio !== undefined ? `· <b>W/L ratio ${b.winLossRatio}</b> (how humans compare — &gt;1 = net winner)` : ""} per match.
       ${b.dealInLossPerMatch !== undefined ? `The loss, attributed: <b class="down">${b.dealInLossPerMatch}</b> from deal-ins
       (${b.dealInsPerMatch}/match — YOUR discard fed the win) + <b>${b.taxLossPerMatch}</b> self-draw tax (dodgeable only by winning first).` : ""}
-      Same frozen opponent and walls every generation.</div>
+      Same frozen opponent and walls every generation. 0 = exactly as good as the benchmark bot.</div>
       ${(() => {
         const prevs = H.map((g) => g.benchPrev).filter(Boolean);
         if (!prevs.length) return "";
@@ -414,8 +431,9 @@ else if (D.history.length === 0) {
     <div class="mut" style="font-size:11px;margin-bottom:8px"><b>control</b> = the incumbent playing itself on the same seeds — its
     distance from 0 IS the noise floor. <b>best</b> = top challenger of 6 on seed set A. <b>confirm</b> = that challenger re-tested
     on a fresh unseen set B (— means it never cleared set A). Promotion needs BOTH to clear the bar, so most generations keep the
-    incumbent — that is the design working, not failing.</div>
-    <table><tr><th>gen</th><th>control</th><th>best</th><th>confirm</th><th>promoted</th><th>vs base</th><th>matches</th><th>hands</th><th>secs</th></tr>
+    incumbent — that is the design working, not failing. <b>games</b> = full one-wind-round matches played that
+    generation (7 bots × the seed set, + confirm + bench); <b>hands</b> = individual deals inside them.</div>
+    <table><tr><th>gen</th><th>control</th><th>best</th><th>confirm</th><th>promoted</th><th style="text-align:left">dials changed (old→new)</th><th>vs base</th><th>games</th><th>hands</th><th>secs</th></tr>
     ${[...H].reverse().map(g => {
       const b = Math.max(...g.candidates.map(c => c.result.chipsPerMatch));
       const src = g.promoted !== null ? g.candidates.find(c => c.id === g.promoted).result : g.control;
@@ -426,6 +444,9 @@ else if (D.history.length === 0) {
         <td>${pts(bp ?? b)}</td>
         <td class="mut">${g.confirm ? pts(g.confirm.pointsPerMatch) : "—"}</td>
         <td>${g.promoted === null ? '<span class="mut">—</span>' : '<span class="up">#'+g.promoted+"</span>"}</td>
+        <td style="text-align:left;max-width:260px">${g.changed && Object.keys(g.changed).length
+          ? Object.entries(g.changed).map(([k,v]) => `<span class="up">${k}</span> <span class="mut">${v.from}→${v.to}</span>`).join(", ")
+          : '<span class="mut">—</span>'}</td>
         <td>${g.bench ? (g.bench.chipsPerMatch>0?"+":"")+g.bench.chipsPerMatch : "—"}</td>
         <td class="mut">${g.work ? g.work.matches : "~336"}</td>
         <td class="mut">${g.work ? g.work.hands.toLocaleString() : "~2,400"}</td>
@@ -436,6 +457,37 @@ else if (D.history.length === 0) {
     const el = document.getElementById(slot === "kpis" ? "kpis" : slot === "wide" ? "wide" : slot);
     el.innerHTML = cards.filter((c) => c.slot === slot).map((c) => c.html).join("");
   }
+}
+// ── permanent history: renders whatever the LIVE run's state is ──
+{
+  const wide = document.getElementById("wide");
+  const blocks = [];
+  if (window.SERIES_LOG && window.SERIES_LOG.length) {
+    const rows = [...window.SERIES_LOG].reverse().map((r) => r.error
+      ? `<tr><td>${r.era ?? 1}</td><td>${r.cycle}</td><td colspan="6" class="down">${r.error}</td><td class="mut">${r.mins}m</td></tr>`
+      : `<tr><td>${r.era ?? 1}</td><td>${r.cycle}</td><td class="mut">${r.opponent}</td><td class="mut">${r.matches}</td>
+         <td>${r.heldOutChips > 0 ? "+" : ""}${r.heldOutChips}</td>
+         <td class="mut">${r.vsV0 !== undefined ? (r.vsV0 > 0 ? "+" : "") + r.vsV0 : "—"}</td>
+         <td>${r.improved ? '<span class="up">NEW BEST</span>' : '<span class="mut">—</span>'}</td>
+         <td class="mut">${r.hofScore === null || r.hofScore === -Infinity ? "—" : r.hofScore}</td>
+         <td class="mut">${r.mins}m</td></tr>`).join("");
+    blocks.push(`<div class="card scrollcard"><h2>Every training cycle — all eras</h2>
+      <div class="mut" style="font-size:11px;margin-bottom:6px">One row per ~20-min cycle (16 generations each).
+      Era 1 scored vs the defenseless baseline-v0 (champion peaked +70.2); era 2 scores vs baseline-v1, the frozen
+      era-1 champion, so <b>0 is par and anything positive is a genuinely better bot than yesterday's best</b>.
+      "vs v0" keeps the old axis for continuity.</div>
+      <table><tr><th>era</th><th>cycle</th><th>opponent</th><th>matches</th><th>vs enemy</th><th>vs v0</th><th>admitted</th><th>hall of fame</th><th>time</th></tr>${rows}</table></div>`);
+  }
+  if (window.EXPERIMENTS && window.EXPERIMENTS.length) {
+    const rows = [...window.EXPERIMENTS].reverse().map((e) =>
+      `<tr><td class="mut" style="white-space:nowrap">${e.date}</td><td><b>${e.name}</b></td>
+       <td class="mut">${e.setup}</td><td>${e.result}</td><td class="mut">${e.verdict}</td></tr>`).join("");
+    blocks.push(`<div class="card scrollcard"><h2>Experiment ledger — everything tried so far</h2>
+      <div class="mut" style="font-size:11px;margin-bottom:6px">Curated, append-only history of every named experiment,
+      dead end included — the dead ends are where the measurement rules came from. Lives in tools/sim/experiments.js.</div>
+      <table><tr><th>date</th><th style="text-align:left">experiment</th><th style="text-align:left">setup</th><th style="text-align:left">result</th><th style="text-align:left">verdict</th></tr>${rows}</table></div>`);
+  }
+  if (blocks.length && wide) wide.insertAdjacentHTML("beforeend", blocks.join(""));
 }
 };
 </script>

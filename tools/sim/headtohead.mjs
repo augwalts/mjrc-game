@@ -1541,7 +1541,13 @@ var LIU = {
     // three suit-dragon hands.
   }
 };
-var RULESETS = [HKOS_STANDARD, LIU];
+var MJRC_STANDARD = {
+  ...HKOS_STANDARD,
+  id: "mjrc-standard",
+  label: "MJRC \u6A19\u6E96 (3-10 faan)",
+  limitFaan: 10
+};
+var RULESETS = [HKOS_STANDARD, MJRC_STANDARD, LIU];
 var DEFAULT_RULESET_ID = HKOS_STANDARD.id;
 var ruleset = (id) => RULESETS.find((r) => r.id === id);
 
@@ -2704,7 +2710,7 @@ var SEED_BASE = Number(process.argv[4] ?? 7e5);
 var tableProfile = process.argv[5] ? { ...DEFAULT_PROFILE, ...JSON.parse(readFileSync(process.argv[5], "utf8")) } : DEFAULT_PROFILE;
 function mk(p, seed) {
   const cfgs = SEATS.map((s) => ({
-    ruleset: HKOS_STANDARD,
+    ruleset: MJRC_STANDARD,
     profile: p,
     rnd: prng((seed ^ (s + 1) * 2654435761) >>> 0)
   }));
@@ -2716,11 +2722,11 @@ var draws = 0;
 var refused = 0;
 var faans = [];
 for (let i = 0; i < N; i++) {
-  const seed = SEED_BASE + i * 7919;
+  const seed = SEED_BASE + Math.floor(i / 4) * 7919;
   const mySeat = i % 4;
   const dc = mk(profile, seed), di = mk(tableProfile, seed);
   const perSeat = SEATS.map((s) => s === mySeat ? dc : di);
-  const r = playMatch({ seed, ruleset: HKOS_STANDARD, matchLength: "oneWindRound" }, perSeat);
+  const r = playMatch({ seed, ruleset: MJRC_STANDARD, matchLength: "oneWindRound" }, perSeat);
   chips += r.chips[mySeat];
   hands += r.hands;
   draws += r.draws;

@@ -10,7 +10,7 @@ import { writeFileSync } from "node:fs";
 import { prng } from "../../engine/src/wall.js";
 import { decideAction, DEFAULT_PROFILE, type BotConfig } from "../../engine/src/bots.js";
 import { assessSeatThreat } from "../../engine/src/threat.js";
-import { HKOS_STANDARD } from "../../rulesets/src/presets.js";
+import { MJRC_STANDARD } from "../../rulesets/src/presets.js";
 import { startMatch, startNextHand, applyAction, legalActions } from "../../engine/src/reducer.js";
 import { viewFor, SEATS } from "./driver.js";
 
@@ -22,9 +22,9 @@ for (let m = 0; m < N; m++) {
   matchCount++;
   const seed = 950_000 + m * 7919;
   const cfgs: BotConfig[] = SEATS.map((s) => ({
-    ruleset: HKOS_STANDARD, rnd: prng((seed ^ ((s + 1) * 0x9e3779b1)) >>> 0),
+    ruleset: MJRC_STANDARD, rnd: prng((seed ^ ((s + 1) * 0x9e3779b1)) >>> 0),
   }));
-  let { state, events } = startMatch({ seed, ruleset: HKOS_STANDARD, matchLength: "oneWindRound" } as any);
+  let { state, events } = startMatch({ seed, ruleset: MJRC_STANDARD, matchLength: "oneWindRound" } as any);
   // reads of each seat BY an opponent, refreshed as the hand runs
   let reads: (ReturnType<typeof assessSeatThreat> | null)[] = [null, null, null, null];
   for (let guard = 0; guard < 200_000; guard++) {
@@ -50,7 +50,7 @@ for (let m = 0; m < N; m++) {
       if (options.length === 0) continue;
       const v = viewFor(state, seat);
       // refresh this seat's read of every OTHER seat (cheap; reuse the view)
-      for (const s of SEATS) if (s !== seat) reads[s] = assessSeatThreat(v, s as 0 | 1 | 2 | 3, HKOS_STANDARD);
+      for (const s of SEATS) if (s !== seat) reads[s] = assessSeatThreat(v, s as 0 | 1 | 2 | 3, MJRC_STANDARD);
       ({ state, events } = applyAction(state, decideAction(v, options, cfgs[seat]!)));
       acted = true;
       break;

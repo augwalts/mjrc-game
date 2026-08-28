@@ -12,6 +12,6 @@ process.stdin.on("data", (c) => (raw += c));
 process.stdin.on("end", () => {
   const job = JSON.parse(raw);
   const sample: import("./evalcore.js").SampleMatch[] | undefined = job.collect ? [] : undefined;
-  const result = evaluate(job.candidate, job.incumbent, job.seeds, sample);
+  const result = evaluate(job.candidate, job.incumbent, job.seeds, sample, { allSeats: !!job.allSeats });
   process.stdout.write(JSON.stringify({ result, sample }));
 });

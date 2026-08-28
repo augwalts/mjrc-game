@@ -23,7 +23,7 @@ import { dirname, join as pjoin } from "node:path";
 import { join } from "node:path";
 import { prng } from "../../engine/src/wall.js";
 import { decideAction, DEFAULT_PROFILE, type BotProfile, type BotConfig } from "../../engine/src/bots.js";
-import { HKOS_STANDARD } from "../../rulesets/src/presets.js";
+import { MJRC_STANDARD } from "../../rulesets/src/presets.js";
 import { SEATS, type Decide, type HandRecord } from "./driver.js";
 import { evaluate, type EvalResult, type SampleMatch } from "./evalcore.js";
 
@@ -48,9 +48,10 @@ import { readFileSync as rfs, existsSync as exs } from "node:fs";
  * generation the CURRENT incumbent plays 3× this on a FIXED held-out seed set,
  * so "are we actually getting better" is a line that can only move for real
  * reasons — mirror self-play is zero-sum and can never show absolute progress. */
+const BASELINE_PATH = flag("--baseline", "tools/sim/baseline-v0.json");
 const BASELINE: BotProfile = {
   ...DEFAULT_PROFILE,
-  ...(exs("tools/sim/baseline-v0.json") ? JSON.parse(rfs("tools/sim/baseline-v0.json", "utf8")) : {}),
+  ...(exs(BASELINE_PATH) ? JSON.parse(rfs(BASELINE_PATH, "utf8")) : {}),
 };
 const BENCH_SEEDS = Array.from({ length: 48 }, (_, i) => 880_000 + i * 7919);
 const OUT = flag("--out", "tools/sim");
@@ -70,7 +71,7 @@ const WORKER = pjoin(dirname(fileURLToPath(import.meta.url)), "evalworker.mjs");
  * the seven evaluations of a generation are fully independent, so the wall
  * clock of a generation collapses to the wall clock of ONE evaluation. */
 function evaluateRemote(
-  candidate: BotProfile, incumbent: BotProfile, seeds: number[], collect: boolean,
+  candidate: BotProfile, incumbent: BotProfile, seeds: number[], collect: boolean, allSeats?: boolean,
 ): Promise<{ result: EvalResult; sample?: SampleMatch[] }> {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [WORKER], { stdio: ["pipe", "pipe", "inherit"] });
@@ -81,15 +82,15 @@ function evaluateRemote(
       if (code !== 0) return reject(new Error(`evalworker exited ${code}`));
       try { resolve(JSON.parse(out)); } catch (e) { reject(e); }
     });
-    child.stdin.end(JSON.stringify({ candidate, incumbent, seeds, collect }));
+    child.stdin.end(JSON.stringify({ candidate, incumbent, seeds, collect, allSeats }));
   });
 }
 
 async function runEval(
-  c: BotProfile, i: BotProfile, seeds: number[], sample?: SampleMatch[],
+  c: BotProfile, i: BotProfile, seeds: number[], sample?: SampleMatch[], allSeats?: boolean,
 ): Promise<EvalResult> {
-  if (SERIAL) return evaluate(c, i, seeds, sample);
-  const { result, sample: got } = await evaluateRemote(c, i, seeds, sample !== undefined);
+  if (SERIAL) return evaluate(c, i, seeds, sample, { allSeats });
+  const { result, sample: got } = await evaluateRemote(c, i, seeds, sample !== undefined, allSeats);
   if (sample && got) sample.push(...got);
   return result;
 }
@@ -107,7 +108,7 @@ function mutate(base: BotProfile, rnd: () => number, sigma: number): BotProfile 
 
 function mkDecide(profile: BotProfile, seed: number): Decide {
   const cfgs: BotConfig[] = SEATS.map((s) => ({
-    ruleset: HKOS_STANDARD, profile,
+    ruleset: MJRC_STANDARD, profile,
     rnd: prng((seed ^ ((s + 1) * 0x9e3779b1)) >>> 0),
   }));
   return (view, legal, seat) => decideAction(view, legal, cfgs[seat]!);
@@ -125,6 +126,8 @@ interface GenRecord {
   confirm: EvalResult | null;
   candidates: { id: number; result: EvalResult; profile: BotProfile }[];
   promoted: number | null; incumbentAfter: BotProfile; ms: number;
+  /** Dials the promoted mutant moved, from -> to. Null when nothing promoted. */
+  changed: Record<string, { from: number; to: number }> | null;
 }
 
 const history: GenRecord[] = [];
@@ -143,6 +146,7 @@ function flush(status: string): void {
   const payload = {
     status, updated: new Date().toISOString(),
     defaults: DEFAULT_PROFILE, keys: KEYS, history, sampleMatches,
+    baseline: BASELINE_PATH, ruleset: MJRC_STANDARD.id,
   };
   writeFileSync(join(OUT, "data.js"), "window.SIM_DATA = " + JSON.stringify(payload) + ";\n");
   writeFileSync(join(OUT, "best-profile.json"), JSON.stringify(incumbent, null, 2) + "\n");
@@ -154,6 +158,7 @@ const START_PROFILE: BotProfile = { ...incumbent };
 flush("starting");
 for (let gen = 0; gen < GENS; gen++) {
   const t0 = Date.now();
+  const incumbentBefore = incumbent;
   const seedBase = 500_000 + gen * 1000;
   // spaced by a prime — adjacent seeds replay each other's walls (transcriber finding 2026-08-27)
   const seeds = Array.from({ length: MATCHES }, (_, i) => seedBase + i * 7919);
@@ -187,9 +192,11 @@ for (let gen = 0; gen < GENS; gen++) {
     }
   }
 
+  // all-seats: every bench wall is played from all four chairs, so a mirror
+  // is exactly 0 and "vs baseline-v1 = par" means what it says.
   const [bench, benchPrev] = await Promise.all([
-    runEval(incumbent, BASELINE, BENCH_SEEDS),
-    runEval(incumbent, START_PROFILE, BENCH_SEEDS),
+    runEval(incumbent, BASELINE, BENCH_SEEDS, undefined, true),
+    runEval(incumbent, START_PROFILE, BENCH_SEEDS, undefined, true),
   ]);
   const evalHands = (r: EvalResult) => r.activity.hands;
   const work = {
@@ -197,8 +204,13 @@ for (let gen = 0; gen < GENS; gen++) {
     hands: evalHands(control) + candidates.reduce((n, c) => n + evalHands(c.result), 0) +
            (confirm ? evalHands(confirm) * 2 : 0) + evalHands(bench),
   };
+  const changed = promoted === null ? null : Object.fromEntries(
+    (Object.keys(incumbent) as (keyof BotProfile)[])
+      .filter((k) => Math.abs(incumbent[k] - incumbentBefore[k]) > 1e-9)
+      .map((k) => [k, { from: +incumbentBefore[k].toFixed(4), to: +incumbent[k].toFixed(4) }]),
+  );
   history.push({
-    gen, seeds: [seeds[0]!, seeds[seeds.length - 1]!], control, confirm, bench, benchPrev, work,
+    gen, seeds: [seeds[0]!, seeds[seeds.length - 1]!], control, confirm, bench, benchPrev, work, changed,
     candidates: candidates.map((c) => ({ id: c.id, result: c.result, profile: c.profile })),
     promoted, incumbentAfter: incumbent, ms: Date.now() - t0,
   });

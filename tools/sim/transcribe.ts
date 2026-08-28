@@ -26,20 +26,31 @@ import {
   type BotConfig, type RouteAssessment,
 } from "../../engine/src/bots.js";
 import { tableThreat, type SeatThreat } from "../../engine/src/threat.js";
-import { HKOS_STANDARD } from "../../rulesets/src/presets.js";
+import { MJRC_STANDARD } from "../../rulesets/src/presets.js";
+import { readFileSync as _rfs, existsSync as _exs } from "node:fs";
 import { isPattern, pattern } from "../../rulesets/src/patterns.js";
 import type { GameEvent } from "../../protocol/src/events.js";
 import { SEATS, viewFor } from "./driver.js";
 
 const THINK = process.argv.includes("--think");
 
-const SUIT_GLYPH = ["萬", "索", "筒"];
+function loadProfile(flagName) {
+  const i = process.argv.indexOf(flagName);
+  if (i < 0 || !process.argv[i + 1] || !_exs(process.argv[i + 1])) return DEFAULT_PROFILE;
+  return { ...DEFAULT_PROFILE, ...JSON.parse(_rfs(process.argv[i + 1], "utf8")) };
+}
+/** --hero <json> plays East (seat 0); --table <json> plays the other three. */
+const HERO_MODE = process.argv.includes("--hero");
+const HERO_PROFILE = loadProfile("--hero");
+const TABLE_PROFILE = loadProfile("--table");
+
+const SUIT_GLYPH = ["萬", "|", "\u25cf"];
 
 function routeName(r: RouteAssessment["route"]): string {
   if (r.orphans) return "13-orphans 十三么";
   if (r.honoursOnly) return "honours 字一色";
   if (r.suit !== null) {
-    const g = r.suit === "chars" ? "萬" : r.suit === "bamboo" ? "索" : "筒";
+    const g = r.suit === "chars" ? "萬" : r.suit === "bamboo" ? "|" : "\u25cf";
     return (r.pungs ? "pung-flush " : "flush ") + g;
   }
   return r.pungs ? "all-pungs 對對糊" : "balanced/chows";
@@ -57,10 +68,21 @@ function threatLine(t: SeatThreat, name: string): string | null {
   return `     ${name.padEnd(9)} threat ${t.threat.toFixed(2)} · est ${t.expectedFaan} faan (${t.chipsRel.toFixed(0)}× floor payout) · ${signals.join(" · ") || "quiet"}`;
 }
 
+/** The seat's whole position after the cut — full hand, then melds compactly. */
+function handDump(state: MatchState, seat: number): string {
+  const st = state.seats[seat]!;
+  const melds = st.melds.length
+    ? " \u2016 " + st.melds.map((m) => {
+        const tag = m.kind === "chow" ? "\u4e0a" : m.kind === "pung" ? "\u78b0" : m.concealed ? "\u6697\u69d3" : "\u69d3";
+        return m.kind === "chow" ? tag + m.tiles.map(glyph).join("") : tag + glyph(m.tiles[0]!);
+      }).join(" ")
+    : "";
+  return ` \u2502 ${row(st.hand)}${melds}`;
+}
+
 /** What the acting bot is evaluating, mathematically, right now. */
-function thinkBlock(v: Parameters<typeof shapeOf>[0], seat: number, discardCount: number): string {
-  const names = ["East", "South", "West", "North"];
-  const threats = tableThreat(v, HKOS_STANDARD);
+function thinkBlock(v: Parameters<typeof shapeOf>[0], seat: number, discardCount: number, names: string[]): string {
+  const threats = tableThreat(v, MJRC_STANDARD);
   const lines: string[] = [`  ┈┈ ${names[seat]} thinking (discard ${discardCount}) ┈┈`];
   const reads = threats.seats
     .map((t) => threatLine(t, names[t.seat] ?? `seat${t.seat}`))
@@ -68,7 +90,7 @@ function thinkBlock(v: Parameters<typeof shapeOf>[0], seat: number, discardCount
   lines.push(reads.length ? "     table read:" : "     table read: all quiet — no signals yet");
   lines.push(...reads);
   if (threats.max > 0.05) lines.push(`     race pressure ${threats.max.toFixed(2)} → distant plans discounted harder`);
-  const routes = assessRoutes(shapeOf(v), HKOS_STANDARD, DEFAULT_PROFILE, threats)
+  const routes = assessRoutes(shapeOf(v), MJRC_STANDARD, DEFAULT_PROFILE, threats)
     .filter((r) => r.feasible && Number.isFinite(r.score))
     .sort((a, b) => b.score - a.score)
     .slice(0, 3);
@@ -85,7 +107,7 @@ function thinkBlock(v: Parameters<typeof shapeOf>[0], seat: number, discardCount
 
 const LEGEND = [
   "══ tile legend ══════════════════════════════════════════════════════════",
-  "  suits    N萬 = characters (\"man\")   N索 = bamboo (sticks)   N筒 = circles (dots)",
+  "  suits    N萬 = characters (\"man\")   N| = bamboo (sticks)   N\u25cf = circles (dots)",
   "  winds    東 East   南 South   西 West   北 North",
   "  dragons  中 red    發 green   白 white",
   "  flowers  梅 plum 蘭 orchid 菊 mum 竹 bamboo · seasons 春 spr 夏 sum 秋 aut 冬 win",
@@ -100,7 +122,12 @@ const LEGEND = [
 
 const WIND_EN = ["East", "South", "West", "North"] as const;
 
-const glyph = (t: TileId): string => TILE_NAMES[t] ?? `?${t}`;
+// Human-scan notation (owner, 2026-08-27): characters keep 萬; bamboo are
+// sticks N|, circles are dots N● — three shapes the eye separates instantly.
+const TILE_SYM: string[] = TILE_NAMES.map((n, i) =>
+  i >= 9 && i < 18 ? `${(i % 9) + 1}|` : i >= 18 && i < 27 ? `${(i % 9) + 1}\u25cf` : n,
+);
+const glyph = (t: TileId): string => TILE_SYM[t] ?? `?${t}`;
 const row = (ts: readonly TileId[]): string =>
   [...ts].sort((a, b) => a - b).map(glyph).join(" ");
 const signed = (n: number): string => (n > 0 ? `+${n}` : `${n}`);
@@ -151,18 +178,24 @@ class Transcriber {
 
   constructor(matchId: string, seed: number) {
     this.lines.push(
-      `MATCH ${matchId} · seed ${seed} · ruleset ${HKOS_STANDARD.id} (${HKOS_STANDARD.label})`,
-      `floor ${HKOS_STANDARD.minimumFaan} faan · limit ${HKOS_STANDARD.limitFaan} faan 爆棚 · one wind round`,
+      `MATCH ${matchId} · seed ${seed} · ruleset ${MJRC_STANDARD.id} (${MJRC_STANDARD.label})`,
+      `floor ${MJRC_STANDARD.minimumFaan} faan · limit ${MJRC_STANDARD.limitFaan} faan 爆棚 · one wind round`,
       `OMNISCIENT LOG — all four hands are face up in this file. Server-side eyes only.`,
-      `bots: shipping decideAction, DEFAULT_PROFILE at every seat.`,
+      `bots: chair dealt East in hand 0 plays the --hero profile; the other three play --table.`,
+      `(no flags given = shipping DEFAULT_PROFILE for that side). Chair names rotate with the deal.`,
+      ...(HERO_MODE ? [`\u2605 marks the hero bot on every line \u2014 follow the star through the wind rotations.`] : []),
       `Seats are named East/South/West/North by their seat wind for the hand in play;`,
       `winds rotate when the deal passes, so the same chair changes name between hands.`,
     );
   }
 
   /** Seat display name, padded so tile columns roughly line up. */
+  seatNames(): string[] {
+    return this.names;
+  }
+
   private n(seat: SeatIndex): string {
-    return (this.names[seat] ?? `seat${seat}`).padEnd(5);
+    return (this.names[seat] ?? `seat${seat}`).padEnd(HERO_MODE ? 6 : 5);
   }
 
   private flush(): void {
@@ -178,7 +211,7 @@ class Transcriber {
         this.flush();
         this.offers.clear();
         const p = e.payload;
-        for (const s of SEATS) this.names[s] = WIND_EN[p.seatWinds[s]];
+        for (const s of SEATS) this.names[s] = WIND_EN[p.seatWinds[s]] + (HERO_MODE && s === 0 ? "\u2605" : "");
         this.roundWind = p.roundWind;
         this.lines.push(
           "",
@@ -232,15 +265,16 @@ class Transcriber {
       case "discard": {
         const p = e.payload;
         const pd = this.pending;
+        const held = handDump(state, p.seat);
         if (pd && pd.seat === p.seat && pd.expect === "cut") {
           const cut = p.drawAndCut && pd.drawn === p.tile
             ? `cuts it right back (drew and cut 摸切)`
             : `cuts ${glyph(p.tile)}`;
-          this.lines.push(`${pd.text} · ${cut}`);
+          this.lines.push(`${pd.text} · ${cut}${held}`);
           this.pending = null;
         } else {
           this.flush();
-          this.lines.push(`  ${this.n(p.seat)} cuts ${glyph(p.tile)}`);
+          this.lines.push(`  ${this.n(p.seat)} cuts ${glyph(p.tile)}${held}`);
         }
         break;
       }
@@ -446,14 +480,14 @@ function playAndTranscribe(seed: number): string {
   const config: MatchConfig = {
     matchId,
     seed,
-    rulesetId: HKOS_STANDARD.id,
+    rulesetId: MJRC_STANDARD.id,
     matchLength: "oneWindRound",
   };
   // One deterministic stream per seat, same derivation watch.ts uses.
   const configs: BotConfig[] = SEATS.map((s) => ({
-    ruleset: HKOS_STANDARD,
+    ruleset: MJRC_STANDARD,
+    profile: s === 0 ? HERO_PROFILE : TABLE_PROFILE,
     rnd: prng((seed ^ ((s + 1) * 0x9e3779b1)) >>> 0),
-    profile: DEFAULT_PROFILE,
   }));
 
   let { state, events } = startMatch(config);
@@ -478,7 +512,7 @@ function playAndTranscribe(seed: number): string {
       const v = viewFor(state, seat);
       if (THINK && state.phase === "awaitDiscard" && state.turn === seat &&
           discardCount > 0 && discardCount % 8 === 0) {
-        t.annotate(thinkBlock(v, seat, discardCount));
+        t.annotate(thinkBlock(v, seat, discardCount, t.seatNames()));
       }
       const action = decideAction(v, options, configs[seat]!);
       ({ state, events } = applyAction(state, action));

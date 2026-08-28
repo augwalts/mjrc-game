@@ -1,7 +1,7 @@
 /** Why are claims refused? Tally assessClaim reasons over live matches. */
 import { prng } from "../../engine/src/wall.js";
 import { decideAction, assessClaim, shapeOf, chooseRoute, DEFAULT_PROFILE, type BotConfig } from "../../engine/src/bots.js";
-import { HKOS_STANDARD } from "../../rulesets/src/presets.js";
+import { MJRC_STANDARD } from "../../rulesets/src/presets.js";
 import { startMatch, startNextHand, applyAction, legalActions, type MatchState } from "../../engine/src/reducer.js";
 import { viewFor, SEATS } from "./driver.js";
 
@@ -11,9 +11,9 @@ let taken = 0, offers = 0;
 for (let m = 0; m < 30; m++) {
   const seed = 910_000 + m * 7919;
   const cfgs: BotConfig[] = SEATS.map((s) => ({
-    ruleset: HKOS_STANDARD, rnd: prng((seed ^ ((s + 1) * 0x9e3779b1)) >>> 0),
+    ruleset: MJRC_STANDARD, rnd: prng((seed ^ ((s + 1) * 0x9e3779b1)) >>> 0),
   }));
-  let { state } = startMatch({ seed, ruleset: HKOS_STANDARD, matchLength: "oneWindRound" } as any);
+  let { state } = startMatch({ seed, ruleset: MJRC_STANDARD, matchLength: "oneWindRound" } as any);
   for (let guard = 0; guard < 100_000; guard++) {
     if (state.phase === "matchEnd") break;
     if (state.phase === "handEnd") { state = startNextHand(state).state; continue; }

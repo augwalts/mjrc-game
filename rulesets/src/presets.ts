@@ -175,7 +175,21 @@ export const LIU: Ruleset = {
   },
 };
 
-export const RULESETS: readonly Ruleset[] = [HKOS_STANDARD, LIU];
+/**
+ * What MJRC actually plays — owner ruling 2026-08-27: "13 faan is too high,
+ * just do 3-10". The published reference (HKOS_STANDARD, 3-13) stays untouched
+ * as the golden suite's yardstick; this preset is the shipping game and the
+ * whole sim/training stack. Payment still reads the published doubling ladder,
+ * clamped by the lower cap (max win: 256 on a discard, 128 x 3 self-draw).
+ */
+export const MJRC_STANDARD: Ruleset = {
+  ...HKOS_STANDARD,
+  id: "mjrc-standard",
+  label: "MJRC 標準 (3-10 faan)",
+  limitFaan: 10,
+};
+
+export const RULESETS: readonly Ruleset[] = [HKOS_STANDARD, MJRC_STANDARD, LIU];
 
 export const DEFAULT_RULESET_ID = HKOS_STANDARD.id;
 

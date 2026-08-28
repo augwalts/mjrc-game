@@ -7,7 +7,7 @@
 import { readFileSync } from "node:fs";
 import { prng } from "../../engine/src/wall.js";
 import { decideAction, DEFAULT_PROFILE, type BotProfile, type BotConfig } from "../../engine/src/bots.js";
-import { HKOS_STANDARD } from "../../rulesets/src/presets.js";
+import { MJRC_STANDARD } from "../../rulesets/src/presets.js";
 import { playMatch, SEATS, type Decide } from "./driver.js";
 
 const profile: BotProfile = { ...DEFAULT_PROFILE, ...JSON.parse(readFileSync(process.argv[2]!, "utf8")) };
@@ -22,7 +22,7 @@ const tableProfile: BotProfile = process.argv[5]
 
 function mk(p: BotProfile, seed: number): Decide {
   const cfgs: BotConfig[] = SEATS.map((s) => ({
-    ruleset: HKOS_STANDARD, profile: p, rnd: prng((seed ^ ((s + 1) * 0x9e3779b1)) >>> 0),
+    ruleset: MJRC_STANDARD, profile: p, rnd: prng((seed ^ ((s + 1) * 0x9e3779b1)) >>> 0),
   }));
   return (v, l, seat) => decideAction(v, l, cfgs[seat]!);
 }
@@ -30,11 +30,14 @@ function mk(p: BotProfile, seed: number): Decide {
 let chips = 0, hands = 0, draws = 0, refused = 0;
 const faans: number[] = [];
 for (let i = 0; i < N; i++) {
-  const seed = SEED_BASE + i * 7919;              // prime-spaced, block selectable
+  // All-seats (2026-08-27): the same wall is played from every chair before
+  // moving to the next seed, so seat-luck cancels exactly — a bot benched
+  // against ITSELF scores 0, and "0 = par" is literal. N games = N/4 walls.
+  const seed = SEED_BASE + Math.floor(i / 4) * 7919;
   const mySeat = (i % 4) as 0 | 1 | 2 | 3;
   const dc = mk(profile, seed), di = mk(tableProfile, seed);
   const perSeat: Decide[] = SEATS.map((s) => (s === mySeat ? dc : di));
-  const r = playMatch({ seed, ruleset: HKOS_STANDARD, matchLength: "oneWindRound" }, perSeat);
+  const r = playMatch({ seed, ruleset: MJRC_STANDARD, matchLength: "oneWindRound" }, perSeat);
   chips += r.chips[mySeat]!;
   hands += r.hands; draws += r.draws; refused += r.refusedWins;
   faans.push(...r.faans);
