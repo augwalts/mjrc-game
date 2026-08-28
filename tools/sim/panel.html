@@ -364,17 +364,6 @@ else if (D.history.length === 0) {
       <div class="matchlist">${D.sampleMatches.map(matchHtml).join("")}</div></div>`);
   }
 
-  // ── historical reference points (the "where did 60% draws go" answer) ──
-  if (window.BASELINES) {
-    const rows = window.BASELINES.rows.map((r) =>
-      `<tr><td>${r.name}<div class="mut" style="font-size:10px">${r.date ?? ""} · ${r.source}</div></td>
-       <td>${r.drawRate !== null ? (r.drawRate * 100).toFixed(0) + "%" : "—"}</td>
-       <td>${r.claimsPerHand ?? "—"}</td><td>${r.meanFaan ?? "—"}</td></tr>`).join("");
-    put("colR", `<div class="card"><h2>Reference points — every era, measured</h2>
-      <table><tr><th>who</th><th>draws</th><th>claims/h</th><th>faan</th></tr>${rows}</table>
-      <div class="mut" style="font-size:11px;margin-top:5px">The 69%-draw era is the audited Python prototype;
-      today's 25-30% sits between that and the ~10-20% real-table feel. Permanent record: tools/sim/baselines.json.</div></div>`);
-  }
   // ── threat-detection quality (from tools/sim/threat-audit.mjs) ──
   if (window.THREAT_AUDIT) {
     const T = window.THREAT_AUDIT;
@@ -386,86 +375,91 @@ else if (D.history.length === 0) {
       <div class="mut" style="font-size:11px;margin-top:5px">${T.matches} matches, ${T.wins} wins audited · ${T.generated}.
       Regenerate: node tools/sim/threat-audit.mjs</div></div>`);
   }
-  // ── narrative: what actually changed, generation by generation ──
+  // ── training history: numbers + story per generation, plus era references ──
   {
     const BAR = 0.5;
     const pts = (v) => (v > 0 ? "+" : "") + (v ?? 0);
-    const entries = H.map((g, i) => {
+    const rows = H.map((g, i) => {
       const best = [...g.candidates].sort((a, b) => (b.result.pointsPerMatch ?? 0) - (a.result.pointsPerMatch ?? 0))[0];
       const bestPts = best?.result.pointsPerMatch ?? 0;
       const ctrl = g.control.pointsPerMatch ?? 0;
+      let story;
       if (g.promoted === null) {
-        let why;
-        if (g.confirm) why = `challenger #${best.id} won its seed set (${pts(bestPts)}pt vs control ${pts(ctrl)}) but FAILED the fresh-seed confirm (${pts(g.confirm.pointsPerMatch)}pt &lt; bar ${BAR}) — rejected as luck`;
-        else if (bestPts > ctrl) why = `best challenger ${pts(bestPts)}pt vs control ${pts(ctrl)} — under the ${BAR} bar, not worth the risk`;
-        else why = `no challenger beat the incumbent (best ${pts(bestPts)}pt vs control ${pts(ctrl)})`;
-        return `<div style="padding:6px 0;border-bottom:1px solid #2e2e36">
-          <b>gen ${g.gen}</b> · <span class="mut">kept the incumbent</span>
-          <div class="mut" style="font-size:11px">${why}</div></div>`;
+        if (g.confirm) story = `challenger #${best.id} won its seed set (${pts(bestPts)}pt vs control ${pts(ctrl)}) but FAILED the fresh-seed confirm (${pts(g.confirm.pointsPerMatch)}pt &lt; bar ${BAR}) — rejected as luck`;
+        else if (bestPts > ctrl) story = `best challenger ${pts(bestPts)}pt vs control ${pts(ctrl)} — under the ${BAR} bar, not worth the risk`;
+        else story = `no challenger beat the incumbent (best ${pts(bestPts)}pt vs control ${pts(ctrl)})`;
+      } else {
+        const prev = i > 0 ? H[i - 1].incumbentAfter : D.defaults;
+        const now = g.incumbentAfter;
+        const moves = D.keys.map((k) => ({ k, from: prev[k], to: now[k], d: prev[k] ? now[k] / prev[k] - 1 : 0 }))
+          .filter((m) => Math.abs(m.d) > 0.05).sort((a, b) => Math.abs(b.d) - Math.abs(a.d)).slice(0, 5)
+          .map((m) => `${m.k} ${m.from}→<b>${m.to}</b> (${m.d > 0 ? "+" : ""}${(m.d * 100).toFixed(0)}%)`).join(" · ");
+        const nw = g.candidates.find((c) => c.id === g.promoted).result;
+        const tex = [];
+        const dd = (a, b, label, fmt) => { if (a !== undefined && b !== undefined && a !== b) tex.push(`${label} ${fmt(a)}→${fmt(b)}`); };
+        dd(g.control.refusedPerHand, nw.refusedPerHand, "refused/hand", (v) => v);
+        dd(g.control.drawRate, nw.drawRate, "draws", (v) => (v * 100).toFixed(0) + "%");
+        dd(g.control.claimsPerHand, nw.claimsPerHand, "claims/hand", (v) => v);
+        dd(g.control.meanFaan, nw.meanFaan, "faan", (v) => v);
+        story = `dials moved: ${moves || "only sub-5% nudges"}${tex.length ? ` · same-wall texture old→new: ${tex.join(" · ")}` : ""}`;
       }
-      // promoted: weight diffs vs previous incumbent + texture old→new on identical walls
-      const prev = i > 0 ? H[i - 1].incumbentAfter : D.defaults;
-      const now = g.incumbentAfter;
-      const moves = D.keys
-        .map((k) => ({ k, from: prev[k], to: now[k], d: prev[k] ? now[k] / prev[k] - 1 : 0 }))
-        .filter((m) => Math.abs(m.d) > 0.05)
-        .sort((a, b) => Math.abs(b.d) - Math.abs(a.d))
-        .slice(0, 5)
-        .map((m) => `${m.k} ${m.from}→<b>${m.to}</b> (${m.d > 0 ? "+" : ""}${(m.d * 100).toFixed(0)}%)`)
-        .join(" · ");
-      const nw = g.candidates.find((c) => c.id === g.promoted).result;
-      const tex = [];
-      const dd = (a, b, label, fmt) => { if (a !== undefined && b !== undefined && a !== b) tex.push(`${label} ${fmt(a)}→${fmt(b)}`); };
-      dd(g.control.refusedPerHand, nw.refusedPerHand, "refused/hand", (v) => v);
-      dd(g.control.drawRate, nw.drawRate, "draws", (v) => (v * 100).toFixed(0) + "%");
-      dd(g.control.claimsPerHand, nw.claimsPerHand, "claims/hand", (v) => v);
-      dd(g.control.meanFaan, nw.meanFaan, "faan", (v) => v);
-      return `<div style="padding:6px 0;border-bottom:1px solid #2e2e36">
-        <b>gen ${g.gen}</b> · <span class="up">PROMOTED #${g.promoted}</span>
-        <span class="mut">(${pts(bestPts)}pt, confirmed ${pts(g.confirm?.pointsPerMatch)})</span>
-        <div style="font-size:11px;margin-top:2px">${moves || "only sub-5% nudges"}</div>
-        ${tex.length ? `<div class="mut" style="font-size:11px">same-wall texture, old→new incumbent: ${tex.join(" · ")}</div>` : ""}</div>`;
-    });
-    // overall drift since the run began
-    const start = D.defaults, end = last.incumbentAfter;
-    const drift = D.keys
-      .map((k) => ({ k, d: start[k] ? end[k] / start[k] - 1 : 0 }))
-      .filter((m) => Math.abs(m.d) > 0.10)
-      .sort((a, b) => Math.abs(b.d) - Math.abs(a.d))
-      .map((m) => `${m.k} ${m.d > 0 ? "+" : ""}${(m.d * 100).toFixed(0)}%`)
-      .join(" · ");
-    put('colL', `<div class="card scrollcard"><h2>What changed, generation by generation</h2>
-      <div class="mut" style="font-size:11px;margin-bottom:6px">A promotion is a weight-set replacing the champion after winning twice
-      (its seed set AND a fresh confirm). "Kept" generations are the noise gate working, not stagnation.
-      ${drift ? `<br><b>Net drift this run vs the hand-tuned start:</b> ${drift}` : "<br><b>No net weight drift yet this run.</b>"}</div>
-      ${[...entries].reverse().join("")}</div>`);
-  }
-
-  put('colL', `<div class="card scrollcard"><h2>Generation log</h2>
-    <div class="mut" style="font-size:11px;margin-bottom:8px"><b>control</b> = the incumbent playing itself on the same seeds — its
-    distance from 0 IS the noise floor. <b>best</b> = top challenger of 6 on seed set A. <b>confirm</b> = that challenger re-tested
-    on a fresh unseen set B (— means it never cleared set A). Promotion needs BOTH to clear the bar, so most generations keep the
-    incumbent — that is the design working, not failing. <b>games</b> = full one-wind-round matches played that
-    generation (7 bots × the seed set, + confirm + bench); <b>hands</b> = individual deals inside them.</div>
-    <table><tr><th>gen</th><th>control</th><th>best</th><th>confirm</th><th>promoted</th><th style="text-align:left">dials changed (old→new)</th><th>vs base</th><th>games</th><th>hands</th><th>secs</th></tr>
-    ${[...H].reverse().map(g => {
-      const b = Math.max(...g.candidates.map(c => c.result.chipsPerMatch));
-      const src = g.promoted !== null ? g.candidates.find(c => c.id === g.promoted).result : g.control;
-      const pts = v => v === undefined ? "—" : (v > 0 ? "+" : "") + v;
-      const bp = g.candidates[0].result.pointsPerMatch !== undefined
-        ? Math.max(...g.candidates.map(c => c.result.pointsPerMatch)) : undefined;
-      return `<tr><td>${g.gen}</td><td class="mut">${pts(g.control.pointsPerMatch ?? g.control.chipsPerMatch)}</td>
-        <td>${pts(bp ?? b)}</td>
+      return `<tr><td><b>${g.gen}</b></td><td class="mut">${pts(ctrl)}</td><td>${pts(bestPts)}</td>
         <td class="mut">${g.confirm ? pts(g.confirm.pointsPerMatch) : "—"}</td>
-        <td>${g.promoted === null ? '<span class="mut">—</span>' : '<span class="up">#'+g.promoted+"</span>"}</td>
-        <td style="text-align:left;max-width:260px">${g.changed && Object.keys(g.changed).length
-          ? Object.entries(g.changed).map(([k,v]) => `<span class="up">${k}</span> <span class="mut">${v.from}→${v.to}</span>`).join(", ")
-          : '<span class="mut">—</span>'}</td>
-        <td>${g.bench ? (g.bench.chipsPerMatch>0?"+":"")+g.bench.chipsPerMatch : "—"}</td>
+        <td>${g.promoted === null ? '<span class="mut">kept</span>' : '<span class="up">PROMOTED #' + g.promoted + "</span>"}</td>
+        <td>${g.bench ? (g.bench.chipsPerMatch > 0 ? "+" : "") + g.bench.chipsPerMatch : "—"}</td>
         <td class="mut">${g.work ? g.work.matches : "~336"}</td>
         <td class="mut">${g.work ? g.work.hands.toLocaleString() : "~2,400"}</td>
-        <td class="mut">${(g.ms/1000).toFixed(0)}</td></tr>`;
-    }).join("")}</table></div>`);
+        <td class="mut">${(g.ms / 1000).toFixed(0)}</td></tr>
+        <tr><td style="border-bottom:1px solid var(--line)"></td><td colspan="8" class="mut" style="text-align:left;font-size:11px;border-bottom:1px solid var(--line)">${story}</td></tr>`;
+    });
+    const start = D.defaults, end = last.incumbentAfter;
+    const drift = D.keys.map((k) => ({ k, d: start[k] ? end[k] / start[k] - 1 : 0 }))
+      .filter((m) => Math.abs(m.d) > 0.10).sort((a, b) => Math.abs(b.d) - Math.abs(a.d))
+      .map((m) => `${m.k} ${m.d > 0 ? "+" : ""}${(m.d * 100).toFixed(0)}%`).join(" · ");
+    const baseLbl = (D.baseline || "").includes("v1") ? "baseline-v1 (the frozen era-1 champion)" : "the frozen baseline";
+    const refs = window.BASELINES ? `<div style="border-top:1px dashed var(--line);margin-top:9px;padding-top:7px">
+      <div class="mut" style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px"><b>Era reference points</b> — how each era's table actually felt</div>
+      <table><tr><th>who</th><th>draws</th><th>claims/h</th><th>faan</th></tr>${window.BASELINES.rows.map((r) =>
+        `<tr><td>${r.name}<div class="mut" style="font-size:10px">${r.date ?? ""} · ${r.source}</div></td>
+         <td>${r.drawRate !== null ? (r.drawRate * 100).toFixed(0) + "%" : "—"}</td>
+         <td>${r.claimsPerHand ?? "—"}</td><td>${r.meanFaan ?? "—"}</td></tr>`).join("")}</table>
+      <div class="mut" style="font-size:10.5px;margin-top:4px">The 69%-draw era is the audited Python prototype; today's 25-30% sits
+      between that and the ~10-20% real-table feel. Permanent record: tools/sim/baselines.json.</div></div>` : "";
+    put('colL', `<div class="card scrollcard" style="max-height:680px"><h2>Training history — every generation, numbers + story</h2>
+      <div class="mut" style="font-size:11px;margin-bottom:6px"><b>control</b> = incumbent vs itself on the same walls (its distance from 0 IS the
+      noise floor) · <b>best</b> = top challenger of 6 on seed set A · <b>confirm</b> = same challenger on unseen set B — promotion needs both, so
+      most generations keep the incumbent (the noise gate working, not stagnation) · <b>vs base</b> = chips/match vs ${baseLbl} on fixed walls, all
+      seats · <b>games/hands</b> = the full workload that generation.
+      ${drift ? `<br><b>Net drift this run vs its start:</b> ${drift}` : ""}</div>
+      <table><tr><th>gen</th><th>control</th><th>best</th><th>confirm</th><th>outcome</th><th>vs base</th><th>games</th><th>hands</th><th>secs</th></tr>
+      ${[...rows].reverse().join("")}</table>${refs}</div>`);
+  }
+
+  // ── hand-size distribution per generation: the meta drifting in one picture ──
+  {
+    const hist = (g) => g.bench?.activity?.faanHist ?? g.control?.activity?.faanHist;
+    const gensH = H.filter((g) => hist(g));
+    if (gensH.length >= 2) {
+      const FAANS = [3, 4, 5, 6, 7, 8, 9, 10];
+      const w = Math.max(14, Math.floor(560 / gensH.length));
+      const rowsHtml = FAANS.map((f) => `<tr><td class="mut" style="white-space:nowrap">${f}${f === 10 ? "+ 爆棚" : ""} faan</td>${
+        gensH.map((g) => {
+          const h = hist(g); const tot = h.reduce((a, b) => a + b, 0) || 1;
+          const n = f === 10 ? h.slice(10).reduce((a, b) => a + b, 0) : h[f];
+          const share = n / tot;
+          return `<td title="gen ${g.gen} · ${f} faan: ${n} wins (${Math.round(share * 100)}%)" style="padding:1px;border:0">` +
+            `<div style="height:18px;min-width:${w}px;border-radius:2px;background:rgba(127,179,255,${share ? (0.07 + share * 1.5).toFixed(2) : 0})"></div></td>`;
+        }).join("")
+      }</tr>`).join("");
+      const meanRow = `<tr><td class="mut">mean faan</td>${gensH.map((g) =>
+        `<td class="mut" style="font-size:9.5px;text-align:center;border:0">${g.bench?.meanFaan ?? g.control?.meanFaan ?? ""}</td>`).join("")}</tr>`;
+      put('colR', `<div class="card"><h2>Winning-hand size by generation</h2>
+        <div class="mut" style="font-size:11px;margin-bottom:6px">Each column is one generation's benchmark games (same walls, same
+        enemy every generation, so columns compare honestly); cell brightness = the share of that generation's wins landing at that
+        faan. Floor-scraping metas glow at 3; value metas glow at 5+. Left = gen ${gensH[0].gen}, right = gen ${gensH[gensH.length - 1].gen}.</div>
+        <div style="overflow-x:auto"><table style="border-collapse:collapse">${rowsHtml}${meanRow}</table></div></div>`);
+    }
+  }
 
   for (const slot of ["kpis", "colL", "colR", "wide"]) {
     const el = document.getElementById(slot === "kpis" ? "kpis" : slot === "wide" ? "wide" : slot);
