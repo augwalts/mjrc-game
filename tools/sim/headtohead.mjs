@@ -2741,8 +2741,9 @@ for (let i = 0; i < N; i++) {
   refused += r.refusedWins;
   faans.push(...r.faans);
 }
-console.log(`${N} held-out matches, evolved seat vs 3x default:`);
-console.log(`  chips/match     ${(chips / N).toFixed(1)}  (0 = no better than default)`);
+var nameOf = (i, fallback) => process.argv[i] ? process.argv[i].split("/").pop().replace(".json", "") : fallback;
+console.log(`${N} held-out matches (all seats): ${nameOf(2, "profile")} vs 3x ${nameOf(5, "shipping default")}:`);
+console.log(`  chips/match     ${(chips / N).toFixed(1)}  (0 = par with that enemy)`);
 console.log(`  draw rate       ${(draws / hands * 100).toFixed(0)}%`);
 console.log(`  refused/hand    ${(refused / hands).toFixed(2)}`);
 console.log(`  mean win faan   ${(faans.reduce((a, b) => a + b, 0) / Math.max(1, faans.length)).toFixed(2)}`);

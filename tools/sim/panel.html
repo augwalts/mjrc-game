@@ -182,6 +182,8 @@ else if (D.history.length === 0) {
       <tr><td><b>generation</b></td><td>one evolution step: the incumbent dial-set and 6 mutated copies play the same walls; a mutant must beat the incumbent twice (second time on fresh walls) to replace it.</td></tr>
       <tr><td><b>cycle</b></td><td>one harness iteration ≈ 16 generations (~15–35 min), ending in a 160-game held-out exam vs the frozen benchmark. Only exam winners enter the hall of fame.</td></tr>
       <tr><td><b>era</b></td><td>one benchmark regime. Era 1: trained vs baseline-v0, the defenseless default (ended +35–40 bias-free). Era 2: trains vs baseline-v1 — era 1's champion, frozen — under mjrc-standard (3–10 faan).</td></tr>
+      <tr><td><b>enemy</b></td><td>the frozen opponent a score is earned against — the single most important label on any number.
+        +40 vs the defenseless v0 and +40 vs the defending v1 are utterly different achievements; every scoreboard here names its enemy.</td></tr>
       <tr><td><b>held-out</b></td><td>scored on walls the training never saw — the exam is never taken on the homework.</td></tr>
       <tr><td><b>all-seats</b></td><td>every benchmark wall is played from all four chairs, so seat luck cancels exactly and a bot benched against itself scores 0.</td></tr>
     </table></div></div>`);
@@ -437,6 +439,7 @@ else if (D.history.length === 0) {
 
   // ── hand-size distribution per generation: the meta drifting in one picture ──
   {
+    const baseLblShort = (D.baseline || "").includes("v1") ? "baseline-v1" : "baseline-v0";
     const hist = (g) => g.bench?.activity?.faanHist ?? g.control?.activity?.faanHist;
     const gensH = H.filter((g) => hist(g));
     if (gensH.length >= 2) {
@@ -462,7 +465,7 @@ else if (D.history.length === 0) {
       const meanRow = `<tr><td class="mut">mean faan</td>${gensH.map((g) =>
         `<td class="mut" style="font-size:9.5px;text-align:center;border:0">${g.bench?.meanFaan ?? g.control?.meanFaan ?? ""}</td>`).join("")}</tr>`;
       put('colR', `<div class="card"><h2>Winning-hand size by generation</h2>
-        <div class="mut" style="font-size:11px;margin-bottom:6px">Each column is one generation's benchmark games (same walls, same
+        <div class="mut" style="font-size:11px;margin-bottom:6px">Each column is one generation's benchmark games vs <b>${baseLblShort}</b> (same walls, same
         enemy every generation, so columns compare honestly); cell brightness = the share of that generation's wins landing at that
         faan. Floor-scraping metas glow at 3; value metas glow at 5+. Left = gen ${gensH[0].gen}, right = gen ${gensH[gensH.length - 1].gen}.</div>
         <div style="overflow-x:auto"><table style="border-collapse:collapse">${rowsHtml}${meanRow}</table></div></div>`);
@@ -480,19 +483,22 @@ else if (D.history.length === 0) {
   const blocks = [];
   if (window.SERIES_LOG && window.SERIES_LOG.length) {
     const rows = [...window.SERIES_LOG].reverse().map((r) => r.error
-      ? `<tr><td>${r.era ?? 1}</td><td>${r.cycle}</td><td colspan="6" class="down">${r.error}</td><td class="mut">${r.mins}m</td></tr>`
-      : `<tr><td>${r.era ?? 1}</td><td>${r.cycle}</td><td class="mut">${r.opponent}</td><td class="mut">${r.matches}</td>
+      ? `<tr><td>${r.era ?? 1}</td><td>${r.cycle}</td><td colspan="7" class="down">${r.error}</td><td class="mut">${r.mins}m</td></tr>`
+      : `<tr><td>${r.era ?? 1}</td><td>${r.cycle}</td>
+         <td><b>${r.enemy ?? ((r.era ?? 1) === 1 ? "baseline-v0" : "baseline-v1")}</b></td>
+         <td class="mut">${r.opponent}</td><td class="mut">${r.matches}</td>
          <td>${r.heldOutChips > 0 ? "+" : ""}${r.heldOutChips}</td>
          <td class="mut">${r.vsV0 !== undefined ? (r.vsV0 > 0 ? "+" : "") + r.vsV0 : "—"}</td>
          <td>${r.improved ? '<span class="up">NEW BEST</span>' : '<span class="mut">—</span>'}</td>
          <td class="mut">${r.hofScore === null || r.hofScore === -Infinity ? "—" : r.hofScore}</td>
          <td class="mut">${r.mins}m</td></tr>`).join("");
     blocks.push(`<div class="card scrollcard"><h2>Every training cycle — all eras</h2>
-      <div class="mut" style="font-size:11px;margin-bottom:6px">One row per ~20-min cycle (16 generations each).
-      Era 1 scored vs the defenseless baseline-v0 (champion peaked +70.2); era 2 scores vs baseline-v1, the frozen
-      era-1 champion, so <b>0 is par and anything positive is a genuinely better bot than yesterday's best</b>.
-      "vs v0" keeps the old axis for continuity.</div>
-      <table><tr><th>era</th><th>cycle</th><th>opponent</th><th>matches</th><th>vs enemy</th><th>vs v0</th><th>admitted</th><th>hall of fame</th><th>time</th></tr>${rows}</table></div>`);
+      <div class="mut" style="font-size:11px;margin-bottom:6px">One row per ~20-min cycle (16 generations each). <b>A score only means
+      something next to its enemy</b> — nearly anything looks good against the defenseless v0; the real test is scoring against an
+      enemy that defends. "Scored against" names the exam opponent for that row: era 1 = baseline-v0 (defenseless; champion's honest
+      mean ~+40), era 2 = baseline-v1 (the frozen era-1 champion — it defends, so <b>0 is par and anything positive is a genuinely
+      better bot than yesterday's best</b>). "vs v0" re-scores the same candidate on the old axis for cross-era continuity.</div>
+      <table><tr><th>era</th><th>cycle</th><th style="text-align:left">scored against</th><th>trained vs</th><th>matches</th><th>chips/match</th><th>vs v0</th><th>admitted</th><th>hall of fame</th><th>time</th></tr>${rows}</table></div>`);
   }
   if (window.EXPERIMENTS && window.EXPERIMENTS.length) {
     const rows = [...window.EXPERIMENTS].reverse().map((e) =>
