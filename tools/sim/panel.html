@@ -170,7 +170,19 @@ else if (D.history.length === 0) {
     +432 — so +40/match average is a big, real edge, not a small one.<br>
     <b>Placement points</b> (+3/+1/−1/−3 by table finish) are a separate unit used only inside evolution's
     promotion decisions; chips are the scoreboard.<br>
-    <b>Benchmark opponent:</b> ${BASE_LABEL}.</div></div>`);
+    <b>Benchmark opponent:</b> ${BASE_LABEL}.</div>
+    <div style="border-top:1px dashed var(--line);margin-top:8px;padding-top:6px" class="mut">
+    <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px"><b>Vocabulary</b></div>
+    <table style="font-size:12px">
+      <tr><td style="white-space:nowrap"><b>hand</b> 一局</td><td>one deal: walls built, draw/discard until someone wins or the wall runs out (流局). Payments settle per hand.</td></tr>
+      <tr><td><b>game / match</b> 一圈</td><td>one wind round — four dealerships plus dealer repeats, typically 5–11 hands. Every "chips/match" number is per game.</td></tr>
+      <tr><td><b>bot / weights</b></td><td>a bot is fixed decision code plus 19 numeric dials (aggression, faanWeight, …). Training never changes the code, only the dials.</td></tr>
+      <tr><td><b>generation</b></td><td>one evolution step: the incumbent dial-set and 6 mutated copies play the same walls; a mutant must beat the incumbent twice (second time on fresh walls) to replace it.</td></tr>
+      <tr><td><b>cycle</b></td><td>one harness iteration ≈ 16 generations (~15–35 min), ending in a 160-game held-out exam vs the frozen benchmark. Only exam winners enter the hall of fame.</td></tr>
+      <tr><td><b>era</b></td><td>one benchmark regime. Era 1: trained vs baseline-v0, the defenseless default (ended +35–40 bias-free). Era 2: trains vs baseline-v1 — era 1's champion, frozen — under mjrc-standard (3–10 faan).</td></tr>
+      <tr><td><b>held-out</b></td><td>scored on walls the training never saw — the exam is never taken on the homework.</td></tr>
+      <tr><td><b>all-seats</b></td><td>every benchmark wall is played from all four chairs, so seat luck cancels exactly and a bot benched against itself scores 0.</td></tr>
+    </table></div></div>`);
   // ── THE number: incumbent vs the frozen season-start bot, fixed seeds ──
   const benches = H.map((g) => g.bench).filter(Boolean);
   if (benches.length) {
