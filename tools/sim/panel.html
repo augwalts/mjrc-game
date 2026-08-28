@@ -442,13 +442,21 @@ else if (D.history.length === 0) {
     if (gensH.length >= 2) {
       const FAANS = [3, 4, 5, 6, 7, 8, 9, 10];
       const w = Math.max(14, Math.floor(560 / gensH.length));
-      const rowsHtml = FAANS.map((f) => `<tr><td class="mut" style="white-space:nowrap">${f}${f === 10 ? "+ 爆棚" : ""} faan</td>${
-        gensH.map((g) => {
-          const h = hist(g); const tot = h.reduce((a, b) => a + b, 0) || 1;
-          const n = f === 10 ? h.slice(10).reduce((a, b) => a + b, 0) : h[f];
-          const share = n / tot;
-          return `<td title="gen ${g.gen} · ${f} faan: ${n} wins (${Math.round(share * 100)}%)" style="padding:1px;border:0">` +
-            `<div style="height:18px;min-width:${w}px;border-radius:2px;background:rgba(127,179,255,${share ? (0.07 + share * 1.5).toFixed(2) : 0})"></div></td>`;
+      // per-column stats: share of each bucket + the column's peak, so shading
+      // is normalized within a generation and the modal hand size pops out
+      const colStats = gensH.map((g) => {
+        const h = hist(g); const tot = h.reduce((a, b) => a + b, 0) || 1;
+        const buckets = FAANS.map((f) => (f === 10 ? h.slice(10).reduce((a, b) => a + b, 0) : h[f]));
+        return { tot, buckets, peak: Math.max(...buckets, 1) };
+      });
+      const rowsHtml = FAANS.map((f, fi) => `<tr><td class="mut" style="white-space:nowrap">${f}${f === 10 ? "+ 爆棚" : ""} faan</td>${
+        colStats.map((c, gi) => {
+          const n = c.buckets[fi]; const share = n / c.tot; const rel = n / c.peak;
+          const label = w >= 26 && n ? `${Math.round(share * 100)}%` : "";
+          return `<td title="gen ${gensH[gi].gen} · ${f} faan: ${n} wins (${Math.round(share * 100)}%)" style="padding:1px;border:0">` +
+            `<div style="height:18px;min-width:${w}px;border-radius:2px;display:flex;align-items:center;justify-content:center;` +
+            `font-size:9.5px;color:${rel > 0.55 ? "#10121a" : "var(--dim)"};` +
+            `background:rgba(127,179,255,${n ? (0.05 + rel * 0.9).toFixed(2) : 0})">${label}</div></td>`;
         }).join("")
       }</tr>`).join("");
       const meanRow = `<tr><td class="mut">mean faan</td>${gensH.map((g) =>
