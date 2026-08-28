@@ -1,1 +1,1 @@
-window.OVERNIGHT = {"startedAt":1787899585850,"deadline":1787971585850,"now":1787902251840,"hofScore":23.4,"statusLine":"cycle 1 done · cycle 2 evolving","cycles":[{"cycle":1,"opponent":"baseline","matches":48,"mins":41.8,"heldOutChips":23.4,"vsV0":51.9,"improved":true}]};
+window.OVERNIGHT = {"startedAt":1787899585850,"deadline":1787971585850,"now":1787902253541,"hofScore":23.4,"statusLine":"cycle 2 evolving","cycles":[{"cycle":1,"opponent":"baseline","matches":48,"mins":41.8,"heldOutChips":23.4,"vsV0":51.9,"improved":true}]};
