@@ -821,27 +821,46 @@ else if (D.history.length === 0) {
     const C = window.CHAMPIONS;
     let ladder = '<div class="mut">champions.js not loaded — run the ladder to populate this.</div>';
     if (C && C.rows && C.rows.length) {
-      const hi = Math.max(...C.rows.map((r) => Math.max(...r.chips, r.mean)));
-      const BW = 720, BL = 92, BR = 46, rowH = 30, BT = 6;
-      const bh = BT + C.rows.length * rowH + 20;
-      const bx = (v) => BL + (v / hi) * (BW - BL - BR);
-      const bars = C.rows.map((r, i) => {
-        const y = BT + i * rowH;
-        const prev = i > 0 ? C.rows[i - 1].mean : null;
-        const d = prev === null ? "" : (r.mean - prev >= 0 ? "+" : "") + (r.mean - prev).toFixed(1);
-        const dCls = prev === null ? "" : (r.mean - prev >= 0 ? "var(--ok)" : "var(--warn)");
-        return `<text x="0" y="${y + 15}" font-size="10" fill="var(--ink)">${r.name}</text>
-          <text x="0" y="${y + 25}" font-size="8" fill="var(--dim)">era ${r.era} king</text>
-          <rect x="${BL}" y="${y + 4}" width="${(bx(r.mean) - BL).toFixed(1)}" height="14" fill="var(--acc)" opacity="0.55" rx="2"/>
-          ${r.chips.map((c) => `<circle cx="${bx(c).toFixed(1)}" cy="${y + 11}" r="2.6" fill="var(--gold)"><title>block value ${c}</title></circle>`).join("")}
-          <text x="${(bx(r.mean) + 6).toFixed(1)}" y="${y + 15}" font-size="10" fill="var(--ink)" font-weight="700">+${r.mean.toFixed(1)}</text>
-          ${d ? `<text x="${BW - 2}" y="${y + 15}" text-anchor="end" font-size="9" fill="${dCls}">${d}</text>` : ""}`;
+      // Champion trajectory as a TIME SERIES (x = era), matching every other
+      // plot on this panel. The line is the mean of all blocks; the vertical
+      // whisker and its dots are the individual blocks, because the block
+      // spread is the honest error bar and it is bigger than most era-to-era
+      // differences.
+      const rows = C.rows;
+      const all = rows.flatMap((r) => r.chips.concat([r.mean])).concat([0]);
+      let lo = Math.min(...all), hi = Math.max(...all);
+      const pad = Math.max((hi - lo) * 0.12, 2);
+      lo = Math.min(0, lo - pad); hi += pad;
+      const W = 720, Hh = 190, L = 44, R = 14, T = 18, B = 36;
+      const x = (i) => L + (rows.length === 1 ? 0.5 : i / (rows.length - 1)) * (W - L - R);
+      const y = (v) => T + (1 - (v - lo) / (hi - lo)) * (Hh - T - B);
+      const fmtC = (v) => (v > 0 ? "+" : "") + v.toFixed(0);
+      const ticks = [hi, (hi + lo) / 2, lo].map((v) =>
+        `<line x1="${L}" x2="${W - R}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}" stroke="var(--line)" stroke-dasharray="3 3"/>
+         <text x="${L - 5}" y="${(y(v) + 3).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--dim)">${fmtC(v)}</text>`).join("");
+      const zeroLine = lo < 0 && hi > 0
+        ? `<line x1="${L}" x2="${W - R}" y1="${y(0).toFixed(1)}" y2="${y(0).toFixed(1)}" stroke="var(--dim)" stroke-width="0.9"/>
+           <text x="${W - R}" y="${(y(0) - 4).toFixed(1)}" text-anchor="end" font-size="8" fill="var(--dim)">0 = par with ${C.enemy}</text>` : "";
+      const whiskers = rows.map((r, i) => {
+        const mn = Math.min(...r.chips), mx = Math.max(...r.chips);
+        return `<line x1="${x(i).toFixed(1)}" x2="${x(i).toFixed(1)}" y1="${y(mx).toFixed(1)}" y2="${y(mn).toFixed(1)}" stroke="var(--gold)" stroke-width="1.1" opacity="0.65"/>`;
       }).join("");
-      ladder = `<svg viewBox="0 0 ${BW} ${bh}" style="width:100%;height:${bh}px;display:block">
-        <line x1="${BL}" x2="${BL}" y1="${BT}" y2="${bh - 20}" stroke="var(--line)"/>
-        <text x="${BL}" y="${bh - 6}" font-size="8" fill="var(--dim)">0 = par with baseline-v0</text>
-        ${bars}</svg>
-        <div class="trendkey"><span style="color:var(--acc)">▬ mean of ${C.blocks.length} blocks</span><span style="color:var(--gold)">● individual block</span><span>${C.matchesPerBlock} matches per block, all seats · measured ${C.generated}</span></div>`;
+      const blockDots = rows.map((r, i) => r.chips.map((c) =>
+        `<circle cx="${x(i).toFixed(1)}" cy="${y(c).toFixed(1)}" r="2.4" fill="var(--gold)" opacity="0.9"><title>${r.name} · one 160-match block: ${fmtC(c)}</title></circle>`).join("")).join("");
+      const meanPath = `<polyline points="${rows.map((r, i) => `${x(i).toFixed(1)},${y(r.mean).toFixed(1)}`).join(" ")}" fill="none" stroke="var(--acc)" stroke-width="2"/>`;
+      const meanDots = rows.map((r, i) =>
+        `<circle cx="${x(i).toFixed(1)}" cy="${y(r.mean).toFixed(1)}" r="4" fill="var(--acc)" stroke="var(--card)" stroke-width="1.5"><title>${r.name} (era ${r.era} king) · mean of ${r.chips.length} blocks: ${fmtC(r.mean)}</title></circle>`).join("");
+      const deltas = rows.slice(1).map((r, i) => {
+        const d = r.mean - rows[i].mean;
+        const mx = (x(i) + x(i + 1)) / 2, my = (y(r.mean) + y(rows[i].mean)) / 2;
+        return `<text x="${mx.toFixed(1)}" y="${(my - 8).toFixed(1)}" text-anchor="middle" font-size="9" fill="${d >= 0 ? "var(--ok)" : "var(--warn)"}">${d >= 0 ? "+" : ""}${d.toFixed(1)}</text>`;
+      }).join("");
+      const xLabels = rows.map((r, i) =>
+        `<text x="${x(i).toFixed(1)}" y="${Hh - 18}" text-anchor="middle" font-size="9" fill="var(--ink)">${r.name}</text>
+         <text x="${x(i).toFixed(1)}" y="${Hh - 6}" text-anchor="middle" font-size="8" fill="var(--dim)">era ${r.era} king</text>`).join("");
+      ladder = `<svg class="trend" style="height:190px" viewBox="0 0 ${W} ${Hh}">
+        ${ticks}${zeroLine}${whiskers}${meanPath}${blockDots}${meanDots}${deltas}${xLabels}</svg>
+        <div class="trendkey"><span style="color:var(--acc)">● mean of ${C.blocks.length} blocks</span><span style="color:var(--gold)">┃ individual blocks (spread = the real error bar)</span><span>${C.matchesPerBlock} matches per block, all seats · measured ${C.generated}</span></div>`;
     }
 
     const el = document.getElementById("absoluteProgress");
