@@ -731,6 +731,13 @@ else if (D.history.length === 0) {
   };
   const pct = (v) => `${(v * 100).toFixed(0)}%`;
   const bench = (k) => endpoints.map((p) => ({ era: p.era, cycle: p.cycle, v: p[k] }));
+  const benchPat = (k) => endpoints.map((p) => ({ era: p.era, cycle: p.cycle, v: p.patternShares ? p.patternShares[k] : null }));
+  const meClaimShare = (k) => (r) => {
+    const c = (r.stats || {}).me && r.stats.me.claims;
+    if (!c) return null;
+    const total = c.chows + c.pungs + c.kongs;
+    return total ? c[k] / total : null;
+  };
   const exam = (get, se) => examRows.map((r) => {
     const v = get(r);
     return { era: r.era, cycle: r.cycle, v: Number.isFinite(v) ? v : null, se: se ? se(r) : undefined };
@@ -747,6 +754,13 @@ else if (D.history.length === 0) {
        { label: "chow", color: "var(--acc)", pts: bench("chowClaimShare") },
        { label: "kong", color: "var(--warn)", pts: bench("kongClaimShare") }],
       { fmt: pct, zero: true }, "none"],
+    ["Hand types — share of bench wins", "bench endpoints, table-wide. The meta: which winning shapes dominate. A win can carry several patterns, so shares can sum past 100%.",
+      [{ label: "half flush 混一色", color: "var(--acc)", pts: benchPat("halfFlush") },
+       { label: "all pungs 對對糊", color: "var(--gold)", pts: benchPat("allPungs") },
+       { label: "full flush 清一色", color: "var(--warn)", pts: benchPat("fullFlush") },
+       { label: "concealed 門前清", color: "var(--ok)", pts: benchPat("concealedHand") },
+       { label: "all chows 平糊", color: "#b48ead", pts: benchPat("allChows") }],
+      { fmt: pct, zero: true }, "none"],
     ["Claims per table hand", "bench endpoints. Total claim appetite — the alien-quiet-table detector.",
       [{ label: "claims/hand", color: "var(--acc)", pts: bench("claimsPerHand") }], { fmt: (v) => v.toFixed(2), zero: true }, "none"],
     ["Wins per table hand — self-draw vs discard", "bench endpoints, table-wide. Which way hands are finishing.",
@@ -762,6 +776,11 @@ else if (D.history.length === 0) {
        { label: "lost/match", color: "var(--warn)", pts: exam((r) => st(r).me?.lostPerMatch) },
        { label: "deal-in loss/match", color: "var(--gold)", pts: exam((r) => st(r).me?.dealInLossPerMatch) }],
       { fmt: (v) => (v > 0 ? "+" : "") + v.toFixed(0), zero: true }, '<span class="goal up">▲ WON UP</span><span class="goal down">▼ |LOST| DOWN</span>'],
+    ["Challenger claim mix — share of its claims", "held-out exam, challenger seat only (recorded once the per-seat claim stats land). Compare against the table-wide mix above: is the champion calling differently from its opponents?",
+      [{ label: "pung", color: "var(--gold)", pts: exam(meClaimShare("pungs")) },
+       { label: "chow", color: "var(--acc)", pts: exam(meClaimShare("chows")) },
+       { label: "kong", color: "var(--warn)", pts: exam(meClaimShare("kongs")) }],
+      { fmt: pct, zero: true }, "none"],
     ["Big hands — share of wins at 8+ faan", "held-out exam, table-wide. The exponential tail of the payment ladder (recorded from era 3 on).",
       [{ label: "8+ faan share", color: "var(--warn)", pts: exam(bigShare) }], { fmt: pct, zero: true }, "none"],
   ];
