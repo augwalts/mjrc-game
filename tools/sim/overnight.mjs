@@ -64,6 +64,13 @@ function flushPanel(statusLine) {
 // ERA 2 (2026-08-27): the enemy and the seed are both the frozen era-1
 // champion — king-of-the-hill. baseline-v0 stays as a continuity yardstick.
 const ENEMY = argOf("--enemy", `${DIR}/baseline-v1.json`);
+// ERA 4: a LEAGUE exam — the persona tournament proved style non-transitivity
+// (each archetype farms a table of the other), so single-enemy exams reward
+// style-matching. --enemies a,b,c makes every exam the MEAN over all listed
+// enemies, candidate and reigning on the same block. Defaults to [--enemy].
+const ENEMIES = argOf("--enemies", "").split(",").map((x) => x.trim()).filter(Boolean);
+if (ENEMIES.length === 0) ENEMIES.push(ENEMY);
+const MARGIN = Number(argOf("--margin", "4"));
 const V0 = `${DIR}/baseline-v0.json`;
 const SEED_PROFILE = argOf("--seed-profile", `${DIR}/baseline-v1.json`);
 const HOF = `${DIR}/hall-of-fame.json`;         // best profile ever, by held-out score
@@ -115,15 +122,22 @@ let cycle = 0;
 let this_sigma = "0.35";
 while (Date.now() < deadline) {
   cycle++;
-  const opponent = cycle % 3 === 0 ? "mirror" : "baseline";   // mostly the enemy, mirror as a check
+  const useCma = ERA >= 4 && cycle % 3 === 0 && existsSync(`${DIR}/cmaes.mjs`);
+  const opponent = useCma ? "cmaes" : (cycle % 3 === 0 ? "mirror" : "baseline");
   const matches = cycle % 2 === 0 ? "96" : "48";              // alternate breadth and depth
   const restart = cycle % 5 === 0;                             // periodic fresh start
   const start = restart || !existsSync(HOF) ? SEED_PROFILE : HOF;
   const t0 = Date.now();
-  const args = [`${DIR}/evolve.mjs`, "--gens", GENS, "--matches", matches, "--out", DIR,
-                "--start", start, "--opponent", opponent, "--baseline", ENEMY, "--fitness", FITNESS, "--sigma", (this_sigma = sigmaFor()),
-                "--mutseed", String(9000 + cycle * 137)];
+  // training enemy rotates through the league so no single style is home turf
+  const trainEnemy = ENEMIES[cycle % ENEMIES.length];
+  const args = useCma
+    ? [`${DIR}/cmaes.mjs`, "--gens", "10", "--pop", "14", "--matches", matches, "--out", DIR,
+       "--start", start, "--enemy", trainEnemy, "--mutseed", String(9000 + cycle * 137)]
+    : [`${DIR}/evolve.mjs`, "--gens", GENS, "--matches", matches, "--out", DIR,
+       "--start", start, "--opponent", opponent, "--baseline", trainEnemy, "--fitness", FITNESS, "--sigma", (this_sigma = sigmaFor()),
+       "--mutseed", String(9000 + cycle * 137)];
   const run = await runChild("node", args, 4 * 3600_000);
+  if (useCma && existsSync(`${DIR}/cma-best.json`)) copyFileSync(`${DIR}/cma-best.json`, `${DIR}/best-profile.json`);
   const mins = ((Date.now() - t0) / 60000).toFixed(1);
   if (run.status !== 0) {
     log({ cycle, error: `evolve exited ${run.status}`, mins });
@@ -148,11 +162,20 @@ while (Date.now() < deadline) {
   let reigning = { chips: -Infinity };
   let vsV0 = { chips: NaN };
   try {
-    verdict = headtohead(`${DIR}/best-profile.json`, block);
-    if (existsSync(HOF)) reigning = headtohead(HOF, block);
+    const league = (path) => {
+      const per = {};
+      let sum = 0;
+      for (const e of ENEMIES) {
+        const r = headtohead(path, block, e);
+        per[e.split("/").pop().replace(".json", "")] = r.chips;
+        sum += r.chips;
+      }
+      return { chips: +(sum / ENEMIES.length).toFixed(1), per, stats: null };
+    };
+    verdict = ENEMIES.length > 1 ? league(`${DIR}/best-profile.json`) : headtohead(`${DIR}/best-profile.json`, block);
+    if (existsSync(HOF)) reigning = ENEMIES.length > 1 ? league(HOF) : headtohead(HOF, block);
     vsV0 = headtohead(`${DIR}/best-profile.json`, block, V0);   // continuity axis
   } catch {}
-  const MARGIN = 4;
   const improved = Number.isFinite(verdict.chips) &&
     (!existsSync(HOF) ? verdict.chips > MARGIN
                       : verdict.chips > (reigning.chips ?? -Infinity) + MARGIN);
@@ -162,7 +185,7 @@ while (Date.now() < deadline) {
     writeFileSync(`${DIR}/hall-of-fame-score.txt`, String(verdict.chips));
     hofScore = verdict.chips;
   }
-  log({ era: ERA, enemy: ENEMY.split("/").pop().replace(".json", ""), fitness: FITNESS, sigma: Number(this_sigma), ts: new Date().toISOString(), stats: verdict.stats, cycle, opponent, matches: Number(matches), generations: 16, start, mins, heldOutChips: verdict.chips,
+  log({ era: ERA, enemy: ENEMIES.map((e) => e.split("/").pop().replace(".json", "")).join("+"), perEnemy: verdict.per ?? null, fitness: FITNESS, sigma: Number(this_sigma), ts: new Date().toISOString(), stats: verdict.stats, cycle, opponent, matches: Number(matches), generations: 16, start, mins, heldOutChips: verdict.chips,
         reigningOnSameBlock: reigning.chips, vsV0: vsV0.chips, improved, hofScore });
   cyclesSoFar.push({ cycle, enemy: ENEMY.split("/").pop().replace(".json", ""), stats: verdict.stats, opponent, matches: Number(matches), generations: 16, mins: Number(mins), heldOutChips: verdict.chips,
                     reigningOnSameBlock: reigning.chips, admissionMargin: MARGIN, vsV0: vsV0.chips, improved });
