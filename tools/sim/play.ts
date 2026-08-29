@@ -10,11 +10,13 @@ import {
   startMatch, startNextHand, applyAction, legalActions,
 } from "../../engine/src/reducer.js";
 import type { MatchState } from "../../engine/src/reducer.js";
-import { decideAction, DEFAULT_PROFILE, assessRoutes, shapeOf, rankDiscards, scoreAdjust, type BotConfig, type BotProfile, type RouteAssessment, type DiscardScore } from "../../engine/src/bots.js";
+import { decideAction, DEFAULT_PROFILE, assessRoutes, shapeOf, rankDiscards, scoreAdjust, visibleCounts, type BotConfig, type BotProfile, type RouteAssessment, type DiscardScore } from "../../engine/src/bots.js";
+import { liveTiles } from "../../engine/src/ready.js";
+import { counts } from "../../engine/src/tiles.js";
 import { tableThreat } from "../../engine/src/threat.js";
 import { MJRC_STANDARD } from "../../rulesets/src/presets.js";
 import { prng } from "../../engine/src/wall.js";
-import { TILE_NAMES } from "../../engine/src/tiles.js";
+import { TILE_NAMES, isFlower } from "../../engine/src/tiles.js";
 import type { Action, SeatIndex, TileId } from "../../engine/src/types.js";
 import { viewFor } from "./driver.js";
 
@@ -71,6 +73,7 @@ function newMatch(): void {
     rnd: prng((seed ^ ((i + 1) * 0x9e3779b1)) >>> 0),
   }));
   feed.length = 0;
+  oddsHistory = []; oddsHtml = "";
   feed.push(`new match · seed ${seed} · you are chair 0 · bots: ${window.KINGS?.label ?? "champion"}`);
   consume(r.events);
   overlayHtml = null;
@@ -152,6 +155,114 @@ function botThink(seat: SeatIndex): string[] {
   return out;
 }
 
+/* ── win odds: Monte Carlo, two information levels ─────────────────────
+ * blind    — what YOU can know: opponents' concealed tiles and the wall are
+ *            re-dealt at random from the unseen pool each rollout.
+ * all-seeing — every hand known; only the wall ORDER is unknown.
+ * Both play every seat with the champion policy. The gap between the bars is
+ * the cash value of hidden information. */
+let oddsGen = 0;
+let oddsHtml = "";
+/** Per-hand odds trace — the chess-app eval graph, but win probability. */
+let oddsHistory: { blind: number; omni: number }[] = [];
+function shuffleInPlace(a: number[], rnd: () => number): void {
+  for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); const t = a[i]!; a[i] = a[j]!; a[j] = t; }
+}
+function rollout(base: MatchState, blind: boolean, rseed: number): number {
+  const rnd = prng(rseed >>> 0);
+  const st0 = structuredClone(base) as MatchState;
+  const span: number[] = [];
+  for (let i = st0.wallIndex; i < st0.wall.length; i++) span.push(st0.wall[i]!);
+  if (blind) {
+    const pool = [...span];
+    for (const o of [1, 2, 3] as SeatIndex[]) {
+      pool.push(...st0.seats[o]!.hand);
+      if (st0.seats[o]!.drawn !== null) pool.push(st0.seats[o]!.drawn!);
+    }
+    // Flowers can never sit in a concealed hand (they are revealed on draw),
+    // so hands are dealt from the plain tiles; flowers go back into the wall.
+    const plain = pool.filter((t) => !isFlower(t));
+    const flowers = pool.filter(isFlower);
+    shuffleInPlace(plain, rnd);
+    for (const o of [1, 2, 3] as SeatIndex[]) {
+      const n = st0.seats[o]!.hand.length;
+      st0.seats[o]!.hand = plain.splice(0, n).sort((a, b) => a - b);
+      if (st0.seats[o]!.drawn !== null) st0.seats[o]!.drawn = plain.splice(0, 1)[0]!;
+    }
+    span.length = 0; span.push(...plain, ...flowers);
+    shuffleInPlace(span, rnd);
+  } else shuffleInPlace(span, rnd);
+  for (let i = 0; i < span.length; i++) st0.wall[st0.wallIndex + i] = span[i]!;
+  const cfgs: BotConfig[] = [0, 1, 2, 3].map((i) => ({
+    ruleset: MJRC_STANDARD, profile: KING, rnd: prng(((rseed + 7) ^ ((i + 1) * 0x9e3779b1)) >>> 0),
+  }));
+  let st = st0;
+  for (let guard = 0; guard < 2500; guard++) {
+    if (st.phase === "handEnd" || st.phase === "matchEnd") break;
+    let acted = false;
+    for (const seat of [0, 1, 2, 3] as SeatIndex[]) {
+      const opts = legalActions(st, seat);
+      if (opts.length === 0) continue;
+      st = applyAction(st, decideAction(viewFor(st, seat), opts, cfgs[seat]!)).state;
+      acted = true; break;
+    }
+    if (!acted) break;
+  }
+  let w = -1, bestD = 0;
+  for (const i of [0, 1, 2, 3] as SeatIndex[]) {
+    const d = st.seats[i]!.chips - base.seats[i]!.chips;
+    if (d > bestD) { bestD = d; w = i; }
+  }
+  return w;
+}
+function oddsChart(): string {
+  const H = oddsHistory;
+  if (H.length < 2) return `<div class="mut" style="font-size:10.5px;margin-top:3px">odds graph builds as the hand goes on…</div>`;
+  const W = 460, Hh = 88, L = 30, R = 6, T = 8, B = 16;
+  const x = (i: number): number => L + i / Math.max(1, H.length - 1) * (W - L - R);
+  const y = (v: number): number => T + (1 - v) * (Hh - T - B);
+  const line = (key: "blind" | "omni"): string => H.map((h, i) => `${x(i).toFixed(1)},${y(h[key]).toFixed(1)}`).join(" ");
+  return `<svg viewBox="0 0 ${W} ${Hh}" style="width:100%;height:${Hh}px;display:block;margin-top:4px">
+    ${[0, 0.25, 0.5, 0.75, 1].map((v) => `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="#3a3a44" stroke-width="${v === 0.5 ? 1 : 0.5}" stroke-dasharray="3 3"/>
+      <text x="${L - 3}" y="${y(v) + 3}" text-anchor="end" font-size="8" fill="#9a9aa6">${v * 100}%</text>`).join("")}
+    <polyline points="${line("blind")}" fill="none" stroke="#7fb3ff" stroke-width="1.6" stroke-dasharray="5 3"/>
+    <polyline points="${line("omni")}" fill="none" stroke="#5dbb7a" stroke-width="1.8"/>
+    ${H.map((h, i) => `<circle cx="${x(i)}" cy="${y(h.omni)}" r="2" fill="#5dbb7a"/>`).join("")}
+    <text x="${L}" y="${Hh - 4}" font-size="8" fill="#7fb3ff">╌ your view (blind)</text>
+    <text x="${W - R}" y="${Hh - 4}" text-anchor="end" font-size="8" fill="#5dbb7a">— all-seeing 天眼</text>
+  </svg>`;
+}
+function computeOdds(): void {
+  const gen = ++oddsGen;
+  const base = state;
+  const K = 16;
+  const wins = { blind: [0, 0, 0, 0, 0], omni: [0, 0, 0, 0, 0] };   // [4] = draw
+  let done = 0;
+  const step = (k: number): void => {
+    if (gen !== oddsGen) return;                    // state moved on — abandon
+    for (const blind of [true, false]) {
+      const w = rollout(base, blind, 0xabc123 + k * 613 + (blind ? 7 : 0));
+      wins[blind ? "blind" : "omni"][w < 0 ? 4 : w]!++;
+    }
+    done++;
+    const pct = (n: number): string => `${Math.round(100 * n / done)}%`;
+    const b = wins.blind, o = wins.omni;
+    oddsHtml = `<div class="oname">Win odds — champion plays it out from here (${done}×2 rollouts)</div>
+      <div class="orow" style="font-size:12px">your view (blind): <b>YOU ${pct(b[0]!)}</b> · draw ${pct(b[4]!)}</div>
+      <div class="orow" style="font-size:12px">all-seeing 天眼: <b class="${o[0]! / done > b[0]! / done + 0.08 ? "up" : o[0]! / done < b[0]! / done - 0.08 ? "down" : ""}">YOU ${pct(o[0]!)}</b>
+       · 南 ${pct(o[1]!)} · 西 ${pct(o[2]!)} · 北 ${pct(o[3]!)} · draw ${pct(o[4]!)}</div>`;
+    if (done === K) {
+      oddsHistory.push({ blind: b[0]! / done, omni: o[0]! / done });
+      oddsHtml += oddsChart();
+    }
+    const el = document.getElementById("odds");
+    if (el) el.innerHTML = oddsHtml;
+    if (done < K) setTimeout(() => step(k + 1), 0);
+  };
+  oddsHtml = `<div class="oname">Win odds</div><span class="mut" style="font-size:11.5px">computing…</span>`;
+  setTimeout(() => step(0), 0);
+}
+
 /* ── discard coach: grade the human's cut against the champion's ranking ── */
 const coach: { cls: string; html: string }[] = [];
 function coachDiscard(tile: TileId): void {
@@ -164,6 +275,26 @@ function coachDiscard(tile: TileId): void {
   const rank = ranked.indexOf(mine) + 1;
   const gap = best.score - mine.score;
   const stats = (d: DiscardScore): string => `${d.distance} away · danger ${d.danger.toFixed(1)}${d.outs >= 0 ? ` · ${d.outs} outs` : ""}`;
+  // your active plan, waits after the cut, and who a risky cut feeds
+  const threats = tableThreat(v, MJRC_STANDARD);
+  const routes = assessRoutes(shapeOf(v), MJRC_STANDARD, cfg.profile!, threats)
+    .filter((r) => r.feasible && Number.isFinite(r.score)).sort((a, b) => b.score - a.score);
+  const plan = routes[0] ? `${routeName(routes[0].route)} — pays ${Math.min(routes[0].faan, 10)} faan, ${Math.max(0, routes[0].distance)} away` : "";
+  const waitsAfter = (cut: TileId): string => {
+    const all = [...v.hand, ...(v.drawn !== null ? [v.drawn] : [])];
+    const c = counts(all); c[cut] = (c[cut] ?? 1) - 1;
+    const lt = liveTiles(c, v.melds[v.seat]!.length, visibleCounts(v));
+    if (lt.distance > 1) return "";
+    return lt.distance === 0
+      ? ` · READY — waiting on ${lt.tiles.slice(0, 5).map((w) => `${label(w.tile)}(${w.unseen})`).join(" ")} = ${lt.total} live`
+      : ` · 1 away, ${lt.total} improving tiles live`;
+  };
+  const feeds = (): string => {
+    const scary = [...threats.seats].sort((a, b) => b.threat - a.threat)[0];
+    return scary && scary.threat > 0.3
+      ? ` — mainly ${scary.seat === HUMAN ? "you" : "Bot " + WINDS[state.seats[scary.seat]!.wind]!.slice(0, 1)} (threat ${scary.threat.toFixed(2)}${scary.intentSuit !== null ? ", collecting " + SUIT_G[scary.intentSuit] : ""})` : "";
+  };
+  const order = ranked.slice(0, 3).map((d) => label(d.tile)).join(" › ");
   let cls: string, head: string, why = "";
   if (tile === best.tile) { cls = "ok"; head = `✓ perfect — the champion cuts ${label(tile)} too`; }
   else if (gap < 0.6) { cls = "ok"; head = `✓ good — within a hair of the champion's ${label(best.tile)}`; }
@@ -177,7 +308,9 @@ function coachDiscard(tile: TileId): void {
     else why = `the champion's cut simply scores better on speed + safety combined`;
   }
   coach.unshift({ cls, html: `<div class="chead">${head}</div>
-    <div class="cbody">you: ${label(tile)} — ${stats(mine)}${tile !== best.tile ? ` · champ: ${label(best.tile)} — ${stats(best)}` : ""}${why ? `<br>${why}` : ""}</div>` });
+    <div class="cbody">${plan ? `your plan: ${plan}<br>` : ""}you cut ${label(tile)} — ${stats(mine)}${waitsAfter(tile)}${
+      tile !== best.tile ? `<br>champion: ${label(best.tile)} — ${stats(best)}${waitsAfter(best.tile)}` : ""}${
+      why ? `<br><b>${why}${why.startsWith("riskier") ? feeds() : ""}</b>` : ""}<br><span style="opacity:.75">champion's top 3: ${order}</span></div>` });
   if (coach.length > 6) coach.length = 6;
 }
 
@@ -190,7 +323,11 @@ function advance(): void {
   if (state.phase === "matchEnd") return;
   if (state.phase === "handEnd") return;         // overlay button drives startNextHand
   const mine = legalActions(state, HUMAN);
-  if (mine.length > 0) { pendingHuman = mine; render(); return; }
+  if (mine.length > 0) {
+    pendingHuman = mine;
+    if (state.phase === "awaitDiscard" && state.turn === HUMAN) computeOdds();
+    render(); return;
+  }
   for (const seat of [1, 2, 3] as SeatIndex[]) {
     const options = legalActions(state, seat);
     if (options.length === 0) continue;
@@ -209,6 +346,7 @@ function advance(): void {
 
 function humanAct(a: Action): void {
   pendingHuman = null;
+  oddsGen++;   // stale rollouts must not repaint
   const r = applyAction(state, a);
   state = r.state; consume(r.events);
   advance();
@@ -216,6 +354,7 @@ function humanAct(a: Action): void {
 
 (window as never as Record<string, unknown>).__next = (): void => {
   overlayHtml = null;
+  oddsHistory = []; oddsHtml = "";
   const r = startNextHand(state);
   state = r.state; consume(r.events);
   advance();
@@ -282,6 +421,7 @@ function render(): void {
     if (btns.length && canDiscard) bar += ` <span class="mut">· or click a tile to discard</span>`;
   } else if (!overlayHtml && state.phase !== "matchEnd") bar = `<span class="mut">bots thinking…</span>`;
   $("actions").innerHTML = bar;
+  $("odds").innerHTML = oddsHtml || `<div class="oname">Win odds</div><span class="mut" style="font-size:11.5px">appears on your turn</span>`;
   $("coach").innerHTML = coach.length
     ? coach.map((c) => `<div class="centry ${c.cls}">${c.html}</div>`).join("")
     : `<span class="mut" style="font-size:11.5px">your discards get graded here — against what the champion would cut in your exact seat</span>`;
