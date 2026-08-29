@@ -185,9 +185,9 @@ while (Date.now() < deadline) {
     writeFileSync(`${DIR}/hall-of-fame-score.txt`, String(verdict.chips));
     hofScore = verdict.chips;
   }
-  log({ era: ERA, enemy: ENEMIES.map((e) => e.split("/").pop().replace(".json", "")).join("+"), perEnemy: verdict.per ?? null, fitness: FITNESS, sigma: Number(this_sigma), ts: new Date().toISOString(), stats: verdict.stats, cycle, opponent, matches: Number(matches), generations: 16, start, mins, heldOutChips: verdict.chips,
+  log({ era: ERA, enemy: ENEMIES.map((e) => e.split("/").pop().replace(".json", "")).join("+"), perEnemy: verdict.per ?? null, fitness: FITNESS, sigma: Number(this_sigma), ts: new Date().toISOString(), stats: verdict.stats, cycle, opponent, matches: Number(matches), generations: Number(GENS), start, mins, heldOutChips: verdict.chips,
         reigningOnSameBlock: reigning.chips, vsV0: vsV0.chips, improved, hofScore });
-  cyclesSoFar.push({ cycle, enemy: ENEMY.split("/").pop().replace(".json", ""), stats: verdict.stats, opponent, matches: Number(matches), generations: 16, mins: Number(mins), heldOutChips: verdict.chips,
+  cyclesSoFar.push({ cycle, enemy: ENEMY.split("/").pop().replace(".json", ""), stats: verdict.stats, opponent, matches: Number(matches), generations: Number(GENS), mins: Number(mins), heldOutChips: verdict.chips,
                     reigningOnSameBlock: reigning.chips, admissionMargin: MARGIN, vsV0: vsV0.chips, improved });
   flushPanel(`cycle ${cycle} done · cycle ${cycle + 1} evolving`);
   // ── mobile monitoring: STATUS.md pushed to GitHub every cycle ──
