@@ -88,6 +88,8 @@ details.match summary:hover{background:#2c2c35}
   <div id="seriesKpis"></div>
   <div class="sectionlabel">Across all cycles — every archived generation, with era breaks</div>
   <div class="trendgrid" id="longitudinal"></div>
+  <div class="sectionlabel">Absolute progress — measured against the fixed v0 yardstick</div>
+  <div id="absoluteProgress"></div>
   <div class="sectionlabel">Cycle texture — one point per cycle, proper axes</div>
   <div class="trendgrid" id="cycleTexture"></div>
   <div class="sectionlabel">Table behavior by cycle endpoint</div>
@@ -101,7 +103,7 @@ details.match summary:hover{background:#2c2c35}
 // mobile Chrome on slow networks — that was "where did the rest of the html
 // go"). Append real script tags, count them down, then boot the panel.
 (function () {
-  const files = ["overnight.js", "series-history.js", "baselines.js", "experiments.js", "log.js", "data.js"];
+  const files = ["overnight.js", "series-history.js", "baselines.js", "experiments.js", "champions.js", "log.js", "data.js"];
   let pending = files.length;
   const done = () => { if (--pending === 0 && window.initPanel) window.initPanel(); };
   for (const f of files) {
@@ -784,6 +786,83 @@ else if (D.history.length === 0) {
     ["Big hands — share of wins at 8+ faan", "held-out exam, table-wide. The exponential tail of the payment ladder (recorded from era 3 on).",
       [{ label: "8+ faan share", color: "var(--warn)", pts: exam(bigShare) }], { fmt: pct, zero: true }, "none"],
   ];
+  // ── ABSOLUTE PROGRESS (owner, 2026-08-29) ──────────────────────────────
+  // Every other chips number on this panel is scored against the ERA ENEMY,
+  // which is replaced by a stronger bot each era — so it resets toward 0 by
+  // construction and CANNOT show cumulative progress. baseline-v0 never
+  // changes, so it is the only axis on which "is the bot actually getting
+  // better" is answerable. The harness has logged vsV0 every cycle since era
+  // 2 (era 1 benched against v0 directly); it had never been plotted.
+  {
+    const raw = (window.SERIES_LOG || [])
+      .filter((r) => !r.error)
+      .map((r) => {
+        const era = r.era ?? 1;
+        return { era, cycle: r.cycle, v: era === 1 ? r.heldOutChips : r.vsV0 };
+      })
+      .filter((p) => Number.isFinite(p.v))
+      .sort((a, b) => a.era - b.era || a.cycle - b.cycle);
+    // Centred rolling mean — a single 160-match block has a huge spread (the
+    // champion ladder below shows the SAME profile scoring 23.9 and 72.0 on
+    // different blocks), so the per-cycle line is mostly noise and the
+    // smoothed line is the part worth reading.
+    const W = 9;
+    const smooth = raw.map((p, i) => {
+      const lo = Math.max(0, i - (W >> 1)), hi = Math.min(raw.length, i + (W >> 1) + 1);
+      const seg = raw.slice(lo, hi);
+      return { era: p.era, cycle: p.cycle, v: seg.reduce((a, b) => a + b.v, 0) / seg.length };
+    });
+    const trendSvg = cplot([
+      { label: "per-cycle vs v0", color: "var(--line)", pts: raw },
+      { label: `${W}-cycle rolling mean`, color: "var(--ok)", pts: smooth },
+    ], { fmt: (v) => (v > 0 ? "+" : "") + v.toFixed(0), zero: true });
+
+    // Champion ladder — each era's frozen king, same enemy, same blocks.
+    const C = window.CHAMPIONS;
+    let ladder = '<div class="mut">champions.js not loaded — run the ladder to populate this.</div>';
+    if (C && C.rows && C.rows.length) {
+      const hi = Math.max(...C.rows.map((r) => Math.max(...r.chips, r.mean)));
+      const BW = 720, BL = 92, BR = 46, rowH = 30, BT = 6;
+      const bh = BT + C.rows.length * rowH + 20;
+      const bx = (v) => BL + (v / hi) * (BW - BL - BR);
+      const bars = C.rows.map((r, i) => {
+        const y = BT + i * rowH;
+        const prev = i > 0 ? C.rows[i - 1].mean : null;
+        const d = prev === null ? "" : (r.mean - prev >= 0 ? "+" : "") + (r.mean - prev).toFixed(1);
+        const dCls = prev === null ? "" : (r.mean - prev >= 0 ? "var(--ok)" : "var(--warn)");
+        return `<text x="0" y="${y + 15}" font-size="10" fill="var(--ink)">${r.name}</text>
+          <text x="0" y="${y + 25}" font-size="8" fill="var(--dim)">era ${r.era} king</text>
+          <rect x="${BL}" y="${y + 4}" width="${(bx(r.mean) - BL).toFixed(1)}" height="14" fill="var(--acc)" opacity="0.55" rx="2"/>
+          ${r.chips.map((c) => `<circle cx="${bx(c).toFixed(1)}" cy="${y + 11}" r="2.6" fill="var(--gold)"><title>block value ${c}</title></circle>`).join("")}
+          <text x="${(bx(r.mean) + 6).toFixed(1)}" y="${y + 15}" font-size="10" fill="var(--ink)" font-weight="700">+${r.mean.toFixed(1)}</text>
+          ${d ? `<text x="${BW - 2}" y="${y + 15}" text-anchor="end" font-size="9" fill="${dCls}">${d}</text>` : ""}`;
+      }).join("");
+      ladder = `<svg viewBox="0 0 ${BW} ${bh}" style="width:100%;height:${bh}px;display:block">
+        <line x1="${BL}" x2="${BL}" y1="${BT}" y2="${bh - 20}" stroke="var(--line)"/>
+        <text x="${BL}" y="${bh - 6}" font-size="8" fill="var(--dim)">0 = par with baseline-v0</text>
+        ${bars}</svg>
+        <div class="trendkey"><span style="color:var(--acc)">▬ mean of ${C.blocks.length} blocks</span><span style="color:var(--gold)">● individual block</span><span>${C.matchesPerBlock} matches per block, all seats · measured ${C.generated}</span></div>`;
+    }
+
+    const el = document.getElementById("absoluteProgress");
+    if (el) el.innerHTML = `<div class="trendgrid">
+      <div class="card"><span class="scope">EVERY CYCLE · ALL ERAS · FIXED ENEMY</span>
+        <h2>Net chips/match vs baseline-v0${GOALS.up}</h2>
+        ${trendSvg ?? '<div class="mut">no vsV0 data recorded</div>'}
+        <div class="mut" style="font-size:11px">The one chart that can show cumulative progress: <b>the opponent never changes</b>.
+        Every other chips plot is scored against that era's enemy, which is replaced by a stronger bot each era, so it resets to ~0 and
+        looks flat forever no matter how much the bot improves. Grey = per-cycle (mostly block noise); green = ${W}-cycle rolling mean.
+        <b>Era 1 is not comparable</b> — those cycles ran before the seat-luck bench fix and are inflated.</div></div>
+      <div class="card"><span class="scope">ERA CHAMPIONS · SAME ENEMY · SAME WALLS</span>
+        <h2>Champion ladder vs baseline-v0${GOALS.up}</h2>
+        ${ladder}
+        <div class="mut" style="font-size:11px">The definitive milestone comparison: each era's frozen king replayed against the same
+        fixed opponent on the same three blocks, so nothing but the bot differs. Gold dots are the individual blocks — their spread is
+        the honest error bar, and it is <b>large</b> (baseline-v1 scored 23.9 and 72.0 on different blocks), which is exactly why the
+        rolling mean, not any single cycle, is the thing to read.</div></div>
+    </div>`;
+  }
+
   const holder = document.getElementById("cycleTexture");
   if (holder) holder.innerHTML = charts.map(([title, note, lines, opts, goal]) => {
     const svg = cplot(lines, opts);
