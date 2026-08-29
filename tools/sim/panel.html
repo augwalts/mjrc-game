@@ -236,6 +236,35 @@ else if (D.history.length === 0) {
     </svg><div class="kv"><span class="mut">start ${fmt(vals[0])}</span><b>now ${fmt(vals[vals.length-1])}</b></div>`;
   };
 
+  // Multi-line variant of spark for tactical mixes (claims, hand types, wins).
+  // Same axes discipline; series = [{label, color, vals}].
+  const sparkM = (series, {lo, hi, fmt = v => v, zero = false} = {}) => {
+    const live = series.filter((s) => s.vals.some(Number.isFinite));
+    if (!live.length) return '<div class="mut">not recorded in this run</div>';
+    const n = Math.max(...live.map((s) => s.vals.length));
+    const all = live.flatMap((s) => s.vals.filter(Number.isFinite));
+    lo = lo ?? (zero ? Math.min(0, ...all) : Math.min(...all));
+    hi = hi ?? Math.max(...all, lo + 1e-9);
+    if (hi === lo) hi = lo + 1;
+    const W = 340, Hh = 96, L = 34, R = 4, T = 6, B = 20;
+    const x = i => L + i / Math.max(1, n - 1) * (W - L - R);
+    const y = v => T + (1 - (v - lo) / (hi - lo)) * (Hh - T - B);
+    const tick = (v) => `<line x1="${L}" x2="${W - R}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}"
+        stroke="var(--line)" stroke-width="0.6" stroke-dasharray="3 3"/>
+      <text x="${L - 4}" y="${(y(v) + 2.6).toFixed(1)}" text-anchor="end" font-size="8" fill="var(--dim)">${fmt(v)}</text>`;
+    const body = live.map((s) => {
+      const pts = s.vals.map((v, i) => Number.isFinite(v) ? `${x(i).toFixed(1)},${y(v).toFixed(1)}` : null).filter(Boolean);
+      const dots = s.vals.map((v, i) => Number.isFinite(v)
+        ? `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="1.6" fill="${s.color}"><title>gen ${i} · ${s.label}: ${fmt(v)}</title></circle>` : "").join("");
+      return `<polyline points="${pts.join(" ")}" fill="none" stroke="${s.color}" stroke-width="1.5"/>${dots}`;
+    }).join("");
+    return `<svg class="spark" style="height:96px" viewBox="0 0 ${W} ${Hh}">
+      ${tick(hi)}${tick((lo + hi) / 2)}${tick(lo)}${body}
+      <text x="${L}" y="${Hh - 6}" font-size="8" fill="var(--dim)">gen 0</text>
+      <text x="${W - R}" y="${Hh - 6}" text-anchor="end" font-size="8" fill="var(--dim)">gen ${n - 1}</text>
+    </svg><div class="trendkey">${live.map((s) => `<span style="color:${s.color}">● ${s.label}</span>`).join("")}</div>`;
+  };
+
   const bestChips = H.map(g => Math.max(...g.candidates.map(c => c.result.chipsPerMatch)));
   // Texture KPIs read from the BENCH (same frozen enemy every generation).
   // They used to read the control/promoted set, whose opponent alternates
@@ -306,10 +335,10 @@ else if (D.history.length === 0) {
         <div class="trendkey"><span>${valid.length.toLocaleString()}/${points.length.toLocaleString()} generations recorded</span><span>thin line = cycle boundary · outlined dot = cycle endpoint</span><span style="color:var(--gold)">gold line = era boundary · gold dot = promotion</span><span>latest ${fmt(last.v)}</span></div>`;
     };
     const metrics = [
-      ["refusedPerHand", "Refused wins per table hand", { color: "var(--warn)", zero: true, fmt: (v) => v.toFixed(2) }],
-      ["meanFaan", "Mean winning faan", { color: "var(--acc)", fmt: (v) => v.toFixed(2) }],
-      ["drawRate", "Exhaustive draw rate", { color: "var(--gold)", zero: true, fmt: (v) => `${(v * 100).toFixed(0)}%` }],
-      ["threatDetection", "Threat detection", { color: "var(--ok)", zero: true, fmt: (v) => `${(v * 100).toFixed(0)}%` }],
+      ["refusedPerHand", `Refused wins per table hand${GOALS.zero}`, { color: "var(--warn)", zero: true, fmt: (v) => v.toFixed(2) }],
+      ["meanFaan", `Mean winning faan${GOALS.none}`, { color: "var(--acc)", fmt: (v) => v.toFixed(2) }],
+      ["drawRate", `Exhaustive draw rate${GOALS.drawBand}`, { color: "var(--gold)", zero: true, fmt: (v) => `${(v * 100).toFixed(0)}%` }],
+      ["threatDetection", `Threat detection${GOALS.up}`, { color: "var(--ok)", zero: true, fmt: (v) => `${(v * 100).toFixed(0)}%` }],
     ];
     document.getElementById("longitudinal").innerHTML = metrics.map(([key, title, opts]) =>
       `<div class="card"><span class="scope">ACROSS ALL CYCLES · EVERY RECORDED GENERATION</span><h2>${title}</h2>${trend(key, opts)}</div>`).join("");
@@ -321,16 +350,16 @@ else if (D.history.length === 0) {
     for (const point of points) byCycle.set(`${point.era}:${point.cycle}`, point);
     const cycleRows = [...byCycle.values()];
     const behavior = [
-      ["chowClaimShare", "Chows · share of claims", (v) => `${(v * 100).toFixed(0)}%`, 0.005, true],
-      ["pungClaimShare", "Pungs · share of claims", (v) => `${(v * 100).toFixed(0)}%`, 0.005, true],
-      ["kongClaimShare", "Kongs · share of claims", (v) => `${(v * 100).toFixed(1)}%`, 0.002, true],
-      ["chowsPerHand", "Chows / table hand", (v) => v.toFixed(2), 0.01, false],
-      ["pungsPerHand", "Pungs / table hand", (v) => v.toFixed(2), 0.01, false],
-      ["kongsPerHand", "Kongs / table hand", (v) => v.toFixed(2), 0.01, false],
-      ["claimsPerHand", "All claims / table hand", (v) => v.toFixed(2), 0.01, false],
-      ["discardWinsPerHand", "Discard wins / table hand", (v) => v.toFixed(2), 0.01, false],
-      ["selfDrawsPerHand", "Self-draws / table hand", (v) => v.toFixed(2), 0.01, false],
-      ["threatDetection", "Threat detection", (v) => `${(v * 100).toFixed(0)}%`, 0.01, true],
+      ["chowClaimShare", "◇ Chows · share of claims", (v) => `${(v * 100).toFixed(0)}%`, 0.005, true],
+      ["pungClaimShare", "◇ Pungs · share of claims", (v) => `${(v * 100).toFixed(0)}%`, 0.005, true],
+      ["kongClaimShare", "◇ Kongs · share of claims", (v) => `${(v * 100).toFixed(1)}%`, 0.002, true],
+      ["chowsPerHand", "◇ Chows / table hand", (v) => v.toFixed(2), 0.01, false],
+      ["pungsPerHand", "◇ Pungs / table hand", (v) => v.toFixed(2), 0.01, false],
+      ["kongsPerHand", "◇ Kongs / table hand", (v) => v.toFixed(2), 0.01, false],
+      ["claimsPerHand", "◇ All claims / table hand", (v) => v.toFixed(2), 0.01, false],
+      ["discardWinsPerHand", "◇ Discard wins / table hand", (v) => v.toFixed(2), 0.01, false],
+      ["selfDrawsPerHand", "◇ Self-draws / table hand", (v) => v.toFixed(2), 0.01, false],
+      ["threatDetection", "▲ Threat detection", (v) => `${(v * 100).toFixed(0)}%`, 0.01, true],
     ];
     const cell = (metric, value, index, threshold, percentage) => {
       if (!Number.isFinite(value)) return '<span class="mut">—</span>';
@@ -385,7 +414,7 @@ else if (D.history.length === 0) {
   if (benches.length) {
     const b = benches[benches.length - 1];
     const line = benches.map((x) => x.chipsPerMatch);
-    put("kpis", `<div class="card"><span class="scope">WITHIN CURRENT CYCLE · ${benches.length} GENERATIONS</span><h2>Fixed-bench chips/match vs ${(D.baseline||"baseline-v0.json").includes("v1") ? "baseline-v1" : "baseline-v0"}</h2>
+    put("kpis", `<div class="card"><span class="scope">WITHIN CURRENT CYCLE · ${benches.length} GENERATIONS</span><h2>Fixed-bench chips/match vs ${(D.baseline||"baseline-v0.json").includes("v1") ? "baseline-v1" : "baseline-v0"}${GOALS.up}</h2>
       ${spark(line, { zero: true, fmt: (v) => (v > 0 ? "+" : "") + v, color: b.chipsPerMatch >= 0 ? "var(--ok)" : "var(--warn)" })}
       <div class="mut" style="font-size:11px">won <b class="up">${b.chipsWonPerMatch}</b> · lost <b class="down">${b.chipsLostPerMatch}</b>
       ${b.winLossRatio !== undefined ? `· <b>W/L ratio ${b.winLossRatio}</b> (how humans compare — &gt;1 = net winner)` : ""} per match.
@@ -408,25 +437,93 @@ else if (D.history.length === 0) {
   {
     const tdVals = H.map((g) => g.bench?.threatDetection).filter((v) => v !== undefined);
     if (tdVals.length) {
-      put("kpis", `<div class="card"><span class="scope">WITHIN CURRENT CYCLE · ${tdVals.length} GENERATIONS</span><h2>Threat detection by generation</h2>
+      put("kpis", `<div class="card"><span class="scope">WITHIN CURRENT CYCLE · ${tdVals.length} GENERATIONS</span><h2>Threat detection by generation${GOALS.up}</h2>
         ${spark(tdVals, { zero: true, hi: 1, fmt: (v) => Math.round(v * 100) + "%" })}
         <div class="mut" style="font-size:11px">Share of benchmark wins where the winner had been flagged (threat &gt; 0.3)
         by an opponent's table read before the win. This plot compares generations inside the active cycle; use the Overall tab to compare recorded threat detection across cycles.</div></div>`);
     }
   }
-  put('kpis', `<div class="card"><span class="scope">WITHIN CURRENT CYCLE · ${H.length} GENERATIONS</span><h2>Refused wins / hand by generation</h2>
+  put('kpis', `<div class="card"><span class="scope">WITHIN CURRENT CYCLE · ${H.length} GENERATIONS</span><h2>Refused wins / hand by generation${GOALS.zero}</h2>
     ${spark(texture("refusedPerHand"), {lo: 0, color: "var(--warn)", fmt: v => v})}
     <div class="mut" style="font-size:11px">Whole-table count per hand where any seat completed a winning shape it legally could not take under the 3-faan floor. This is the current cycle only; the Overall tab covers all archived cycles.</div></div>`);
 
-  put('kpis', `<div class="card"><span class="scope">WITHIN CURRENT CYCLE · ${H.length} GENERATIONS</span><h2>Draw rate by generation 流局</h2>
+  put('kpis', `<div class="card"><span class="scope">WITHIN CURRENT CYCLE · ${H.length} GENERATIONS</span><h2>Draw rate by generation 流局${GOALS.drawBand}</h2>
     ${spark(texture("drawRate"), {lo: 0, hi: 0.7, fmt: v => (v*100).toFixed(0)+"%"})}
     <div class="mut" style="font-size:11px">流局 — the wall ran out and NOBODY won (not self-draw — 自摸 is a win).
  This plot compares generations in the current cycle only.</div></div>`);
 
-  put('kpis', `<div class="card"><span class="scope">WITHIN CURRENT CYCLE · ${H.length} GENERATIONS</span><h2>Mean winning faan by generation</h2>
+  put('kpis', `<div class="card"><span class="scope">WITHIN CURRENT CYCLE · ${H.length} GENERATIONS</span><h2>Mean winning faan by generation${GOALS.none}</h2>
     ${spark(texture("meanFaan"), {zero: true, fmt: v => v})}
     <div class="mut" style="font-size:11px">Average faan of winning hands. 3.0 = everyone scrapes the minimum; rising = hands
  built for value. This plot compares generations in the current cycle only.</div></div>`);
+
+  // ── Tactical texture by generation (owner, 2026-08-28): hand types, claims,
+  // win mix, faan spread — all from the per-generation BENCH activity census
+  // (192 all-seat matches ≈ 1,475 hands per generation, a bigger sample than
+  // the cycle-end exam, so these per-generation trends are statistically real).
+  {
+    const acts = H.map((g) => (g.bench ?? g.control)?.activity ?? null);
+    const winsOf = (a) => a ? a.winsOnDiscard + a.selfDraws : 0;
+    if (acts.some(Boolean)) {
+      const share = (key) => acts.map((a) => a && winsOf(a) ? (a.patterns?.[key] ?? 0) / winsOf(a) : NaN);
+      const perHand = (key) => acts.map((a) => a?.hands ? a[key] / a.hands : NaN);
+      const pctF = (v) => `${(v * 100).toFixed(0)}%`;
+      // Hand types — the five patterns that define the current meta.
+      const TYPE_LINES = [
+        ["halfFlush", "half flush 混一色", "var(--acc)"],
+        ["allPungs", "all pungs 對對糊", "var(--gold)"],
+        ["fullFlush", "full flush 清一色", "var(--warn)"],
+        ["concealedHand", "concealed 門前清", "var(--ok)"],
+        ["allChows", "all chows 平糊", "#b48ead"],
+      ];
+      const lastAct = [...acts].reverse().find(Boolean);
+      const census = Object.entries(lastAct.patterns ?? {}).sort((a, b) => b[1] - a[1]);
+      put('kpis', `<div class="card"><span class="scope">WITHIN CURRENT CYCLE · ${H.length} GENERATIONS</span><h2>Hand types — share of bench wins${GOALS.none}</h2>
+        ${sparkM(TYPE_LINES.map(([k, label, color]) => ({ label, color, vals: share(k) })), { zero: true, fmt: pctF })}
+        <details style="margin-top:6px"><summary class="mut" style="cursor:pointer;font-size:11px">full census — latest generation (${winsOf(lastAct)} wins)</summary>
+        <table style="margin-top:4px"><tr><th>pattern</th><th>wins</th><th>share</th></tr>
+        ${census.map(([id, n]) => `<tr><td>${PATTERN_LABELS[id] ?? id}</td><td>${n}</td><td>${pctF(n / winsOf(lastAct))}</td></tr>`).join("")}</table></details>
+        <div class="mut" style="font-size:11px">A win can carry several patterns, so shares exceed 100% summed. Watch for meta drift (e.g. everything collapsing into half flush), not a direction.</div></div>`);
+      put('kpis', `<div class="card"><span class="scope">WITHIN CURRENT CYCLE · ${H.length} GENERATIONS</span><h2>Claim mix per table hand${GOALS.none}</h2>
+        ${sparkM([
+          { label: "pungs/hand 碰", color: "var(--gold)", vals: perHand("pungs") },
+          { label: "chows/hand 上", color: "var(--acc)", vals: perHand("chows") },
+          { label: "kongs/hand 槓", color: "var(--warn)", vals: perHand("kongs") },
+        ], { zero: true, fmt: (v) => v.toFixed(2) })}
+        <div class="mut" style="font-size:11px">Too few claims total = the alien-quiet table the texture gate exists for; the pung-vs-chow balance itself is texture, not a target.</div></div>`);
+      put('kpis', `<div class="card"><span class="scope">WITHIN CURRENT CYCLE · ${H.length} GENERATIONS</span><h2>Win mix per table hand${GOALS.none}</h2>
+        ${sparkM([
+          { label: "discard wins/hand 食糊", color: "var(--acc)", vals: perHand("winsOnDiscard") },
+          { label: "self-draws/hand 自摸", color: "var(--ok)", vals: perHand("selfDraws") },
+        ], { zero: true, fmt: (v) => v.toFixed(2) })}
+        <div class="mut" style="font-size:11px">How hands finish. Their sum is the win rate per hand; the gap to 1.0 is the draw rate.</div></div>`);
+      // Faan distribution — latest generation histogram + the 8+ tail trend.
+      const hist = lastAct.faanHist ?? [];
+      const histWins = hist.reduce((a, b) => a + b, 0) || 1;
+      const bigShare = acts.map((a) => {
+        const h = a?.faanHist; if (!h) return NaN;
+        const t = h.reduce((x, y) => x + y, 0); return t ? h.slice(8).reduce((x, y) => x + y, 0) / t : NaN;
+      });
+      const bars = (() => {
+        const idx = hist.map((n, i) => [i, n]).filter(([i, n]) => i >= 3 && n > 0);
+        if (!idx.length) return '<div class="mut">no faan histogram in this run</div>';
+        const top = Math.max(...idx.map(([, n]) => n));
+        const W = 340, Hh = 96, L = 30, R = 4, T = 8, B = 18, bw = (W - L - R) / idx.length;
+        return `<svg class="spark" style="height:96px" viewBox="0 0 ${W} ${Hh}">
+          ${idx.map(([f, n], j) => {
+            const h = (n / top) * (Hh - T - B);
+            return `<rect x="${(L + j * bw + 2).toFixed(1)}" y="${(Hh - B - h).toFixed(1)}" width="${(bw - 4).toFixed(1)}" height="${h.toFixed(1)}" fill="var(--acc)" opacity="0.85"><title>${f} faan: ${n} wins (${(n / histWins * 100).toFixed(1)}%)</title></rect>
+            <text x="${(L + j * bw + bw / 2).toFixed(1)}" y="${Hh - 6}" text-anchor="middle" font-size="8" fill="var(--dim)">${f}</text>`;
+          }).join("")}
+          <text x="${L - 4}" y="${T + 6}" text-anchor="end" font-size="8" fill="var(--dim)">${top}</text></svg>`;
+      })();
+      put('kpis', `<div class="card"><span class="scope">WITHIN CURRENT CYCLE · LATEST GENERATION + TREND</span><h2>Faan distribution${GOALS.none}</h2>
+        ${bars}
+        <div class="kv" style="margin-top:4px"><span class="mut">share of wins at 8+ faan, by generation</span></div>
+        ${spark(bigShare, { zero: true, fmt: pctF, color: "var(--warn)" })}
+        <div class="mut" style="font-size:11px">Bars: latest generation's winning-faan histogram (bench). The 8+ tail is where the payment ladder pays 128-256 chips — texture, but the tail is what "win bigger" looks like when it works.</div></div>`);
+    }
+  }
 
   const WEIGHT_DOCS = {
     faanWeight: "Value vs speed: how much a route's payout matters over finishing fast. Low = race for any legal 3 faan; high = build big hands.",
