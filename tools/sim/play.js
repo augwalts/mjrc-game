@@ -2807,6 +2807,37 @@
     if (routes.length) out.push(`\xA7  plans: ` + routes.map((r, i) => `${i === 0 ? "\u25B8" : ""}${routeName(r.route)} (${Math.min(r.faan, 10)}f, ${Math.max(0, r.distance)} away, score ${r.score.toFixed(1)})`).join("  \xB7  "));
     return out;
   }
+  var coach = [];
+  function coachDiscard(tile) {
+    const v = viewFor(state, HUMAN);
+    const cfg = { ruleset: MJRC_STANDARD, profile: scoreAdjust(KING, v), rnd: prng(789188) };
+    const ranked = [...rankDiscards(v, cfg)].sort((a, b) => b.score - a.score);
+    const best = ranked[0];
+    const mine = ranked.find((d) => d.tile === tile);
+    if (!mine) return;
+    const rank = ranked.indexOf(mine) + 1;
+    const gap = best.score - mine.score;
+    const stats = (d) => `${d.distance} away \xB7 danger ${d.danger.toFixed(1)}${d.outs >= 0 ? ` \xB7 ${d.outs} outs` : ""}`;
+    let cls, head, why = "";
+    if (tile === best.tile) {
+      cls = "ok";
+      head = `\u2713 perfect \u2014 the champion cuts ${label(tile)} too`;
+    } else if (gap < 0.6) {
+      cls = "ok";
+      head = `\u2713 good \u2014 within a hair of the champion's ${label(best.tile)}`;
+    } else {
+      cls = gap < 2.2 ? "mid" : "bad";
+      head = `${gap < 2.2 ? "\u26A0 okay" : "\u2717 costly"} \u2014 champion cuts ${label(best.tile)} (your pick ranked #${rank}/${ranked.length})`;
+      if (mine.distance > best.distance) why = `slows your hand: ${mine.distance} away vs ${best.distance}`;
+      else if (mine.danger - best.danger > 0.8) why = `riskier: danger ${mine.danger.toFixed(1)} vs ${best.danger.toFixed(1)} \u2014 it feeds the table`;
+      else if (!mine.onRoute && best.onRoute) why = `off your best route \u2014 ${label(best.tile)} keeps the plan intact`;
+      else if (mine.outs >= 0 && best.outs >= 0 && mine.outs < best.outs) why = `fewer winning tiles stay live: ${mine.outs} vs ${best.outs}`;
+      else why = `the champion's cut simply scores better on speed + safety combined`;
+    }
+    coach.unshift({ cls, html: `<div class="chead">${head}</div>
+    <div class="cbody">you: ${label(tile)} \u2014 ${stats(mine)}${tile !== best.tile ? ` \xB7 champ: ${label(best.tile)} \u2014 ${stats(best)}` : ""}${why ? `<br>${why}` : ""}</div>` });
+    if (coach.length > 6) coach.length = 6;
+  }
   var pendingHuman = null;
   function advance() {
     render();
@@ -2866,7 +2897,10 @@
   var tileHtml = (t, cls = "", onclick = "") => `<span class="tile ${cls}" ${onclick ? `onclick="${onclick}"` : ""} title="${label(t)}"><span class="g">${GLYPH[t] ?? "?"}</span><span class="l">${label(t)}</span></span>`;
   window.__discard = (t) => {
     const a = pendingHuman?.find((x) => x.type === "discard" && x.tile === t);
-    if (a) humanAct(a);
+    if (a) {
+      coachDiscard(t);
+      humanAct(a);
+    }
   };
   window.__act = (i) => {
     if (pendingHuman?.[i]) humanAct(pendingHuman[i]);
@@ -2906,6 +2940,7 @@
       if (btns.length && canDiscard) bar += ` <span class="mut">\xB7 or click a tile to discard</span>`;
     } else if (!overlayHtml && state.phase !== "matchEnd") bar = `<span class="mut">bots thinking\u2026</span>`;
     $("actions").innerHTML = bar;
+    $("coach").innerHTML = coach.length ? coach.map((c) => `<div class="centry ${c.cls}">${c.html}</div>`).join("") : `<span class="mut" style="font-size:11.5px">your discards get graded here \u2014 against what the champion would cut in your exact seat</span>`;
     $("feed").innerHTML = feed.slice(-48).map((l) => l.startsWith("\xA7") ? `<div class="think">${l.slice(1)}</div>` : `<div>${l}</div>`).join("");
     $("feed").scrollTop = $("feed").scrollHeight;
     const ov = $("overlay");

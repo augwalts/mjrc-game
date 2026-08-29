@@ -40,6 +40,15 @@ h1{font-size:15px;margin:0 0 4px}
 #actions button:hover{background:#3d3d49}
 #actions button.win{background:#1e3a2a;color:var(--ok);border-color:var(--ok);font-weight:700}
 .mut{color:var(--dim)}
+#coach .centry{border-left:3px solid var(--line);padding:5px 8px;margin:4px 0;font-size:12px;border-radius:0 6px 6px 0;background:#22222a}
+#coach .centry.ok{border-left-color:var(--ok)}
+#coach .centry.mid{border-left-color:#d8b56a}
+#coach .centry.bad{border-left-color:var(--warn)}
+#coach .chead{font-weight:600}
+#coach .centry.ok .chead{color:var(--ok)}
+#coach .centry.mid .chead{color:#d8b56a}
+#coach .centry.bad .chead{color:var(--warn)}
+#coach .cbody{color:var(--dim);font-size:11px;margin-top:1px}
 #feed .think{color:#6f7a92;font-size:10.5px;padding-left:4px;border-left:2px solid #33333d;margin-left:2px}
 #feed{background:var(--card);border:1px solid var(--line);border-radius:9px;padding:10px;font-size:11.5px;
   color:var(--dim);height:100%;max-height:640px;overflow-y:auto}
@@ -68,6 +77,7 @@ h1{font-size:15px;margin:0 0 4px}
       <div id="myhand"></div>
       <div id="actions"></div>
     </div>
+    <div class="mine"><div class="oname">Discard coach 教練</div><div id="coach"></div></div>
   </div>
   <div id="feed"></div>
 </div>

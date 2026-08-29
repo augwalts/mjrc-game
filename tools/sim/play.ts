@@ -10,7 +10,7 @@ import {
   startMatch, startNextHand, applyAction, legalActions,
 } from "../../engine/src/reducer.js";
 import type { MatchState } from "../../engine/src/reducer.js";
-import { decideAction, DEFAULT_PROFILE, assessRoutes, shapeOf, type BotConfig, type BotProfile, type RouteAssessment } from "../../engine/src/bots.js";
+import { decideAction, DEFAULT_PROFILE, assessRoutes, shapeOf, rankDiscards, scoreAdjust, type BotConfig, type BotProfile, type RouteAssessment, type DiscardScore } from "../../engine/src/bots.js";
 import { tableThreat } from "../../engine/src/threat.js";
 import { MJRC_STANDARD } from "../../rulesets/src/presets.js";
 import { prng } from "../../engine/src/wall.js";
@@ -152,6 +152,35 @@ function botThink(seat: SeatIndex): string[] {
   return out;
 }
 
+/* ── discard coach: grade the human's cut against the champion's ranking ── */
+const coach: { cls: string; html: string }[] = [];
+function coachDiscard(tile: TileId): void {
+  const v = viewFor(state, HUMAN);
+  const cfg: BotConfig = { ruleset: MJRC_STANDARD, profile: scoreAdjust(KING, v), rnd: prng(0xc0ac4) };
+  const ranked = [...rankDiscards(v, cfg)].sort((a, b) => b.score - a.score);
+  const best = ranked[0]!;
+  const mine = ranked.find((d) => d.tile === tile);
+  if (!mine) return;
+  const rank = ranked.indexOf(mine) + 1;
+  const gap = best.score - mine.score;
+  const stats = (d: DiscardScore): string => `${d.distance} away · danger ${d.danger.toFixed(1)}${d.outs >= 0 ? ` · ${d.outs} outs` : ""}`;
+  let cls: string, head: string, why = "";
+  if (tile === best.tile) { cls = "ok"; head = `✓ perfect — the champion cuts ${label(tile)} too`; }
+  else if (gap < 0.6) { cls = "ok"; head = `✓ good — within a hair of the champion's ${label(best.tile)}`; }
+  else {
+    cls = gap < 2.2 ? "mid" : "bad";
+    head = `${gap < 2.2 ? "⚠ okay" : "✗ costly"} — champion cuts ${label(best.tile)} (your pick ranked #${rank}/${ranked.length})`;
+    if (mine.distance > best.distance) why = `slows your hand: ${mine.distance} away vs ${best.distance}`;
+    else if (mine.danger - best.danger > 0.8) why = `riskier: danger ${mine.danger.toFixed(1)} vs ${best.danger.toFixed(1)} — it feeds the table`;
+    else if (!mine.onRoute && best.onRoute) why = `off your best route — ${label(best.tile)} keeps the plan intact`;
+    else if (mine.outs >= 0 && best.outs >= 0 && mine.outs < best.outs) why = `fewer winning tiles stay live: ${mine.outs} vs ${best.outs}`;
+    else why = `the champion's cut simply scores better on speed + safety combined`;
+  }
+  coach.unshift({ cls, html: `<div class="chead">${head}</div>
+    <div class="cbody">you: ${label(tile)} — ${stats(mine)}${tile !== best.tile ? ` · champ: ${label(best.tile)} — ${stats(best)}` : ""}${why ? `<br>${why}` : ""}</div>` });
+  if (coach.length > 6) coach.length = 6;
+}
+
 /* ── game loop ───────────────────────────────────────────────────────── */
 let pendingHuman: Action[] | null = null;
 
@@ -202,7 +231,7 @@ const tileHtml = (t: TileId, cls = "", onclick = ""): string =>
 
 (window as never as Record<string, unknown>).__discard = (t: number): void => {
   const a = pendingHuman?.find((x) => x.type === "discard" && x.tile === t);
-  if (a) humanAct(a);
+  if (a) { coachDiscard(t as TileId); humanAct(a); }
 };
 (window as never as Record<string, unknown>).__act = (i: number): void => {
   if (pendingHuman?.[i]) humanAct(pendingHuman[i]!);
@@ -253,6 +282,9 @@ function render(): void {
     if (btns.length && canDiscard) bar += ` <span class="mut">· or click a tile to discard</span>`;
   } else if (!overlayHtml && state.phase !== "matchEnd") bar = `<span class="mut">bots thinking…</span>`;
   $("actions").innerHTML = bar;
+  $("coach").innerHTML = coach.length
+    ? coach.map((c) => `<div class="centry ${c.cls}">${c.html}</div>`).join("")
+    : `<span class="mut" style="font-size:11.5px">your discards get graded here — against what the champion would cut in your exact seat</span>`;
   $("feed").innerHTML = feed.slice(-48).map((l) =>
     l.startsWith("§") ? `<div class="think">${l.slice(1)}</div>` : `<div>${l}</div>`).join("");
   $("feed").scrollTop = $("feed").scrollHeight;
