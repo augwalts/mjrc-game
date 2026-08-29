@@ -1,8 +1,8 @@
 # Training series — era 4 (vs baseline-v1.json, fitness: chips)
 
-Updated 2026-08-29T10:51:06.231Z · 9.1h remaining · ruleset mjrc-standard (3-10 faan)
+Updated 2026-08-29T11:01:55.948Z · 9.0h remaining · ruleset mjrc-standard (3-10 faan)
 
-**Hall of fame vs baseline-v1: 30 chips/match**
+**Hall of fame vs baseline-v1: 14.6 chips/match**
 
 Units: chips are the HK payment ladder (a 3-faan discard win moves 16 chips; the 10-faan cap moves 256).
 All chip numbers here are AVERAGES per one-wind-round match over 160-match blocks — a single great match can swing +400 by itself.
@@ -21,5 +21,6 @@ All chip numbers here are AVERAGES per one-wind-round match over 160-match block
 | 9 | cmaes | 48 | -9.5 | 70.1 |  | 5m |
 | 10 | baseline | 96 | -21.8 | 21.4 |  | 2.8m |
 | 11 | baseline | 48 | 5.3 | 48.9 |  | 2.5m |
+| 12 | cmaes | 96 | 14.6 | 98.1 | **NEW BEST** | 9.8m |
 
 Files: hall-of-fame.json (best weights) · overnight-log.jsonl · runs/cycle-NNN.js (full histories)
