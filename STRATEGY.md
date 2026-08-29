@@ -141,3 +141,7 @@ feed relationship dominates.
 2. **Score-aware play** (approved as a capability): when LEADING — win fast OR take big swings, but above all try very hard not to lose (defense scales up with a lead). When LOSING — take bigger swings; losing matters slightly less (loss-aversion scales down).
 3. **Concealed threat reading: deprioritized.** A concealed threat is either a super-rare massive hand (unreadable) or a concealed chow hand at minimum points (fast but small) — neither worth defending against. The correct response to a suspected concealed chow racer is TEMPO, not defense.
 4. **Folding**: small hand vs a shown ~7-point threat → fold; a 7+ hand vs the same → maybe push. The owner is explicit that the mathematically correct threshold is unknown — this is exactly what evolution should be allowed to find (fold trigger as evolvable dials).
+
+## Owner scouting report — playing the era-3 king (2026-08-28)
+
+"Moderately aggressive, but very very defensive if you show too much." Mechanically confirmed: aggression/claim dials sit mid-range after era-3 trimming, while the fold machinery keys almost entirely on EXPOSURE (threat = melds down + suit intent from melds). Corollaries the owner's read implies: (1) visible strength triggers table-wide hard folds — a human can BLUFF cheap exposures to buy folds; (2) concealed strength triggers nothing (the measured 90% concealed blindness) — the anti-bot style is to stay quiet. Deception-resistance / calibrated folding is the standing era-4 capability candidate.
