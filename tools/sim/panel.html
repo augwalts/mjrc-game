@@ -52,6 +52,10 @@ td{text-align:right;padding:4px 6px;border-bottom:1px solid #2e2e36}
 .pill{display:inline-block;font-size:10px;padding:1px 7px;border-radius:9px;
   background:#33333d;color:var(--dim);margin-left:8px}
 .pill.live{background:#1e3a2a;color:var(--ok)}
+.goal{display:inline-block;font-size:9px;font-weight:700;letter-spacing:.05em;padding:1px 6px;
+  border-radius:8px;margin-left:6px;vertical-align:1px;background:#33333d;color:var(--dim)}
+.goal.up{background:#1e3a2a;color:var(--ok)}.goal.down{background:#452c25;color:var(--warn)}
+.goal.band{background:#2b3a4d;color:var(--acc)}
 .kv{display:flex;justify-content:space-between;padding:2px 0;font-size:12px}
 .matchlist{max-height:440px;overflow-y:auto}
 details.match{border-bottom:1px solid #2e2e36}
@@ -111,6 +115,16 @@ details.match summary:hover{background:#2c2c35}
 <script>
 window.initPanel = function initPanel() {
 const D = window.SIM_DATA;
+// Goal badges: which way each number SHOULD move. Only rules the owner has
+// actually made get an arrow; texture metrics are labeled as texture rather
+// than given an invented target.
+const GOALS = {
+  up: '<span class="goal up">▲ WANT UP</span>',
+  down: '<span class="goal down">▼ WANT DOWN</span>',
+  zero: '<span class="goal down">▼ WANT → 0</span>',
+  drawBand: '<span class="goal band">▭ TARGET 10–20%</span>',
+  none: '<span class="goal">◇ TEXTURE — NO TARGET</span>',
+};
 const showTab = (name) => {
   const current = name !== "overall";
   document.getElementById("tabCurrent").hidden = !current;
