@@ -1,6 +1,6 @@
 {
   "faanWeight": 1.7175,
-  "routeDistanceWeight": 1.3208,
+  "routeDistanceWeight": 2.5554,
   "offRouteWeight": 1.1545,
   "belowMinimumPenalty": 2.4389,
   "discardDistanceWeight": 1.4168,
@@ -15,12 +15,12 @@
   "leadDefense": 0.1625,
   "trailSwing": 0.3911,
   "winFastLead": 0.3205,
-  "foldThreshold": 1.1238,
+  "foldThreshold": 2.0829,
   "feedDenial": 0.144,
   "chipValuation": 3.0042,
   "routeDecay": 0.813,
   "leftFeedWeight": 0.4594,
   "urgencyWeight": 0.2304,
   "suitContestWeight": 1.9336,
-  "claimSupplyWeight": 0.7222
+  "claimSupplyWeight": 0.9924
 }
