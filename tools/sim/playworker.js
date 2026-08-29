@@ -6,7 +6,6 @@
   var DRAGONS_START = 31;
   var FLOWERS_START = 34;
   var SCORING_KINDS = 34;
-  var WALL_SIZE = 144;
   var CLAIM_PRIORITY = ["win", "kong", "pung", "chow"];
 
   // engine/src/tiles.ts
@@ -43,25 +42,14 @@
   }
 
   // engine/src/wall.ts
-  function prng(seed2) {
-    let a = seed2 >>> 0;
+  function prng(seed) {
+    let a = seed >>> 0;
     return () => {
       a = a + 1831565813 | 0;
       let t = Math.imul(a ^ a >>> 15, 1 | a);
       t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
       return ((t ^ t >>> 14) >>> 0) / 4294967296;
     };
-  }
-  function buildWall(seed2) {
-    const w = [];
-    for (let i = 0; i < SCORING_KINDS; i++) for (let k = 0; k < 4; k++) w.push(i);
-    for (let i = FLOWERS_START; i < FLOWERS_START + 8; i++) w.push(i);
-    const rnd = prng(seed2);
-    for (let i = w.length - 1; i > 0; i--) {
-      const j = Math.floor(rnd() * (i + 1));
-      [w[i], w[j]] = [w[j], w[i]];
-    }
-    return w;
   }
 
   // engine/src/ready.ts
@@ -1102,7 +1090,6 @@
   var EVENT_SCHEMA_VERSION = 1;
 
   // engine/src/reducer.ts
-  var ENGINE_VERSION = "mjrc-engine/1.0.0";
   var TICK_MS = 1;
   var CLAIM_WINDOW_MS = 3e3;
   var asc = (a, b) => a - b;
@@ -1114,7 +1101,6 @@
   function clockwiseFrom(from) {
     return [1, 2, 3].map((n) => (from + n) % 4);
   }
-  var handSeedFor = (matchSeed, handIndex) => Math.imul(matchSeed ^ handIndex + 1, 2654435761) >>> 0;
   function removeOne(hand, tile) {
     const i = hand.indexOf(tile);
     if (i < 0) throw new Error(`tile ${tile} is not in hand`);
@@ -1179,32 +1165,6 @@
   function takeTail(s) {
     if (s.wallIndex >= s.wallEnd) return null;
     return s.wall[--s.wallEnd];
-  }
-  function replaceHandFlowers(d, seat) {
-    const st = d.s.seats[seat];
-    for (; ; ) {
-      let at = -1;
-      for (let i = 0; i < st.hand.length; i++) {
-        if (isFlower(st.hand[i])) {
-          at = i;
-          break;
-        }
-      }
-      if (at < 0) return true;
-      const flower = st.hand[at];
-      const replacement = takeTail(d.s);
-      if (replacement === null) return false;
-      st.hand.splice(at, 1);
-      st.flowers.push(flower);
-      insertSorted(st.hand, replacement);
-      emit(d, "server", "flowerReplacement", {
-        seat,
-        flower,
-        replacement,
-        wallIndex: d.s.wallIndex,
-        wallRemaining: liveTilesLeft(d.s)
-      });
-    }
   }
   function replaceDrawnFlowers(d, seat) {
     const st = d.s.seats[seat];
@@ -1553,145 +1513,11 @@
     st.melds = st.melds.slice();
     st.melds[i] = { kind: "pung", tiles: [tile, tile, tile], from: kong.from, concealed: false };
   }
-  function dealHand(d) {
-    const s = d.s;
-    s.phase = "deal";
-    s.handSeed = handSeedFor(s.matchSeed, s.handIndex);
-    s.wall = buildWall(s.handSeed);
-    s.wallIndex = 0;
-    s.wallEnd = WALL_SIZE;
-    s.lastDiscard = null;
-    s.claim = null;
-    s.result = null;
-    s.onKongReplacement = false;
-    s.refusedSelfDraw = null;
-    for (let i = 0; i < 4; i = i + 1) {
-      const st = s.seats[i];
-      st.hand = [];
-      st.drawn = null;
-      st.melds = [];
-      st.flowers = [];
-      st.discards = [];
-      st.wind = (i - s.dealer + 4) % 4;
-    }
-    const order = [0, 1, 2, 3].map((n) => (s.dealer + n) % 4);
-    for (let block = 0; block < 3; block++) {
-      for (const seat of order) {
-        for (let n = 0; n < 4; n++) s.seats[seat].hand.push(s.wall[s.wallIndex++]);
-      }
-    }
-    for (const seat of order) s.seats[seat].hand.push(s.wall[s.wallIndex++]);
-    for (const seat of order) s.seats[seat].hand.sort(asc);
-    emit(d, "server", "deal", {
-      seed: s.handSeed,
-      dealer: s.dealer,
-      roundWind: s.roundWind,
-      seatWinds: four((i) => s.seats[i].wind),
-      hands: four((i) => s.seats[i].hand.slice()),
-      wallIndex: s.wallIndex,
-      wallRemaining: liveTilesLeft(s)
-    });
-    s.phase = "flowerReplacement";
-    for (const seat of order) {
-      if (!replaceHandFlowers(d, seat)) {
-        exhaustiveDraw(d);
-        return;
-      }
-    }
-    s.phase = "awaitDiscard";
-    s.turn = s.dealer;
-    if (!drawForTurn(d, s.dealer)) exhaustiveDraw(d);
-  }
-  function startMatch(config) {
-    const dealer = config.dealer ?? 0;
-    if (!isSeat2(dealer)) throw new Error(`dealer ${dealer} is not a seat`);
-    const chips = config.startingChips ?? 0;
-    const rulesetId = config.rulesetId ?? DEFAULT_RULESET_ID;
-    const state2 = {
-      phase: "deal",
-      seats: four((i) => ({
-        seat: i,
-        wind: (i - dealer + 4) % 4,
-        hand: [],
-        drawn: null,
-        melds: [],
-        flowers: [],
-        discards: [],
-        chips,
-        connected: true
-      })),
-      roundWind: 0,
-      dealer,
-      turn: dealer,
-      handIndex: 0,
-      wall: [],
-      wallIndex: 0,
-      lastDiscard: null,
-      rulesetId,
-      engineVersion: ENGINE_VERSION,
-      matchId: config.matchId,
-      seq: 0,
-      ts: config.startedAt ?? 0,
-      matchSeed: config.seed >>> 0,
-      handSeed: 0,
-      wallEnd: WALL_SIZE,
-      matchLength: config.matchLength ?? "oneWindRound",
-      startingDealer: dealer,
-      startingChips: four(() => chips),
-      handsPlayed: 0,
-      dealerStreak: 0,
-      roundsCompleted: 0,
-      claim: null,
-      onKongReplacement: false,
-      refusedSelfDraw: null,
-      result: null,
-      matchOver: false
-    };
-    const d = { s: state2, events: [], ruleset: resolveRuleset(rulesetId) };
-    dealHand(d);
-    return { state: d.s, events: d.events };
-  }
-  function startNextHand(state2) {
-    if (state2.phase !== "handEnd") {
-      throw new Error(`startNextHand needs phase "handEnd", got "${state2.phase}"`);
-    }
-    const d = {
-      s: cloneState(state2),
-      events: [],
-      ruleset: resolveRuleset(state2.rulesetId)
-    };
-    const result = d.s.result;
-    if (!result) throw new Error("hand ended with no result");
-    if (result.matchOver) {
-      d.s.phase = "matchEnd";
-      const byStart = [0, 1, 2, 3].map(
-        (n) => (d.s.startingDealer + n) % 4
-      );
-      const ranked = byStart.slice().sort((a, b) => d.s.seats[b].chips - d.s.seats[a].chips);
-      const placements = [1, 1, 1, 1];
-      ranked.forEach((seat, i) => {
-        placements[seat] = i + 1;
-      });
-      emit(d, "server", "matchEnd", {
-        reason: d.s.matchLength === "oneWindRound" ? "windRoundComplete" : "allRoundsComplete",
-        standings: four((i) => d.s.seats[i].chips),
-        placements,
-        handsPlayed: d.s.handsPlayed
-      });
-      return { state: d.s, events: d.events };
-    }
-    d.s.dealer = result.nextDealer;
-    d.s.roundWind = result.nextRoundWind;
-    d.s.handIndex += 1;
-    d.s.result = null;
-    dealHand(d);
-    return { state: d.s, events: d.events };
-  }
-  function legalActions(state2, seat) {
+  function legalActions(state, seat) {
     const out = [];
     if (!isSeat2(seat)) return out;
-    if (state2.phase === "claimWindow" || state2.phase === "robKongWindow") {
-      const w = state2.claim;
+    if (state.phase === "claimWindow" || state.phase === "robKongWindow") {
+      const w = state.claim;
       if (!w) return out;
       const offer = w.offers.find((o) => o.seat === seat);
       if (!offer || offer.answer !== null) return out;
@@ -1705,10 +1531,10 @@
       out.push({ type: "pass", seat });
       return out;
     }
-    if (state2.phase !== "awaitDiscard" || state2.turn !== seat) return out;
-    const st = state2.seats[seat];
+    if (state.phase !== "awaitDiscard" || state.turn !== seat) return out;
+    const st = state.seats[seat];
     const drawn = st.drawn;
-    const alreadyRefused = state2.refusedSelfDraw !== null && state2.refusedSelfDraw.seat === seat && state2.refusedSelfDraw.tile === drawn;
+    const alreadyRefused = state.refusedSelfDraw !== null && state.refusedSelfDraw.seat === seat && state.refusedSelfDraw.tile === drawn;
     if (drawn !== null && !alreadyRefused && shapeWins(st, drawn)) {
       out.push({ type: "declareWin", seat, selfDraw: true });
     }
@@ -1730,11 +1556,11 @@
     for (const tile of distinct) out.push({ type: "discard", seat, tile });
     return out;
   }
-  function requireTurn(state2, seat) {
-    if (state2.phase !== "awaitDiscard") {
-      throw new Error(`seat ${seat} acted in phase "${state2.phase}", expected "awaitDiscard"`);
+  function requireTurn(state, seat) {
+    if (state.phase !== "awaitDiscard") {
+      throw new Error(`seat ${seat} acted in phase "${state.phase}", expected "awaitDiscard"`);
     }
-    if (state2.turn !== seat) throw new Error(`seat ${seat} acted out of turn (turn is ${state2.turn})`);
+    if (state.turn !== seat) throw new Error(`seat ${seat} acted out of turn (turn is ${state.turn})`);
   }
   function absorbDrawn(st) {
     if (st.drawn === null) return;
@@ -1817,11 +1643,11 @@
     }
     if (w.offers.every((o) => o.answer !== null)) resolveWindow(d);
   }
-  function applyAction(state2, action) {
+  function applyAction(state, action) {
     const d = {
-      s: cloneState(state2),
+      s: cloneState(state),
       events: [],
-      ruleset: resolveRuleset(state2.rulesetId)
+      ruleset: resolveRuleset(state.rulesetId)
     };
     if (!isSeat2(action.seat)) throw new Error(`seat ${action.seat} is not a seat`);
     switch (action.type) {
@@ -2638,412 +2464,93 @@
   };
 
   // tools/sim/driver.ts
-  function viewFor(state2, seat) {
-    const me = state2.seats[seat];
-    const offered = state2.claim;
+  function viewFor(state, seat) {
+    const me = state.seats[seat];
+    const offered = state.claim;
     return {
       seat,
-      dealer: state2.dealer,
-      roundWind: state2.roundWind,
-      seatWinds: state2.seats.map((s) => s.wind),
+      dealer: state.dealer,
+      roundWind: state.roundWind,
+      seatWinds: state.seats.map((s) => s.wind),
       hand: me.hand,
       drawn: me.drawn,
-      melds: state2.seats.map((s) => s.melds),
-      flowers: state2.seats.map((s) => s.flowers),
-      discards: state2.seats.map((s) => s.discards),
-      handCounts: state2.seats.map((s) => s.hand.length),
-      standings: state2.seats.map((s) => s.chips),
-      dealershipsDone: Math.max(0, state2.seats.findIndex((s) => s.wind === 0)),
-      wallRemaining: Math.max(0, state2.wallEnd - state2.wallIndex),
-      lastDiscard: offered === null ? state2.lastDiscard : { tile: offered.tile, from: offered.from }
+      melds: state.seats.map((s) => s.melds),
+      flowers: state.seats.map((s) => s.flowers),
+      discards: state.seats.map((s) => s.discards),
+      handCounts: state.seats.map((s) => s.hand.length),
+      standings: state.seats.map((s) => s.chips),
+      dealershipsDone: Math.max(0, state.seats.findIndex((s) => s.wind === 0)),
+      wallRemaining: Math.max(0, state.wallEnd - state.wallIndex),
+      lastDiscard: offered === null ? state.lastDiscard : { tile: offered.tile, from: offered.from }
     };
   }
 
-  // tools/sim/play.ts
-  var GLYPH = (() => {
-    const g = [];
-    for (let i = 0; i < 9; i++) g.push(String.fromCodePoint(126983 + i));
-    for (let i = 0; i < 9; i++) g.push(String.fromCodePoint(126992 + i));
-    for (let i = 0; i < 9; i++) g.push(String.fromCodePoint(127001 + i));
-    g.push("\u{1F000}", "\u{1F001}", "\u{1F002}", "\u{1F003}");
-    g.push("\u{1F004}", "\u{1F005}", "\u{1F006}");
-    for (let i = 0; i < 8; i++) g.push(String.fromCodePoint(127010 + i));
-    return g;
-  })();
-  var label = (t) => TILE_NAMES[t] ?? `?${t}`;
-  var WINDS = ["\u6771 East", "\u5357 South", "\u897F West", "\u5317 North"];
-  var AWARD_LABELS = {
-    selfDraw: "Self-Draw \u81EA\u6478",
-    allChows: "All Chows \u5E73\u7CCA",
-    allPungs: "All Pungs \u5C0D\u5C0D\u7CCA",
-    halfFlush: "Half Flush \u6DF7\u4E00\u8272",
-    fullFlush: "Full Flush \u6E05\u4E00\u8272",
-    dragonPung: "Dragon Pung \u4E09\u5143\u724C",
-    seatWind: "Seat Wind \u9580\u98A8",
-    roundWind: "Round Wind \u5708\u98A8",
-    ownFlower: "Own Flower \u6B63\u82B1",
-    ownSeason: "Own Season \u6B63\u82B1",
-    noFlowers: "No Flowers \u7121\u82B1",
-    concealedHand: "Concealed \u9580\u524D\u6E05",
-    winOnKongReplacement: "Kong Flower \u69D3\u4E0A\u958B\u82B1",
-    winOnLastTile: "Last Tile \u6D77\u5E95\u6488\u6708",
-    winOnLastDiscard: "Last Discard \u6CB3\u5E95\u6488\u9B5A",
-    smallThreeDragons: "Small 3 Dragons \u5C0F\u4E09\u5143",
-    bigThreeDragons: "Big 3 Dragons \u5927\u4E09\u5143",
-    allTerminals: "All Terminals \u6E05\u4E48\u4E5D",
-    allHonours: "All Honours \u5B57\u4E00\u8272",
-    fourConcealedPungs: "4 Concealed Pungs \u56DB\u6697\u523B",
-    nineGates: "Nine Gates \u4E5D\u84EE\u5BF6\u71C8",
-    thirteenOrphans: "13 Orphans \u5341\u4E09\u4E48",
-    robbingKong: "Robbing the Kong \u6436\u69D3",
-    mixedTerminals: "Mixed Terminals \u6DF7\u4E48\u4E5D",
-    allKongs: "All Kongs \u5341\u516B\u7F85\u6F22",
-    bigFourWinds: "Big 4 Winds \u5927\u56DB\u559C",
-    smallFourWinds: "Small 4 Winds \u5C0F\u56DB\u559C",
-    allFlowers: "All 4 Flowers \u9F4A\u56DB\u82B1",
-    allSeasons: "All 4 Seasons \u9F4A\u56DB\u5B63",
-    winByDoubleKong: "Double Kong \u69D3\u4E0A\u69D3"
-  };
-  var HUMAN = 0;
-  var KING = { ...DEFAULT_PROFILE, ...window.KINGS?.king ?? window.KINGS?.v2 ?? {} };
-  var urlSeed = new URLSearchParams(location.search).get("seed");
-  var seed = urlSeed ? Number(urlSeed) : Math.floor(Math.random() * 2 ** 31);
-  var state;
-  var botCfgs;
-  var feed = [];
-  var overlayHtml = null;
-  var fast = false;
-  var peek = false;
-  function newMatch() {
-    const r = startMatch({ seed, ruleset: MJRC_STANDARD, matchLength: "oneWindRound" });
-    state = r.state;
-    botCfgs = [0, 1, 2, 3].map((i) => ({
+  // tools/sim/playworker.ts
+  var KING = DEFAULT_PROFILE;
+  function shuffleInPlace(a, rnd) {
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(rnd() * (i + 1));
+      const t = a[i];
+      a[i] = a[j];
+      a[j] = t;
+    }
+  }
+  function rollout(base, blind, rseed) {
+    const rnd = prng(rseed >>> 0);
+    const st0 = structuredClone(base);
+    const span = [];
+    for (let i = st0.wallIndex; i < st0.wallEnd; i++) span.push(st0.wall[i]);
+    if (blind) {
+      const pool = [...span];
+      for (const o of [1, 2, 3]) {
+        pool.push(...st0.seats[o].hand);
+        if (st0.seats[o].drawn !== null) pool.push(st0.seats[o].drawn);
+      }
+      const plain = pool.filter((t) => !isFlower(t));
+      const flowers = pool.filter(isFlower);
+      shuffleInPlace(plain, rnd);
+      for (const o of [1, 2, 3]) {
+        const n = st0.seats[o].hand.length;
+        st0.seats[o].hand = plain.splice(0, n).sort((a, b) => a - b);
+        if (st0.seats[o].drawn !== null) st0.seats[o].drawn = plain.splice(0, 1)[0];
+      }
+      span.length = 0;
+      span.push(...plain, ...flowers);
+      shuffleInPlace(span, rnd);
+    } else shuffleInPlace(span, rnd);
+    for (let i = 0; i < span.length; i++) st0.wall[st0.wallIndex + i] = span[i];
+    const cfgs = [0, 1, 2, 3].map((i) => ({
       ruleset: MJRC_STANDARD,
       profile: KING,
-      rnd: prng((seed ^ (i + 1) * 2654435761) >>> 0)
+      rnd: prng((rseed + 7 ^ (i + 1) * 2654435761) >>> 0)
     }));
-    feed.length = 0;
-    oddsHistory = [];
-    oddsHtml = "";
-    feed.push(`new match \xB7 seed ${seed} \xB7 you are chair 0 \xB7 bots: ${window.KINGS?.label ?? "champion"}`);
-    consume(r.events);
-    overlayHtml = null;
-    advance();
-  }
-  function consume(events) {
-    for (const e of events) {
-      const ev = e;
-      const p = ev.payload ?? {};
-      const who = (s) => s === HUMAN ? "YOU" : `Bot ${WINDS[state.seats[s].wind].slice(0, 1)}`;
-      switch (ev.type) {
-        case "discard":
-          feed.push(`${who(p.seat)} cuts ${label(p.tile)}`);
-          break;
-        case "claimed":
-          feed.push(`${who(p.seat)} ${p.kind === "chow" ? "chows \u4E0A" : p.kind === "pung" ? "pungs \u78B0" : "kongs \u69D3"} ${label(p.tile)}`);
-          break;
-        case "claimDeclined":
-          if (p.reason === "pass" && p.seat !== HUMAN)
-            feed.push(`\xA7  ${who(p.seat)} passes on ${p.options?.map((o) => o.kind).join("/") ?? "claim"} of ${label(p.tile)}`);
-          break;
-        case "concealedKong":
-          feed.push(`${who(p.seat)} concealed kong \u6697\u69D3`);
-          break;
-        case "addedKong":
-          feed.push(`${who(p.seat)} added kong \u52A0\u69D3 ${label(p.tile)}`);
-          break;
-        case "flowerReplacement":
-          feed.push(`${who(p.seat)} reveals flower ${label(p.flower)}`);
-          break;
-        case "refusedWin":
-          if (p.context && p.context.seat === HUMAN)
-            feed.push(`!! your winning shape holds only ${p.score.faan} faan \u2014 refused (3-faan floor)`);
-          break;
-        case "winOnDiscard":
-        case "selfDraw": {
-          const ctx = p.context;
-          const score3 = p.score;
-          const tiles = (p.concealed ?? []).map(label).join(" ");
-          const melds = (p.melds ?? []).map((m) => `[${m.tiles.map(label).join(" ")}]`).join(" ");
-          overlayHtml = `<h2>${ctx.seat === HUMAN ? "YOU WIN" : who(ctx.seat) + " wins"} \u2014 ${score3.faan} faan ${ctx.selfDraw ? "\u81EA\u6478 self-draw" : "\u98DF\u7CCA" + (ctx.from === HUMAN ? " \u2014 off YOUR discard" : "")}</h2>
-          <div class="tilesrow">${tiles} ${melds}</div>
-          <div class="awards">${score3.awards.map((a) => `${AWARD_LABELS[a.id] ?? a.id} <b>${a.faan}</b>`).join(" \xB7 ")}</div>`;
-          break;
-        }
-        case "exhaustiveDraw":
-          overlayHtml = `<h2>\u6D41\u5C40 \u2014 the wall ran out, nobody wins</h2>`;
-          break;
-        case "handEnd": {
-          const st = p.standings;
-          const deltas = p.chipDeltas;
-          overlayHtml = (overlayHtml ?? "") + `<div class="pay">${[0, 1, 2, 3].map((i) => `${i === HUMAN ? "YOU" : "Bot " + WINDS[state.seats[i].wind].slice(0, 1)}: ${deltas ? (deltas[i] > 0 ? "+" : "") + deltas[i] + " \u2192 " : ""}<b>${st[i]}</b>`).join(" \xB7 ")}</div>
-          <button onclick="window.__next()">next hand \u25B8</button>`;
-          break;
-        }
-        case "matchEnd": {
-          const st = p.standings;
-          const order = [0, 1, 2, 3].sort((a, b) => st[b] - st[a]);
-          overlayHtml = `<h2>MATCH OVER</h2><div class="pay">${order.map((i, r) => `${r + 1}. ${i === HUMAN ? "YOU" : "Bot"} ${st[i] > 0 ? "+" : ""}${st[i]}`).join(" \xB7 ")}</div>
-          <button onclick="window.__rematch()">play again \u25B8</button>`;
-          break;
-        }
+    let st = st0;
+    for (let guard = 0; guard < 2500; guard++) {
+      if (st.phase === "handEnd" || st.phase === "matchEnd") break;
+      let acted = false;
+      for (const seat of [0, 1, 2, 3]) {
+        const opts = legalActions(st, seat);
+        if (opts.length === 0) continue;
+        st = applyAction(st, decideAction(viewFor(st, seat), opts, cfgs[seat])).state;
+        acted = true;
+        break;
+      }
+      if (!acted) break;
+    }
+    let w = -1, bestD = 0;
+    for (const i of [0, 1, 2, 3]) {
+      const d = st.seats[i].chips - base.seats[i].chips;
+      if (d > bestD) {
+        bestD = d;
+        w = i;
       }
     }
-    if (feed.length > 140) feed.splice(0, feed.length - 140);
+    return w;
   }
-  var SUIT_G = ["\u842C", "\u7D22", "\u7B52"];
-  function routeName(r) {
-    if (r.orphans) return "13-orphans \u5341\u4E09\u4E48";
-    if (r.honoursOnly) return "honours \u5B57\u4E00\u8272";
-    if (r.suit !== null) return (r.pungs ? "pung-flush " : "flush ") + (r.suit === "chars" ? "\u842C" : r.suit === "bamboo" ? "\u7D22" : "\u7B52");
-    return r.pungs ? "all-pungs \u5C0D\u5C0D\u7CCA" : "balanced";
-  }
-  function botThink(seat) {
-    const v = viewFor(state, seat);
-    const name3 = `Bot ${WINDS[state.seats[seat].wind].slice(0, 1)}`;
-    const out = [`\xA7\u2508 ${name3} thinking`];
-    const threats = tableThreat(v, MJRC_STANDARD);
-    const reads = threats.seats.filter((t) => t.threat > 0.15 || t.intentSuit !== null).sort((a, b) => b.threat - a.threat).slice(0, 2).map((t) => `${t.seat === HUMAN ? "YOU" : "Bot " + WINDS[state.seats[t.seat].wind].slice(0, 1)} threat ${t.threat.toFixed(2)}` + (t.intentSuit !== null ? ` \xB7 collecting ${SUIT_G[t.intentSuit]}` : "") + ` \xB7 est ${t.expectedFaan} faan`);
-    if (reads.length) out.push(`\xA7  reads: ${reads.join("  |  ")}`);
-    const routes = assessRoutes(shapeOf(v), MJRC_STANDARD, KING, threats).filter((r) => r.feasible && Number.isFinite(r.score)).sort((a, b) => b.score - a.score).slice(0, 2);
-    if (routes.length) out.push(`\xA7  plans: ` + routes.map((r, i) => `${i === 0 ? "\u25B8" : ""}${routeName(r.route)} (${Math.min(r.faan, 10)}f, ${Math.max(0, r.distance)} away, score ${r.score.toFixed(1)})`).join("  \xB7  "));
-    return out;
-  }
-  var oddsGen = 0;
-  var oddsHtml = "";
-  var oddsHistory = [];
-  function oddsChart() {
-    const H = oddsHistory;
-    if (H.length < 2) return `<div class="mut" style="font-size:10.5px;margin-top:3px">odds graph builds as the hand goes on\u2026</div>`;
-    const W = 460, Hh = 88, L = 30, R = 6, T = 8, B = 16;
-    const x = (i) => L + i / Math.max(1, H.length - 1) * (W - L - R);
-    const y = (v) => T + (1 - v) * (Hh - T - B);
-    const line = (key) => H.map((h, i) => `${x(i).toFixed(1)},${y(h[key]).toFixed(1)}`).join(" ");
-    return `<svg viewBox="0 0 ${W} ${Hh}" style="width:100%;height:${Hh}px;display:block;margin-top:4px">
-    ${[0, 0.25, 0.5, 0.75, 1].map((v) => `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="#3a3a44" stroke-width="${v === 0.5 ? 1 : 0.5}" stroke-dasharray="3 3"/>
-      <text x="${L - 3}" y="${y(v) + 3}" text-anchor="end" font-size="8" fill="#9a9aa6">${v * 100}%</text>`).join("")}
-    <polyline points="${line("blind")}" fill="none" stroke="#7fb3ff" stroke-width="1.6" stroke-dasharray="5 3"/>
-    <polyline points="${line("omni")}" fill="none" stroke="#5dbb7a" stroke-width="1.8"/>
-    ${H.map((h, i) => `<circle cx="${x(i)}" cy="${y(h.omni)}" r="2" fill="#5dbb7a"/>`).join("")}
-    <text x="${L}" y="${Hh - 4}" font-size="8" fill="#7fb3ff">\u254C your view (blind)</text>
-    <text x="${W - R}" y="${Hh - 4}" text-anchor="end" font-size="8" fill="#5dbb7a">\u2014 all-seeing \u5929\u773C</text>
-  </svg>`;
-  }
-  var POOL = [];
-  function pool() {
-    if (POOL.length === 0) {
-      const n = Math.max(2, Math.min(8, (navigator.hardwareConcurrency || 4) - 2));
-      for (let i = 0; i < n; i++) POOL.push(new Worker("playworker.js?v=" + Date.now()));
-    }
-    return POOL;
-  }
-  function computeOdds() {
-    const gen = ++oddsGen;
-    const base = state;
-    const K = 24;
-    const wins = { blind: [0, 0, 0, 0, 0], omni: [0, 0, 0, 0, 0] };
-    let doneB = 0, doneO = 0;
-    const paint = (final) => {
-      const pct = (n, d) => d ? `${Math.round(100 * n / d)}%` : "\u2026";
-      const b = wins.blind, o = wins.omni;
-      oddsHtml = `<div class="oname">Win odds \u2014 champion plays it out from here (${doneB + doneO}/${K * 2} rollouts)</div>
-      <div class="orow" style="font-size:12px">your view (blind): <b>YOU ${pct(b[0], doneB)}</b> \xB7 draw ${pct(b[4], doneB)}</div>
-      <div class="orow" style="font-size:12px">all-seeing \u5929\u773C: <b class="${doneO && o[0] / doneO > (doneB ? b[0] / doneB : 0) + 0.08 ? "up" : doneO && o[0] / doneO < (doneB ? b[0] / doneB : 1) - 0.08 ? "down" : ""}">YOU ${pct(o[0], doneO)}</b>
-       \xB7 \u5357 ${pct(o[1], doneO)} \xB7 \u897F ${pct(o[2], doneO)} \xB7 \u5317 ${pct(o[3], doneO)} \xB7 draw ${pct(o[4], doneO)}</div>`;
-      if (final) {
-        oddsHistory.push({ blind: b[0] / Math.max(1, doneB), omni: o[0] / Math.max(1, doneO) });
-        oddsHtml += oddsChart();
-      }
-      const el = document.getElementById("odds");
-      if (el) el.innerHTML = oddsHtml;
-    };
-    const ws = pool();
-    const jobs = [];
-    for (let k = 0; k < K; k++) for (const blind of [true, false]) jobs.push({ blind, rseed: 11256099 + k * 613 + (blind ? 7 : 0) >>> 0 });
-    let next = 0;
-    const dispatch = (w) => {
-      if (gen !== oddsGen || next >= jobs.length) return;
-      const j = jobs[next++];
-      w.postMessage({ state: base, blind: j.blind, rseed: j.rseed, king: KING, job: gen });
-    };
-    for (const w of ws) {
-      w.onmessage = (e) => {
-        const { job, blind, winner } = e.data;
-        if (job !== oddsGen || gen !== oddsGen) return;
-        wins[blind ? "blind" : "omni"][winner < 0 ? 4 : winner]++;
-        if (blind) doneB++;
-        else doneO++;
-        paint(doneB + doneO === K * 2);
-        dispatch(w);
-      };
-      dispatch(w);
-      dispatch(w);
-    }
-    oddsHtml = `<div class="oname">Win odds</div><span class="mut" style="font-size:11.5px">computing\u2026</span>`;
-    paint(false);
-  }
-  var coach = [];
-  function coachDiscard(tile) {
-    const v = viewFor(state, HUMAN);
-    const cfg = { ruleset: MJRC_STANDARD, profile: scoreAdjust(KING, v), rnd: prng(789188) };
-    const ranked = [...rankDiscards(v, cfg)].sort((a, b) => b.score - a.score);
-    const best = ranked[0];
-    const mine = ranked.find((d) => d.tile === tile);
-    if (!mine) return;
-    const rank = ranked.indexOf(mine) + 1;
-    const gap = best.score - mine.score;
-    const stats = (d) => `${d.distance} away \xB7 danger ${d.danger.toFixed(1)}${d.outs >= 0 ? ` \xB7 ${d.outs} outs` : ""}`;
-    const threats = tableThreat(v, MJRC_STANDARD);
-    const routes = assessRoutes(shapeOf(v), MJRC_STANDARD, cfg.profile, threats).filter((r) => r.feasible && Number.isFinite(r.score)).sort((a, b) => b.score - a.score);
-    const plan = routes[0] ? `${routeName(routes[0].route)} \u2014 pays ${Math.min(routes[0].faan, 10)} faan, ${Math.max(0, routes[0].distance)} away` : "";
-    const waitsAfter = (cut) => {
-      const all = [...v.hand, ...v.drawn !== null ? [v.drawn] : []];
-      const c = counts(all);
-      c[cut] = (c[cut] ?? 1) - 1;
-      const lt = liveTiles(c, v.melds[v.seat].length, visibleCounts(v));
-      if (lt.distance > 1) return "";
-      return lt.distance === 0 ? ` \xB7 READY \u2014 waiting on ${lt.tiles.slice(0, 5).map((w) => `${label(w.tile)}(${w.unseen})`).join(" ")} = ${lt.total} live` : ` \xB7 1 away, ${lt.total} improving tiles live`;
-    };
-    const feeds = () => {
-      const scary = [...threats.seats].sort((a, b) => b.threat - a.threat)[0];
-      return scary && scary.threat > 0.3 ? ` \u2014 mainly ${scary.seat === HUMAN ? "you" : "Bot " + WINDS[state.seats[scary.seat].wind].slice(0, 1)} (threat ${scary.threat.toFixed(2)}${scary.intentSuit !== null ? ", collecting " + SUIT_G[scary.intentSuit] : ""})` : "";
-    };
-    const order = ranked.slice(0, 3).map((d) => label(d.tile)).join(" \u203A ");
-    let cls, head, why = "";
-    if (tile === best.tile) {
-      cls = "ok";
-      head = `\u2713 perfect \u2014 the champion cuts ${label(tile)} too`;
-    } else if (gap < 0.6) {
-      cls = "ok";
-      head = `\u2713 good \u2014 within a hair of the champion's ${label(best.tile)}`;
-    } else {
-      cls = gap < 2.2 ? "mid" : "bad";
-      head = `${gap < 2.2 ? "\u26A0 okay" : "\u2717 costly"} \u2014 champion cuts ${label(best.tile)} (your pick ranked #${rank}/${ranked.length})`;
-      if (mine.distance > best.distance) why = `slows your hand: ${mine.distance} away vs ${best.distance}`;
-      else if (mine.danger - best.danger > 0.8) why = `riskier: danger ${mine.danger.toFixed(1)} vs ${best.danger.toFixed(1)} \u2014 it feeds the table`;
-      else if (!mine.onRoute && best.onRoute) why = `off your best route \u2014 ${label(best.tile)} keeps the plan intact`;
-      else if (mine.outs >= 0 && best.outs >= 0 && mine.outs < best.outs) why = `fewer winning tiles stay live: ${mine.outs} vs ${best.outs}`;
-      else why = `the champion's cut simply scores better on speed + safety combined`;
-    }
-    coach.unshift({ cls, html: `<div class="chead">${head}</div>
-    <div class="cbody">${plan ? `your plan: ${plan}<br>` : ""}you cut ${label(tile)} \u2014 ${stats(mine)}${waitsAfter(tile)}${tile !== best.tile ? `<br>champion: ${label(best.tile)} \u2014 ${stats(best)}${waitsAfter(best.tile)}` : ""}${why ? `<br><b>${why}${why.startsWith("riskier") ? feeds() : ""}</b>` : ""}<br><span style="opacity:.75">champion's top 3: ${order}</span></div>` });
-    if (coach.length > 6) coach.length = 6;
-  }
-  var pendingHuman = null;
-  function advance() {
-    render();
-    if (overlayHtml) return;
-    if (state.phase === "matchEnd") return;
-    if (state.phase === "handEnd") return;
-    const mine = legalActions(state, HUMAN);
-    if (mine.length > 0) {
-      pendingHuman = mine;
-      if (state.phase === "awaitDiscard" && state.turn === HUMAN) computeOdds();
-      render();
-      return;
-    }
-    for (const seat of [1, 2, 3]) {
-      const options = legalActions(state, seat);
-      if (options.length === 0) continue;
-      const act = () => {
-        const v = viewFor(state, seat);
-        if (!fast && options.some((o) => o.type === "discard")) feed.push(...botThink(seat));
-        const a = decideAction(v, options, botCfgs[seat]);
-        const r = applyAction(state, a);
-        state = r.state;
-        consume(r.events);
-        advance();
-      };
-      if (fast) act();
-      else setTimeout(act, 450);
-      return;
-    }
-    render();
-  }
-  function humanAct(a) {
-    pendingHuman = null;
-    oddsGen++;
-    const r = applyAction(state, a);
-    state = r.state;
-    consume(r.events);
-    advance();
-  }
-  window.__next = () => {
-    overlayHtml = null;
-    oddsHistory = [];
-    oddsHtml = "";
-    const r = startNextHand(state);
-    state = r.state;
-    consume(r.events);
-    advance();
+  self.onmessage = (e) => {
+    const { state, blind, rseed, king, job } = e.data;
+    if (king) KING = { ...DEFAULT_PROFILE, ...king };
+    const w = rollout(state, blind, rseed);
+    self.postMessage({ job, blind, winner: w });
   };
-  window.__rematch = () => {
-    seed = Math.floor(Math.random() * 2 ** 31);
-    newMatch();
-  };
-  window.__fast = (on) => {
-    fast = on;
-  };
-  window.__peek = (on) => {
-    peek = on;
-    render();
-  };
-  var $ = (id) => document.getElementById(id);
-  var tileHtml = (t, cls = "", onclick = "") => `<span class="tile ${cls}" ${onclick ? `onclick="${onclick}"` : ""} title="${label(t)}"><span class="g">${GLYPH[t] ?? "?"}</span><span class="l">${label(t)}</span></span>`;
-  window.__discard = (t) => {
-    const a = pendingHuman?.find((x) => x.type === "discard" && x.tile === t);
-    if (a) {
-      coachDiscard(t);
-      humanAct(a);
-    }
-  };
-  window.__act = (i) => {
-    if (pendingHuman?.[i]) humanAct(pendingHuman[i]);
-  };
-  function render() {
-    const v = viewFor(state, HUMAN);
-    const me = state.seats[HUMAN];
-    $("topbar").innerHTML = `round wind <b>${WINDS[state.roundWind]}</b> \xB7 hand ${state.handIndex} \xB7 wall <b>${v.wallRemaining}</b> \xB7 floor 3 / limit 10 faan \xB7 <label style="margin-left:12px"><input type="checkbox" onchange="window.__fast(this.checked)" ${fast ? "checked" : ""}> fast bots</label> <label style="margin-left:8px"><input type="checkbox" onchange="window.__peek(this.checked)" ${peek ? "checked" : ""}> show bot hands \u958B\u724C</label> <button style="margin-left:12px" onclick="window.__rematch()">new match</button>`;
-    for (const s of [1, 2, 3]) {
-      const b = state.seats[s];
-      $("opp" + s).innerHTML = `<div class="oname">Bot ${WINDS[b.wind]} ${state.dealer === s ? "\xB7 dealer \u838A" : ""} \xB7 <b>${b.chips > 0 ? "+" : ""}${b.chips}</b></div>
-      <div class="orow">${peek ? b.hand.map((t) => tileHtml(t, "s")).join("") + (b.drawn !== null ? '<span class="drawnsep"></span>' + tileHtml(b.drawn, "s drawn") : "") : "\u{1F02B}".repeat(b.hand.length + (b.drawn !== null ? 1 : 0))}</div>
-      <div class="orow">${b.melds.map((m) => m.tiles.map((t) => tileHtml(t, "s")).join("")).join(" \xB7 ")} ${b.flowers.map((t) => tileHtml(t, "s f")).join("")}</div>
-      <div class="river">${b.discards.map((t, i) => tileHtml(t, "s" + (state.lastDiscard && state.lastDiscard.from === s && i === b.discards.length - 1 ? " hot" : ""))).join("")}</div>`;
-    }
-    $("myinfo").innerHTML = `<div class="oname">YOU \u2014 ${WINDS[me.wind]} ${state.dealer === HUMAN ? "\xB7 dealer \u838A" : ""} \xB7 <b>${me.chips > 0 ? "+" : ""}${me.chips}</b></div>
-    <div class="orow">${me.melds.map((m) => m.tiles.map((t) => tileHtml(t, "s")).join("")).join(" \xB7 ")} ${me.flowers.map((t) => tileHtml(t, "s f")).join("")}</div>
-    <div class="river">${me.discards.map((t) => tileHtml(t, "s")).join("")}</div>`;
-    const canDiscard = !!pendingHuman?.some((a) => a.type === "discard");
-    $("myhand").innerHTML = me.hand.map((t) => tileHtml(t, canDiscard ? "big click" : "big", canDiscard ? `window.__discard(${t})` : "")).join("") + (me.drawn !== null ? `<span class="drawnsep"></span>` + tileHtml(me.drawn, canDiscard ? "big click drawn" : "big drawn", canDiscard ? `window.__discard(${me.drawn})` : "") : "");
-    let bar = "";
-    if (pendingHuman) {
-      const btns = [];
-      pendingHuman.forEach((a, i) => {
-        if (a.type === "discard") return;
-        if (a.type === "declareWin") btns.push(`<button class="win" onclick="window.__act(${i})">WIN \u98DF\u7CCA</button>`);
-        else if (a.type === "pass") btns.push(`<button onclick="window.__act(${i})">pass</button>`);
-        else if (a.type === "concealedKong") btns.push(`<button onclick="window.__act(${i})">concealed kong \u6697\u69D3 ${label(a.tile)}</button>`);
-        else if (a.type === "addedKong") btns.push(`<button onclick="window.__act(${i})">added kong \u52A0\u69D3 ${label(a.tile)}</button>`);
-        else if (a.type === "claim") {
-          const o = a.option;
-          if (o.kind === "win") btns.push(`<button class="win" onclick="window.__act(${i})">WIN \u98DF\u7CCA</button>`);
-          else btns.push(`<button onclick="window.__act(${i})">${o.kind === "pung" ? "pung \u78B0" : o.kind === "kong" ? "kong \u69D3" : `chow \u4E0A (${(o.with ?? []).map(label).join("+")})`}</button>`);
-        }
-      });
-      bar = btns.length ? btns.join(" ") : canDiscard ? `<span class="mut">your turn \u2014 click a tile to discard</span>` : "";
-      if (btns.length && canDiscard) bar += ` <span class="mut">\xB7 or click a tile to discard</span>`;
-    } else if (!overlayHtml && state.phase !== "matchEnd") bar = `<span class="mut">bots thinking\u2026</span>`;
-    $("actions").innerHTML = bar;
-    $("odds").innerHTML = oddsHtml || `<div class="oname">Win odds</div><span class="mut" style="font-size:11.5px">appears on your turn</span>`;
-    $("coach").innerHTML = coach.length ? coach.map((c) => `<div class="centry ${c.cls}">${c.html}</div>`).join("") : `<span class="mut" style="font-size:11.5px">your discards get graded here \u2014 against what the champion would cut in your exact seat</span>`;
-    $("feed").innerHTML = feed.slice(-48).map((l) => l.startsWith("\xA7") ? `<div class="think">${l.slice(1)}</div>` : `<div>${l}</div>`).join("");
-    $("feed").scrollTop = $("feed").scrollHeight;
-    const ov = $("overlay");
-    if (overlayHtml) {
-      ov.style.display = "flex";
-      ov.querySelector(".card").innerHTML = overlayHtml;
-    } else ov.style.display = "none";
-  }
-  newMatch();
 })();

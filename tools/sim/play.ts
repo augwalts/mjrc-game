@@ -165,56 +165,6 @@ let oddsGen = 0;
 let oddsHtml = "";
 /** Per-hand odds trace — the chess-app eval graph, but win probability. */
 let oddsHistory: { blind: number; omni: number }[] = [];
-function shuffleInPlace(a: number[], rnd: () => number): void {
-  for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); const t = a[i]!; a[i] = a[j]!; a[j] = t; }
-}
-function rollout(base: MatchState, blind: boolean, rseed: number): number {
-  const rnd = prng(rseed >>> 0);
-  const st0 = structuredClone(base) as MatchState;
-  const span: number[] = [];
-  for (let i = st0.wallIndex; i < st0.wall.length; i++) span.push(st0.wall[i]!);
-  if (blind) {
-    const pool = [...span];
-    for (const o of [1, 2, 3] as SeatIndex[]) {
-      pool.push(...st0.seats[o]!.hand);
-      if (st0.seats[o]!.drawn !== null) pool.push(st0.seats[o]!.drawn!);
-    }
-    // Flowers can never sit in a concealed hand (they are revealed on draw),
-    // so hands are dealt from the plain tiles; flowers go back into the wall.
-    const plain = pool.filter((t) => !isFlower(t));
-    const flowers = pool.filter(isFlower);
-    shuffleInPlace(plain, rnd);
-    for (const o of [1, 2, 3] as SeatIndex[]) {
-      const n = st0.seats[o]!.hand.length;
-      st0.seats[o]!.hand = plain.splice(0, n).sort((a, b) => a - b);
-      if (st0.seats[o]!.drawn !== null) st0.seats[o]!.drawn = plain.splice(0, 1)[0]!;
-    }
-    span.length = 0; span.push(...plain, ...flowers);
-    shuffleInPlace(span, rnd);
-  } else shuffleInPlace(span, rnd);
-  for (let i = 0; i < span.length; i++) st0.wall[st0.wallIndex + i] = span[i]!;
-  const cfgs: BotConfig[] = [0, 1, 2, 3].map((i) => ({
-    ruleset: MJRC_STANDARD, profile: KING, rnd: prng(((rseed + 7) ^ ((i + 1) * 0x9e3779b1)) >>> 0),
-  }));
-  let st = st0;
-  for (let guard = 0; guard < 2500; guard++) {
-    if (st.phase === "handEnd" || st.phase === "matchEnd") break;
-    let acted = false;
-    for (const seat of [0, 1, 2, 3] as SeatIndex[]) {
-      const opts = legalActions(st, seat);
-      if (opts.length === 0) continue;
-      st = applyAction(st, decideAction(viewFor(st, seat), opts, cfgs[seat]!)).state;
-      acted = true; break;
-    }
-    if (!acted) break;
-  }
-  let w = -1, bestD = 0;
-  for (const i of [0, 1, 2, 3] as SeatIndex[]) {
-    const d = st.seats[i]!.chips - base.seats[i]!.chips;
-    if (d > bestD) { bestD = d; w = i; }
-  }
-  return w;
-}
 function oddsChart(): string {
   const H = oddsHistory;
   if (H.length < 2) return `<div class="mut" style="font-size:10.5px;margin-top:3px">odds graph builds as the hand goes on…</div>`;
@@ -232,35 +182,54 @@ function oddsChart(): string {
     <text x="${W - R}" y="${Hh - 4}" text-anchor="end" font-size="8" fill="#5dbb7a">— all-seeing 天眼</text>
   </svg>`;
 }
+/** Worker pool: rollouts run parallel and off the main thread. */
+const POOL: Worker[] = [];
+function pool(): Worker[] {
+  if (POOL.length === 0) {
+    const n = Math.max(2, Math.min(8, (navigator.hardwareConcurrency || 4) - 2));
+    for (let i = 0; i < n; i++) POOL.push(new Worker("playworker.js?v=" + Date.now()));
+  }
+  return POOL;
+}
 function computeOdds(): void {
   const gen = ++oddsGen;
   const base = state;
-  const K = 16;
-  const wins = { blind: [0, 0, 0, 0, 0], omni: [0, 0, 0, 0, 0] };   // [4] = draw
-  let done = 0;
-  const step = (k: number): void => {
-    if (gen !== oddsGen) return;                    // state moved on — abandon
-    for (const blind of [true, false]) {
-      const w = rollout(base, blind, 0xabc123 + k * 613 + (blind ? 7 : 0));
-      wins[blind ? "blind" : "omni"][w < 0 ? 4 : w]!++;
-    }
-    done++;
-    const pct = (n: number): string => `${Math.round(100 * n / done)}%`;
+  const K = 24;
+  const wins = { blind: [0, 0, 0, 0, 0], omni: [0, 0, 0, 0, 0] };
+  let doneB = 0, doneO = 0;
+  const paint = (final: boolean): void => {
+    const pct = (n: number, d: number): string => (d ? `${Math.round(100 * n / d)}%` : "…");
     const b = wins.blind, o = wins.omni;
-    oddsHtml = `<div class="oname">Win odds — champion plays it out from here (${done}×2 rollouts)</div>
-      <div class="orow" style="font-size:12px">your view (blind): <b>YOU ${pct(b[0]!)}</b> · draw ${pct(b[4]!)}</div>
-      <div class="orow" style="font-size:12px">all-seeing 天眼: <b class="${o[0]! / done > b[0]! / done + 0.08 ? "up" : o[0]! / done < b[0]! / done - 0.08 ? "down" : ""}">YOU ${pct(o[0]!)}</b>
-       · 南 ${pct(o[1]!)} · 西 ${pct(o[2]!)} · 北 ${pct(o[3]!)} · draw ${pct(o[4]!)}</div>`;
-    if (done === K) {
-      oddsHistory.push({ blind: b[0]! / done, omni: o[0]! / done });
-      oddsHtml += oddsChart();
-    }
+    oddsHtml = `<div class="oname">Win odds — champion plays it out from here (${doneB + doneO}/${K * 2} rollouts)</div>
+      <div class="orow" style="font-size:12px">your view (blind): <b>YOU ${pct(b[0]!, doneB)}</b> · draw ${pct(b[4]!, doneB)}</div>
+      <div class="orow" style="font-size:12px">all-seeing 天眼: <b class="${doneO && o[0]! / doneO > (doneB ? b[0]! / doneB : 0) + 0.08 ? "up" : doneO && o[0]! / doneO < (doneB ? b[0]! / doneB : 1) - 0.08 ? "down" : ""}">YOU ${pct(o[0]!, doneO)}</b>
+       · 南 ${pct(o[1]!, doneO)} · 西 ${pct(o[2]!, doneO)} · 北 ${pct(o[3]!, doneO)} · draw ${pct(o[4]!, doneO)}</div>`;
+    if (final) { oddsHistory.push({ blind: b[0]! / Math.max(1, doneB), omni: o[0]! / Math.max(1, doneO) }); oddsHtml += oddsChart(); }
     const el = document.getElementById("odds");
     if (el) el.innerHTML = oddsHtml;
-    if (done < K) setTimeout(() => step(k + 1), 0);
   };
+  const ws = pool();
+    const jobs: { blind: boolean; rseed: number }[] = [];
+  for (let k = 0; k < K; k++) for (const blind of [true, false]) jobs.push({ blind, rseed: (0xabc123 + k * 613 + (blind ? 7 : 0)) >>> 0 });
+  let next = 0;
+  const dispatch = (w: Worker): void => {
+    if (gen !== oddsGen || next >= jobs.length) return;
+    const j = jobs[next++]!;
+    w.postMessage({ state: base, blind: j.blind, rseed: j.rseed, king: KING, job: gen });
+  };
+  for (const w of ws) {
+    w.onmessage = (e: MessageEvent): void => {
+      const { job, blind, winner } = e.data as { job: number; blind: boolean; winner: number };
+      if (job !== oddsGen || gen !== oddsGen) return;
+      wins[blind ? "blind" : "omni"][winner < 0 ? 4 : winner]!++;
+      if (blind) doneB++; else doneO++;
+      paint(doneB + doneO === K * 2);
+      dispatch(w);
+    };
+    dispatch(w); dispatch(w);   // two in flight per worker
+  }
   oddsHtml = `<div class="oname">Win odds</div><span class="mut" style="font-size:11.5px">computing…</span>`;
-  setTimeout(() => step(0), 0);
+  paint(false);
 }
 
 /* ── discard coach: grade the human's cut against the champion's ranking ── */
