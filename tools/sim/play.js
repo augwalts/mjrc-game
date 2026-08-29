@@ -2740,6 +2740,10 @@
         case "claimed":
           feed.push(`${who(p.seat)} ${p.kind === "chow" ? "chows \u4E0A" : p.kind === "pung" ? "pungs \u78B0" : "kongs \u69D3"} ${label(p.tile)}`);
           break;
+        case "claimDeclined":
+          if (p.reason === "pass" && p.seat !== HUMAN)
+            feed.push(`\xA7  ${who(p.seat)} passes on ${p.options?.map((o) => o.kind).join("/") ?? "claim"} of ${label(p.tile)}`);
+          break;
         case "concealedKong":
           feed.push(`${who(p.seat)} concealed kong \u6697\u69D3`);
           break;
@@ -2783,7 +2787,25 @@
         }
       }
     }
-    if (feed.length > 60) feed.splice(0, feed.length - 60);
+    if (feed.length > 140) feed.splice(0, feed.length - 140);
+  }
+  var SUIT_G = ["\u842C", "\u7D22", "\u7B52"];
+  function routeName(r) {
+    if (r.orphans) return "13-orphans \u5341\u4E09\u4E48";
+    if (r.honoursOnly) return "honours \u5B57\u4E00\u8272";
+    if (r.suit !== null) return (r.pungs ? "pung-flush " : "flush ") + (r.suit === "chars" ? "\u842C" : r.suit === "bamboo" ? "\u7D22" : "\u7B52");
+    return r.pungs ? "all-pungs \u5C0D\u5C0D\u7CCA" : "balanced";
+  }
+  function botThink(seat) {
+    const v = viewFor(state, seat);
+    const name3 = `Bot ${WINDS[state.seats[seat].wind].slice(0, 1)}`;
+    const out = [`\xA7\u2508 ${name3} thinking`];
+    const threats = tableThreat(v, MJRC_STANDARD);
+    const reads = threats.seats.filter((t) => t.threat > 0.15 || t.intentSuit !== null).sort((a, b) => b.threat - a.threat).slice(0, 2).map((t) => `${t.seat === HUMAN ? "YOU" : "Bot " + WINDS[state.seats[t.seat].wind].slice(0, 1)} threat ${t.threat.toFixed(2)}` + (t.intentSuit !== null ? ` \xB7 collecting ${SUIT_G[t.intentSuit]}` : "") + ` \xB7 est ${t.expectedFaan} faan`);
+    if (reads.length) out.push(`\xA7  reads: ${reads.join("  |  ")}`);
+    const routes = assessRoutes(shapeOf(v), MJRC_STANDARD, KING, threats).filter((r) => r.feasible && Number.isFinite(r.score)).sort((a, b) => b.score - a.score).slice(0, 2);
+    if (routes.length) out.push(`\xA7  plans: ` + routes.map((r, i) => `${i === 0 ? "\u25B8" : ""}${routeName(r.route)} (${Math.min(r.faan, 10)}f, ${Math.max(0, r.distance)} away, score ${r.score.toFixed(1)})`).join("  \xB7  "));
+    return out;
   }
   var pendingHuman = null;
   function advance() {
@@ -2802,6 +2824,7 @@
       if (options.length === 0) continue;
       const act = () => {
         const v = viewFor(state, seat);
+        if (!fast && options.some((o) => o.type === "discard")) feed.push(...botThink(seat));
         const a = decideAction(v, options, botCfgs[seat]);
         const r = applyAction(state, a);
         state = r.state;
@@ -2883,7 +2906,7 @@
       if (btns.length && canDiscard) bar += ` <span class="mut">\xB7 or click a tile to discard</span>`;
     } else if (!overlayHtml && state.phase !== "matchEnd") bar = `<span class="mut">bots thinking\u2026</span>`;
     $("actions").innerHTML = bar;
-    $("feed").innerHTML = feed.slice(-24).map((l) => `<div>${l}</div>`).join("");
+    $("feed").innerHTML = feed.slice(-48).map((l) => l.startsWith("\xA7") ? `<div class="think">${l.slice(1)}</div>` : `<div>${l}</div>`).join("");
     $("feed").scrollTop = $("feed").scrollHeight;
     const ov = $("overlay");
     if (overlayHtml) {

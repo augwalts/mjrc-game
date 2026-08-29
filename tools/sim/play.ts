@@ -10,7 +10,8 @@ import {
   startMatch, startNextHand, applyAction, legalActions,
 } from "../../engine/src/reducer.js";
 import type { MatchState } from "../../engine/src/reducer.js";
-import { decideAction, DEFAULT_PROFILE, type BotConfig, type BotProfile } from "../../engine/src/bots.js";
+import { decideAction, DEFAULT_PROFILE, assessRoutes, shapeOf, type BotConfig, type BotProfile, type RouteAssessment } from "../../engine/src/bots.js";
+import { tableThreat } from "../../engine/src/threat.js";
 import { MJRC_STANDARD } from "../../rulesets/src/presets.js";
 import { prng } from "../../engine/src/wall.js";
 import { TILE_NAMES } from "../../engine/src/tiles.js";
@@ -85,6 +86,8 @@ function consume(events: readonly { type: string; payload?: unknown; seat?: numb
     switch (ev.type) {
       case "discard": feed.push(`${who(p.seat)} cuts ${label(p.tile as TileId)}`); break;
       case "claimed": feed.push(`${who(p.seat)} ${p.kind === "chow" ? "chows 上" : p.kind === "pung" ? "pungs 碰" : "kongs 槓"} ${label(p.tile as TileId)}`); break;
+      case "claimDeclined": if ((p.reason as string) === "pass" && p.seat !== HUMAN)
+        feed.push(`§  ${who(p.seat)} passes on ${(p.options as {kind:string}[] | undefined)?.map((o)=>o.kind).join("/") ?? "claim"} of ${label(p.tile as TileId)}`); break;
       case "concealedKong": feed.push(`${who(p.seat)} concealed kong 暗槓`); break;
       case "addedKong": feed.push(`${who(p.seat)} added kong 加槓 ${label(p.tile as TileId)}`); break;
       case "flowerReplacement": feed.push(`${who(p.seat)} reveals flower ${label(p.flower as TileId)}`); break;
@@ -119,7 +122,34 @@ function consume(events: readonly { type: string; payload?: unknown; seat?: numb
       }
     }
   }
-  if (feed.length > 60) feed.splice(0, feed.length - 60);
+  if (feed.length > 140) feed.splice(0, feed.length - 140);
+}
+
+/* ── bot thinking for the side terminal ──────────────────────────────── */
+const SUIT_G = ["萬", "索", "筒"];
+function routeName(r: RouteAssessment["route"]): string {
+  if (r.orphans) return "13-orphans 十三么";
+  if (r.honoursOnly) return "honours 字一色";
+  if (r.suit !== null) return (r.pungs ? "pung-flush " : "flush ") + (r.suit === "chars" ? "萬" : r.suit === "bamboo" ? "索" : "筒");
+  return r.pungs ? "all-pungs 對對糊" : "balanced";
+}
+function botThink(seat: SeatIndex): string[] {
+  const v = viewFor(state, seat);
+  const name = `Bot ${WINDS[state.seats[seat]!.wind]!.slice(0, 1)}`;
+  const out: string[] = [`§┈ ${name} thinking`];
+  const threats = tableThreat(v, MJRC_STANDARD);
+  const reads = threats.seats
+    .filter((t) => t.threat > 0.15 || t.intentSuit !== null)
+    .sort((a, b) => b.threat - a.threat).slice(0, 2)
+    .map((t) => `${t.seat === HUMAN ? "YOU" : "Bot " + WINDS[state.seats[t.seat]!.wind]!.slice(0, 1)} threat ${t.threat.toFixed(2)}` +
+      (t.intentSuit !== null ? ` · collecting ${SUIT_G[t.intentSuit]}` : "") + ` · est ${t.expectedFaan} faan`);
+  if (reads.length) out.push(`§  reads: ${reads.join("  |  ")}`);
+  const routes = assessRoutes(shapeOf(v), MJRC_STANDARD, KING, threats)
+    .filter((r) => r.feasible && Number.isFinite(r.score))
+    .sort((a, b) => b.score - a.score).slice(0, 2);
+  if (routes.length) out.push(`§  plans: ` + routes.map((r, i) =>
+    `${i === 0 ? "▸" : ""}${routeName(r.route)} (${Math.min(r.faan, 10)}f, ${Math.max(0, r.distance)} away, score ${r.score.toFixed(1)})`).join("  ·  "));
+  return out;
 }
 
 /* ── game loop ───────────────────────────────────────────────────────── */
@@ -137,6 +167,7 @@ function advance(): void {
     if (options.length === 0) continue;
     const act = (): void => {
       const v = viewFor(state, seat);
+      if (!fast && options.some((o) => o.type === "discard")) feed.push(...botThink(seat));
       const a = decideAction(v, options, botCfgs[seat]!);
       const r = applyAction(state, a);
       state = r.state; consume(r.events); advance();
@@ -222,7 +253,8 @@ function render(): void {
     if (btns.length && canDiscard) bar += ` <span class="mut">· or click a tile to discard</span>`;
   } else if (!overlayHtml && state.phase !== "matchEnd") bar = `<span class="mut">bots thinking…</span>`;
   $("actions").innerHTML = bar;
-  $("feed").innerHTML = feed.slice(-24).map((l) => `<div>${l}</div>`).join("");
+  $("feed").innerHTML = feed.slice(-48).map((l) =>
+    l.startsWith("§") ? `<div class="think">${l.slice(1)}</div>` : `<div>${l}</div>`).join("");
   $("feed").scrollTop = $("feed").scrollHeight;
   const ov = $("overlay");
   if (overlayHtml) { ov.style.display = "flex"; ov.querySelector(".card")!.innerHTML = overlayHtml; }
