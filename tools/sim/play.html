@@ -72,8 +72,15 @@ h1{font-size:15px;margin:0 0 4px}
 </div>
 <div id="overlay"><div class="card"></div></div>
 <script>
-// cache-busted loads so a rebuilt game or refreshed champion is never stale
-for (const f of ['kings.js', 'play.js']) document.write('<script src="' + f + '?v=' + Date.now() + '"><\/script>');
+// Cache-busted, mobile-safe loads (document.write scripts get blocked by
+// mobile Chrome — the panel learned this the hard way). async=false keeps
+// kings.js ahead of play.js.
+for (const f of ["kings.js", "play.js"]) {
+  const t = document.createElement("script");
+  t.src = f + "?v=" + Date.now();
+  t.async = false;
+  document.head.appendChild(t);
+}
 </script>
 </body>
 </html>
