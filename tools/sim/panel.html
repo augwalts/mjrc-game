@@ -675,7 +675,7 @@ else if (D.history.length === 0) {
       name: `exam vs ${enemy}`,
       detail: r.error ? "" : `trained vs ${r.opponent} · ${r.matches} matches/eval · ${r.mins}m`,
       result: r.error ? r.error
-        : `<b>${fmtC(r.heldOutChips)}</b> chips/match vs ${enemy}` +
+        : `<b>${fmtC(r.heldOutChips)}</b> <span class="mut" style="font-size:10px">±16/block</span> chips/match vs ${enemy}` +
           `${admissionDelta !== null ? ` · reigning ${fmtC(r.reigningOnSameBlock)} on same block · admission Δ <b>${fmtC(admissionDelta)}</b> (needs &gt;+4)` : ""}` +
           `${r.vsV0 !== undefined && r.vsV0 !== null ? ` · ${fmtC(r.vsV0)} vs v0` : ""}` +
           `${st ? `<div class="mut" style="font-size:10.5px">draws ${Math.round(st.drawRate * 100)}% · x̄ ${st.meanFaan} faan · threat ${Math.round((st.threatDetection ?? 0) * 100)}%${st.faanShares ? " · faan " + st.faanShares.map((x, i) => `${i + 3 === 10 ? "10+" : i + 3}:${Math.round(x * 100)}%`).join(" ") : ""}</div>` : ""}`,
@@ -700,7 +700,8 @@ else if (D.history.length === 0) {
     document.getElementById("history").insertAdjacentHTML("beforeend",
       `<div class="card"><details><summary><span class="scope">RESEARCH ARCHIVE · ALL RECORDED ERAS</span><b>Every cycle, experiment and reference</b></summary>
       <div class="mut" style="font-size:11px;margin-bottom:6px"><b>Cycles</b> are the machine's own held-out exams (all seats,
-      enemy named per row — a score only means something next to its enemy). <b>Experiments</b> are the curated studies from
+      enemy named per row — a score only means something next to its enemy; single-exam scores carry ±16 of block luck,
+      so only the same-walls admission verdict and multi-block means are load-bearing). <b>Experiments</b> are the curated studies from
       tools/sim/experiments.js. <b>References</b> are frozen texture snapshots of how each era's table felt.</div>
       <div class="table-scroll"><table><tr><th>when</th><th>type</th><th style="text-align:left">what</th><th style="text-align:left">result</th><th style="text-align:left">verdict</th></tr>
       ${entries.slice(0, CUT).map(row).join("")}</table></div>
@@ -722,6 +723,16 @@ else if (D.history.length === 0) {
     <b>Every "chips/match" number is an average per one-wind-round match.</b> The sample size is stated beside each primary score: cycle-end admission exams use 160 matches, while selection and fixed-bench diagnostics use their own recorded counts. A single hot match can be +400, so sample source matters.<br>
     <b>Placement points</b> (+3/+1/−1/−3 by table finish) are used only inside evolution's promotion decisions; chips are the scoreboard.<br>
     <b>Benchmark opponent:</b> ${BASE}.</div>
+    <div style="border-top:1px dashed var(--line);margin-top:8px;padding-top:6px">
+    <div class="mut" style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px"><b>Yardstick — how big is a chips/match number?</b></div>
+    <div class="mut" style="font-size:12px;line-height:1.55">
+    <b>Physical size:</b> a 3-faan discard win moves 16 chips and a match is ~7 hands, so +9/match ≈ winning an extra
+    half floor-hand per wind round. Reference magnitudes: <b>±5 = a nudge · ±15 = one ladder rung</b> (v1→v2 took 17
+    cycles for +12) <b>· ±40 = a whole era of progress</b> (era-1 champion vs the default).<br>
+    <b>Statistical weight:</b> a SINGLE held-out exam carries <b>±16 of block luck</b> (v2 measured on 14 independent
+    blocks scored −16.6 to +33.7 — same bot, same enemy). One exam number alone is weather, not climate. Numbers you can
+    trust: same-walls comparisons (admission, control-vs-best — luck cancels), and multi-block means. That is why a cycle
+    can score +27 one block and −26 the next without either being news.</div></div>
     <div style="border-top:1px dashed var(--line);margin-top:8px;padding-top:6px" class="mut">
     <table style="font-size:12px">
       <tr><td style="white-space:nowrap"><b>hand</b> 一局</td><td style="text-align:left">one deal: walls built, draw/discard until someone wins or the wall runs out (流局). Payments settle per hand.</td></tr>
