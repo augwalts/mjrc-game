@@ -118,6 +118,13 @@ const D = window.SIM_DATA;
 // Goal badges: which way each number SHOULD move. Only rules the owner has
 // actually made get an arrow; texture metrics are labeled as texture rather
 // than given an invented target.
+const BENCH_NAME = ((D && D.baseline) || "baseline").split("/").pop().replace(".json", "");
+const BENCH_DESCS = {
+  "baseline-v0": "baseline-v0 — the defenseless era-1 yardstick",
+  "baseline-v1": "baseline-v1 — the FROZEN era-1 champion (0 = par with yesterday's best bot)",
+  "baseline-v2": "baseline-v2 — the era-2 king (0 = par with the reigning champion)",
+};
+const BENCH_DESC = BENCH_DESCS[BENCH_NAME] || (BENCH_NAME + " — the frozen benchmark for this era");
 const GOALS = {
   up: '<span class="goal up">▲ WANT UP</span>',
   down: '<span class="goal down">▼ WANT DOWN</span>',
@@ -406,15 +413,13 @@ else if (D.history.length === 0) {
   };
   const cards = [];
   const put = (slot, html) => cards.push({ slot, html });
-  const BASE_LABEL = (D.baseline || "baseline-v0.json").includes("v1")
-    ? "baseline-v1 — the FROZEN era-1 champion (0 = par with yesterday's best bot)"
-    : "baseline-v0 — the defenseless era-1 yardstick";
+  const BASE_LABEL = BENCH_DESC;
   // ── THE number: incumbent vs the frozen season-start bot, fixed seeds ──
   const benches = H.map((g) => g.bench).filter(Boolean);
   if (benches.length) {
     const b = benches[benches.length - 1];
     const line = benches.map((x) => x.chipsPerMatch);
-    put("kpis", `<div class="card"><span class="scope">WITHIN CURRENT CYCLE · ${benches.length} GENERATIONS</span><h2>Fixed-bench chips/match vs ${(D.baseline||"baseline-v0.json").includes("v1") ? "baseline-v1" : "baseline-v0"}${GOALS.up}</h2>
+    put("kpis", `<div class="card"><span class="scope">WITHIN CURRENT CYCLE · ${benches.length} GENERATIONS</span><h2>Fixed-bench chips/match vs ${BENCH_NAME}${GOALS.up}</h2>
       ${spark(line, { zero: true, fmt: (v) => (v > 0 ? "+" : "") + v, color: b.chipsPerMatch >= 0 ? "var(--ok)" : "var(--warn)" })}
       <div class="mut" style="font-size:11px">won <b class="up">${b.chipsWonPerMatch}</b> · lost <b class="down">${b.chipsLostPerMatch}</b>
       ${b.winLossRatio !== undefined ? `· <b>W/L ratio ${b.winLossRatio}</b> (how humans compare — &gt;1 = net winner)` : ""} per match.
@@ -642,7 +647,7 @@ else if (D.history.length === 0) {
         <td>${g.bench ? (g.bench.chipsPerMatch > 0 ? "+" : "") + g.bench.chipsPerMatch : "—"}</td>
         <td class="mut">${matchCount}</td><td class="mut">${(g.ms / 1000).toFixed(0)}</td><td>${changed}</td></tr>`;
     });
-    const baseLbl = (D.baseline || "").includes("v1") ? "baseline-v1 (the frozen era-1 champion)" : "the frozen baseline";
+    const baseLbl = BENCH_DESC;
     put('currentDecision', `<div class="card"><span class="scope">CURRENT CYCLE · ALL ${H.length} COMPLETED GENERATIONS</span>
       <h2>Generation decision log</h2>
       <div class="mut" style="font-size:11px;margin-bottom:7px"><b>Gate A</b> = best challenger minus incumbent on seed set A. <b>Gate B</b> = the same challenger minus incumbent on fresh seed set B. Both must exceed +${BAR} ${D.fitness === "chips" ? "chips/match (owner ruling: chips, not placement, are the objective)" : "placement points/match"}. Training opponent: <b>${D.trainingOpponentLabel || "not recorded in this legacy run"}</b>. Fixed bench is against ${baseLbl}; it is diagnostic, not a promotion gate.</div>
@@ -676,7 +681,7 @@ else if (D.history.length === 0) {
     .map((r) => ({ ...r, era: r.era ?? 1 }))
     .sort((a, b) => a.era - b.era || a.cycle - b.cycle);
   // lines: [{label, color, pts: [{era, cycle, v, se?}]}] — se draws a ±2SE band
-  const cplot = (lines, { fmt = (v) => v, zero = false, hi: hiCap } = {}) => {
+  const cplot = (lines, { fmt = (v) => v, zero = false, hi: hiCap, band = null } = {}) => {
     const live = lines.map((ln) => ({ ...ln, pts: ln.pts.filter((p) => Number.isFinite(p.v)) }))
       .filter((ln) => ln.pts.length);
     if (!live.length) return null;
@@ -684,7 +689,7 @@ else if (D.history.length === 0) {
       .values()].sort((a, b) => a.era - b.era || a.cycle - b.cycle)
       .map((p) => `${p.era}:${p.cycle}`);
     const ix = new Map(keys.map((k, i) => [k, i]));
-    const vals = live.flatMap((ln) => ln.pts.flatMap((p) => [p.v - 2 * (p.se || 0), p.v + 2 * (p.se || 0)]));
+    const vals = live.flatMap((ln) => ln.pts.flatMap((p) => [p.v - 2 * (p.se || 0), p.v + 2 * (p.se || 0)])).concat(band ?? []);
     let lo = Math.min(...vals), hi = Math.max(...vals);
     const pad = Math.max((hi - lo) * 0.08, Math.abs(hi || 1) * 0.01);
     if (zero) lo = Math.min(0, lo); else lo -= pad;
@@ -704,6 +709,7 @@ else if (D.history.length === 0) {
     const ticks = [hi, (hi + lo) / 2, lo].map((v) => `<line x1="${L}" x2="${W - R}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}" stroke="var(--line)" stroke-dasharray="3 3"/>
       <text x="${L - 5}" y="${(y(v) + 3).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--dim)">${fmt(v)}</text>`).join("");
     const zeroLine = lo < 0 && hi > 0 ? `<line x1="${L}" x2="${W - R}" y1="${y(0).toFixed(1)}" y2="${y(0).toFixed(1)}" stroke="var(--dim)" stroke-width="0.8"/>` : "";
+    const bandRect = band ? `<rect x="${L}" y="${y(band[1]).toFixed(1)}" width="${W - L - R}" height="${(y(band[0]) - y(band[1])).toFixed(1)}" fill="var(--ok)" opacity="0.10"><title>target zone ${fmt(band[0])}–${fmt(band[1])}</title></rect>` : "";
     const body = live.map((ln) => {
       const byEra = [...new Set(ln.pts.map((p) => p.era))].map((era) => ln.pts.filter((p) => p.era === era));
       const bands = byEra.map((seg) => {
@@ -721,7 +727,7 @@ else if (D.history.length === 0) {
     }).join("");
     const key = live.map((ln) => `<span style="color:${ln.color}">● ${ln.label}</span>`).join("")
       + `<span>${keys.length} cycles · gold line = era boundary${live.some((ln) => ln.pts.some((p) => p.se)) ? " · shaded = ±2SE" : ""}</span>`;
-    return `<svg class="trend" viewBox="0 0 ${W} ${Hh}">${ticks}${zeroLine}${boundaries}${body}${xLabels}</svg><div class="trendkey">${key}</div>`;
+    return `<svg class="trend" viewBox="0 0 ${W} ${Hh}">${bandRect}${ticks}${zeroLine}${boundaries}${body}${xLabels}</svg><div class="trendkey">${key}</div>`;
   };
   const pct = (v) => `${(v * 100).toFixed(0)}%`;
   const bench = (k) => endpoints.map((p) => ({ era: p.era, cycle: p.cycle, v: p[k] }));
@@ -735,34 +741,34 @@ else if (D.history.length === 0) {
   const charts = [
     ["Held-out exam — chips/match vs era enemy", "the admission number, with its real uncertainty. 0 = par with the era's frozen enemy; the band is ±2SE over the 160-match block (recorded once the extended exam stats land).",
       [{ label: "exam chips/match", color: "var(--acc)", pts: exam((r) => r.heldOutChips, chipsSe) }],
-      { fmt: (v) => (v > 0 ? "+" : "") + v.toFixed(0), zero: true }],
+      { fmt: (v) => (v > 0 ? "+" : "") + v.toFixed(0), zero: true }, "up"],
     ["Claim mix — share of all claims", "bench endpoints, table-wide. Chow-vs-pung appetite is one of the tightest per-cycle signals (thousands of claims per point).",
       [{ label: "pung", color: "var(--gold)", pts: bench("pungClaimShare") },
        { label: "chow", color: "var(--acc)", pts: bench("chowClaimShare") },
        { label: "kong", color: "var(--warn)", pts: bench("kongClaimShare") }],
-      { fmt: pct, zero: true }],
+      { fmt: pct, zero: true }, "none"],
     ["Claims per table hand", "bench endpoints. Total claim appetite — the alien-quiet-table detector.",
-      [{ label: "claims/hand", color: "var(--acc)", pts: bench("claimsPerHand") }], { fmt: (v) => v.toFixed(2), zero: true }],
+      [{ label: "claims/hand", color: "var(--acc)", pts: bench("claimsPerHand") }], { fmt: (v) => v.toFixed(2), zero: true }, "none"],
     ["Wins per table hand — self-draw vs discard", "bench endpoints, table-wide. Which way hands are finishing.",
       [{ label: "self-draws/hand 自摸", color: "var(--ok)", pts: bench("selfDrawsPerHand") },
        { label: "discard wins/hand 食糊", color: "var(--acc)", pts: bench("discardWinsPerHand") }],
-      { fmt: (v) => v.toFixed(2), zero: true }],
+      { fmt: (v) => v.toFixed(2), zero: true }, "none"],
     ["Mean winning faan", "bench endpoints. 3.0 = everyone scrapes the floor; rising = value hands.",
-      [{ label: "mean faan", color: "var(--acc)", pts: bench("meanFaan") }], { fmt: (v) => v.toFixed(1), zero: true }],
+      [{ label: "mean faan", color: "var(--acc)", pts: bench("meanFaan") }], { fmt: (v) => v.toFixed(1), zero: true }, "none"],
     ["Exhaustive draw rate 流局", "bench endpoints. Real HK tables sit ~10-20%.",
-      [{ label: "draw rate", color: "var(--gold)", pts: bench("drawRate") }], { fmt: pct, zero: true }],
+      [{ label: "draw rate", color: "var(--gold)", pts: bench("drawRate") }], { fmt: pct, zero: true, band: [0.10, 0.20] }, "drawBand"],
     ["Challenger economy — chips won vs bled, per match", "held-out exam, challenger seat only. The two halves of the score: win bigger (green) and bleed less (orange), with the deal-in slice of the bleed in gold. Recorded once the extended exam stats land.",
       [{ label: "won/match", color: "var(--ok)", pts: exam((r) => st(r).me?.wonPerMatch) },
        { label: "lost/match", color: "var(--warn)", pts: exam((r) => st(r).me?.lostPerMatch) },
        { label: "deal-in loss/match", color: "var(--gold)", pts: exam((r) => st(r).me?.dealInLossPerMatch) }],
-      { fmt: (v) => (v > 0 ? "+" : "") + v.toFixed(0), zero: true }],
+      { fmt: (v) => (v > 0 ? "+" : "") + v.toFixed(0), zero: true }, '<span class="goal up">▲ WON UP</span><span class="goal down">▼ |LOST| DOWN</span>'],
     ["Big hands — share of wins at 8+ faan", "held-out exam, table-wide. The exponential tail of the payment ladder (recorded from era 3 on).",
-      [{ label: "8+ faan share", color: "var(--warn)", pts: exam(bigShare) }], { fmt: pct, zero: true }],
+      [{ label: "8+ faan share", color: "var(--warn)", pts: exam(bigShare) }], { fmt: pct, zero: true }, "none"],
   ];
   const holder = document.getElementById("cycleTexture");
-  if (holder) holder.innerHTML = charts.map(([title, note, lines, opts]) => {
+  if (holder) holder.innerHTML = charts.map(([title, note, lines, opts, goal]) => {
     const svg = cplot(lines, opts);
-    return `<div class="card"><span class="scope">ONE POINT PER CYCLE</span><h2>${title}</h2>
+    return `<div class="card"><span class="scope">ONE POINT PER CYCLE</span><h2>${title}${goal ? (GOALS[goal] ?? goal) : ""}</h2>
       ${svg ?? '<div class="mut">No cycles recorded yet for this metric — it fills in as exams with extended stats complete.</div>'}
       <div class="mut" style="font-size:11px">${note} Era boundaries reset comparability: the bench enemy changes each era.</div></div>`;
   }).join("");
@@ -822,9 +828,7 @@ else if (D.history.length === 0) {
 }
 // ── LEGEND: units + vocabulary, collapsed so it never costs a scroll ──
 {
-  const BASE = (window.SIM_DATA?.baseline || "").includes("v1")
-    ? "baseline-v1 — the FROZEN era-1 champion (0 = par with yesterday's best bot)"
-    : "baseline-v0 — the defenseless era-1 yardstick";
+  const BASE = BENCH_DESC;
   document.getElementById("legend").insertAdjacentHTML("beforeend", `<div class="card"><details>
     <summary style="cursor:pointer"><b>Legend — how to read this page</b> <span class="mut">(chips ladder, units, vocabulary — click to expand)</span></summary>
     <div class="mut" style="font-size:12px;line-height:1.55;margin-top:8px">
