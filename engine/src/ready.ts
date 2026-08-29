@@ -84,7 +84,7 @@ function rawDistance(c: readonly number[], melds: number): Distance {
  * original tests only covered 13-tile hands and *complete* 14-tile hands, so
  * the whole 3n+2 non-winning case went unexercised.
  */
-export function distanceToReady(c: readonly number[], melds = 0): Distance {
+export function referenceDistanceToReady(c: readonly number[], melds = 0): Distance {
   let total = melds * 3;
   for (let i = 0; i < SCORING_KINDS; i++) total += c[i]!;
 
@@ -100,6 +100,137 @@ export function distanceToReady(c: readonly number[], melds = 0): Distance {
     if (w[i]! > 0) {
       w[i]!--;
       best = Math.min(best, rawDistance(w, melds));
+      w[i]!++;
+    }
+  }
+  return best;
+}
+
+
+/* ── fast path: per-suit decomposition tables + a tiny cross-group DP ──────
+ *
+ * The exhaustive recursion above re-derives, for every call, facts that only
+ * depend on one suit's nine counts: which (sets, partials, eyes) combos that
+ * suit can yield. Those facts are computed once per distinct suit vector and
+ * memoized (key = counts packed base-5, ≤ 5^9 keys, thousands in practice).
+ * A 4-group × 50-state boolean DP then combines suits + honours, and the
+ * distance formula is evaluated over reachable states — the exact same
+ * quantity the reference minimizes, decomposed instead of re-searched.
+ *
+ * Equivalence is enforced, not assumed: referenceDistanceToReady stays in
+ * this file as the oracle for the fuzz differential in the test suite.
+ */
+
+/** (s ≤ 4, p ≤ 4, e ≤ 1) packed as s*10 + p*2 + e — 50 possible flags. */
+type ComboFlags = Uint8Array;
+
+const suitMemo = new Map<number, ComboFlags>();
+const honourMemo = new Map<number, ComboFlags>();
+
+function segmentCombos(v: number[], suited: boolean, memo: Map<number, ComboFlags>): ComboFlags {
+  let key = 0;
+  for (let i = 0; i < v.length; i++) key = key * 5 + v[i]!;
+  const hit = memo.get(key);
+  if (hit) return hit;
+  const flags: ComboFlags = new Uint8Array(50);
+  const n = v.length;
+  const rec = (i: number, s: number, p: number, e: number): void => {
+    while (i < n && v[i] === 0) i++;
+    if (i >= n) { flags[s * 10 + p * 2 + e] = 1; return; }
+    if (s < 4 && v[i]! >= 3) { v[i]! -= 3; rec(i, s + 1, p, e); v[i]! += 3; }
+    if (s < 4 && suited && i <= 6 && v[i + 1]! > 0 && v[i + 2]! > 0) {
+      v[i]!--; v[i + 1]!--; v[i + 2]!--; rec(i, s + 1, p, e); v[i]!++; v[i + 1]!++; v[i + 2]!++;
+    }
+    if (v[i]! >= 2) {
+      if (p < 4) { v[i]! -= 2; rec(i, s, p + 1, e); v[i]! += 2; }
+      if (e === 0) { v[i]! -= 2; rec(i, s, p, 1); v[i]! += 2; }   // the eyes
+    }
+    if (p < 4 && suited && i <= 7 && v[i + 1]! > 0) { v[i]!--; v[i + 1]!--; rec(i, s, p + 1, e); v[i]!++; v[i + 1]!++; }
+    if (p < 4 && suited && i <= 6 && v[i + 2]! > 0) { v[i]!--; v[i + 2]!--; rec(i, s, p + 1, e); v[i]!++; v[i + 2]!++; }
+    v[i]!--; rec(i, s, p, e); v[i]!++;                             // leave it isolated
+  };
+  rec(0, 0, 0, 0);
+  // Pareto prune: the distance formula is monotone in s, p and e, so a combo
+  // dominated on all three can never produce the minimum. Pruning on e is safe
+  // despite the one-eyes-per-hand constraint: taking eyes spends two tiles
+  // that could equally be dropped, so every (s,p,1) combo has an (s,p,0) twin
+  // in the same group — any cross-group solution blocked by an e-dominance
+  // prune has an equivalent mirror that swaps which group supplies the eyes.
+  const pruned = new Uint8Array(50);
+  for (let a = 0; a < 50; a++) {
+    if (!flags[a]) continue;
+    const s0 = (a / 10) | 0, r0 = a % 10, p0 = (r0 / 2) | 0, e0 = r0 % 2;
+    let dominated = false;
+    for (let b = 0; b < 50 && !dominated; b++) {
+      if (!flags[b] || b === a) continue;
+      const s1 = (b / 10) | 0, r1 = b % 10, p1 = (r1 / 2) | 0, e1 = r1 % 2;
+      if (s1 >= s0 && p1 >= p0 && e1 >= e0 && (s1 > s0 || p1 > p0 || e1 > e0)) dominated = true;
+    }
+    if (!dominated) pruned[a] = 1;
+  }
+  memo.set(key, pruned);
+  return pruned;
+}
+
+const seg = new Array<number>(9);
+function groupCombos(c: readonly number[], g: number): ComboFlags {
+  if (g < 3) {
+    for (let r = 0; r < 9; r++) seg[r] = c[g * 9 + r]!;
+    return segmentCombos(seg, true, suitMemo);
+  }
+  const h = new Array<number>(7);
+  for (let r = 0; r < 7; r++) h[r] = c[27 + r]!;
+  return segmentCombos(h, false, honourMemo);
+}
+
+/** Exact same minimum as the reference, via reachable-state combination. */
+function fastRawDistance(c: readonly number[], melds: number): Distance {
+  let reach = new Uint8Array(50);
+  reach[0] = 1;
+  for (let g = 0; g < 4; g++) {
+    const combos = groupCombos(c, g);
+    const next = new Uint8Array(50);
+    for (let st = 0; st < 50; st++) {
+      if (!reach[st]) continue;
+      const s0 = (st / 10) | 0, rem = st % 10, p0 = (rem / 2) | 0, e0 = rem % 2;
+      for (let cb = 0; cb < 50; cb++) {
+        if (!combos[cb]) continue;
+        const s1 = (cb / 10) | 0, rem1 = cb % 10, p1 = (rem1 / 2) | 0, e1 = rem1 % 2;
+        if (e0 + e1 > 1) continue;
+        const s = Math.min(4, s0 + s1), pp = Math.min(4, p0 + p1);
+        next[s * 10 + pp * 2 + (e0 + e1)] = 1;
+      }
+    }
+    reach = next;
+  }
+  let best: Distance = 99;
+  for (let st = 0; st < 50; st++) {
+    if (!reach[st]) continue;
+    const s = (st / 10) | 0, rem = st % 10, p = (rem / 2) | 0, e = rem % 2;
+    const total = s + melds;
+    const capped = total + p > 4 ? Math.max(0, 4 - total) : p;
+    const d = 8 - 2 * total - capped - e;
+    if (d < best) best = d;
+  }
+  return best;
+}
+
+export function distanceToReady(c: readonly number[], melds = 0): Distance {
+  let total = melds * 3;
+  for (let i = 0; i < SCORING_KINDS; i++) total += c[i]!;
+
+  if (total % 3 !== 2) return fastRawDistance(c, melds);
+
+  const raw = fastRawDistance(c, melds);
+  if (raw < 0) return -1;
+
+  const w = c.slice();
+  let best = raw;
+  for (let i = 0; i < SCORING_KINDS; i++) {
+    if (w[i]! > 0) {
+      w[i]!--;
+      const d = fastRawDistance(w, melds);
+      if (d < best) best = d;
       w[i]!++;
     }
   }
