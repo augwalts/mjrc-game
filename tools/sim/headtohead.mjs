@@ -2740,7 +2740,10 @@ function playMatch(config, decide, opts = {}) {
     seatLost: [0, 0, 0, 0],
     seatDealInLoss: [0, 0, 0, 0],
     seatDealInCount: [0, 0, 0, 0],
-    seatTaxLoss: [0, 0, 0, 0]
+    seatTaxLoss: [0, 0, 0, 0],
+    seatChows: [0, 0, 0, 0],
+    seatPungs: [0, 0, 0, 0],
+    seatKongs: [0, 0, 0, 0]
   };
   if (opts.recordHands) r.handRecords = [];
   let pendingWin = null;
@@ -2790,12 +2793,23 @@ function playMatch(config, decide, opts = {}) {
       if (e.type === "refusedWin") r.refusedWins++;
       if (e.type === "claimed") {
         r.claims++;
-        const kind = e.payload.kind;
-        if (kind === "chow") r.chows++;
-        else if (kind === "pung") r.pungs++;
-        else if (kind === "kong") r.kongs++;
+        const { kind, seat } = e.payload;
+        if (kind === "chow") {
+          r.chows++;
+          if (seat !== void 0) r.seatChows[seat]++;
+        } else if (kind === "pung") {
+          r.pungs++;
+          if (seat !== void 0) r.seatPungs[seat]++;
+        } else if (kind === "kong") {
+          r.kongs++;
+          if (seat !== void 0) r.seatKongs[seat]++;
+        }
       }
-      if (e.type === "concealedKong" || e.type === "addedKong") r.kongs++;
+      if (e.type === "concealedKong" || e.type === "addedKong") {
+        r.kongs++;
+        const seat = e.payload.seat;
+        if (seat !== void 0) r.seatKongs[seat]++;
+      }
       if (e.type === "winOnDiscard" || e.type === "selfDraw") {
         if (e.type === "selfDraw") r.selfDraws++;
         else r.winsOnDiscard++;
@@ -2878,6 +2892,11 @@ var meTaxLoss = 0;
 var meWins = 0;
 var meSelfDraws = 0;
 var meFaanSum = 0;
+var meChows = 0;
+var mePungs = 0;
+var meKongs = 0;
+var patterns = {};
+var mePatterns = {};
 var faans = [];
 for (let i = 0; i < N; i++) {
   const seed = SEED_BASE + Math.floor(i / 4) * 7919;
@@ -2908,11 +2927,16 @@ for (let i = 0; i < N; i++) {
   meDealInLoss += r.seatDealInLoss[mySeat];
   meDealIns += r.seatDealInCount[mySeat];
   meTaxLoss += r.seatTaxLoss[mySeat];
+  meChows += r.seatChows[mySeat];
+  mePungs += r.seatPungs[mySeat];
+  meKongs += r.seatKongs[mySeat];
+  for (const [k, n] of Object.entries(r.patterns)) patterns[k] = (patterns[k] ?? 0) + n;
   for (const h of r.handRecords ?? []) {
     if (h.winner !== mySeat) continue;
     meWins++;
     meFaanSum += h.faan ?? 0;
     if (h.outcome === "selfDraw") meSelfDraws++;
+    for (const a of h.winningHand?.awards ?? []) mePatterns[a.id] = (mePatterns[a.id] ?? 0) + 1;
   }
 }
 var nameOf = (i, fallback) => process.argv[i] ? process.argv[i].split("/").pop().replace(".json", "") : fallback;
@@ -2943,6 +2967,8 @@ console.log("STATS " + JSON.stringify({
   chowShare: +(chows / Math.max(1, claims)).toFixed(3),
   pungShare: +(pungs / Math.max(1, claims)).toFixed(3),
   kongShare: +(kongs / Math.max(1, claims)).toFixed(3),
+  // Winning-pattern census as SHARE OF WINS (a win can carry several patterns).
+  patternShares: Object.fromEntries(Object.entries(patterns).map(([k, n]) => [k, +(n / Math.max(1, wins)).toFixed(3)]).filter(([, v]) => v >= 5e-3)),
   me: {
     wonPerMatch: +(meWon / N).toFixed(1),
     lostPerMatch: +(meLost / N).toFixed(1),
@@ -2952,6 +2978,8 @@ console.log("STATS " + JSON.stringify({
     wins: meWins,
     winShare: +(meWins / Math.max(1, wins)).toFixed(3),
     meanFaan: +(meFaanSum / Math.max(1, meWins)).toFixed(2),
-    selfDrawShare: +(meSelfDraws / Math.max(1, meWins)).toFixed(3)
+    selfDrawShare: +(meSelfDraws / Math.max(1, meWins)).toFixed(3),
+    claims: { chows: meChows, pungs: mePungs, kongs: meKongs },
+    patternShares: Object.fromEntries(Object.entries(mePatterns).map(([k, n]) => [k, +(n / Math.max(1, meWins)).toFixed(3)]).filter(([, v]) => v >= 0.01))
   }
 }));

@@ -33,6 +33,9 @@ let chips = 0, chipsSq = 0, hands = 0, draws = 0, refused = 0, tWins = 0, tFlagg
 let claims = 0, chows = 0, pungs = 0, kongs = 0, selfDraws = 0, winsOnDiscard = 0;
 let meWon = 0, meLost = 0, meDealInLoss = 0, meDealIns = 0, meTaxLoss = 0;
 let meWins = 0, meSelfDraws = 0, meFaanSum = 0;
+let meChows = 0, mePungs = 0, meKongs = 0;
+const patterns: Record<string, number> = {};      // table-wide winning-pattern census
+const mePatterns: Record<string, number> = {};    // challenger wins only
 const faans: number[] = [];
 for (let i = 0; i < N; i++) {
   // All-seats (2026-08-27): the same wall is played from every chair before
@@ -54,10 +57,13 @@ for (let i = 0; i < N; i++) {
   meWon += r.seatWon[mySeat]!; meLost += r.seatLost[mySeat]!;
   meDealInLoss += r.seatDealInLoss[mySeat]!; meDealIns += r.seatDealInCount[mySeat]!;
   meTaxLoss += r.seatTaxLoss[mySeat]!;
+  meChows += r.seatChows[mySeat]!; mePungs += r.seatPungs[mySeat]!; meKongs += r.seatKongs[mySeat]!;
+  for (const [k, n] of Object.entries(r.patterns)) patterns[k] = (patterns[k] ?? 0) + n;
   for (const h of r.handRecords ?? []) {
     if (h.winner !== mySeat) continue;
     meWins++; meFaanSum += h.faan ?? 0;
     if (h.outcome === "selfDraw") meSelfDraws++;
+    for (const a of h.winningHand?.awards ?? []) mePatterns[a.id] = (mePatterns[a.id] ?? 0) + 1;
   }
 }
 const nameOf = (i: number, fallback: string) =>
@@ -87,6 +93,10 @@ console.log("STATS " + JSON.stringify({
   chowShare: +(chows / Math.max(1, claims)).toFixed(3),
   pungShare: +(pungs / Math.max(1, claims)).toFixed(3),
   kongShare: +(kongs / Math.max(1, claims)).toFixed(3),
+  // Winning-pattern census as SHARE OF WINS (a win can carry several patterns).
+  patternShares: Object.fromEntries(Object.entries(patterns)
+    .map(([k, n]) => [k, +(n / Math.max(1, wins)).toFixed(3)])
+    .filter(([, v]) => (v as number) >= 0.005)),
   me: {
     wonPerMatch: +(meWon / N).toFixed(1), lostPerMatch: +(meLost / N).toFixed(1),
     dealInLossPerMatch: +(meDealInLoss / N).toFixed(1), dealInsPerMatch: +(meDealIns / N).toFixed(2),
@@ -94,5 +104,9 @@ console.log("STATS " + JSON.stringify({
     wins: meWins, winShare: +(meWins / Math.max(1, wins)).toFixed(3),
     meanFaan: +(meFaanSum / Math.max(1, meWins)).toFixed(2),
     selfDrawShare: +(meSelfDraws / Math.max(1, meWins)).toFixed(3),
+    claims: { chows: meChows, pungs: mePungs, kongs: meKongs },
+    patternShares: Object.fromEntries(Object.entries(mePatterns)
+      .map(([k, n]) => [k, +(n / Math.max(1, meWins)).toFixed(3)])
+      .filter(([, v]) => (v as number) >= 0.01)),
   },
 }));

@@ -85,6 +85,11 @@ export interface MatchResult {
   /** Chips paid on opponents' self-draws — the tax you cannot dodge by
    * discard discipline alone, only by winning first. */
   seatTaxLoss: number[];
+  /** Claims by kind PER SEAT (kongs include concealed and added kongs) — the
+   * challenger-attribution the table-wide chows/pungs/kongs cannot give. */
+  seatChows: number[];
+  seatPungs: number[];
+  seatKongs: number[];
   /** Per-hand detail, only when playMatch is called with recordHands. */
   handRecords?: HandRecord[];
 }
@@ -98,7 +103,8 @@ export function playMatch(
   const r: MatchResult = { chips: [0, 0, 0, 0], hands: 0, draws: 0, wins: 0, refusedWins: 0, claims: 0, faans: [],
     chows: 0, pungs: 0, kongs: 0, winsOnDiscard: 0, selfDraws: 0, threatWins: 0, threatFlagged: 0, patterns: {},
     seatWon: [0, 0, 0, 0], seatLost: [0, 0, 0, 0],
-    seatDealInLoss: [0, 0, 0, 0], seatDealInCount: [0, 0, 0, 0], seatTaxLoss: [0, 0, 0, 0] };
+    seatDealInLoss: [0, 0, 0, 0], seatDealInCount: [0, 0, 0, 0], seatTaxLoss: [0, 0, 0, 0],
+    seatChows: [0, 0, 0, 0], seatPungs: [0, 0, 0, 0], seatKongs: [0, 0, 0, 0] };
   if (opts.recordHands) r.handRecords = [];
   /** Win-event detail held until the handEnd that settles it (same batch). */
   let pendingWin: WinningHandRecord | null = null;
@@ -143,12 +149,16 @@ export function playMatch(
       if (e.type === "refusedWin") r.refusedWins++;
       if (e.type === "claimed") {
         r.claims++;
-        const kind = (e.payload as { kind?: string }).kind;
-        if (kind === "chow") r.chows++;
-        else if (kind === "pung") r.pungs++;
-        else if (kind === "kong") r.kongs++;
+        const { kind, seat } = e.payload as { kind?: string; seat?: number };
+        if (kind === "chow") { r.chows++; if (seat !== undefined) r.seatChows[seat]!++; }
+        else if (kind === "pung") { r.pungs++; if (seat !== undefined) r.seatPungs[seat]!++; }
+        else if (kind === "kong") { r.kongs++; if (seat !== undefined) r.seatKongs[seat]!++; }
       }
-      if (e.type === "concealedKong" || e.type === "addedKong") r.kongs++;
+      if (e.type === "concealedKong" || e.type === "addedKong") {
+        r.kongs++;
+        const seat = (e.payload as { seat?: number }).seat;
+        if (seat !== undefined) r.seatKongs[seat]!++;
+      }
       if (e.type === "winOnDiscard" || e.type === "selfDraw") {
         if (e.type === "selfDraw") r.selfDraws++; else r.winsOnDiscard++;
         const winSeat = (e.payload as { context?: { seat?: number } }).context?.seat;

@@ -64,8 +64,25 @@ function cyclePoints(data, meta) {
       kongClaimShare: claimTotal ? finite(activity.kongs / claimTotal) : null,
       discardWinsPerHand: activityHands ? finite(activity.winsOnDiscard / activityHands) : null,
       selfDrawsPerHand: activityHands ? finite(activity.selfDraws / activityHands) : null,
+      ...texturePoint(activity),
     };
   });
+}
+
+/** Hand-type meta and the big-faan tail, as shares of bench wins (2026-08-28).
+ * A win can carry several patterns, so shares can sum past 1. */
+const META_PATTERNS = ["halfFlush", "allPungs", "fullFlush", "concealedHand", "allChows"];
+function texturePoint(activity) {
+  const wins = activity ? (activity.winsOnDiscard || 0) + (activity.selfDraws || 0) : 0;
+  const patternShares = wins && activity.patterns
+    ? Object.fromEntries(META_PATTERNS.map((k) => [k, finite((activity.patterns[k] ?? 0) / wins)]))
+    : null;
+  let bigFaanShare = null;
+  if (activity?.faanHist) {
+    const total = activity.faanHist.reduce((a, b) => a + b, 0);
+    if (total) bigFaanShare = finite(activity.faanHist.slice(8).reduce((a, b) => a + b, 0) / total);
+  }
+  return { patternShares, bigFaanShare };
 }
 
 function writeSeries(path, points) {
@@ -100,13 +117,16 @@ export function backfillSeriesHistory({ outPath = DEFAULT_OUT } = {}) {
   for (const line of lines) {
     const [hash, committedAt, ...subjectParts] = line.split("\t");
     const subject = subjectParts.join("\t");
-    const match = subject.match(/^(era2: cycle|overnight: cycle)\s+(\d+)\b/);
+    const match = subject.match(/^(?:era(\d+)|overnight): cycle\s+(\d+)\b/);
     if (!match) continue;
-    const era = match[1].startsWith("era2") ? 2 : 1;
+    let era = match[1] ? Number(match[1]) : 1;
     const cycle = Number(match[2]);
     try {
       const source = execFileSync("git", ["show", `${hash}:${DEFAULT_DATA}`], { encoding: "utf8" });
       const data = parseWindowAssignment(source, "SIM_DATA");
+      // Era-label bug guard (2026-08-28): the era-3 process committed as
+      // "era2: cycle N" — the bench baseline in the snapshot is the truth.
+      if ((data.baseline || "").includes("baseline-v2")) era = 3;
       points.push(...cyclePoints(data, { era, cycle, completedAt: committedAt, sourceCommit: hash }));
     } catch (error) {
       console.warn(`skip ${hash.slice(0, 8)} era ${era} cycle ${cycle}: ${error.message}`);
