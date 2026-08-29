@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MJRC — play the champion</title>
+<style>
+:root{--bg:#1c1c22;--card:#26262e;--line:#3a3a44;--ink:#e6e6ec;--dim:#9a9aa6;--ok:#5dbb7a;--warn:#e08a6a;--acc:#7fb3ff}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:14px;max-width:1200px;margin:0 auto}
+h1{font-size:15px;margin:0 0 4px}
+#topbar{font-size:12.5px;color:var(--dim);margin-bottom:10px}
+#topbar b{color:var(--ink)}
+.layout{display:grid;grid-template-columns:1fr 300px;gap:12px}
+.table{display:flex;flex-direction:column;gap:8px}
+.opp,.mine{background:var(--card);border:1px solid var(--line);border-radius:9px;padding:8px 10px}
+.oname{font-size:11.5px;color:var(--dim);margin-bottom:3px}
+.oname b{color:var(--ink)}
+.orow{font-size:15px;letter-spacing:1px;min-height:20px}
+.river{margin-top:3px;min-height:22px;opacity:.85}
+.tile{display:inline-flex;flex-direction:column;align-items:center;background:#f2ecdf;color:#1a1a20;border-radius:4px;
+  padding:1px 2px 0;margin:1px;min-width:26px;border:1px solid #c9c0ac;vertical-align:middle;user-select:none}
+.tile .g{font-size:22px;line-height:1.05}
+.tile .l{font-size:8px;color:#666;line-height:1.1}
+.tile.s{min-width:19px}
+.tile.s .g{font-size:15px}
+.tile.s .l{display:none}
+.tile.f{background:#efe0e6}
+.tile.hot{outline:2px solid var(--acc)}
+.tile.big{min-width:34px;padding-top:2px}
+.tile.big .g{font-size:30px}
+.tile.click{cursor:pointer;transition:transform .06s}
+.tile.click:hover{transform:translateY(-6px);outline:2px solid var(--acc)}
+.tile.drawn{outline:2px dashed var(--warn)}
+.drawnsep{display:inline-block;width:14px}
+#myhand{margin-top:6px;min-height:56px}
+#actions{margin-top:8px;min-height:34px}
+#actions button{background:#33333d;color:var(--ink);border:1px solid var(--line);border-radius:7px;padding:7px 14px;
+  font-size:13.5px;cursor:pointer;margin-right:6px}
+#actions button:hover{background:#3d3d49}
+#actions button.win{background:#1e3a2a;color:var(--ok);border-color:var(--ok);font-weight:700}
+.mut{color:var(--dim)}
+#feed{background:var(--card);border:1px solid var(--line);border-radius:9px;padding:10px;font-size:11.5px;
+  color:var(--dim);height:100%;max-height:640px;overflow-y:auto}
+#overlay{position:fixed;inset:0;background:rgba(10,10,14,.75);display:none;align-items:center;justify-content:center;z-index:50}
+#overlay .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:22px 26px;max-width:640px;text-align:center}
+#overlay h2{margin:0 0 10px;font-size:17px}
+#overlay .tilesrow{font-size:24px;margin:8px 0;letter-spacing:1px}
+#overlay .awards{font-size:12.5px;color:var(--dim);margin-bottom:10px}
+#overlay .pay{font-size:13px;margin:10px 0}
+#overlay button{background:#1e3a2a;color:var(--ok);border:1px solid var(--ok);border-radius:8px;padding:9px 18px;font-size:14px;cursor:pointer}
+@media (max-width:900px){.layout{grid-template-columns:1fr}#feed{max-height:160px}}
+</style>
+</head>
+<body>
+<h1>MJRC — play the champion 香港麻雀</h1>
+<div id="topbar"></div>
+<div class="layout">
+  <div class="table">
+    <div class="opp" id="opp2"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <div class="opp" id="opp3"></div>
+      <div class="opp" id="opp1"></div>
+    </div>
+    <div class="mine" id="myinfo"></div>
+    <div class="mine">
+      <div id="myhand"></div>
+      <div id="actions"></div>
+    </div>
+  </div>
+  <div id="feed"></div>
+</div>
+<div id="overlay"><div class="card"></div></div>
+<script>
+// cache-busted loads so a rebuilt game or refreshed champion is never stale
+for (const f of ['kings.js', 'play.js']) document.write('<script src="' + f + '?v=' + Date.now() + '"><\/script>');
+</script>
+</body>
+</html>
