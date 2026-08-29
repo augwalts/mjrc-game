@@ -11,6 +11,14 @@
 .nav a{color:var(--acc);text-decoration:none}
 .nav a:hover{text-decoration:underline}
 .sectionlabel{font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--dim);margin:18px 0 6px}
+.sectionnote{font-size:11.5px;color:var(--dim);line-height:1.55;margin:-2px 0 11px;max-width:980px}
+.sectionnote b{color:var(--ink);font-weight:650}
+.erafilter{position:sticky;top:38px;z-index:9;display:flex;gap:6px;align-items:baseline;flex-wrap:wrap;
+  background:var(--bg);padding:9px 0 10px;border-bottom:1px solid var(--line);margin-bottom:12px}
+.erabtn{border:1px solid var(--line);background:var(--card);color:var(--dim);border-radius:7px;
+  padding:4px 11px;cursor:pointer;font:inherit;font-size:11px;font-weight:650}
+.erabtn:hover{color:var(--ink)}
+.erabtn.on{background:var(--acc);color:#12151c;border-color:var(--acc)}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);
   font:13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:20px;max-width:1440px;margin:0 auto}
@@ -76,25 +84,35 @@ details.match summary:hover{background:#2c2c35}
   <div class="sub" id="sub">waiting for data.js…</div>
   <div id="overnightbar"></div>
   <div class="sectionlabel">Current-cycle generation decisions</div>
+  <div class="sectionnote">One row per <b>generation</b>. Each generation the current bot and six mutated copies play the same walls; a mutant must beat the incumbent twice — the second time on walls it has never seen — before it replaces it. This is the record of what was tried and whether it stuck.</div>
   <div id="currentDecision"></div>
   <div class="sectionlabel" id="currentCycle">Current-cycle trends — generation by generation</div>
+  <div class="sectionnote">How the bot’s play is drifting as this cycle runs. Every number here comes from the <b>bench</b>: the same frozen opponent and the same match count at every generation, so generations can be compared with each other. A single generation is a small sample, so read the shape, not any one point.</div>
   <div class="diagnostics" id="kpis"></div>
   <div class="sectionlabel">Current-cycle weights and inspection</div>
+  <div class="sectionnote">The bot’s entire personality is a list of numeric <b>dials</b> — training never edits its code, only these numbers. Underneath them you can open individual matches and replay them hand by hand.</div>
   <div id="currentDetails"></div>
   <div id="currentWide"></div>
 </section>
 <section class="tab-panel" id="tabOverall" role="tabpanel" hidden>
+  <div class="erafilter" id="eraFilter"></div>
   <div class="sectionlabel">Operation and archive coverage</div>
+  <div class="sectionnote">Whether the training process is alive right now, and how much work exists in total. If the heartbeat is older than eight minutes, either the run or the step that publishes its data has stopped.</div>
   <div id="seriesKpis"></div>
   <div class="sectionlabel">Across all cycles — every archived generation, with era breaks</div>
+  <div class="sectionnote">Every generation ever recorded — the densest view there is. Good for the long arc, noisy up close. Gold vertical lines are <b>era</b> boundaries, where the opponent was replaced by a stronger bot.</div>
   <div class="trendgrid" id="longitudinal"></div>
   <div class="sectionlabel">Absolute progress — measured against the fixed v0 yardstick</div>
+  <div class="sectionnote">The only charts here whose opponent never changes. Everywhere else the enemy is upgraded every era, so those scores reset toward zero by design and can never show cumulative improvement — a flat line there does not mean a flat bot. <b>baseline-v0</b> is the original defenceless bot and it never changes, so these are the charts that answer “are we actually getting better”.</div>
   <div id="absoluteProgress"></div>
   <div class="sectionlabel">Cycle texture — one point per cycle, proper axes</div>
+  <div class="sectionnote">“Texture” means how the table <i>feels</i> to play at — how often people claim tiles, how big hands get, how often nobody wins. One point per <b>cycle</b> rather than per generation: each point is a 160-match exam, so these are far steadier than the generation charts above and are the right place to judge whether something is still moving or has settled.</div>
   <div class="trendgrid" id="cycleTexture"></div>
   <div class="sectionlabel">Table behavior by cycle endpoint</div>
+  <div class="sectionnote">The same cycle-level numbers as a table instead of charts, with the change from the previous cycle marked. “Endpoint” just means each column is one cycle’s final recorded generation. Use this to read exact values; use the charts above to see shape.</div>
   <div id="overallTexture"></div>
   <div class="sectionlabel" id="historylabel" style="display:none">Research archive</div>
+  <div class="sectionnote">Every cycle exam, every named experiment, and the frozen reference points, newest first. This is the project’s written record — a score only means something next to the enemy it was earned against, so every row names its enemy.</div>
   <div id="history"></div>
   <div id="legend"></div>
 </section>
@@ -117,6 +135,12 @@ details.match summary:hover{background:#2c2c35}
 <script>
 window.initPanel = function initPanel() {
 const D = window.SIM_DATA;
+// GLOBAL ERA FILTER (owner, 2026-08-29). null = every era. Four eras stacked
+// in one chart is unreadable when you only care about the live one, so every
+// chart, table and archive row on the Overall tab honours this. Re-rendering
+// is done by simply calling initPanel again — it rebuilds each container from
+// the source arrays, so there is one code path, not two.
+const eraOk = (e) => window.ERA_FILTER == null || (e ?? 1) === window.ERA_FILTER;
 // Goal badges: which way each number SHOULD move. Only rules the owner has
 // actually made get an arrow; texture metrics are labeled as texture rather
 // than given an invented target.
@@ -135,6 +159,7 @@ const GOALS = {
   none: '<span class="goal">◇ TEXTURE — NO TARGET</span>',
 };
 const showTab = (name) => {
+  window.__activeTab = name;
   const current = name !== "overall";
   document.getElementById("tabCurrent").hidden = !current;
   document.getElementById("tabOverall").hidden = current;
@@ -145,7 +170,7 @@ const showTab = (name) => {
 };
 document.getElementById("tabCurrentButton").onclick = () => showTab("current");
 document.getElementById("tabOverallButton").onclick = () => showTab("overall");
-showTab(location.hash === "#overall" ? "overall" : "current");
+showTab(window.__activeTab || (location.hash === "#overall" ? "overall" : "current"));
 // ── operational health + series-level KPIs ──
 {
   const O = window.OVERNIGHT;
@@ -194,8 +219,34 @@ showTab(location.hash === "#overall" ? "overall" : "current");
   }
 }
 // The optimizer rewrites data.js after every generation; reload to pick it up.
-if (!D || D.status === "running" || (D.history ?? []).length === 0) {
+if (!window.__reloadArmed && (!D || D.status === "running" || (D.history ?? []).length === 0)) {
+  window.__reloadArmed = true;                 // re-rendering must not stack timers
   setTimeout(() => location.reload(), 45_000);
+}
+// ── render the era filter bar, and re-render everything on a change ──
+{
+  const eras = [...new Set([
+    ...(window.SERIES_LOG || []).map((r) => r.era ?? 1),
+    ...(window.SERIES_HISTORY?.points || []).map((p) => p.era ?? 1),
+  ])].filter(Number.isFinite).sort((a, b) => a - b);
+  const bar = document.getElementById("eraFilter");
+  if (bar && eras.length > 1) {
+    const btn = (val, label, title) =>
+      `<button type="button" class="erabtn${window.ERA_FILTER === val ? " on" : ""}" data-era="${val === null ? "" : val}" title="${title}">${label}</button>`;
+    bar.innerHTML = `<span class="scope" style="margin:0 4px 0 0">SHOW</span>`
+      + btn(null, "All eras", "Every era on one axis")
+      + eras.map((e) => btn(e, `Era ${e}`, `Only era ${e}`)).join("")
+      + `<span class="mut" style="font-size:11px;margin-left:8px">An <b>era</b> is one benchmark regime — the frozen opponent every score that era was earned against. Filtering rescales every chart below to just that stretch.</span>`;
+    bar.querySelectorAll(".erabtn").forEach((b) => {
+      b.onclick = () => {
+        const v = b.dataset.era;
+        window.ERA_FILTER = v === "" ? null : Number(v);
+        const y = window.scrollY;
+        window.initPanel();
+        window.scrollTo(0, y);
+      };
+    });
+  } else if (bar) { bar.innerHTML = ""; }
 }
 if (!D) { document.getElementById("sub").textContent = "no data.js yet — run evolve.mjs first"; }
 else if (D.history.length === 0) {
@@ -312,6 +363,7 @@ else if (D.history.length === 0) {
     });
     const liveKeys = new Set(live.map((p) => `${p.era}:${p.cycle}:${p.gen}`));
     const points = archived.filter((p) => !liveKeys.has(`${p.era}:${p.cycle}:${p.gen}`)).concat(live)
+      .filter((p) => eraOk(p.era))                       // global era filter
       .sort((a, b) => a.era - b.era || a.cycle - b.cycle || a.gen - b.gen);
     const trend = (key, { fmt = (v) => v, color = "var(--acc)", zero = false } = {}) => {
       const values = points.map((p) => p[key]);
@@ -676,11 +728,13 @@ else if (D.history.length === 0) {
   // even while tonight's process archives them labeled era 2.
   const archived = (window.SERIES_HISTORY?.points || [])
     .map((p) => p.era === 2 && (p.baseline || "").includes("baseline-v2") ? { ...p, era: 3 } : p)
+    .filter((p) => eraOk(p.era))                          // global era filter
     .sort((a, b) => a.era - b.era || a.cycle - b.cycle || a.gen - b.gen);
   const endpoints = [...new Map(archived.map((p) => [`${p.era}:${p.cycle}`, p])).values()];
   const examRows = (window.SERIES_LOG || [])
     .filter((r) => !r.error && Number.isFinite(r.heldOutChips))
     .map((r) => ({ ...r, era: r.era ?? 1 }))
+    .filter((r) => eraOk(r.era))                          // global era filter
     .sort((a, b) => a.era - b.era || a.cycle - b.cycle);
   // lines: [{label, color, pts: [{era, cycle, v, se?}]}] — se draws a ±2SE band
   const cplot = (lines, { fmt = (v) => v, zero = false, hi: hiCap, band = null } = {}) => {
@@ -800,7 +854,7 @@ else if (D.history.length === 0) {
         const era = r.era ?? 1;
         return { era, cycle: r.cycle, v: era === 1 ? r.heldOutChips : r.vsV0 };
       })
-      .filter((p) => Number.isFinite(p.v))
+      .filter((p) => Number.isFinite(p.v) && eraOk(p.era))   // global era filter
       .sort((a, b) => a.era - b.era || a.cycle - b.cycle);
     // Centred rolling mean — a single 160-match block has a huge spread (the
     // champion ladder below shows the SAME profile scoring 23.9 and 72.0 on
@@ -860,7 +914,7 @@ else if (D.history.length === 0) {
          <text x="${x(i).toFixed(1)}" y="${Hh - 6}" text-anchor="middle" font-size="8" fill="var(--dim)">era ${r.era} king</text>`).join("");
       ladder = `<svg class="trend" style="height:190px" viewBox="0 0 ${W} ${Hh}">
         ${ticks}${zeroLine}${whiskers}${meanPath}${blockDots}${meanDots}${deltas}${xLabels}</svg>
-        <div class="trendkey"><span style="color:var(--acc)">● mean of ${C.blocks.length} blocks</span><span style="color:var(--gold)">┃ individual blocks (spread = the real error bar)</span><span>${C.matchesPerBlock} matches per block, all seats · measured ${C.generated}</span></div>`;
+        <div class="trendkey"><span style="color:var(--acc)">● mean of ${C.blocks.length} blocks</span><span style="color:var(--gold)">┃ individual blocks (spread = the real error bar)</span><span>${C.matchesPerBlock} matches per block, all seats · measured ${C.generated} · always shows every era</span></div>`;
     }
 
     const el = document.getElementById("absoluteProgress");
@@ -900,6 +954,7 @@ else if (D.history.length === 0) {
   }
   for (const r of (window.SERIES_LOG || [])) {
     const era = r.era ?? 1;
+    if (!eraOk(era)) continue;                            // global era filter
     const day = r.ts ? r.ts.slice(0, 10) : (era === 1 ? "2026-08-27" : "2026-08-28");
     const enemy = r.enemy ?? (era === 1 ? "baseline-v0" : "baseline-v1");
     const st = r.stats;
@@ -931,7 +986,7 @@ else if (D.history.length === 0) {
   const CUT = 30;
   if (entries.length) {
     document.getElementById("historylabel").style.display = "";
-    document.getElementById("history").insertAdjacentHTML("beforeend",
+    document.getElementById("history").innerHTML = (
       `<div class="card"><details><summary><span class="scope">RESEARCH ARCHIVE · ALL RECORDED ERAS</span><b>Every cycle, experiment and reference</b></summary>
       <div class="mut" style="font-size:11px;margin-bottom:6px"><b>Cycles</b> are the machine's own held-out exams (all seats,
       enemy named per row — a score only means something next to its enemy; single-exam scores carry ±16 of block luck,
@@ -946,7 +1001,7 @@ else if (D.history.length === 0) {
 // ── LEGEND: units + vocabulary, collapsed so it never costs a scroll ──
 {
   const BASE = BENCH_DESC;
-  document.getElementById("legend").insertAdjacentHTML("beforeend", `<div class="card"><details>
+  document.getElementById("legend").innerHTML = (`<div class="card"><details>
     <summary style="cursor:pointer"><b>Legend — how to read this page</b> <span class="mut">(chips ladder, units, vocabulary — click to expand)</span></summary>
     <div class="mut" style="font-size:12px;line-height:1.55;margin-top:8px">
     <b>Chips are money.</b> The HK payment ladder (mjrc-standard, 3–10 faan): a win on a discard costs the discarder
