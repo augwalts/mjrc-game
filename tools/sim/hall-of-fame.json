@@ -1,6 +1,6 @@
 {
   "faanWeight": 1.5573,
-  "routeDistanceWeight": 2.2423,
+  "routeDistanceWeight": 2.0445,
   "offRouteWeight": 0.3489,
   "belowMinimumPenalty": 8.375,
   "discardDistanceWeight": 0.566,
@@ -12,15 +12,15 @@
   "aggression": 1.072,
   "threatSensitivity": 0.16,
   "threatPushValue": 6.5992,
-  "leadDefense": 0.5762,
+  "leadDefense": 0.7499,
   "trailSwing": 0.1574,
   "winFastLead": 0.3,
   "foldThreshold": 0.5,
   "feedDenial": 0.8318,
-  "chipValuation": 3.2038,
+  "chipValuation": 2.1397,
   "routeDecay": 0.813,
-  "leftFeedWeight": 1.5647,
+  "leftFeedWeight": 1.0593,
   "urgencyWeight": 0.7136,
-  "suitContestWeight": 2.8067,
+  "suitContestWeight": 4.8676,
   "claimSupplyWeight": 0.7508
 }
