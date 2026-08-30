@@ -25,10 +25,10 @@ function prng(seed) {
     return ((t ^ t >>> 14) >>> 0) / 4294967296;
   };
 }
-function buildWall(seed) {
+function buildWall(seed, useFlowers = true) {
   const w = [];
   for (let i = 0; i < SCORING_KINDS; i++) for (let k = 0; k < 4; k++) w.push(i);
-  for (let i = FLOWERS_START; i < FLOWERS_START + 8; i++) w.push(i);
+  if (useFlowers) for (let i = FLOWERS_START; i < FLOWERS_START + 8; i++) w.push(i);
   const rnd = prng(seed);
   for (let i = w.length - 1; i > 0; i--) {
     const j = Math.floor(rnd() * (i + 1));
@@ -2415,9 +2415,9 @@ function dealHand(d) {
   const s = d.s;
   s.phase = "deal";
   s.handSeed = handSeedFor(s.matchSeed, s.handIndex);
-  s.wall = buildWall(s.handSeed);
+  s.wall = buildWall(s.handSeed, d.ruleset.useFlowers);
   s.wallIndex = 0;
-  s.wallEnd = WALL_SIZE;
+  s.wallEnd = s.wall.length;
   s.lastDiscard = null;
   s.claim = null;
   s.result = null;

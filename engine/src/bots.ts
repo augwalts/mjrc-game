@@ -688,6 +688,12 @@ export function assessRoutes(
     // it was going to take anyway.
     const surplus = Math.max(0, offRoute - Math.max(0, distance));
     const faan = routeFaan(route, shape, rules, c);
+    // NOTE (TVB refusal audit 2026-08-29): this counts 自摸's bonus as if the
+    // win were guaranteed self-drawn. Tried making it discard-realistic behind
+    // a dial: ZERO behavioural change, because the routes bots refuse from were
+    // never below the floor — 平糊 or 對對糊 made them payable ON PAPER. What
+    // actually scores 0 is the REALIZED hand: a mix of claimed pungs and chows
+    // matches neither pattern. The gap is route-vs-realization, not this test.
     const attainable = faan + faanFor(rules, "selfDraw");
     // Effective distance credits claim supply: a pair is a set three opponents
     // can finish for you, so claim-friendly routes are faster than their
