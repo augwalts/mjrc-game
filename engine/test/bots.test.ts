@@ -412,9 +412,13 @@ describe("claim logic", () => {
       faanCeiling(shapeOf(v), RULES),
     );
     // Every route still paying three faan open is a flush this hand cannot
-    // fill, so the best route left is worth far less than the one given up.
+    // fill, so the best route left is worth less than the one given up.
+    // The margin used to be a full point. Since 2026-08-29 both sides carry
+    // the "pays only if self-drawn" charge — this hand's three faan include
+    // 自摸, as the comment above says — so the gap narrows while the ordering,
+    // and the refusal this test exists to pin, stand.
     expect(chooseRoute(after!, RULES).score).toBeLessThan(
-      chooseRoute(shapeOf(v), RULES).score - 1,
+      chooseRoute(shapeOf(v), RULES).score,
     );
     expect(chowOffer(hand, 2, [0, 1]).reason).not.toBe("accepted");
   });
