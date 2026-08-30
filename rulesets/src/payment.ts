@@ -131,7 +131,26 @@ export const LIU_BRACKET_SCHEDULE: ChipSchedule = {
   selfDrawFigure: (faan) => bracketFor(faan).selfDrawFigure,
 };
 
-export const SCHEDULES: readonly ChipSchedule[] = [HKOS_DOUBLING, LIU_BRACKET_SCHEDULE];
+/**
+ * TVB Championship 2026 (owner request 2026-08-29; spec from
+ * mjrc-app/web/src/data/rulesets.ts "tvb_2026" and the scoring utility's
+ * comment: "winner +10×fan on discard, +15×fan self-draw"). LINEAR economy:
+ * a 10-faan hand pays exactly 10× a 1-faan hand — the polar opposite of the
+ * HK doubling ladder. Chips here are 4× the show's base-2.5 points so every
+ * figure is an integer.
+ */
+export const TVB_LINEAR: ChipSchedule = {
+  id: "tvb-linear",
+  label: "TVB Championship linear",
+  source: "mjrc-app rulesets.ts tvb_2026 / tvb-championship-2026 Appendix I",
+  domain: [1, 10],
+  onDiscard: (faan) => 10 * clamp(Math.trunc(faan), [1, 10]),
+  selfDrawFigure: (faan) => 5 * clamp(Math.trunc(faan), [1, 10]),
+};
+
+export const TVB_LINEAR_PER_PLAYER: PaymentTable = paymentTable(TVB_LINEAR, "perPlayer");
+
+export const SCHEDULES: readonly ChipSchedule[] = [HKOS_DOUBLING, LIU_BRACKET_SCHEDULE, TVB_LINEAR];
 
 /** 包 — the documented cases where one seat carries the whole hand. Text only; the engine reads none of it yet. */
 const HK_LIABILITY: readonly string[] = [

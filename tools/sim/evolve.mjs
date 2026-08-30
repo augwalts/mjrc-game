@@ -1529,6 +1529,15 @@ var LIU_BRACKET_SCHEDULE = {
   onDiscard: (faan) => bracketFor(faan).onDiscard,
   selfDrawFigure: (faan) => bracketFor(faan).selfDrawFigure
 };
+var TVB_LINEAR = {
+  id: "tvb-linear",
+  label: "TVB Championship linear",
+  source: "mjrc-app rulesets.ts tvb_2026 / tvb-championship-2026 Appendix I",
+  domain: [1, 10],
+  onDiscard: (faan) => 10 * clamp(Math.trunc(faan), [1, 10]),
+  selfDrawFigure: (faan) => 5 * clamp(Math.trunc(faan), [1, 10])
+};
+var TVB_LINEAR_PER_PLAYER = paymentTable(TVB_LINEAR, "perPlayer");
 var HK_LIABILITY = [
   "Feeding the third dragon to a hand already showing two dragon pungs (\u5927\u4E09\u5143\u5305).",
   "Feeding the fourth wind to a hand already showing three wind pungs (\u5927\u56DB\u559C\u5305).",
@@ -1676,7 +1685,21 @@ var MJRC_STANDARD = {
     Object.entries(HKOS_STANDARD.faanTable).map(([id, faan]) => [id, Math.min(faan, 10)])
   )
 };
-var RULESETS = [HKOS_STANDARD, MJRC_STANDARD, LIU];
+var TVB_2026 = {
+  ...HKOS_STANDARD,
+  id: "tvb-2026",
+  label: "TVB Championship 2026",
+  minimumFaan: 1,
+  limitFaan: 10,
+  useFlowers: false,
+  payment: TVB_LINEAR_PER_PLAYER,
+  // No flowers on the show's table, so no bonus-tile patterns either —
+  // 無花 would be trivially always-on and 正花 unreachable.
+  faanTable: Object.fromEntries(
+    Object.entries(HKOS_STANDARD.faanTable).filter(([id]) => pattern(id).family !== "bonusTile").map(([id, faan]) => [id, Math.min(faan, 10)])
+  )
+};
+var RULESETS = [HKOS_STANDARD, MJRC_STANDARD, TVB_2026, LIU];
 var DEFAULT_RULESET_ID = HKOS_STANDARD.id;
 var ruleset = (id) => RULESETS.find((r) => r.id === id);
 
@@ -2744,7 +2767,10 @@ function playMatch(config, decide, opts = {}) {
     seatLost: [0, 0, 0, 0],
     seatDealInLoss: [0, 0, 0, 0],
     seatDealInCount: [0, 0, 0, 0],
-    seatTaxLoss: [0, 0, 0, 0]
+    seatTaxLoss: [0, 0, 0, 0],
+    seatChows: [0, 0, 0, 0],
+    seatPungs: [0, 0, 0, 0],
+    seatKongs: [0, 0, 0, 0]
   };
   if (opts.recordHands) r.handRecords = [];
   let pendingWin = null;
@@ -2794,12 +2820,23 @@ function playMatch(config, decide, opts = {}) {
       if (e.type === "refusedWin") r.refusedWins++;
       if (e.type === "claimed") {
         r.claims++;
-        const kind = e.payload.kind;
-        if (kind === "chow") r.chows++;
-        else if (kind === "pung") r.pungs++;
-        else if (kind === "kong") r.kongs++;
+        const { kind, seat } = e.payload;
+        if (kind === "chow") {
+          r.chows++;
+          if (seat !== void 0) r.seatChows[seat]++;
+        } else if (kind === "pung") {
+          r.pungs++;
+          if (seat !== void 0) r.seatPungs[seat]++;
+        } else if (kind === "kong") {
+          r.kongs++;
+          if (seat !== void 0) r.seatKongs[seat]++;
+        }
       }
-      if (e.type === "concealedKong" || e.type === "addedKong") r.kongs++;
+      if (e.type === "concealedKong" || e.type === "addedKong") {
+        r.kongs++;
+        const seat = e.payload.seat;
+        if (seat !== void 0) r.seatKongs[seat]++;
+      }
       if (e.type === "winOnDiscard" || e.type === "selfDraw") {
         if (e.type === "selfDraw") r.selfDraws++;
         else r.winsOnDiscard++;
@@ -2849,9 +2886,16 @@ function playMatch(config, decide, opts = {}) {
 }
 
 // tools/sim/evalcore.ts
+var RULES = MJRC_STANDARD;
+function setSimRuleset(id) {
+  const r = ruleset(id);
+  if (!r) throw new Error(`unknown ruleset ${id}`);
+  RULES = r;
+  return r;
+}
 function mkDecide(profile, seed) {
   const cfgs = SEATS.map((s) => ({
-    ruleset: MJRC_STANDARD,
+    ruleset: RULES,
     profile,
     rnd: prng((seed ^ (s + 1) * 2654435761) >>> 0)
   }));
@@ -2877,7 +2921,7 @@ function evaluate(candidate, incumbent2, seeds, sample, opts) {
     const decideI = mkDecide(incumbent2, seed);
     const perSeat = SEATS.map((s) => s === mySeat ? (v, l, st) => decideC(v, l, st) : (v, l, st) => decideI(v, l, st));
     const r = playMatch(
-      { seed, ruleset: MJRC_STANDARD, matchLength: "oneWindRound" },
+      { seed, ruleset: RULES, matchLength: "oneWindRound" },
       perSeat,
       { recordHands: sample !== void 0 }
     );
@@ -2938,6 +2982,8 @@ var SERIAL = args.includes("--serial");
 var OPPONENT = flag("--opponent", "mirror");
 var MUTSEED = Number(flag("--mutseed", "0"));
 var SIGMA = Number(flag("--sigma", "0.35"));
+var RULESET_ID = flag("--ruleset", "mjrc-standard");
+var RULES2 = setSimRuleset(RULESET_ID);
 var BASELINE_PATH = flag("--baseline", "tools/sim/baseline-v0.json");
 var BASELINE = {
   ...DEFAULT_PROFILE,
@@ -2966,7 +3012,7 @@ function evaluateRemote(candidate, incumbent2, seeds, collect, allSeats) {
         reject(e);
       }
     });
-    child.stdin.end(JSON.stringify({ candidate, incumbent: incumbent2, seeds, collect, allSeats }));
+    child.stdin.end(JSON.stringify({ candidate, incumbent: incumbent2, seeds, collect, allSeats, rulesetId: RULESET_ID }));
   });
 }
 async function runEval(c, i, seeds, sample, allSeats) {
@@ -3004,7 +3050,7 @@ function flush(status) {
     history,
     sampleMatches,
     baseline: BASELINE_PATH,
-    ruleset: MJRC_STANDARD.id,
+    ruleset: RULES2.id,
     fitness: FITNESS,
     gens: GENS,
     sigma: SIGMA,

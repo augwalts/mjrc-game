@@ -240,7 +240,7 @@ describe("payment tables", () => {
 
 describe("ruleset presets", () => {
   it("ships hkos-standard, mjrc-standard and liu, with unique ids", () => {
-    expect(RULESETS.map((r) => r.id).sort()).toEqual(["hkos-standard", "liu", "mjrc-standard"]);
+    expect(RULESETS.map((r) => r.id).sort()).toEqual(["hkos-standard", "liu", "mjrc-standard", "tvb-2026"]);
     expect(ruleset("hkos-standard")).toBe(HKOS_STANDARD);
     expect(ruleset("mjrc-standard")).toBe(MJRC_STANDARD);
     expect(ruleset("liu")).toBe(LIU);

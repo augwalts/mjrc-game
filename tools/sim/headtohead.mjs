@@ -1525,6 +1525,15 @@ var LIU_BRACKET_SCHEDULE = {
   onDiscard: (faan) => bracketFor(faan).onDiscard,
   selfDrawFigure: (faan) => bracketFor(faan).selfDrawFigure
 };
+var TVB_LINEAR = {
+  id: "tvb-linear",
+  label: "TVB Championship linear",
+  source: "mjrc-app rulesets.ts tvb_2026 / tvb-championship-2026 Appendix I",
+  domain: [1, 10],
+  onDiscard: (faan) => 10 * clamp(Math.trunc(faan), [1, 10]),
+  selfDrawFigure: (faan) => 5 * clamp(Math.trunc(faan), [1, 10])
+};
+var TVB_LINEAR_PER_PLAYER = paymentTable(TVB_LINEAR, "perPlayer");
 var HK_LIABILITY = [
   "Feeding the third dragon to a hand already showing two dragon pungs (\u5927\u4E09\u5143\u5305).",
   "Feeding the fourth wind to a hand already showing three wind pungs (\u5927\u56DB\u559C\u5305).",
@@ -1672,7 +1681,21 @@ var MJRC_STANDARD = {
     Object.entries(HKOS_STANDARD.faanTable).map(([id, faan]) => [id, Math.min(faan, 10)])
   )
 };
-var RULESETS = [HKOS_STANDARD, MJRC_STANDARD, LIU];
+var TVB_2026 = {
+  ...HKOS_STANDARD,
+  id: "tvb-2026",
+  label: "TVB Championship 2026",
+  minimumFaan: 1,
+  limitFaan: 10,
+  useFlowers: false,
+  payment: TVB_LINEAR_PER_PLAYER,
+  // No flowers on the show's table, so no bonus-tile patterns either —
+  // 無花 would be trivially always-on and 正花 unreachable.
+  faanTable: Object.fromEntries(
+    Object.entries(HKOS_STANDARD.faanTable).filter(([id]) => pattern(id).family !== "bonusTile").map(([id, faan]) => [id, Math.min(faan, 10)])
+  )
+};
+var RULESETS = [HKOS_STANDARD, MJRC_STANDARD, TVB_2026, LIU];
 var DEFAULT_RULESET_ID = HKOS_STANDARD.id;
 var ruleset = (id) => RULESETS.find((r) => r.id === id);
 
@@ -2862,10 +2885,11 @@ function playMatch(config, decide, opts = {}) {
 var profile = { ...DEFAULT_PROFILE, ...JSON.parse(readFileSync(process.argv[2], "utf8")) };
 var N = Number(process.argv[3] ?? 100);
 var SEED_BASE = Number(process.argv[4] ?? 7e5);
+var RULES = process.argv[6] ? ruleset(process.argv[6]) ?? MJRC_STANDARD : MJRC_STANDARD;
 var tableProfile = process.argv[5] ? { ...DEFAULT_PROFILE, ...JSON.parse(readFileSync(process.argv[5], "utf8")) } : DEFAULT_PROFILE;
 function mk(p, seed) {
   const cfgs = SEATS.map((s) => ({
-    ruleset: MJRC_STANDARD,
+    ruleset: RULES,
     profile: p,
     rnd: prng((seed ^ (s + 1) * 2654435761) >>> 0)
   }));
@@ -2904,7 +2928,7 @@ for (let i = 0; i < N; i++) {
   const dc = mk(profile, seed), di = mk(tableProfile, seed);
   const perSeat = SEATS.map((s) => s === mySeat ? dc : di);
   const r = playMatch(
-    { seed, ruleset: MJRC_STANDARD, matchLength: "oneWindRound" },
+    { seed, ruleset: RULES, matchLength: "oneWindRound" },
     perSeat,
     { recordHands: true }
   );

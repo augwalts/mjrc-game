@@ -24,6 +24,7 @@ import { join } from "node:path";
 import { prng } from "../../engine/src/wall.js";
 import { decideAction, DEFAULT_PROFILE, type BotProfile, type BotConfig } from "../../engine/src/bots.js";
 import { MJRC_STANDARD } from "../../rulesets/src/presets.js";
+import { setSimRuleset, simRuleset } from "./evalcore.js";
 import { SEATS, type Decide, type HandRecord } from "./driver.js";
 import { evaluate, type EvalResult, type SampleMatch } from "./evalcore.js";
 
@@ -51,6 +52,8 @@ import { readFileSync as rfs, existsSync as exs } from "node:fs";
  * generation the CURRENT incumbent plays 3× this on a FIXED held-out seed set,
  * so "are we actually getting better" is a line that can only move for real
  * reasons — mirror self-play is zero-sum and can never show absolute progress. */
+const RULESET_ID = flag("--ruleset", "mjrc-standard");
+const RULES = setSimRuleset(RULESET_ID);
 const BASELINE_PATH = flag("--baseline", "tools/sim/baseline-v0.json");
 const BASELINE: BotProfile = {
   ...DEFAULT_PROFILE,
@@ -91,7 +94,7 @@ function evaluateRemote(
       if (code !== 0) return reject(new Error(`evalworker exited ${code}`));
       try { resolve(JSON.parse(out)); } catch (e) { reject(e); }
     });
-    child.stdin.end(JSON.stringify({ candidate, incumbent, seeds, collect, allSeats }));
+    child.stdin.end(JSON.stringify({ candidate, incumbent, seeds, collect, allSeats, rulesetId: RULESET_ID }));
   });
 }
 
@@ -128,7 +131,7 @@ function mutate(base: BotProfile, rnd: () => number, sigma: number, wild = false
 
 function mkDecide(profile: BotProfile, seed: number): Decide {
   const cfgs: BotConfig[] = SEATS.map((s) => ({
-    ruleset: MJRC_STANDARD, profile,
+    ruleset: RULES, profile,
     rnd: prng((seed ^ ((s + 1) * 0x9e3779b1)) >>> 0),
   }));
   return (view, legal, seat) => decideAction(view, legal, cfgs[seat]!);
@@ -172,7 +175,7 @@ function flush(status: string): void {
   const payload = {
     status, updated: new Date().toISOString(),
     defaults: DEFAULT_PROFILE, keys: KEYS, history, sampleMatches,
-    baseline: BASELINE_PATH, ruleset: MJRC_STANDARD.id, fitness: FITNESS, gens: GENS, sigma: SIGMA,
+    baseline: BASELINE_PATH, ruleset: RULES.id, fitness: FITNESS, gens: GENS, sigma: SIGMA,
     trainingOpponent: OPPONENT,
     trainingOpponentLabel: OPPONENT === "baseline" ? baselineName : "current incumbent (mirror)",
     selectionMatches: MATCHES,

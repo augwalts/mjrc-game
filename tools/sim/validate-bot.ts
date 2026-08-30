@@ -8,12 +8,13 @@
  */
 import { readFileSync } from "node:fs";
 import { DEFAULT_PROFILE, type BotProfile } from "../../engine/src/bots.js";
-import { evaluate } from "./evalcore.js";
+import { evaluate, setSimRuleset } from "./evalcore.js";
 
 const load = (p: string): BotProfile => ({ ...DEFAULT_PROFILE, ...JSON.parse(readFileSync(p, "utf8")) });
 const prof = load(process.argv[2]!);
 const N = Number(process.argv[3] ?? 40);
 const base = Number(process.argv[4] ?? 12_345_678);
+if (process.argv[5]) setSimRuleset(process.argv[5]!);
 const seeds = Array.from({ length: N }, (_, i) => base + i * 7919);
 const r = evaluate(prof, prof, seeds, undefined, { allSeats: true });
 

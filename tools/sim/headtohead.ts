@@ -7,7 +7,7 @@
 import { readFileSync } from "node:fs";
 import { prng } from "../../engine/src/wall.js";
 import { decideAction, DEFAULT_PROFILE, type BotProfile, type BotConfig } from "../../engine/src/bots.js";
-import { MJRC_STANDARD } from "../../rulesets/src/presets.js";
+import { MJRC_STANDARD, ruleset as rulesetById } from "../../rulesets/src/presets.js";
 import { playMatch, SEATS, type Decide } from "./driver.js";
 
 const profile: BotProfile = { ...DEFAULT_PROFILE, ...JSON.parse(readFileSync(process.argv[2]!, "utf8")) };
@@ -16,13 +16,14 @@ const SEED_BASE = Number(process.argv[4] ?? 700_000);
 /** Optional 5th arg: profile file for the TABLE side. Defaults to the current
  * DEFAULT_PROFILE — but a benchmark must name its enemy: the overnight
  * harness passes baseline-v0 so admission and bench face the SAME opponent. */
+const RULES = process.argv[6] ? (rulesetById(process.argv[6]!) ?? MJRC_STANDARD) : MJRC_STANDARD;
 const tableProfile: BotProfile = process.argv[5]
   ? { ...DEFAULT_PROFILE, ...JSON.parse(readFileSync(process.argv[5], "utf8")) }
   : DEFAULT_PROFILE;
 
 function mk(p: BotProfile, seed: number): Decide {
   const cfgs: BotConfig[] = SEATS.map((s) => ({
-    ruleset: MJRC_STANDARD, profile: p, rnd: prng((seed ^ ((s + 1) * 0x9e3779b1)) >>> 0),
+    ruleset: RULES, profile: p, rnd: prng((seed ^ ((s + 1) * 0x9e3779b1)) >>> 0),
   }));
   return (v, l, seat) => decideAction(v, l, cfgs[seat]!);
 }
@@ -45,7 +46,7 @@ for (let i = 0; i < N; i++) {
   const mySeat = (i % 4) as 0 | 1 | 2 | 3;
   const dc = mk(profile, seed), di = mk(tableProfile, seed);
   const perSeat: Decide[] = SEATS.map((s) => (s === mySeat ? dc : di));
-  const r = playMatch({ seed, ruleset: MJRC_STANDARD, matchLength: "oneWindRound" }, perSeat,
+  const r = playMatch({ seed, ruleset: RULES, matchLength: "oneWindRound" }, perSeat,
     { recordHands: true });
   chips += r.chips[mySeat]!;
   chipsSq += r.chips[mySeat]! * r.chips[mySeat]!;

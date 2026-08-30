@@ -6,12 +6,24 @@
  */
 import { prng } from "../../engine/src/wall.js";
 import { decideAction, type BotProfile, type BotConfig } from "../../engine/src/bots.js";
-import { MJRC_STANDARD } from "../../rulesets/src/presets.js";
+import { MJRC_STANDARD, ruleset as rulesetById } from "../../rulesets/src/presets.js";
+import type { Ruleset } from "../../engine/src/types.js";
+
+/** The ruleset every evaluation plays. Default mjrc-standard; the TVB lab
+ * (owner request 2026-08-29) switches it per process via setSimRuleset. */
+let RULES: Ruleset = MJRC_STANDARD;
+export function setSimRuleset(id: string): Ruleset {
+  const r = rulesetById(id);
+  if (!r) throw new Error(`unknown ruleset ${id}`);
+  RULES = r;
+  return r;
+}
+export const simRuleset = (): Ruleset => RULES;
 import { playMatch, SEATS, type Decide } from "./driver.js";
 
 export function mkDecide(profile: BotProfile, seed: number): Decide {
   const cfgs: BotConfig[] = SEATS.map((s) => ({
-    ruleset: MJRC_STANDARD, profile,
+    ruleset: RULES, profile,
     rnd: prng((seed ^ ((s + 1) * 0x9e3779b1)) >>> 0),
   }));
   return (view, legal, seat) => decideAction(view, legal, cfgs[seat]!);
@@ -60,6 +72,8 @@ export function placementPoints(chips: readonly number[], seat: number): number 
 /** One control match in full: browsable per-hand detail for the panel. */
 export interface SampleMatch {
   seed: number;
+  /** The evaluated profile's seat; the other three seats use the opponent. */
+  candidateSeat: number;
   /** Final chips per seat. */
   chips: number[];
   hands: number;
@@ -93,11 +107,11 @@ export function evaluate(
         ? (v, l, st) => decideC(v, l, st)
         : (v, l, st) => decideI(v, l, st));
     const r = playMatch(
-      { seed, ruleset: MJRC_STANDARD, matchLength: "oneWindRound" }, perSeat,
+      { seed, ruleset: RULES, matchLength: "oneWindRound" }, perSeat,
       { recordHands: sample !== undefined },
     );
     if (sample) {
-      sample.push({ seed, chips: r.chips.slice(), hands: r.hands, handRecords: r.handRecords ?? [] });
+      sample.push({ seed, candidateSeat: mySeat, chips: r.chips.slice(), hands: r.hands, handRecords: r.handRecords ?? [] });
     }
     chips += r.chips[mySeat]!;
     won += r.seatWon[mySeat]!;
@@ -131,4 +145,3 @@ export function evaluate(
     activity: { chows, pungs, kongs, winsOnDiscard: wod, selfDraws: sd, hands, patterns, faanHist },
   };
 }
-

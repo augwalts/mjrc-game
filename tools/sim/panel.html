@@ -10,6 +10,8 @@
   border-bottom:1px solid var(--line);display:flex;gap:16px;font-size:12px;align-items:baseline}
 .nav a{color:var(--acc);text-decoration:none}
 .nav a:hover{text-decoration:underline}
+.mcode{display:inline-block;background:#33333d;color:var(--acc);border-radius:4px;padding:0 5px;
+  font-size:9.5px;font-weight:700;letter-spacing:.04em;margin-right:4px;vertical-align:middle}
 .sectionlabel{font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--dim);margin:18px 0 6px}
 .sectionnote{font-size:11.5px;color:var(--dim);line-height:1.55;margin:-2px 0 11px;max-width:980px}
 .sectionnote b{color:var(--ink);font-weight:650}
@@ -111,6 +113,11 @@ details.match summary:hover{background:#2c2c35}
   <div class="sectionlabel">Table behavior by cycle endpoint</div>
   <div class="sectionnote">The same cycle-level numbers as a table instead of charts, with the change from the previous cycle marked. “Endpoint” just means each column is one cycle’s final recorded generation. Use this to read exact values; use the charts above to see shape.</div>
   <div id="overallTexture"></div>
+  <div class="sectionlabel" id="tvblabel" style="display:none">TVB lab</div>
+  <div class="sectionnote" id="tvbnote" style="display:none">The same bots under a DIFFERENT ruleset — TVB Championship 2026: 1-faan floor,
+  LINEAR payments (a 10-faan hand pays only 10× a 1-faan hand), no flowers, discarder pays all. The question: can the AI re-adapt its
+  personality when the economy inverts?</div>
+  <div id="tvblab"></div>
   <div class="sectionlabel" id="historylabel" style="display:none">Research archive</div>
   <div class="sectionnote">Every cycle exam, every named experiment, and the frozen reference points, newest first. This is the project’s written record — a score only means something next to the enemy it was earned against, so every row names its enemy.</div>
   <div id="history"></div>
@@ -121,7 +128,7 @@ details.match summary:hover{background:#2c2c35}
 // mobile Chrome on slow networks — that was "where did the rest of the html
 // go"). Append real script tags, count them down, then boot the panel.
 (function () {
-  const files = ["overnight.js", "series-history.js", "baselines.js", "experiments.js", "champions.js", "log.js", "data.js"];
+  const files = ["overnight.js", "series-history.js", "baselines.js", "experiments.js", "champions.js", "log.js", "tvb.js", "data.js"];
   let pending = files.length;
   const done = () => { if (--pending === 0 && window.initPanel) window.initPanel(); };
   for (const f of files) {
@@ -1033,6 +1040,47 @@ else if (D.history.length === 0) {
       <tr><td><b>all-seats</b></td><td style="text-align:left">every benchmark wall is played from all four chairs, so seat luck cancels exactly and a bot benched against itself scores 0.</td></tr>
       <tr><td><b>threat detection</b></td><td style="text-align:left">share of wins where an opponent's table read had flagged the winner (threat &gt; 0.3) before the win.</td></tr>
     </table></div></details></div>`);
+}
+// ── TVB lab (owner request 2026-08-29): cross-ruleset adaptation ──
+{
+  const T = window.TVB_LAB;
+  if (T) {
+    document.getElementById("tvblabel").style.display = "";
+    document.getElementById("tvbnote").style.display = "";
+    const cmpRow = (k, label2) => `<tr><td style="text-align:left">${label2}</td><td>${T.census.standard[k]}</td><td>${T.census.tvbUnadapted[k]}</td><td><b>${T.census.tvbAdapted?.[k] ?? "—"}</b></td></tr>`;
+    const dials = T.dialMoves?.length
+      ? `<div class="card"><h2>What adaptation changed (v4 king → TVB-adapted, moves &gt; 15%)</h2>
+        <table><tr><th style="text-align:left">dial</th><th>king</th><th>TVB-adapted</th><th>Δ</th></tr>
+        ${T.dialMoves.map((m) => `<tr><td style="text-align:left">${m.k}</td><td class="mut">${m.from}</td><td><b>${m.to}</b></td>
+          <td class="${m.pct > 0 ? "up" : "down"}">${m.pct > 0 ? "+" : ""}${m.pct}%</td></tr>`).join("")}</table></div>` : "";
+    document.getElementById("tvblab").innerHTML = `
+      <div class="card"><h2>Ruleset: ${T.ruleset.label}</h2>
+        <div class="mut" style="font-size:12px">${T.ruleset.summary}</div></div>
+      <div class="card"><h2>Adaptation exam — TVB rules, same walls</h2>
+        <div class="big ${T.exam.margin > 0 ? "up" : "down"}">${T.exam.margin > 0 ? "+" : ""}${T.exam.margin} chips/match</div>
+        <div class="mut" style="font-size:12px">TVB-adapted bot vs 3× the unadapted v4 king, ${T.exam.games} games under TVB rules.
+        ${T.exam.note}</div></div>
+      <div class="card"><h2>Texture: same bot, different economies</h2>
+        <table><tr><th style="text-align:left"></th><th>king · mjrc rules</th><th>king · TVB rules</th><th>adapted · TVB</th></tr>
+        ${cmpRow("meanFaan", "mean winning faan")}${cmpRow("refused", "refused wins /hand")}${cmpRow("draws", "draws 流局")}
+        ${cmpRow("claims", "claims /hand")}${cmpRow("selfDrawShare", "self-draw share")}</table></div>
+      ${dials}`;
+  }
+}
+// ── module codes (owner request 2026-08-29): 1A, 2B… so cards are addressable ──
+{
+  let sec = 0, letter = 0;
+  for (const el of document.querySelectorAll(".sectionlabel, .card h2, .card > details > summary")) {
+    if (el.classList.contains("sectionlabel")) {
+      if (el.style.display === "none") continue;
+      sec++; letter = 0;
+      el.insertAdjacentHTML("afterbegin", `<span class="mcode">${sec}</span> `);
+    } else {
+      if (sec === 0) sec = 1;
+      const code = `${sec}${String.fromCharCode(65 + letter++)}`;
+      el.insertAdjacentHTML("afterbegin", `<span class="mcode">${code}</span> `);
+    }
+  }
 }
 };
 </script>

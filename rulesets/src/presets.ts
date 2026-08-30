@@ -32,7 +32,7 @@
 
 import type { Ruleset } from "@mjrc/engine";
 import { isPattern, pattern } from "./patterns.js";
-import { HKOS_DOUBLING_PER_PLAYER, LIU_BRACKET_TOTAL } from "./payment.js";
+import { HKOS_DOUBLING_PER_PLAYER, LIU_BRACKET_TOTAL, TVB_LINEAR_PER_PLAYER } from "./payment.js";
 
 /**
  * Canonical HK Old Style. 3-faan minimum, 13-faan limit 爆棚, flowers with
@@ -197,7 +197,31 @@ export const MJRC_STANDARD: Ruleset = {
   ),
 };
 
-export const RULESETS: readonly Ruleset[] = [HKOS_STANDARD, MJRC_STANDARD, LIU];
+/**
+ * TVB Championship 2026 (owner request 2026-08-29). The interesting inversions
+ * vs mjrc-standard: 1-faan floor (every complete hand is payable), LINEAR
+ * payments (big hands barely out-earn small ones), no flowers. Approximation
+ * notes: the show's no-dealer-repeat and 12-tile bao are match-structure /
+ * liability rules the engine does not model; per-hand play is faithful.
+ */
+export const TVB_2026: Ruleset = {
+  ...HKOS_STANDARD,
+  id: "tvb-2026",
+  label: "TVB Championship 2026",
+  minimumFaan: 1,
+  limitFaan: 10,
+  useFlowers: false,
+  payment: TVB_LINEAR_PER_PLAYER,
+  // No flowers on the show's table, so no bonus-tile patterns either —
+  // 無花 would be trivially always-on and 正花 unreachable.
+  faanTable: Object.fromEntries(
+    Object.entries(HKOS_STANDARD.faanTable)
+      .filter(([id]) => pattern(id).family !== "bonusTile")
+      .map(([id, faan]) => [id, Math.min(faan, 10)]),
+  ),
+};
+
+export const RULESETS: readonly Ruleset[] = [HKOS_STANDARD, MJRC_STANDARD, TVB_2026, LIU];
 
 export const DEFAULT_RULESET_ID = HKOS_STANDARD.id;
 
