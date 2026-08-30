@@ -1104,13 +1104,17 @@ else if (D.history.length === 0) {
   const T = window.TVB_LAB;
   if (T) {
 
-    const cmpRow = (k, label2) => `<tr><td style="text-align:left">${label2}</td><td>${T.census.standard[k]}</td><td>${T.census.tvbUnadapted[k]}</td><td><b>${T.census.tvbAdapted?.[k] ?? "—"}</b></td><td class="up"><b>${T.census.humans?.[k] ?? "—"}</b></td></tr>`;
+    const cmpRow = (k, label2) => `<tr><td style="text-align:left">${label2}</td><td>${T.census.standard[k]}</td><td>${T.census.tvbUnadapted[k]}</td><td><b>${T.census.tvbAdapted?.[k] ?? "—"}</b></td><td><b>${T.census.candidate?.[k] ?? "—"}</b></td><td class="up"><b>${T.census.humans?.[k] ?? "—"}</b></td></tr>`;
     const dials = T.dialMoves?.length
       ? `<div class="card"><h2>What adaptation changed (v4 king → TVB-adapted, moves &gt; 15%)</h2>
         <table><tr><th style="text-align:left">dial</th><th>king</th><th>TVB-adapted</th><th>Δ</th></tr>
         ${T.dialMoves.map((m) => `<tr><td style="text-align:left">${m.k}</td><td class="mut">${m.from}</td><td><b>${m.to}</b></td>
           <td class="${m.pct > 0 ? "up" : "down"}">${m.pct > 0 ? "+" : ""}${m.pct}%</td></tr>`).join("")}</table></div>` : "";
     document.getElementById("tvblab").innerHTML = `
+      ${T.measuredWith ? `<div class="card"><h2>Measurement provenance</h2>
+        <div class="mut" style="font-size:12px">Every number on this tab comes from ONE engine build and, for exams, one seed block:
+        <b>${T.measuredWith}</b>. Earlier revisions of this tab mixed three builds — that is why the modules disagreed with each other
+        and with the live series. Cross-tab comparison warning stands: TVB figures are not comparable to the era 1–4 tabs.</div></div>` : ""}
       <div class="card"><h2>Ruleset: ${T.ruleset.label}</h2>
         <div class="mut" style="font-size:12px">${T.ruleset.summary}</div></div>
       <div class="card"><h2>Adaptation exam — TVB rules, same walls</h2>
@@ -1126,7 +1130,7 @@ else if (D.history.length === 0) {
         machinery still overvalues hand size. The remaining gap is the next target — and the first direct human-vs-AI texture
         measurement of the project. *Draw rate may be under-logged by scorekeepers.</div></div>` : ""}
       <div class="card"><h2>Texture: same bot, different economies — and the humans</h2>
-        <table><tr><th style="text-align:left"></th><th>king · mjrc rules</th><th>king · TVB rules</th><th>adapted · TVB</th><th>real players · TVB</th></tr>
+        <table><tr><th style="text-align:left"></th><th>king · mjrc rules</th><th>king · TVB rules</th><th>TVB-evolved</th><th>fix candidate</th><th>real players</th></tr>
         ${cmpRow("meanFaan", "mean winning faan")}${cmpRow("refused", "refused wins /hand")}${cmpRow("draws", "draws 流局")}
         ${cmpRow("claims", "claims /hand")}${cmpRow("selfDrawShare", "self-draw share")}</table></div>
       ${dials}`;

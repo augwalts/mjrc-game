@@ -59,6 +59,7 @@ import {
 } from "./types.js";
 import {
   counts,
+  isDragon,
   isFlower,
   isHonour,
   isSuited,
@@ -190,6 +191,17 @@ export interface BotProfile {
    * (≥2 pung/kong melds) — "stop feeding the collector". */
   feedDenial: number;
   /**
+   * DO NOT THROW YOUR ONLY WAY TO GET PAID (2026-08-29). When the hand's
+   * BANKED faan (bonus tiles + melded honour sets + kept concealment) is short
+   * of the floor, the honour pairs it still holds are the cheapest route back
+   * to payable: one more copy makes a paying pung. The discard scorer is
+   * otherwise pattern-blind — distanceToReady counts any four sets and a pair —
+   * so it will happily cut a dragon pair to go half a tile faster and then
+   * complete a hand worth nothing. Charges such a cut by how short the hand is.
+   * 0 = historical behaviour.
+   */
+  keepPayableWeight: number;
+  /**
    * CLAIM ONLY WHAT KEEPS YOU PAYABLE (2026-08-29). A claim that leaves the
    * hand paying NOTHING unless a pattern is completed perfectly is a bet on
    * future discipline the bot does not have: routes are re-derived every turn,
@@ -264,6 +276,7 @@ export const DEFAULT_PROFILE: BotProfile = {
   feedDenial: 0,
   foldSizeBias: 0,
   claimFallbackWeight: 0,
+  keepPayableWeight: 0,
   chipValuation: 1,
   // 0.45, not 0.55: on the doubling ladder a claim costs 門前清 (÷2 payout), so
   // a tile of speed must be worth MORE than 2× (1/0.45 ≈ 2.2) or no bot ever
@@ -988,6 +1001,13 @@ export function rankDiscards(v: SeatView, cfg: BotConfig): DiscardScore[] {
   // usually half the hand, and the search behind it is not cheap.
   const offRouteDistance = restricts ? chosen.distance : 0;
 
+  // How far this hand is from paying if it simply completes, banked only.
+  const bankedShort = profile.keepPayableWeight > 0
+    ? Math.max(0, cfg.ruleset.minimumFaan - fallbackFaan(shape, cfg.ruleset))
+    : 0;
+  const paysIfPunged = (t: TileId): boolean =>
+    isDragon(t) || t === WINDS_START + shape.seatWind || t === WINDS_START + shape.roundWind;
+
   const scored: DiscardScore[] = candidates.map((tile) => {
     const fitsRoute = onRoute(chosen.route, tile);
     c[tile]!--;
@@ -1032,6 +1052,11 @@ export function rankDiscards(v: SeatView, cfg: BotConfig): DiscardScore[] {
         if (pungish >= 2) denial += 0.5 * pungish;
       }
     }
+    // PAYABILITY GUARD: cutting one of a pair that would pung into real faan,
+    // while the hand has none banked, is throwing away the qualification.
+    const payGuard = bankedShort > 0 && c[tile]! >= 2 && paysIfPunged(tile)
+      ? bankedShort * profile.keepPayableWeight
+      : 0;
     const score = folding
       ? -danger * (1 + profile.discardSafetyWeight) -
         denial * profile.feedDenial -
@@ -1041,6 +1066,7 @@ export function rankDiscards(v: SeatView, cfg: BotConfig): DiscardScore[] {
         (restricts ? (fits ? -profile.discardRouteWeight : profile.discardRouteWeight) : 0) -
         danger * profile.discardSafetyWeight -
         denial * profile.feedDenial -
+        payGuard -
         threatDanger * foldFactor * profile.threatSensitivity;
     return { tile, distance, outs: -1, danger, onRoute: fits, score };
   });

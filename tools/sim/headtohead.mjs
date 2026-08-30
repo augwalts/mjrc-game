@@ -468,6 +468,7 @@ var DEFAULT_PROFILE = {
   feedDenial: 0,
   foldSizeBias: 0,
   claimFallbackWeight: 0,
+  keepPayableWeight: 0,
   chipValuation: 1,
   // 0.45, not 0.55: on the doubling ladder a claim costs 門前清 (÷2 payout), so
   // a tile of speed must be worth MORE than 2× (1/0.45 ≈ 2.2) or no bot ever
@@ -834,6 +835,8 @@ function rankDiscards(v, cfg) {
   const candidates = distinctAscending(shape.concealed);
   const restricts = chosen.route.suit !== null || chosen.route.pungs || chosen.route.honoursOnly || chosen.route.orphans;
   const offRouteDistance = restricts ? chosen.distance : 0;
+  const bankedShort = profile2.keepPayableWeight > 0 ? Math.max(0, cfg.ruleset.minimumFaan - fallbackFaan(shape, cfg.ruleset)) : 0;
+  const paysIfPunged = (t) => isDragon(t) || t === WINDS_START + shape.seatWind || t === WINDS_START + shape.roundWind;
   const scored = candidates.map((tile) => {
     const fitsRoute = onRoute(chosen.route, tile);
     c[tile]--;
@@ -857,7 +860,8 @@ function rankDiscards(v, cfg) {
         if (pungish >= 2) denial += 0.5 * pungish;
       }
     }
-    const score2 = folding ? -danger * (1 + profile2.discardSafetyWeight) - denial * profile2.feedDenial - threatDanger * foldFactor * profile2.threatSensitivity : -speedDistance * profile2.discardDistanceWeight - routeDistance * profile2.discardRouteWeight * 0.5 + (restricts ? fits ? -profile2.discardRouteWeight : profile2.discardRouteWeight : 0) - danger * profile2.discardSafetyWeight - denial * profile2.feedDenial - threatDanger * foldFactor * profile2.threatSensitivity;
+    const payGuard = bankedShort > 0 && c[tile] >= 2 && paysIfPunged(tile) ? bankedShort * profile2.keepPayableWeight : 0;
+    const score2 = folding ? -danger * (1 + profile2.discardSafetyWeight) - denial * profile2.feedDenial - threatDanger * foldFactor * profile2.threatSensitivity : -speedDistance * profile2.discardDistanceWeight - routeDistance * profile2.discardRouteWeight * 0.5 + (restricts ? fits ? -profile2.discardRouteWeight : profile2.discardRouteWeight : 0) - danger * profile2.discardSafetyWeight - denial * profile2.feedDenial - payGuard - threatDanger * foldFactor * profile2.threatSensitivity;
     return { tile, distance, outs: -1, danger, onRoute: fits, score: score2 };
   });
   scored.sort((a, b) => b.score - a.score || a.tile - b.tile);

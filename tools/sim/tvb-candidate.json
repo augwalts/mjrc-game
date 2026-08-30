@@ -23,5 +23,6 @@
   "urgencyWeight": 0.1114,
   "suitContestWeight": 0.3941,
   "claimSupplyWeight": 0.4526,
-  "claimFallbackWeight": 0.5
+  "claimFallbackWeight": 0.5,
+  "keepPayableWeight": 0.5
 }
