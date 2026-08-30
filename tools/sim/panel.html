@@ -1104,7 +1104,7 @@ else if (D.history.length === 0) {
   const T = window.TVB_LAB;
   if (T) {
 
-    const cmpRow = (k, label2) => `<tr><td style="text-align:left">${label2}</td><td>${T.census.standard[k]}</td><td>${T.census.tvbUnadapted[k]}</td><td><b>${T.census.tvbAdapted?.[k] ?? "—"}</b></td></tr>`;
+    const cmpRow = (k, label2) => `<tr><td style="text-align:left">${label2}</td><td>${T.census.standard[k]}</td><td>${T.census.tvbUnadapted[k]}</td><td><b>${T.census.tvbAdapted?.[k] ?? "—"}</b></td><td class="up"><b>${T.census.humans?.[k] ?? "—"}</b></td></tr>`;
     const dials = T.dialMoves?.length
       ? `<div class="card"><h2>What adaptation changed (v4 king → TVB-adapted, moves &gt; 15%)</h2>
         <table><tr><th style="text-align:left">dial</th><th>king</th><th>TVB-adapted</th><th>Δ</th></tr>
@@ -1117,8 +1117,16 @@ else if (D.history.length === 0) {
         <div class="big ${T.exam.margin > 0 ? "up" : "down"}">${T.exam.margin > 0 ? "+" : ""}${T.exam.margin} chips/match</div>
         <div class="mut" style="font-size:12px">TVB-adapted bot vs 3× the unadapted v4 king, ${T.exam.games} games under TVB rules.
         ${T.exam.note}</div></div>
-      <div class="card"><h2>Texture: same bot, different economies</h2>
-        <table><tr><th style="text-align:left"></th><th>king · mjrc rules</th><th>king · TVB rules</th><th>adapted · TVB</th></tr>
+      ${T.human ? `<div class="card"><h2>Real players vs the AI — the verdict</h2>
+        <div class="big down">AI adaptation: right direction, one-third of the distance</div>
+        <div class="mut" style="font-size:12px">${T.human.wins} recorded human wins across ${T.human.sessions} real TVB sessions
+        (from the almanac's TVB Training room). Humans fully internalized the linear economy: <b>mean ${T.human.meanFaan} faan</b>
+        (50% of wins are 1-faan hands!) and <b>${Math.round(T.human.drawRate * 100)}% draws</b> — they race to ANY completion.
+        The TVB-adapted bot still builds ~5-faan hands and draws ~47%: it moved the defensive and claiming dials but its route
+        machinery still overvalues hand size. The remaining gap is the next target — and the first direct human-vs-AI texture
+        measurement of the project. *Draw rate may be under-logged by scorekeepers.</div></div>` : ""}
+      <div class="card"><h2>Texture: same bot, different economies — and the humans</h2>
+        <table><tr><th style="text-align:left"></th><th>king · mjrc rules</th><th>king · TVB rules</th><th>adapted · TVB</th><th>real players · TVB</th></tr>
         ${cmpRow("meanFaan", "mean winning faan")}${cmpRow("refused", "refused wins /hand")}${cmpRow("draws", "draws 流局")}
         ${cmpRow("claims", "claims /hand")}${cmpRow("selfDrawShare", "self-draw share")}</table></div>
       ${dials}`;
