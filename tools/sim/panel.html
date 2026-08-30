@@ -125,6 +125,12 @@ details.match summary:hover{background:#2c2c35}
   <div class="sectionlabel">Table behavior by cycle endpoint</div>
   <div class="sectionnote">The same cycle-level numbers as a table instead of charts, with the change from the previous cycle marked. “Endpoint” just means each column is one cycle’s final recorded generation. Use this to read exact values; use the charts above to see shape.</div>
   <div id="overallTexture"></div>
+  <div class="sectionlabel" id="dialslabel" style="display:none">Dial trajectories — how the bot's personality drifted</div>
+  <div class="sectionnote" id="dialsnote" style="display:none">One mini-chart per dial, one point per <b>cycle endpoint</b> (the weights that cycle finished with),
+  oldest on the left. This is the whole training history in one view: evolution nudges these 24 numbers and nothing else, so every
+  behavioural change the project ever produced is somewhere in these lines. Vertical marks are era boundaries; dots are cycles whose
+  product was <b>admitted</b> to the hall of fame. Each chart is scaled to its own range — the shape matters, not the height.</div>
+  <div id="dialtrails"></div>
   <div class="sectionlabel" id="historylabel" style="display:none">Research archive</div>
   <div class="sectionnote">Every cycle exam, every named experiment, and the frozen reference points, newest first. This is the project’s written record — a score only means something next to the enemy it was earned against, so every row names its enemy.</div>
   <div id="history"></div>
@@ -135,7 +141,7 @@ details.match summary:hover{background:#2c2c35}
 // mobile Chrome on slow networks — that was "where did the rest of the html
 // go"). Append real script tags, count them down, then boot the panel.
 (function () {
-  const files = ["overnight.js", "series-history.js", "baselines.js", "experiments.js", "champions.js", "log.js", "tvb.js", "data.js"];
+  const files = ["overnight.js", "series-history.js", "baselines.js", "experiments.js", "champions.js", "log.js", "tvb.js", "dials-history.js", "data.js"];
   let pending = files.length;
   const done = () => { if (--pending === 0 && window.initPanel) window.initPanel(); };
   for (const f of files) {
@@ -1011,6 +1017,63 @@ else if (D.history.length === 0) {
       ${entries.slice(0, CUT).map(row).join("")}</table></div>
       ${entries.length > CUT ? `<details><summary class="mut" style="cursor:pointer;padding:6px 0">show ${entries.length - CUT} older entries</summary>
       <div class="table-scroll"><table>${entries.slice(CUT).map(row).join("")}</table></div></details>` : ""}</details></div>`);
+  }
+}
+// ── DIAL TRAJECTORIES (owner request 2026-08-29) ──
+{
+  const D2 = window.DIALS_HISTORY;
+  const host = document.getElementById("dialtrails");
+  if (D2 && host && D2.points.length > 1) {
+    document.getElementById("dialslabel").style.display = "";
+    document.getElementById("dialsnote").style.display = "";
+    const pts = D2.points, keys = D2.keys;
+    // era boundaries (index where the era number changes)
+    const bounds = [];
+    for (let i = 1; i < pts.length; i++) if (pts[i].era !== pts[i - 1].era) bounds.push({ i, era: pts[i].era });
+    const W = 210, H = 74, L = 3, R = 3, T = 9, B = 11;
+    const chart = (ki) => {
+      const vals = pts.map((p) => p.v[ki]);
+      let lo = Math.min(...vals), hi = Math.max(...vals);
+      if (hi === lo) { hi = lo + 1e-6; }
+      const x = (i) => L + i / (pts.length - 1) * (W - L - R);
+      const y = (v) => T + (1 - (v - lo) / (hi - lo)) * (H - T - B);
+      const line = vals.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+      const eraMarks = bounds.map((b) =>
+        `<line x1="${x(b.i).toFixed(1)}" x2="${x(b.i).toFixed(1)}" y1="${T}" y2="${H - B}" stroke="var(--dim)" stroke-width=".7" stroke-dasharray="2 2"/>
+         <text x="${(x(b.i) + 2).toFixed(1)}" y="${T + 7}" font-size="7" fill="var(--dim)">e${b.era}</text>`).join("");
+      const dots = pts.map((p, i) => p.admitted
+        ? `<circle cx="${x(i).toFixed(1)}" cy="${y(p.v[ki]).toFixed(1)}" r="2" fill="var(--ok)"/>` : "").join("");
+      const first = vals[0], last = vals[vals.length - 1];
+      const pct = first ? Math.round((last / first - 1) * 100) : 0;
+      const cls = Math.abs(pct) < 10 ? "mut" : pct > 0 ? "up" : "down";
+      return `<div class="card" style="padding:8px">
+        <div style="font-size:11px;font-weight:600;margin-bottom:1px">${keys[ki]}</div>
+        <div class="mut" style="font-size:10px;margin-bottom:2px">${first} → <b>${last}</b>
+          <span class="${cls}">${pct > 0 ? "+" : ""}${pct}%</span></div>
+        <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:${H}px;display:block">
+          ${eraMarks}
+          <polyline points="${line}" fill="none" stroke="var(--acc)" stroke-width="1.4"/>
+          ${dots}
+          <text x="${L}" y="${H - 2}" font-size="7" fill="var(--dim)">${lo.toFixed(2)}</text>
+          <text x="${W - R}" y="${H - 2}" text-anchor="end" font-size="7" fill="var(--dim)">${hi.toFixed(2)}</text>
+        </svg></div>`;
+    };
+    // biggest movers first — the story reads top-left to bottom-right
+    const order = keys.map((k, i) => {
+      const vals = pts.map((p) => p.v[i]);
+      const f = vals[0], l = vals[vals.length - 1];
+      return { i, move: f ? Math.abs(l / f - 1) : 0 };
+    }).sort((a, b) => b.move - a.move).map((o) => o.i);
+    host.innerHTML = `<div class="card" style="margin-bottom:8px"><h2>What this shows</h2>
+      <div class="mut" style="font-size:11.5px">${pts.length} cycle endpoints across eras ${[...new Set(pts.map((p) => p.era))].join(", ")}
+      (per-cycle archiving began in era 3; eras 1–2 predate it, and their endpoints are the frozen baselines v1/v2 in the reference row below).
+      Charts are ordered by how far the dial travelled — biggest movers first. Green dots mark admitted cycles: where a line JUMPS at a green
+      dot, that weight change is one the same-block exam actually endorsed.</div></div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px">${order.map(chart).join("")}</div>
+      ${D2.refs?.length ? `<div class="card" style="margin-top:8px"><h2>Frozen reference bots — the ladder, dial by dial</h2>
+        <div style="overflow-x:auto"><table><tr><th style="text-align:left">dial</th>${D2.refs.map((r) => `<th>${r.name}</th>`).join("")}</tr>
+        ${keys.map((k, i) => `<tr><td style="text-align:left">${k}</td>${D2.refs.map((r) => `<td class="mut">${r.v[i] ?? "—"}</td>`).join("")}</tr>`).join("")}
+        </table></div></div>` : ""}`;
   }
 }
 // ── LEGEND: units + vocabulary, collapsed so it never costs a scroll ──
