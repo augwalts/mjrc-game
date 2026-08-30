@@ -27,7 +27,8 @@ body{margin:0;background:var(--bg);color:var(--ink);
 h1{font-size:16px;margin:0 0 2px}
 .sub{color:var(--dim);font-size:11.5px;margin-bottom:16px}
 .kpis{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin-bottom:12px}
-.diagnostics,.trendgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-bottom:12px}
+.diagnostics,.trendgrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:12px}
+@media (max-width:1150px){.diagnostics,.trendgrid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .kpis .card h2{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* masonry: cards flow into balanced columns — no more page-tall blank gaps */
 .cols{columns:2;column-gap:12px;margin-bottom:12px}
@@ -80,8 +81,8 @@ details.match summary:hover{background:#2c2c35}
 <h1>Self-play weight evolution <span class="pill" id="status"></span></h1>
 <div class="tabs" role="tablist" aria-label="Panel scope">
   <button class="tab active" id="tabCurrentButton" type="button" role="tab" aria-selected="true">Current cycle</button>
-  <button class="tab" id="tabOverallButton" type="button" role="tab" aria-selected="false">Overall history</button>
-  <button class="tab" id="tabTvbButton" type="button" role="tab" aria-selected="false">TVB ruleset</button>
+  <button class="tab" id="tabOverallButton" type="button" role="tab" aria-selected="false">Overall — HK standard</button>
+  <button class="tab" id="tabTvbButton" type="button" role="tab" aria-selected="false">Overall — TVB</button>
 </div>
 <section class="tab-panel" id="tabCurrent" role="tabpanel">
   <div class="sub" id="sub">waiting for data.js…</div>
@@ -102,6 +103,10 @@ details.match summary:hover{background:#2c2c35}
   <div class="sectionnote">Same bots, different ruleset: 1-faan floor · LINEAR payments (a 10-faan hand pays only 10× a 1-faan hand) ·
   no flowers · discarder pays all. Everything below is measured under TVB rules — scores here are NOT comparable to the era 1–4 tabs.</div>
   <div id="tvbseries"></div>
+  <div class="sectionlabel" id="tvbdialslabel" style="display:none">Dial trajectories — TVB lineage</div>
+  <div class="sectionnote" id="tvbdialsnote" style="display:none">The same view as the HK tab, restricted to cycles trained under TVB rules:
+  one mini-chart per dial, one point per cycle endpoint, green dots where the cycle's product was admitted.</div>
+  <div id="tvbdialtrails"></div>
   <div class="sectionlabel" id="tvblabel">Adaptation study — how the king re-learned under TVB rules</div>
   <div class="sectionnote" id="tvbnote">The same bots under a DIFFERENT ruleset — TVB Championship 2026: 1-faan floor,
   LINEAR payments (a 10-faan hand pays only 10× a 1-faan hand), no flowers, discarder pays all. The question: can the AI re-adapt its
@@ -122,9 +127,6 @@ details.match summary:hover{background:#2c2c35}
   <div class="sectionlabel">Cycle texture — one point per cycle, proper axes</div>
   <div class="sectionnote">“Texture” means how the table <i>feels</i> to play at — how often people claim tiles, how big hands get, how often nobody wins. One point per <b>cycle</b> rather than per generation: each point is a 160-match exam, so these are far steadier than the generation charts above and are the right place to judge whether something is still moving or has settled.</div>
   <div class="trendgrid" id="cycleTexture"></div>
-  <div class="sectionlabel">Table behavior by cycle endpoint</div>
-  <div class="sectionnote">The same cycle-level numbers as a table instead of charts, with the change from the previous cycle marked. “Endpoint” just means each column is one cycle’s final recorded generation. Use this to read exact values; use the charts above to see shape.</div>
-  <div id="overallTexture"></div>
   <div class="sectionlabel" id="dialslabel" style="display:none">Dial trajectories — how the bot's personality drifted</div>
   <div class="sectionnote" id="dialsnote" style="display:none">One mini-chart per dial, one point per <b>cycle endpoint</b> (the weights that cycle finished with),
   oldest on the left. This is the whole training history in one view: evolution nudges these 24 numbers and nothing else, so every
@@ -465,10 +467,8 @@ else if (D.history.length === 0) {
         const eraStart = i === 0 || p.era !== cycleRows[i - 1].era;
         return `<td class="${eraStart ? "era-start" : ""}">${cell(metric, p[metric], i, threshold, percentage)}</td>`;
       }).join("")}</tr>`).join("");
-    document.getElementById("overallTexture").innerHTML = `<div class="card"><span class="scope">OVERALL HISTORY · FINAL RECORDED GENERATION OF EACH CYCLE</span>
-      <h2>Claim, win, and threat behavior by cycle</h2>
-      <div class="mut" style="font-size:11px;margin-bottom:7px">Columns are cycle endpoints; <b>*</b> is the live cycle's latest generation. Arrows compare with the previous recorded cycle inside the same era. Era changes have a gold divider and intentionally reset the comparison.</div>
-      <div class="table-scroll"><table class="matrix"><tr><th>table-wide metric</th>${matrixHead}</tr>${matrixBody}</table></div></div>`;
+    // (per-cycle behaviour TABLE removed 2026-08-29 — unreadable at 250+ columns;
+    //  the same numbers live in the line charts above.)
   }
 
   const PATTERN_LABELS = {
@@ -1022,11 +1022,11 @@ else if (D.history.length === 0) {
 // ── DIAL TRAJECTORIES (owner request 2026-08-29) ──
 {
   const D2 = window.DIALS_HISTORY;
-  const host = document.getElementById("dialtrails");
-  if (D2 && host && D2.points.length > 1) {
-    document.getElementById("dialslabel").style.display = "";
-    document.getElementById("dialsnote").style.display = "";
-    const pts = D2.points, keys = D2.keys;
+  window.__renderDials = (hostId, keep, labelIds) => {
+  const host = document.getElementById(hostId);
+  if (D2 && host && D2.points.filter(keep).length > 1) {
+    for (const id of labelIds) { const el = document.getElementById(id); if (el) el.style.display = ""; }
+    const pts = D2.points.filter(keep), keys = D2.keys;
     // era boundaries (index where the era number changes)
     const bounds = [];
     for (let i = 1; i < pts.length; i++) if (pts[i].era !== pts[i - 1].era) bounds.push({ i, era: pts[i].era });
@@ -1075,6 +1075,9 @@ else if (D.history.length === 0) {
         ${keys.map((k, i) => `<tr><td style="text-align:left">${k}</td>${D2.refs.map((r) => `<td class="mut">${r.v[i] ?? "—"}</td>`).join("")}</tr>`).join("")}
         </table></div></div>` : ""}`;
   }
+  };
+  window.__renderDials("dialtrails", (p) => p.ruleset !== "tvb-2026", ["dialslabel", "dialsnote"]);
+  window.__renderDials("tvbdialtrails", (p) => p.ruleset === "tvb-2026", ["tvbdialslabel", "tvbdialsnote"]);
 }
 // ── LEGEND: units + vocabulary, collapsed so it never costs a scroll ──
 {
@@ -1112,54 +1115,81 @@ else if (D.history.length === 0) {
       <tr><td><b>threat detection</b></td><td style="text-align:left">share of wins where an opponent's table read had flagged the winner (threat &gt; 0.3) before the win.</td></tr>
     </table></div></details></div>`);
 }
-// ── TVB series: the same per-cycle stats as the eras, under TVB rules ──
+// ── TVB series — same modules, same look as the HK overall tab ──
 {
   const rows = (window.SERIES_LOG || []).filter((r) => r.rulesetId === "tvb-2026" && !r.error);
   const el = document.getElementById("tvbseries");
   if (el && rows.length) {
-    const chart = (vals, fmt, color, zero) => {
-      if (vals.length < 2) return '<span class="mut" style="font-size:11px">chart appears from cycle 2</span>';
-      const W = 320, H = 84, L = 34, R = 5, T = 7, B = 16;
-      let lo = zero ? Math.min(0, ...vals) : Math.min(...vals), hi = Math.max(...vals, lo + 1e-9);
+    const W = 320, H = 96, L = 36, R = 6, T = 10, B = 18;
+    const plot = (lines, { fmt = (v) => v, zero = false } = {}) => {
+      const all = lines.flatMap((l) => l.pts.filter((v) => v !== null && v !== undefined));
+      if (all.length < 2) return null;
+      let lo = zero ? Math.min(0, ...all) : Math.min(...all), hi = Math.max(...all);
       if (hi === lo) hi = lo + 1;
-      const x = (i) => L + i / (vals.length - 1) * (W - L - R);
+      const n = Math.max(...lines.map((l) => l.pts.length));
+      const x = (i) => L + i / Math.max(1, n - 1) * (W - L - R);
       const y = (v) => T + (1 - (v - lo) / (hi - lo)) * (H - T - B);
       const tick = (v) => `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)" stroke-width=".6" stroke-dasharray="3 3"/>
-        <text x="${L - 3}" y="${y(v) + 3}" text-anchor="end" font-size="8" fill="var(--dim)">${fmt(v)}</text>`;
-      const zline = lo < 0 && hi > 0 ? `<line x1="${L}" x2="${W - R}" y1="${y(0)}" y2="${y(0)}" stroke="var(--dim)" stroke-width=".8"/>` : "";
-      return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:${H}px;display:block">
-        ${tick(hi)}${tick((hi + lo) / 2)}${tick(lo)}${zline}
-        <polyline points="${vals.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ")}" fill="none" stroke="${color}" stroke-width="1.7"/>
-        ${vals.map((v, i) => `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="1.8" fill="${color}"/>`).join("")}
-        <text x="${L}" y="${H - 4}" font-size="8" fill="var(--dim)">cycle 1</text>
-        <text x="${W - R}" y="${H - 4}" text-anchor="end" font-size="8" fill="var(--dim)">cycle ${vals.length}</text></svg>`;
+        <text x="${L - 4}" y="${y(v) + 3}" text-anchor="end" font-size="8" fill="var(--dim)">${fmt(v)}</text>`;
+      const zline = lo < 0 && hi > 0 ? `<line x1="${L}" x2="${W - R}" y1="${y(0)}" y2="${y(0)}" stroke="var(--dim)" stroke-width=".9"/>` : "";
+      const paths = lines.map((l) => {
+        const pts = l.pts.map((v, i) => (v === null || v === undefined) ? null : `${x(i).toFixed(1)},${y(v).toFixed(1)}`).filter(Boolean).join(" ");
+        return `<polyline points="${pts}" fill="none" stroke="${l.color}" stroke-width="1.6"/>`;
+      }).join("");
+      const admitted = rows.map((r, i) => r.improved
+        ? `<circle cx="${x(i).toFixed(1)}" cy="${y(lines[0].pts[i] ?? lo).toFixed(1)}" r="3" fill="var(--ok)"><title>cycle ${r.cycle}: ADMITTED</title></circle>` : "").join("");
+      return `<svg class="trend" viewBox="0 0 ${W} ${H}" style="width:100%;height:${H}px;display:block">
+        ${tick(hi)}${tick((hi + lo) / 2)}${tick(lo)}${zline}${paths}${admitted}
+        <text x="${L}" y="${H - 5}" font-size="8" fill="var(--dim)">cycle 1</text>
+        <text x="${W - R}" y="${H - 5}" text-anchor="end" font-size="8" fill="var(--dim)">cycle ${rows.length}</text></svg>
+        ${lines.length > 1 ? `<div class="trendkey">${lines.map((l) => `<span style="color:${l.color}">● ${l.label}</span>`).join("")}</div>` : ""}`;
     };
-    const exam = rows.map((r) => r.heldOutChips);
-    const st = (k) => rows.filter((r) => r.stats).map((r) => r.stats[k]);
+    const st = (k) => rows.map((r) => (r.stats ? r.stats[k] ?? null : null));
+    const pat = (k) => rows.map((r) => (r.stats?.patternShares ? r.stats.patternShares[k] ?? null : null));
+    const pct = (v) => `${Math.round(v * 100)}%`;
+    const charts = [
+      ["Held-out exam — chips/match vs the v4 king", "the admission number. 0 = par with the frozen enemy; green dots are cycles admitted to the hall of fame.",
+        [{ label: "exam", color: "var(--acc)", pts: rows.map((r) => r.heldOutChips) }], { fmt: (v) => (v > 0 ? "+" : "") + v.toFixed(0), zero: true }, "up"],
+      ["Claim mix — share of all claims", "bench endpoints, table-wide. Chow-vs-pung appetite is the tightest per-cycle behavioural signal.",
+        [{ label: "pung", color: "var(--gold)", pts: st("pungShare") }, { label: "chow", color: "var(--acc)", pts: st("chowShare") },
+         { label: "kong", color: "var(--warn)", pts: st("kongShare") }], { fmt: pct, zero: true }, "none"],
+      ["Hand types — share of bench wins", "which winning shapes dominate under a linear economy. A win can carry several patterns.",
+        [{ label: "half flush", color: "var(--acc)", pts: pat("halfFlush") }, { label: "all pungs", color: "var(--gold)", pts: pat("allPungs") },
+         { label: "concealed", color: "var(--warn)", pts: pat("concealedHand") }], { fmt: pct, zero: true }, "none"],
+      ["Mean winning faan", "under TVB every faan is worth the same, so this shows how big the bots bother to build. Real players sit at 2.22.",
+        [{ label: "x̄ faan", color: "var(--acc)", pts: st("meanFaan") }], { fmt: (v) => v.toFixed(1), zero: true }, "none"],
+      ["Draw rate 流局", "hands nobody won. Real TVB players draw ~2% of hands.",
+        [{ label: "draws", color: "var(--warn)", pts: st("drawRate") }], { fmt: pct, zero: true }, "down"],
+      ["Refused wins / hand", "legal winning shapes that could not be taken — under a 1-faan floor these are hands worth literally zero.",
+        [{ label: "refused", color: "var(--warn)", pts: st("refusedPerHand") }], { fmt: (v) => v.toFixed(2), zero: true }, "down"],
+      ["Threat detection", "share of wins where an opponent's table read had flagged the winner beforehand.",
+        [{ label: "detection", color: "var(--ok)", pts: st("threatDetection") }], { fmt: pct, zero: true }, "up"],
+    ];
     const adm = rows.filter((r) => r.improved).length;
-    const trend = (title, vals, fmt, color, zero) =>
-      `<div class="card"><h2>${title}</h2>${chart(vals, fmt, color, zero)}
-       <div class="kv"><span class="mut">start ${fmt(vals[0] ?? 0)}</span><b>now ${fmt(vals[vals.length - 1] ?? 0)}</b></div></div>`;
-    el.innerHTML = `
-      <div class="card" style="margin-bottom:10px"><h2>TVB series — live</h2>
-        <div class="mut" style="font-size:12px"><b>${rows.length}</b> cycles · <b>${adm}</b> admissions · enemy <b>${rows[0].enemy}</b> ·
-        fitness ${rows[0].fitness} · seed: ${(rows[0].start || "").split("/").pop()}. Same admission rules as every era: same-block, margin 6, held-out.</div></div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px">
-        ${trend("Exam — chips/match vs the v4 king (TVB rules)", exam, (v) => (v > 0 ? "+" : "") + (+v).toFixed(0), "var(--ok)", true)}
-        ${st("meanFaan").length ? trend("Mean winning faan", st("meanFaan"), (v) => (+v).toFixed(1), "var(--acc)") : ""}
-        ${st("drawRate").length ? trend("Draw rate 流局", st("drawRate"), (v) => Math.round(v * 100) + "%", "var(--warn)", true) : ""}
-        ${st("refusedPerHand").length ? trend("Refused wins /hand", st("refusedPerHand"), (v) => (+v).toFixed(2), "var(--warn)", true) : ""}
-        ${st("threatDetection").length ? trend("Threat detection", st("threatDetection"), (v) => Math.round(v * 100) + "%", "var(--ok)", true) : ""}
-      </div>
-      <div class="card" style="margin-top:10px"><h2>TVB cycles — newest first</h2>
-        <div style="overflow-x:auto"><table><tr><th>cycle</th><th>trained vs</th><th>sigma</th><th>exam chips</th><th>x̄ faan</th><th>draws</th><th>admitted</th><th>mins</th></tr>
+    const ch = rows.map((r) => r.heldOutChips);
+    el.innerHTML = `<div class="card" style="margin-bottom:10px"><span class="scope">TVB SERIES · CONCLUDED</span>
+      <h2>Operation and coverage</h2>
+      <div class="mut" style="font-size:12px"><b>${rows.length}</b> cycles · <b>${adm}</b> admissions · enemy <b>${rows[0].enemy}</b> ·
+      fitness ${rows[0].fitness} · exam mean <b>${(ch.reduce((a, b) => a + b, 0) / ch.length).toFixed(1)}</b>
+      (range ${Math.min(...ch).toFixed(1)} … ${Math.max(...ch).toFixed(1)}). Same admission rules as every era: same-block, margin 6, held-out.
+      Concluded by the owner — search added ~nothing on top of the engine fixes.</div></div>
+      <div class="trendgrid">${charts.map(([title, note, lines, opts, goal]) => {
+        const svg = plot(lines, opts);
+        return `<div class="card"><span class="scope">ONE POINT PER CYCLE</span><h2>${title}${goal ? (GOALS[goal] ?? "") : ""}</h2>
+          ${svg ?? '<div class="mut">not recorded for these cycles</div>'}
+          <div class="mut" style="font-size:11px">${note}</div></div>`;
+      }).join("")}</div>
+      <div class="card"><details><summary style="cursor:pointer"><b>All ${rows.length} TVB cycles</b>
+        <span class="mut">(collapsed — click to expand the full exam table)</span></summary>
+        <div style="overflow-x:auto;max-height:420px;overflow-y:auto;margin-top:8px"><table>
+        <tr><th>cycle</th><th>trained vs</th><th>sigma</th><th>exam chips</th><th>x̄ faan</th><th>draws</th><th>admitted</th><th>mins</th></tr>
         ${[...rows].reverse().map((r) => `<tr><td>${r.cycle}</td><td class="mut">${r.opponent}</td><td class="mut">${r.sigma ?? "—"}</td>
-          <td>${r.heldOutChips > 0 ? "+" : ""}${r.heldOutChips}</td>
-          <td class="mut">${r.stats?.meanFaan ?? "—"}</td><td class="mut">${r.stats ? Math.round(r.stats.drawRate * 100) + "%" : "—"}</td>
+          <td>${r.heldOutChips > 0 ? "+" : ""}${r.heldOutChips}</td><td class="mut">${r.stats?.meanFaan ?? "—"}</td>
+          <td class="mut">${r.stats ? Math.round(r.stats.drawRate * 100) + "%" : "—"}</td>
           <td>${r.improved ? '<span class="up">NEW BEST</span>' : '<span class="mut">—</span>'}</td>
-          <td class="mut">${r.mins}m</td></tr>`).join("")}</table></div></div>`;
+          <td class="mut">${r.mins}m</td></tr>`).join("")}</table></div></details></div>`;
   } else if (el) {
-    el.innerHTML = `<div class="card"><h2>TVB series</h2><span class="mut" style="font-size:12px">first cycle grinding — stats appear as exams complete (~3 min/cycle)</span></div>`;
+    el.innerHTML = `<div class="card"><h2>TVB series</h2><span class="mut" style="font-size:12px">no completed TVB cycles recorded</span></div>`;
   }
 }
 // ── TVB lab (owner request 2026-08-29): cross-ruleset adaptation ──
