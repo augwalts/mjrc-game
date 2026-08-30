@@ -81,6 +81,7 @@ details.match summary:hover{background:#2c2c35}
 <div class="tabs" role="tablist" aria-label="Panel scope">
   <button class="tab active" id="tabCurrentButton" type="button" role="tab" aria-selected="true">Current cycle</button>
   <button class="tab" id="tabOverallButton" type="button" role="tab" aria-selected="false">Overall history</button>
+  <button class="tab" id="tabTvbButton" type="button" role="tab" aria-selected="false">TVB ruleset</button>
 </div>
 <section class="tab-panel" id="tabCurrent" role="tabpanel">
   <div class="sub" id="sub">waiting for data.js…</div>
@@ -95,6 +96,17 @@ details.match summary:hover{background:#2c2c35}
   <div class="sectionnote">The bot’s entire personality is a list of numeric <b>dials</b> — training never edits its code, only these numbers. Underneath them you can open individual matches and replay them hand by hand.</div>
   <div id="currentDetails"></div>
   <div id="currentWide"></div>
+</section>
+<section class="tab-panel" id="tabTvb" role="tabpanel" hidden>
+  <div class="sectionlabel">TVB Championship 2026 — a different economy</div>
+  <div class="sectionnote">Same bots, different ruleset: 1-faan floor · LINEAR payments (a 10-faan hand pays only 10× a 1-faan hand) ·
+  no flowers · discarder pays all. Everything below is measured under TVB rules — scores here are NOT comparable to the era 1–4 tabs.</div>
+  <div id="tvbseries"></div>
+  <div class="sectionlabel" id="tvblabel">Adaptation study — how the king re-learned under TVB rules</div>
+  <div class="sectionnote" id="tvbnote">The same bots under a DIFFERENT ruleset — TVB Championship 2026: 1-faan floor,
+  LINEAR payments (a 10-faan hand pays only 10× a 1-faan hand), no flowers, discarder pays all. The question: can the AI re-adapt its
+  personality when the economy inverts?</div>
+  <div id="tvblab"></div>
 </section>
 <section class="tab-panel" id="tabOverall" role="tabpanel" hidden>
   <div class="erafilter" id="eraFilter"></div>
@@ -113,11 +125,6 @@ details.match summary:hover{background:#2c2c35}
   <div class="sectionlabel">Table behavior by cycle endpoint</div>
   <div class="sectionnote">The same cycle-level numbers as a table instead of charts, with the change from the previous cycle marked. “Endpoint” just means each column is one cycle’s final recorded generation. Use this to read exact values; use the charts above to see shape.</div>
   <div id="overallTexture"></div>
-  <div class="sectionlabel" id="tvblabel" style="display:none">TVB lab</div>
-  <div class="sectionnote" id="tvbnote" style="display:none">The same bots under a DIFFERENT ruleset — TVB Championship 2026: 1-faan floor,
-  LINEAR payments (a 10-faan hand pays only 10× a 1-faan hand), no flowers, discarder pays all. The question: can the AI re-adapt its
-  personality when the economy inverts?</div>
-  <div id="tvblab"></div>
   <div class="sectionlabel" id="historylabel" style="display:none">Research archive</div>
   <div class="sectionnote">Every cycle exam, every named experiment, and the frozen reference points, newest first. This is the project’s written record — a score only means something next to the enemy it was earned against, so every row names its enemy.</div>
   <div id="history"></div>
@@ -167,17 +174,18 @@ const GOALS = {
 };
 const showTab = (name) => {
   window.__activeTab = name;
-  const current = name !== "overall";
-  document.getElementById("tabCurrent").hidden = !current;
-  document.getElementById("tabOverall").hidden = current;
-  document.getElementById("tabCurrentButton").className = "tab" + (current ? " active" : "");
-  document.getElementById("tabOverallButton").className = "tab" + (!current ? " active" : "");
-  document.getElementById("tabCurrentButton").setAttribute("aria-selected", String(current));
-  document.getElementById("tabOverallButton").setAttribute("aria-selected", String(!current));
+  for (const [id, tab] of [["tabCurrent", "current"], ["tabOverall", "overall"], ["tabTvb", "tvb"]]) {
+    const on = name === tab || (tab === "current" && name !== "overall" && name !== "tvb");
+    document.getElementById(id).hidden = !on;
+    const btn = document.getElementById(id + "Button");
+    btn.className = "tab" + (on ? " active" : "");
+    btn.setAttribute("aria-selected", String(on));
+  }
 };
 document.getElementById("tabCurrentButton").onclick = () => showTab("current");
 document.getElementById("tabOverallButton").onclick = () => showTab("overall");
-showTab(window.__activeTab || (location.hash === "#overall" ? "overall" : "current"));
+document.getElementById("tabTvbButton").onclick = () => showTab("tvb");
+showTab(window.__activeTab || (location.hash === "#overall" ? "overall" : location.hash === "#tvb" ? "tvb" : "current"));
 // ── operational health + series-level KPIs ──
 {
   const O = window.OVERNIGHT;
@@ -967,7 +975,7 @@ else if (D.history.length === 0) {
     const st = r.stats;
     const admissionDelta = Number.isFinite(r.reigningOnSameBlock)
       ? +(r.heldOutChips - r.reigningOnSameBlock).toFixed(1) : null;
-    entries.push({ key: `${day}|e${era}c${String(r.cycle).padStart(4, "0")}`, when: day, kind: `era-${era} · cycle ${r.cycle}`,
+    entries.push({ key: `${day}|e${era}c${String(r.cycle).padStart(4, "0")}`, when: day, kind: `era-${era} · cycle ${r.cycle}${r.rulesetId === "tvb-2026" ? " · TVB" : ""}`,
       name: `exam vs ${enemy}`,
       detail: r.error ? "" : `trained vs ${r.opponent} · ${r.matches} matches/eval · ${r.mins}m`,
       result: r.error ? r.error
@@ -1041,12 +1049,61 @@ else if (D.history.length === 0) {
       <tr><td><b>threat detection</b></td><td style="text-align:left">share of wins where an opponent's table read had flagged the winner (threat &gt; 0.3) before the win.</td></tr>
     </table></div></details></div>`);
 }
+// ── TVB series: the same per-cycle stats as the eras, under TVB rules ──
+{
+  const rows = (window.SERIES_LOG || []).filter((r) => r.rulesetId === "tvb-2026" && !r.error);
+  const el = document.getElementById("tvbseries");
+  if (el && rows.length) {
+    const chart = (vals, fmt, color, zero) => {
+      if (vals.length < 2) return '<span class="mut" style="font-size:11px">chart appears from cycle 2</span>';
+      const W = 320, H = 84, L = 34, R = 5, T = 7, B = 16;
+      let lo = zero ? Math.min(0, ...vals) : Math.min(...vals), hi = Math.max(...vals, lo + 1e-9);
+      if (hi === lo) hi = lo + 1;
+      const x = (i) => L + i / (vals.length - 1) * (W - L - R);
+      const y = (v) => T + (1 - (v - lo) / (hi - lo)) * (H - T - B);
+      const tick = (v) => `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)" stroke-width=".6" stroke-dasharray="3 3"/>
+        <text x="${L - 3}" y="${y(v) + 3}" text-anchor="end" font-size="8" fill="var(--dim)">${fmt(v)}</text>`;
+      const zline = lo < 0 && hi > 0 ? `<line x1="${L}" x2="${W - R}" y1="${y(0)}" y2="${y(0)}" stroke="var(--dim)" stroke-width=".8"/>` : "";
+      return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:${H}px;display:block">
+        ${tick(hi)}${tick((hi + lo) / 2)}${tick(lo)}${zline}
+        <polyline points="${vals.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ")}" fill="none" stroke="${color}" stroke-width="1.7"/>
+        ${vals.map((v, i) => `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="1.8" fill="${color}"/>`).join("")}
+        <text x="${L}" y="${H - 4}" font-size="8" fill="var(--dim)">cycle 1</text>
+        <text x="${W - R}" y="${H - 4}" text-anchor="end" font-size="8" fill="var(--dim)">cycle ${vals.length}</text></svg>`;
+    };
+    const exam = rows.map((r) => r.heldOutChips);
+    const st = (k) => rows.filter((r) => r.stats).map((r) => r.stats[k]);
+    const adm = rows.filter((r) => r.improved).length;
+    const trend = (title, vals, fmt, color, zero) =>
+      `<div class="card"><h2>${title}</h2>${chart(vals, fmt, color, zero)}
+       <div class="kv"><span class="mut">start ${fmt(vals[0] ?? 0)}</span><b>now ${fmt(vals[vals.length - 1] ?? 0)}</b></div></div>`;
+    el.innerHTML = `
+      <div class="card" style="margin-bottom:10px"><h2>TVB series — live</h2>
+        <div class="mut" style="font-size:12px"><b>${rows.length}</b> cycles · <b>${adm}</b> admissions · enemy <b>${rows[0].enemy}</b> ·
+        fitness ${rows[0].fitness} · seeded from the TVB-adapted bot. Same admission rules as every era: same-block, margin 6, held-out.</div></div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px">
+        ${trend("Exam — chips/match vs the v4 king (TVB rules)", exam, (v) => (v > 0 ? "+" : "") + (+v).toFixed(0), "var(--ok)", true)}
+        ${st("meanFaan").length ? trend("Mean winning faan", st("meanFaan"), (v) => (+v).toFixed(1), "var(--acc)") : ""}
+        ${st("drawRate").length ? trend("Draw rate 流局", st("drawRate"), (v) => Math.round(v * 100) + "%", "var(--warn)", true) : ""}
+        ${st("refusedPerHand").length ? trend("Refused wins /hand", st("refusedPerHand"), (v) => (+v).toFixed(2), "var(--warn)", true) : ""}
+        ${st("threatDetection").length ? trend("Threat detection", st("threatDetection"), (v) => Math.round(v * 100) + "%", "var(--ok)", true) : ""}
+      </div>
+      <div class="card" style="margin-top:10px"><h2>TVB cycles — newest first</h2>
+        <div style="overflow-x:auto"><table><tr><th>cycle</th><th>trained vs</th><th>sigma</th><th>exam chips</th><th>x̄ faan</th><th>draws</th><th>admitted</th><th>mins</th></tr>
+        ${[...rows].reverse().map((r) => `<tr><td>${r.cycle}</td><td class="mut">${r.opponent}</td><td class="mut">${r.sigma ?? "—"}</td>
+          <td>${r.heldOutChips > 0 ? "+" : ""}${r.heldOutChips}</td>
+          <td class="mut">${r.stats?.meanFaan ?? "—"}</td><td class="mut">${r.stats ? Math.round(r.stats.drawRate * 100) + "%" : "—"}</td>
+          <td>${r.improved ? '<span class="up">NEW BEST</span>' : '<span class="mut">—</span>'}</td>
+          <td class="mut">${r.mins}m</td></tr>`).join("")}</table></div></div>`;
+  } else if (el) {
+    el.innerHTML = `<div class="card"><h2>TVB series</h2><span class="mut" style="font-size:12px">first cycle grinding — stats appear as exams complete (~3 min/cycle)</span></div>`;
+  }
+}
 // ── TVB lab (owner request 2026-08-29): cross-ruleset adaptation ──
 {
   const T = window.TVB_LAB;
   if (T) {
-    document.getElementById("tvblabel").style.display = "";
-    document.getElementById("tvbnote").style.display = "";
+
     const cmpRow = (k, label2) => `<tr><td style="text-align:left">${label2}</td><td>${T.census.standard[k]}</td><td>${T.census.tvbUnadapted[k]}</td><td><b>${T.census.tvbAdapted?.[k] ?? "—"}</b></td></tr>`;
     const dials = T.dialMoves?.length
       ? `<div class="card"><h2>What adaptation changed (v4 king → TVB-adapted, moves &gt; 15%)</h2>

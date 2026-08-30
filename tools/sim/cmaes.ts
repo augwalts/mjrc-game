@@ -22,7 +22,7 @@ import { spawn } from "node:child_process";
 import { cpus } from "node:os";
 import { prng } from "../../engine/src/wall.js";
 import { DEFAULT_PROFILE, type BotProfile } from "../../engine/src/bots.js";
-import { evaluate, type EvalResult } from "./evalcore.js";
+import { evaluate, setSimRuleset, type EvalResult } from "./evalcore.js";
 
 const flag = (name: string, dflt: string): string => {
   const i = process.argv.indexOf(name);
@@ -35,6 +35,8 @@ const OUT = flag("--out", "tools/sim");
 const MUTSEED = Number(flag("--mutseed", "1"));
 const SERIAL = process.argv.includes("--serial");
 const START_PATH = flag("--start", "tools/sim/era3-start.json");
+const RULESET_ID = flag("--ruleset", "mjrc-standard");
+setSimRuleset(RULESET_ID);
 const ENEMY_PATH = flag("--enemy", "tools/sim/baseline-v2.json");
 
 const load = (p: string): BotProfile => ({ ...DEFAULT_PROFILE, ...JSON.parse(readFileSync(p, "utf8")) });
@@ -118,7 +120,7 @@ function evalRemote(candidate: BotProfile, seeds: number[]): Promise<EvalResult>
       if (code !== 0) return reject(new Error(`evalworker exited ${code}`));
       resolve(JSON.parse(out).result as EvalResult);
     });
-    child.stdin.end(JSON.stringify({ candidate, incumbent: ENEMY, seeds, allSeats: true }));
+    child.stdin.end(JSON.stringify({ candidate, incumbent: ENEMY, seeds, allSeats: true, rulesetId: RULESET_ID }));
   });
 }
 const POOL = Math.max(2, Math.min(16, cpus().length - 2));

@@ -71,6 +71,9 @@ const ENEMY = argOf("--enemy", `${DIR}/baseline-v1.json`);
 const ENEMIES = argOf("--enemies", "").split(",").map((x) => x.trim()).filter(Boolean);
 if (ENEMIES.length === 0) ENEMIES.push(ENEMY);
 const MARGIN = Number(argOf("--margin", "4"));
+// TVB lab (owner 2026-08-29): the whole series can run under a different
+// ruleset — forwarded to evolve and every exam, stamped on every log row.
+const RULESET_ID = argOf("--ruleset", "mjrc-standard");
 const V0 = `${DIR}/baseline-v0.json`;
 const SEED_PROFILE = argOf("--seed-profile", `${DIR}/baseline-v1.json`);
 const HOF = `${DIR}/hall-of-fame.json`;         // best profile ever, by held-out score
@@ -105,7 +108,7 @@ setInterval(() => {
 function headtohead(profilePath, seedBlock, tablePath = ENEMY) {
   // fresh 160-match held-out evaluation — same enemy for admission and bench;
   // admission and scoreboard must never face different opponents
-  const out = execFileSync("node", [`${DIR}/headtohead.mjs`, profilePath, "160", String(seedBlock), tablePath],
+  const out = execFileSync("node", [`${DIR}/headtohead.mjs`, profilePath, "160", String(seedBlock), tablePath, RULESET_ID],
     { encoding: "utf8", timeout: 30 * 60_000 });
   const m = out.match(/chips\/match\s+(-?[\d.]+)/);
   const sm = out.match(/^STATS (.+)$/m);
@@ -132,9 +135,9 @@ while (Date.now() < deadline) {
   const trainEnemy = ENEMIES[cycle % ENEMIES.length];
   const args = useCma
     ? [`${DIR}/cmaes.mjs`, "--gens", "10", "--pop", "14", "--matches", matches, "--out", DIR,
-       "--start", start, "--enemy", trainEnemy, "--mutseed", String(9000 + cycle * 137)]
+       "--start", start, "--enemy", trainEnemy, "--ruleset", RULESET_ID, "--mutseed", String(9000 + cycle * 137)]
     : [`${DIR}/evolve.mjs`, "--gens", GENS, "--matches", matches, "--out", DIR,
-       "--start", start, "--opponent", opponent, "--baseline", trainEnemy, "--fitness", FITNESS, "--sigma", (this_sigma = sigmaFor()),
+       "--start", start, "--opponent", opponent, "--baseline", trainEnemy, "--ruleset", RULESET_ID, "--fitness", FITNESS, "--sigma", (this_sigma = sigmaFor()),
        "--mutseed", String(9000 + cycle * 137)];
   const run = await runChild("node", args, 4 * 3600_000);
   if (useCma && existsSync(`${DIR}/cma-best.json`)) copyFileSync(`${DIR}/cma-best.json`, `${DIR}/best-profile.json`);
@@ -185,7 +188,7 @@ while (Date.now() < deadline) {
     writeFileSync(`${DIR}/hall-of-fame-score.txt`, String(verdict.chips));
     hofScore = verdict.chips;
   }
-  log({ era: ERA, enemy: ENEMIES.map((e) => e.split("/").pop().replace(".json", "")).join("+"), perEnemy: verdict.per ?? null, fitness: FITNESS, sigma: Number(this_sigma), ts: new Date().toISOString(), stats: verdict.stats, cycle, opponent, matches: Number(matches), generations: Number(GENS), start, mins, heldOutChips: verdict.chips,
+  log({ era: ERA, rulesetId: RULESET_ID, enemy: ENEMIES.map((e) => e.split("/").pop().replace(".json", "")).join("+"), perEnemy: verdict.per ?? null, fitness: FITNESS, sigma: Number(this_sigma), ts: new Date().toISOString(), stats: verdict.stats, cycle, opponent, matches: Number(matches), generations: Number(GENS), start, mins, heldOutChips: verdict.chips,
         reigningOnSameBlock: reigning.chips, vsV0: vsV0.chips, improved, hofScore });
   cyclesSoFar.push({ cycle, enemy: ENEMY.split("/").pop().replace(".json", ""), stats: verdict.stats, opponent, matches: Number(matches), generations: Number(GENS), mins: Number(mins), heldOutChips: verdict.chips,
                     reigningOnSameBlock: reigning.chips, admissionMargin: MARGIN, vsV0: vsV0.chips, improved });
