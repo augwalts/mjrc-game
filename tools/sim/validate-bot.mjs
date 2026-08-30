@@ -1,9 +1,5 @@
-// tools/sim/evolve.ts
-import { writeFileSync } from "node:fs";
-import { spawn } from "node:child_process";
-import { fileURLToPath } from "node:url";
-import { dirname, join as pjoin } from "node:path";
-import { join } from "node:path";
+// tools/sim/validate-bot.ts
+import { readFileSync } from "node:fs";
 
 // engine/src/types.ts
 var BAMBOO_START = 9;
@@ -14,28 +10,6 @@ var FLOWERS_START = 34;
 var SCORING_KINDS = 34;
 var WALL_SIZE = 144;
 var CLAIM_PRIORITY = ["win", "kong", "pung", "chow"];
-
-// engine/src/wall.ts
-function prng(seed) {
-  let a = seed >>> 0;
-  return () => {
-    a = a + 1831565813 | 0;
-    let t = Math.imul(a ^ a >>> 15, 1 | a);
-    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
-    return ((t ^ t >>> 14) >>> 0) / 4294967296;
-  };
-}
-function buildWall(seed, useFlowers = true) {
-  const w = [];
-  for (let i = 0; i < SCORING_KINDS; i++) for (let k = 0; k < 4; k++) w.push(i);
-  if (useFlowers) for (let i = FLOWERS_START; i < FLOWERS_START + 8; i++) w.push(i);
-  const rnd = prng(seed);
-  for (let i = w.length - 1; i > 0; i--) {
-    const j = Math.floor(rnd() * (i + 1));
-    [w[i], w[j]] = [w[j], w[i]];
-  }
-  return w;
-}
 
 // engine/src/tiles.ts
 var TILE_NAMES = (() => {
@@ -60,8 +34,8 @@ function suitOf(t) {
   return "honours";
 }
 var rankOf = (t) => isSuited(t) ? t % 9 : -1;
-function isRun(a, b, c) {
-  return isSuited(a) && suitOf(a) === suitOf(c) && b === a + 1 && c === a + 2 && rankOf(a) <= 6;
+function isRun(a2, b, c) {
+  return isSuited(a2) && suitOf(a2) === suitOf(c) && b === a2 + 1 && c === a2 + 2 && rankOf(a2) <= 6;
 }
 var flowerSeat = (t) => (t - FLOWERS_START) % 4;
 function counts(tiles) {
@@ -77,10 +51,10 @@ function readDiscards(discards, theirWind, roundWind) {
   const suited = discards.filter(isSuited);
   let suitPhasing = 0;
   if (suited.length >= 4) {
-    const share = (a) => {
+    const share = (a2) => {
       const c = [0, 0, 0];
-      for (const t of a) c[suitIx(t)]++;
-      return Math.max(...c) / a.length;
+      for (const t of a2) c[suitIx(t)]++;
+      return Math.max(...c) / a2.length;
     };
     const half = Math.floor(suited.length / 2);
     suitPhasing = clamp01((share(suited.slice(0, half)) + share(suited.slice(half))) / 2 * 1.25 - 0.45);
@@ -132,7 +106,7 @@ function assessSeatThreat(v, seat, rules) {
   if (discards.length >= 6) {
     const late = discards.slice(-6);
     const early = discards.slice(0, 6);
-    const share = (a) => a.filter(isMiddle).length / a.length;
+    const share = (a2) => a2.filter(isMiddle).length / a2.length;
     readyProxy = clamp01((share(late) - share(early)) * 1.5 + exposure * 0.3);
   } else {
     readyProxy = exposure * 0.3;
@@ -234,16 +208,16 @@ function segmentCombos(v, suited, memo) {
   };
   rec(0, 0, 0, 0);
   const pruned = new Uint8Array(50);
-  for (let a = 0; a < 50; a++) {
-    if (!flags[a]) continue;
-    const s0 = a / 10 | 0, r0 = a % 10, p0 = r0 / 2 | 0, e0 = r0 % 2;
+  for (let a2 = 0; a2 < 50; a2++) {
+    if (!flags[a2]) continue;
+    const s0 = a2 / 10 | 0, r0 = a2 % 10, p0 = r0 / 2 | 0, e0 = r0 % 2;
     let dominated = false;
     for (let b = 0; b < 50 && !dominated; b++) {
-      if (!flags[b] || b === a) continue;
+      if (!flags[b] || b === a2) continue;
       const s1 = b / 10 | 0, r1 = b % 10, p1 = r1 / 2 | 0, e1 = r1 % 2;
       if (s1 >= s0 && p1 >= p0 && e1 >= e0 && (s1 > s0 || p1 > p0 || e1 > e0)) dominated = true;
     }
-    if (!dominated) pruned[a] = 1;
+    if (!dominated) pruned[a2] = 1;
   }
   memo.set(key, pruned);
   return pruned;
@@ -251,11 +225,11 @@ function segmentCombos(v, suited, memo) {
 var seg = new Array(9);
 function groupCombos(c, g) {
   if (g < 3) {
-    for (let r = 0; r < 9; r++) seg[r] = c[g * 9 + r];
+    for (let r2 = 0; r2 < 9; r2++) seg[r2] = c[g * 9 + r2];
     return segmentCombos(seg, true, suitMemo);
   }
   const h = new Array(7);
-  for (let r = 0; r < 7; r++) h[r] = c[27 + r];
+  for (let r2 = 0; r2 < 7; r2++) h[r2] = c[27 + r2];
   return segmentCombos(h, false, honourMemo);
 }
 function fastRawDistance(c, melds) {
@@ -308,7 +282,7 @@ function distanceToReady(c, melds = 0) {
 }
 function liveTiles(c, melds = 0, visible) {
   const w = c.slice();
-  const base = distanceToReady(w, melds);
+  const base2 = distanceToReady(w, melds);
   const tiles = [];
   let total = 0;
   for (let i = 0; i < SCORING_KINDS; i++) {
@@ -316,7 +290,7 @@ function liveTiles(c, melds = 0, visible) {
     w[i]++;
     const d = distanceToReady(w, melds);
     w[i]--;
-    if (d < base) {
+    if (d < base2) {
       const unseen = 4 - Math.min(4, visible?.[i] ?? 0);
       if (unseen > 0) {
         tiles.push({ tile: i, unseen });
@@ -324,7 +298,7 @@ function liveTiles(c, melds = 0, visible) {
       }
     }
   }
-  return { distance: base, tiles, total };
+  return { distance: base2, tiles, total };
 }
 
 // engine/src/melds.ts
@@ -392,7 +366,7 @@ function validateMeld(m, owner) {
   if (e) throw new Error(`illegal ${meldForm(m)}: ${e}`);
 }
 function makeChow(tiles, owner, from) {
-  const m = { kind: "chow", tiles: [...tiles].sort((a, b) => a - b), from, concealed: false };
+  const m = { kind: "chow", tiles: [...tiles].sort((a2, b) => a2 - b), from, concealed: false };
   validateMeld(m, owner);
   return m;
 }
@@ -434,12 +408,12 @@ var findExposedPung = (melds, tile) => melds.find((m) => m.kind === "pung" && m.
 var canAddedKong = (hand, melds, tile) => copies(hand, tile) >= 1 && findExposedPung(melds, tile) !== void 0;
 function chowOptions(hand, tile, owner, from) {
   if (from !== leftOf(owner) || !isSuited(tile)) return [];
-  const r = rankOf(tile);
+  const r2 = rankOf(tile);
   const has = (t) => hand.includes(t);
   const out = [];
-  if (r <= 6 && has(tile + 1) && has(tile + 2)) out.push([tile + 1, tile + 2]);
-  if (r >= 1 && r <= 7 && has(tile - 1) && has(tile + 1)) out.push([tile - 1, tile + 1]);
-  if (r >= 2 && has(tile - 2) && has(tile - 1)) out.push([tile - 2, tile - 1]);
+  if (r2 <= 6 && has(tile + 1) && has(tile + 2)) out.push([tile + 1, tile + 2]);
+  if (r2 >= 1 && r2 <= 7 && has(tile - 1) && has(tile + 1)) out.push([tile - 1, tile + 1]);
+  if (r2 >= 2 && has(tile - 2) && has(tile - 1)) out.push([tile - 2, tile - 1]);
   return out;
 }
 function upgradePungToKong(melds, tile, owner) {
@@ -487,10 +461,10 @@ function tableRead(v, cfg) {
   const p = profileOf(cfg);
   return p.threatSensitivity > 0 || p.urgencyWeight > 0 || p.suitContestWeight > 0 ? tableThreat(v, cfg.ruleset) : null;
 }
-var faanFor = (r, id) => r.faanTable[id] ?? 0;
+var faanFor = (r2, id) => r2.faanTable[id] ?? 0;
 function pickOne(ties, rnd) {
-  const r = rnd();
-  const i = Math.min(ties.length - 1, Math.floor(r * ties.length));
+  const r2 = rnd();
+  const i = Math.min(ties.length - 1, Math.floor(r2 * ties.length));
   return ties[i];
 }
 function ownTiles(v) {
@@ -539,19 +513,19 @@ var ROUTES = [
   { id: "honours", suit: null, pungs: true, honoursOnly: true, orphans: false },
   { id: "orphans", suit: null, pungs: false, honoursOnly: false, orphans: true }
 ];
-var routeKey = (r) => r.suit === null ? r.id : `${r.id}:${r.suit}`;
-function onRoute(r, t) {
+var routeKey = (r2) => r2.suit === null ? r2.id : `${r2.id}:${r2.suit}`;
+function onRoute(r2, t) {
   if (isFlower(t)) return true;
-  if (r.orphans) return isTerminalOrHonour(t);
-  if (r.honoursOnly) return isHonour(t);
-  if (r.suit === null) return true;
-  return isHonour(t) || suitOf(t) === r.suit;
+  if (r2.orphans) return isTerminalOrHonour(t);
+  if (r2.honoursOnly) return isHonour(t);
+  if (r2.suit === null) return true;
+  return isHonour(t) || suitOf(t) === r2.suit;
 }
-function meldsFit(r, melds) {
-  if (r.orphans && melds.length > 0) return false;
+function meldsFit(r2, melds) {
+  if (r2.orphans && melds.length > 0) return false;
   for (const m of melds) {
-    if (r.pungs && m.kind === "chow") return false;
-    for (const t of m.tiles) if (!onRoute(r, t)) return false;
+    if (r2.pungs && m.kind === "chow") return false;
+    for (const t of m.tiles) if (!onRoute(r2, t)) return false;
   }
   return true;
 }
@@ -588,8 +562,8 @@ function orphansDistance(c) {
   }
   return 13 - kinds - (hasPair ? 1 : 0);
 }
-function bonusFaan(shape, r) {
-  if (!r.useFlowers) return 0;
+function bonusFaan(shape, r2) {
+  if (!r2.useFlowers) return 0;
   let n = 0;
   let flowers = 0;
   let seasons = 0;
@@ -598,19 +572,19 @@ function bonusFaan(shape, r) {
     const season = t >= FLOWERS_START + 4;
     if (season) seasons++;
     else flowers++;
-    if (flowerSeat(t) === shape.seatWind) n += faanFor(r, season ? "ownSeason" : "ownFlower");
+    if (flowerSeat(t) === shape.seatWind) n += faanFor(r2, season ? "ownSeason" : "ownFlower");
   }
-  if (flowers === 4) n += faanFor(r, "allFlowers");
-  if (seasons === 4) n += faanFor(r, "allSeasons");
+  if (flowers === 4) n += faanFor(r2, "allFlowers");
+  if (seasons === 4) n += faanFor(r2, "allSeasons");
   return n;
 }
 function meldedTriplet(melds, tile) {
   for (const m of melds) if (m.kind !== "chow" && m.tiles[0] === tile) return true;
   return false;
 }
-function honourMeldFaan(r, shape, rules, c) {
+function honourMeldFaan(r2, shape, rules, c) {
   let n = 0;
-  const reachable = (tile) => onRoute(r, tile) && (meldedTriplet(shape.melds, tile) || c[tile] >= 2);
+  const reachable = (tile) => onRoute(r2, tile) && (meldedTriplet(shape.melds, tile) || c[tile] >= 2);
   const seatTile = WINDS_START + shape.seatWind;
   const roundTile = WINDS_START + shape.roundWind;
   if (reachable(seatTile)) n += faanFor(rules, "seatWind");
@@ -647,18 +621,18 @@ function routeValue(faan, distance, rules, profile, urgency) {
   const chipEV = floor * rel * Math.pow(decay, Math.max(0, distance));
   return (1 - cv) * faan + cv * chipEV;
 }
-function routeFaan(r, shape, rules, c) {
-  if (r.orphans) return faanFor(rules, "thirteenOrphans");
-  let n = bonusFaan(shape, rules) + honourMeldFaan(r, shape, rules, c);
+function routeFaan(r2, shape, rules, c) {
+  if (r2.orphans) return faanFor(rules, "thirteenOrphans");
+  let n = bonusFaan(shape, rules) + honourMeldFaan(r2, shape, rules, c);
   if (isConcealedHand(shape.melds)) n += faanFor(rules, "concealedHand");
-  if (r.honoursOnly) {
+  if (r2.honoursOnly) {
     return n + faanFor(rules, "allHonours");
   }
-  if (r.suit !== null) {
+  if (r2.suit !== null) {
     n += honoursHeld(shape, c) <= 1 ? faanFor(rules, "fullFlush") : faanFor(rules, "halfFlush");
   }
-  if (r.pungs) n += faanFor(rules, "allPungs");
-  else if (r.suit === null && !shape.melds.some((m) => m.kind !== "chow")) {
+  if (r2.pungs) n += faanFor(rules, "allPungs");
+  else if (r2.suit === null && !shape.melds.some((m) => m.kind !== "chow")) {
     n += faanFor(rules, "allChows");
   }
   return n;
@@ -732,7 +706,7 @@ function assessRoutes(shape, rules, profile = DEFAULT_PROFILE, table = null) {
 function chooseRoute(shape, rules, profile = DEFAULT_PROFILE, table = null) {
   const all = assessRoutes(shape, rules, profile, table);
   let best = all[0];
-  for (const a of all) if (a.score > best.score) best = a;
+  for (const a2 of all) if (a2.score > best.score) best = a2;
   return best;
 }
 function faanCeiling(shape, rules) {
@@ -772,8 +746,8 @@ function chowExposure(t, visible) {
   let n = 0;
   for (let d = -2; d <= 2; d++) {
     if (d === 0) continue;
-    const r = rank + d;
-    if (r < 0 || r > 8) continue;
+    const r2 = rank + d;
+    if (r2 < 0 || r2 > 8) continue;
     n += Math.max(0, 4 - visible[t + d]);
   }
   return n / 8;
@@ -851,7 +825,7 @@ function rankDiscards(v, cfg) {
     const score2 = folding ? -danger * (1 + profile.discardSafetyWeight) - denial * profile.feedDenial - threatDanger * foldFactor * profile.threatSensitivity : -speedDistance * profile.discardDistanceWeight - routeDistance * profile.discardRouteWeight * 0.5 + (restricts ? fits ? -profile.discardRouteWeight : profile.discardRouteWeight : 0) - danger * profile.discardSafetyWeight - denial * profile.feedDenial - threatDanger * foldFactor * profile.threatSensitivity;
     return { tile, distance, outs: -1, danger, onRoute: fits, score: score2 };
   });
-  scored.sort((a, b) => b.score - a.score || a.tile - b.tile);
+  scored.sort((a2, b) => b.score - a2.score || a2.tile - b.tile);
   const top = scored[0].score;
   const tied = scored.filter((d) => top - d.score < TIE_EPSILON);
   if (tied.length > 1) {
@@ -861,7 +835,7 @@ function rankDiscards(v, cfg) {
       c[d.tile]++;
       d.score += d.outs * profile.discardOutsWeight;
     }
-    scored.sort((a, b) => b.score - a.score || a.tile - b.tile);
+    scored.sort((a2, b) => b.score - a2.score || a2.tile - b.tile);
   }
   return scored;
 }
@@ -875,15 +849,15 @@ function routeDistanceOf(shape, route) {
   const c = routeCounts(route, counts(shape.concealed));
   return route.orphans ? orphansDistance(c) : route.pungs ? pungDistance(c, shape.melds.length) : distanceToReady(c, shape.melds.length);
 }
-function routeCounts(r, c) {
+function routeCounts(r2, c) {
   const kept = new Array(SCORING_KINDS).fill(0);
-  for (let i = 0; i < SCORING_KINDS; i++) if (c[i] > 0 && onRoute(r, i)) kept[i] = c[i];
+  for (let i = 0; i < SCORING_KINDS; i++) if (c[i] > 0 && onRoute(r2, i)) kept[i] = c[i];
   return kept;
 }
 function chooseDiscard(v, cfg) {
   const ranked = rankDiscards(v, cfg);
   const top = ranked[0].score;
-  const ties = ranked.filter((r) => top - r.score < TIE_EPSILON);
+  const ties = ranked.filter((r2) => top - r2.score < TIE_EPSILON);
   return pickOne(ties, cfg.rnd).tile;
 }
 function shapeAfterClaim(v, option, tile, from) {
@@ -1025,14 +999,14 @@ function claimDecision(v, options, cfg) {
       }
     }
   }
-  const assessed = options.filter((o) => o.kind !== "win").map((o) => assessClaim(v, o, cfg, context)).filter((a) => a.reason === "accepted");
+  const assessed = options.filter((o) => o.kind !== "win").map((o) => assessClaim(v, o, cfg, context)).filter((a2) => a2.reason === "accepted");
   if (assessed.length === 0) {
     cfg.rnd();
     return null;
   }
-  assessed.sort((a, b) => b.score - a.score || claimRank(a.option) - claimRank(b.option));
+  assessed.sort((a2, b) => b.score - a2.score || claimRank(a2.option) - claimRank(b.option));
   const top = assessed[0].score;
-  const ties = assessed.filter((a) => top - a.score < TIE_EPSILON);
+  const ties = assessed.filter((a2) => top - a2.score < TIE_EPSILON);
   return pickOne(ties, cfg.rnd).option;
 }
 var claimRank = (o) => o.kind === "kong" ? 0 : o.kind === "pung" ? 1 : o.kind === "chow" ? 2 : 3;
@@ -1092,46 +1066,68 @@ function decideAction(v, legal, cfg) {
     const adj = scoreAdjust(cfg.profile, v);
     if (adj !== cfg.profile) cfg = { ...cfg, profile: adj };
   }
-  for (const a of legal) if (a.type === "declareWin") return a;
-  for (const a of legal) if (a.type === "claim" && a.option.kind === "win") return a;
+  for (const a2 of legal) if (a2.type === "declareWin") return a2;
+  for (const a2 of legal) if (a2.type === "claim" && a2.option.kind === "win") return a2;
   const claims = legal.filter(
-    (a) => a.type === "claim"
+    (a2) => a2.type === "claim"
   );
   if (claims.length > 0) {
-    const picked = claimDecision(v, claims.map((a) => a.option), cfg);
+    const picked = claimDecision(v, claims.map((a2) => a2.option), cfg);
     if (picked !== null) {
       const match = claims.find(
-        (a) => a.option.kind === picked.kind && sameWith(a.option, picked)
+        (a2) => a2.option.kind === picked.kind && sameWith(a2.option, picked)
       );
       if (match) return match;
     }
-    const pass2 = legal.find((a) => a.type === "pass");
+    const pass2 = legal.find((a2) => a2.type === "pass");
     if (pass2) return pass2;
   }
-  for (const a of legal) {
-    if (a.type === "concealedKong" && shouldKong(v, a.tile, "concealed", cfg)) return a;
+  for (const a2 of legal) {
+    if (a2.type === "concealedKong" && shouldKong(v, a2.tile, "concealed", cfg)) return a2;
   }
-  for (const a of legal) {
-    if (a.type === "addedKong" && shouldKong(v, a.tile, "added", cfg)) return a;
+  for (const a2 of legal) {
+    if (a2.type === "addedKong" && shouldKong(v, a2.tile, "added", cfg)) return a2;
   }
   const discards = legal.filter(
-    (a) => a.type === "discard"
+    (a2) => a2.type === "discard"
   );
   if (discards.length > 0) {
     const tile = chooseDiscard(v, cfg);
-    const match = discards.find((a) => a.tile === tile);
+    const match = discards.find((a2) => a2.tile === tile);
     if (match) return match;
     return discards[0];
   }
-  const pass = legal.find((a) => a.type === "pass");
+  const pass = legal.find((a2) => a2.type === "pass");
   if (pass) return pass;
   return legal[0];
 }
-var sameWith = (a, b) => {
-  const x = a.with ?? [];
+var sameWith = (a2, b) => {
+  const x = a2.with ?? [];
   const y = b.with ?? [];
   return x.length === y.length && x.every((t, i) => t === y[i]);
 };
+
+// engine/src/wall.ts
+function prng(seed) {
+  let a2 = seed >>> 0;
+  return () => {
+    a2 = a2 + 1831565813 | 0;
+    let t = Math.imul(a2 ^ a2 >>> 15, 1 | a2);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+function buildWall(seed, useFlowers = true) {
+  const w = [];
+  for (let i = 0; i < SCORING_KINDS; i++) for (let k = 0; k < 4; k++) w.push(i);
+  if (useFlowers) for (let i = FLOWERS_START; i < FLOWERS_START + 8; i++) w.push(i);
+  const rnd = prng(seed);
+  for (let i = w.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    [w[i], w[j]] = [w[j], w[i]];
+  }
+  return w;
+}
 
 // rulesets/src/patterns.ts
 var PATTERNS = [
@@ -1714,7 +1710,7 @@ var TVB_2026 = {
 };
 var RULESETS = [HKOS_STANDARD, MJRC_STANDARD, TVB_2026, LIU];
 var DEFAULT_RULESET_ID = HKOS_STANDARD.id;
-var ruleset = (id) => RULESETS.find((r) => r.id === id);
+var ruleset = (id) => RULESETS.find((r2) => r2.id === id);
 
 // engine/src/decompose.ts
 var setKey = (s) => `${s.kind}:${s.tiles.join(",")}:${s.concealed ? "c" : "o"}${s.hasWinningTile ? "*" : ""}`;
@@ -1793,7 +1789,7 @@ function decomposeWin(concealed, melds, winningTile) {
         tiles: s.tiles,
         concealed: true,
         hasWinningTile: false
-      })).sort((a, b) => a.tiles[0] - b.tiles[0] || a.kind.localeCompare(b.kind));
+      })).sort((a2, b) => a2.tiles[0] - b.tiles[0] || a2.kind.localeCompare(b.kind));
       const slots = [];
       if (p === winningTile) slots.push(-1);
       handSets.forEach((s, i) => {
@@ -1887,10 +1883,10 @@ function isNineGates(concealed, melds, winningTile) {
   const tiles = [...concealed, winningTile];
   if (!tiles.every(isSuited)) return false;
   if (new Set(tiles.map(suitOf)).size !== 1) return false;
-  const base = Math.floor(tiles[0] / 9) * 9;
+  const base2 = Math.floor(tiles[0] / 9) * 9;
   const c = counts(tiles);
-  if (c[base] < 3 || c[base + 8] < 3) return false;
-  for (let r = 1; r <= 7; r++) if (c[base + r] < 1) return false;
+  if (c[base2] < 3 || c[base2 + 8] < 3) return false;
+  for (let r2 = 1; r2 <= 7; r2++) if (c[base2 + r2] < 1) return false;
   return true;
 }
 function situationalPatterns(ctx, melds) {
@@ -1976,7 +1972,7 @@ var EVENT_SCHEMA_VERSION = 1;
 var ENGINE_VERSION = "mjrc-engine/1.0.0";
 var TICK_MS = 1;
 var CLAIM_WINDOW_MS = 3e3;
-var asc = (a, b) => a - b;
+var asc = (a2, b) => a2 - b;
 var nextSeat = (s) => (s + 1) % 4;
 var isSeat2 = (s) => Number.isInteger(s) && s >= 0 && s <= 3;
 function four(f) {
@@ -2038,9 +2034,9 @@ function emit(d, actor, type, payload) {
   });
 }
 function resolveRuleset(id) {
-  const r = ruleset(id) ?? ruleset(DEFAULT_RULESET_ID);
-  if (!r) throw new Error(`no ruleset "${id}" and no default ruleset`);
-  return r;
+  const r2 = ruleset(id) ?? ruleset(DEFAULT_RULESET_ID);
+  if (!r2) throw new Error(`no ruleset "${id}" and no default ruleset`);
+  return r2;
 }
 var liveTilesLeft = (s) => s.wallEnd - s.wallIndex;
 function takeHead(s) {
@@ -2178,10 +2174,10 @@ var priorityOf = (k) => CLAIM_PRIORITY.indexOf(k);
 function bestClaim(live) {
   let best = live[0];
   for (const o of live) {
-    const a = o.answer;
+    const a2 = o.answer;
     const b = best.answer;
-    if (a === null || a.kind !== "claim" || b === null || b.kind !== "claim") continue;
-    if (priorityOf(a.option.kind) < priorityOf(b.option.kind)) best = o;
+    if (a2 === null || a2.kind !== "claim" || b === null || b.kind !== "claim") continue;
+    if (priorityOf(a2.option.kind) < priorityOf(b.option.kind)) best = o;
   }
   return best;
 }
@@ -2539,7 +2535,7 @@ function startNextHand(state) {
     const byStart = [0, 1, 2, 3].map(
       (n) => (d.s.startingDealer + n) % 4
     );
-    const ranked = byStart.slice().sort((a, b) => d.s.seats[b].chips - d.s.seats[a].chips);
+    const ranked = byStart.slice().sort((a2, b) => d.s.seats[b].chips - d.s.seats[a2].chips);
     const placements = [1, 1, 1, 1];
     ranked.forEach((seat, i) => {
       placements[seat] = i + 1;
@@ -2761,7 +2757,7 @@ function viewFor(state, seat) {
 }
 function playMatch(config, decide, opts = {}) {
   let { state, events } = startMatch(config);
-  const r = {
+  const r2 = {
     chips: [0, 0, 0, 0],
     hands: 0,
     draws: 0,
@@ -2786,40 +2782,40 @@ function playMatch(config, decide, opts = {}) {
     seatPungs: [0, 0, 0, 0],
     seatKongs: [0, 0, 0, 0]
   };
-  if (opts.recordHands) r.handRecords = [];
+  if (opts.recordHands) r2.handRecords = [];
   let pendingWin = null;
-  const step = (a) => {
-    state = a.state;
-    events = a.events;
+  const step = (a2) => {
+    state = a2.state;
+    events = a2.events;
   };
   for (let guard = 0; guard < 2e5; guard++) {
     for (const e of events) {
       if (e.type === "handEnd") {
-        r.hands++;
+        r2.hands++;
         const p = e.payload;
-        if (p.outcome === "exhaustiveDraw") r.draws++;
+        if (p.outcome === "exhaustiveDraw") r2.draws++;
         else {
-          r.wins++;
-          if (typeof p.faan === "number") r.faans.push(p.faan);
+          r2.wins++;
+          if (typeof p.faan === "number") r2.faans.push(p.faan);
         }
         if (p.chipDeltas) for (const st of SEATS) {
           const d = p.chipDeltas[st] ?? 0;
           if (d > 0) {
-            r.seatWon[st] += d;
+            r2.seatWon[st] += d;
             continue;
           }
-          r.seatLost[st] += d;
+          r2.seatLost[st] += d;
           if (d < 0) {
             const pay = p;
             if (pay.outcome === "winOnDiscard" && pay.loser === st) {
-              r.seatDealInLoss[st] += d;
-              r.seatDealInCount[st] += 1;
+              r2.seatDealInLoss[st] += d;
+              r2.seatDealInCount[st] += 1;
             } else if (pay.outcome === "selfDraw") {
-              r.seatTaxLoss[st] += d;
+              r2.seatTaxLoss[st] += d;
             }
           }
         }
-        if (r.handRecords) {
+        if (r2.handRecords) {
           const rec = {
             outcome: p.outcome,
             winner: p.winner ?? null,
@@ -2827,60 +2823,60 @@ function playMatch(config, decide, opts = {}) {
             chipDeltas: (p.chipDeltas ?? [0, 0, 0, 0]).slice()
           };
           if (pendingWin) rec.winningHand = pendingWin;
-          r.handRecords.push(rec);
+          r2.handRecords.push(rec);
         }
         pendingWin = null;
       }
-      if (e.type === "refusedWin") r.refusedWins++;
+      if (e.type === "refusedWin") r2.refusedWins++;
       if (e.type === "claimed") {
-        r.claims++;
+        r2.claims++;
         const { kind, seat } = e.payload;
         if (kind === "chow") {
-          r.chows++;
-          if (seat !== void 0) r.seatChows[seat]++;
+          r2.chows++;
+          if (seat !== void 0) r2.seatChows[seat]++;
         } else if (kind === "pung") {
-          r.pungs++;
-          if (seat !== void 0) r.seatPungs[seat]++;
+          r2.pungs++;
+          if (seat !== void 0) r2.seatPungs[seat]++;
         } else if (kind === "kong") {
-          r.kongs++;
-          if (seat !== void 0) r.seatKongs[seat]++;
+          r2.kongs++;
+          if (seat !== void 0) r2.seatKongs[seat]++;
         }
       }
       if (e.type === "concealedKong" || e.type === "addedKong") {
-        r.kongs++;
+        r2.kongs++;
         const seat = e.payload.seat;
-        if (seat !== void 0) r.seatKongs[seat]++;
+        if (seat !== void 0) r2.seatKongs[seat]++;
       }
       if (e.type === "winOnDiscard" || e.type === "selfDraw") {
-        if (e.type === "selfDraw") r.selfDraws++;
-        else r.winsOnDiscard++;
+        if (e.type === "selfDraw") r2.selfDraws++;
+        else r2.winsOnDiscard++;
         const winSeat = e.payload.context?.seat;
         if (winSeat !== void 0) {
-          r.threatWins++;
+          r2.threatWins++;
           for (const s of SEATS) {
             if (s === winSeat) continue;
             const read = assessSeatThreat(viewFor(state, s), winSeat, config.ruleset);
             if (read.threat > 0.3) {
-              r.threatFlagged++;
+              r2.threatFlagged++;
               break;
             }
           }
         }
         const p = e.payload;
-        for (const a of p.score?.awards ?? []) r.patterns[a.id] = (r.patterns[a.id] ?? 0) + 1;
-        if (r.handRecords) {
+        for (const a2 of p.score?.awards ?? []) r2.patterns[a2.id] = (r2.patterns[a2.id] ?? 0) + 1;
+        if (r2.handRecords) {
           pendingWin = {
             concealed: (p.concealed ?? []).slice(),
             melds: (p.melds ?? []).map((m) => ({ kind: m.kind, tiles: m.tiles.slice() })),
             winningTile: p.context?.winningTile ?? -1,
-            awards: (p.score?.awards ?? []).map((a) => ({ id: a.id, faan: a.faan }))
+            awards: (p.score?.awards ?? []).map((a2) => ({ id: a2.id, faan: a2.faan }))
           };
         }
       }
     }
     if (state.phase === "matchEnd") {
-      for (const s of SEATS) r.chips[s] = state.seats[s].chips;
-      return r;
+      for (const s of SEATS) r2.chips[s] = state.seats[s].chips;
+      return r2;
     }
     if (state.phase === "handEnd") {
       step(startNextHand(state));
@@ -2902,10 +2898,10 @@ function playMatch(config, decide, opts = {}) {
 // tools/sim/evalcore.ts
 var RULES = MJRC_STANDARD;
 function setSimRuleset(id) {
-  const r = ruleset(id);
-  if (!r) throw new Error(`unknown ruleset ${id}`);
-  RULES = r;
-  return r;
+  const r2 = ruleset(id);
+  if (!r2) throw new Error(`unknown ruleset ${id}`);
+  RULES = r2;
+  return r2;
 }
 function mkDecide(profile, seed) {
   const cfgs = SEATS.map((s) => ({
@@ -2924,44 +2920,44 @@ function placementPoints(chips, seat) {
   for (let k = 0; k < equal; k++) sum += PLACEMENT[better + k];
   return sum / equal;
 }
-function evaluate(candidate, incumbent2, seeds, sample, opts) {
-  const plays = opts?.allSeats ? seeds.flatMap((seed) => [0, 1, 2, 3].map((seat) => ({ seed, seat }))) : seeds.map((seed, i) => ({ seed, seat: i % 4 }));
+function evaluate(candidate, incumbent, seeds2, sample, opts) {
+  const plays = opts?.allSeats ? seeds2.flatMap((seed) => [0, 1, 2, 3].map((seat) => ({ seed, seat }))) : seeds2.map((seed, i) => ({ seed, seat: i % 4 }));
   let chips = 0, won = 0, lost = 0, dealInLoss = 0, dealIns = 0, taxLoss = 0, points = 0, hands = 0, draws = 0, refused = 0, claims = 0;
   let chows = 0, pungs = 0, kongs = 0, wod = 0, sd = 0, tWins = 0, tFlagged = 0;
   const patterns = {};
   const faans = [];
   plays.forEach(({ seed, seat: mySeat }) => {
     const decideC = mkDecide(candidate, seed);
-    const decideI = mkDecide(incumbent2, seed);
+    const decideI = mkDecide(incumbent, seed);
     const perSeat = SEATS.map((s) => s === mySeat ? (v, l, st) => decideC(v, l, st) : (v, l, st) => decideI(v, l, st));
-    const r = playMatch(
+    const r2 = playMatch(
       { seed, ruleset: RULES, matchLength: "oneWindRound" },
       perSeat,
       { recordHands: sample !== void 0 }
     );
     if (sample) {
-      sample.push({ seed, candidateSeat: mySeat, chips: r.chips.slice(), hands: r.hands, handRecords: r.handRecords ?? [] });
+      sample.push({ seed, candidateSeat: mySeat, chips: r2.chips.slice(), hands: r2.hands, handRecords: r2.handRecords ?? [] });
     }
-    chips += r.chips[mySeat];
-    won += r.seatWon[mySeat];
-    lost += r.seatLost[mySeat];
-    dealInLoss += r.seatDealInLoss[mySeat];
-    dealIns += r.seatDealInCount[mySeat];
-    taxLoss += r.seatTaxLoss[mySeat];
-    points += placementPoints(r.chips, mySeat);
-    hands += r.hands;
-    draws += r.draws;
-    refused += r.refusedWins;
-    claims += r.claims;
-    chows += r.chows;
-    pungs += r.pungs;
-    kongs += r.kongs;
-    wod += r.winsOnDiscard;
-    sd += r.selfDraws;
-    tWins += r.threatWins;
-    tFlagged += r.threatFlagged;
-    for (const [k, n] of Object.entries(r.patterns)) patterns[k] = (patterns[k] ?? 0) + n;
-    faans.push(...r.faans);
+    chips += r2.chips[mySeat];
+    won += r2.seatWon[mySeat];
+    lost += r2.seatLost[mySeat];
+    dealInLoss += r2.seatDealInLoss[mySeat];
+    dealIns += r2.seatDealInCount[mySeat];
+    taxLoss += r2.seatTaxLoss[mySeat];
+    points += placementPoints(r2.chips, mySeat);
+    hands += r2.hands;
+    draws += r2.draws;
+    refused += r2.refusedWins;
+    claims += r2.claims;
+    chows += r2.chows;
+    pungs += r2.pungs;
+    kongs += r2.kongs;
+    wod += r2.winsOnDiscard;
+    sd += r2.selfDraws;
+    tWins += r2.threatWins;
+    tFlagged += r2.threatFlagged;
+    for (const [k, n] of Object.entries(r2.patterns)) patterns[k] = (patterns[k] ?? 0) + n;
+    faans.push(...r2.faans);
   });
   const faanHist = new Array(14).fill(0);
   for (const f of faans) faanHist[Math.max(0, Math.min(13, Math.round(f)))]++;
@@ -2976,183 +2972,32 @@ function evaluate(candidate, incumbent2, seeds, sample, opts) {
     taxLossPerMatch: +(taxLoss / plays.length).toFixed(1),
     drawRate: +(draws / hands).toFixed(3),
     refusedPerHand: +(refused / hands).toFixed(2),
-    meanFaan: +(faans.reduce((a, b) => a + b, 0) / Math.max(1, faans.length)).toFixed(2),
+    meanFaan: +(faans.reduce((a2, b) => a2 + b, 0) / Math.max(1, faans.length)).toFixed(2),
     claimsPerHand: +(claims / hands).toFixed(2),
     threatDetection: +(tFlagged / Math.max(1, tWins)).toFixed(2),
     activity: { chows, pungs, kongs, winsOnDiscard: wod, selfDraws: sd, hands, patterns, faanHist }
   };
 }
 
-// tools/sim/evolve.ts
-import { readFileSync as rfs, existsSync as exs } from "node:fs";
-import { readFileSync, existsSync } from "node:fs";
-var args = process.argv.slice(2);
-var flag = (n, d) => {
-  const i = args.indexOf(n);
-  return i >= 0 ? args[i + 1] ?? d : d;
-};
-var GENS = Number(flag("--gens", "20"));
-var SERIAL = args.includes("--serial");
-var OPPONENT = flag("--opponent", "mirror");
-var MUTSEED = Number(flag("--mutseed", "0"));
-var SIGMA = Number(flag("--sigma", "0.35"));
-var RULESET_ID = flag("--ruleset", "mjrc-standard");
-var RULES2 = setSimRuleset(RULESET_ID);
-var BASELINE_PATH = flag("--baseline", "tools/sim/baseline-v0.json");
-var BASELINE = {
-  ...DEFAULT_PROFILE,
-  ...exs(BASELINE_PATH) ? JSON.parse(rfs(BASELINE_PATH, "utf8")) : {}
-};
-var BENCH_SEEDS = Array.from({ length: 48 }, (_, i) => 88e4 + i * 7919);
-var OUT = flag("--out", "tools/sim");
-var CANDIDATES = 6;
-var MATCHES = Number(flag("--matches", "48"));
-var FITNESS = flag("--fitness", "points");
-var fit = (r) => FITNESS === "chips" ? r.chipsPerMatch : r.pointsPerMatch;
-var PROMOTE_MARGIN = FITNESS === "chips" ? Number(flag("--margin", "4")) : 0.5;
-var KEYS = Object.keys(DEFAULT_PROFILE);
-var WORKER = pjoin(dirname(fileURLToPath(import.meta.url)), "evalworker.mjs");
-function evaluateRemote(candidate, incumbent2, seeds, collect, allSeats) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [WORKER], { stdio: ["pipe", "pipe", "inherit"] });
-    let out = "";
-    child.stdout.on("data", (c) => out += c);
-    child.on("error", reject);
-    child.on("close", (code) => {
-      if (code !== 0) return reject(new Error(`evalworker exited ${code}`));
-      try {
-        resolve(JSON.parse(out));
-      } catch (e) {
-        reject(e);
-      }
-    });
-    child.stdin.end(JSON.stringify({ candidate, incumbent: incumbent2, seeds, collect, allSeats, rulesetId: RULESET_ID }));
-  });
-}
-async function runEval(c, i, seeds, sample, allSeats) {
-  if (SERIAL) return evaluate(c, i, seeds, sample, { allSeats });
-  const { result, sample: got } = await evaluateRemote(c, i, seeds, sample !== void 0, allSeats);
-  if (sample && got) sample.push(...got);
-  return result;
-}
-function mutate(base, rnd, sigma, wild = false) {
-  const out = { ...base };
-  const kicks = 1 + Math.floor(rnd() * 5);
-  const s = (wild ? 2.5 : 1) * sigma;
-  const picked = /* @__PURE__ */ new Set();
-  while (picked.size < kicks) picked.add(Math.floor(rnd() * KEYS.length));
-  for (const i of picked) {
-    const k = KEYS[i];
-    const u1 = Math.max(rnd(), 1e-12), u2 = rnd();
-    const gauss = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
-    out[k] = +(base[k] * Math.exp(gauss * s)).toFixed(4);
-  }
-  return out;
-}
-var history = [];
-var startFrom = flag("--start", "");
-var incumbent = startFrom && existsSync(startFrom) ? { ...DEFAULT_PROFILE, ...JSON.parse(readFileSync(startFrom, "utf8")) } : { ...DEFAULT_PROFILE };
-if (startFrom) console.log(`starting from ${startFrom}`);
-var sampleMatches = [];
-function flush(status) {
-  const baselineName = BASELINE_PATH.split("/").pop()?.replace(/\.json$/, "") ?? BASELINE_PATH;
-  const payload = {
-    status,
-    updated: (/* @__PURE__ */ new Date()).toISOString(),
-    defaults: DEFAULT_PROFILE,
-    keys: KEYS,
-    history,
-    sampleMatches,
-    baseline: BASELINE_PATH,
-    ruleset: RULES2.id,
-    fitness: FITNESS,
-    gens: GENS,
-    sigma: SIGMA,
-    trainingOpponent: OPPONENT,
-    trainingOpponentLabel: OPPONENT === "baseline" ? baselineName : "current incumbent (mirror)",
-    selectionMatches: MATCHES,
-    benchMatches: BENCH_SEEDS.length * 4,
-    benchWalls: BENCH_SEEDS.length,
-    generationsPlanned: GENS
-  };
-  writeFileSync(join(OUT, "data.js"), "window.SIM_DATA = " + JSON.stringify(payload) + ";\n");
-  writeFileSync(join(OUT, "best-profile.json"), JSON.stringify(incumbent, null, 2) + "\n");
-}
-var START_PROFILE = { ...incumbent };
-flush("starting");
-for (let gen = 0; gen < GENS; gen++) {
-  const t0 = Date.now();
-  const incumbentBefore = incumbent;
-  const seedBase = 5e5 + gen * 1e3;
-  const seeds = Array.from({ length: MATCHES }, (_, i) => seedBase + i * 7919);
-  const mrnd = prng(43968 + gen + MUTSEED >>> 0);
-  const sigma = SIGMA;
-  const controlSample = [];
-  const opp = OPPONENT === "baseline" ? BASELINE : incumbent;
-  const mutants = Array.from({ length: CANDIDATES }, (_, id) => ({ id, profile: mutate(incumbent, mrnd, sigma, id === CANDIDATES - 1) }));
-  const [control, ...results] = await Promise.all([
-    runEval(incumbent, opp, seeds, controlSample),
-    ...mutants.map((m) => runEval(m.profile, opp, seeds))
-  ]);
-  sampleMatches = controlSample;
-  const candidates = mutants.map((m, i) => ({ ...m, result: results[i] }));
-  let promoted = null;
-  let confirm = null;
-  let confirmControl = null;
-  const best = [...candidates].sort((a, b) => fit(b.result) - fit(a.result))[0];
-  if (fit(best.result) > fit(control) + PROMOTE_MARGIN) {
-    const confirmSeeds = Array.from({ length: MATCHES }, (_, i) => seedBase + 104729 + i * 7919);
-    const [cf, controlB] = await Promise.all([
-      runEval(best.profile, opp, confirmSeeds),
-      runEval(incumbent, opp, confirmSeeds)
-    ]);
-    confirm = cf;
-    confirmControl = controlB;
-    if (fit(confirm) > fit(controlB) + PROMOTE_MARGIN) {
-      incumbent = best.profile;
-      promoted = best.id;
-    }
-  }
-  const [bench, benchPrev] = await Promise.all([
-    runEval(incumbent, BASELINE, BENCH_SEEDS, void 0, true),
-    runEval(incumbent, START_PROFILE, BENCH_SEEDS, void 0, true)
-  ]);
-  const evalHands = (r) => r.activity.hands;
-  const selectionHands = evalHands(control) + candidates.reduce((n, c) => n + evalHands(c.result), 0);
-  const confirmationHands = confirm && confirmControl ? evalHands(confirm) + evalHands(confirmControl) : 0;
-  const breakdown = {
-    selection: { matches: MATCHES * (CANDIDATES + 1), hands: selectionHands },
-    confirmation: { matches: confirm ? MATCHES * 2 : 0, hands: confirmationHands },
-    fixedBenchmark: { matches: BENCH_SEEDS.length * 4, hands: evalHands(bench) },
-    pastChampionBenchmark: { matches: BENCH_SEEDS.length * 4, hands: evalHands(benchPrev) }
-  };
-  const work = {
-    matches: Object.values(breakdown).reduce((n, part) => n + part.matches, 0),
-    hands: Object.values(breakdown).reduce((n, part) => n + part.hands, 0),
-    breakdown
-  };
-  const changed = promoted === null ? null : Object.fromEntries(
-    Object.keys(incumbent).filter((k) => Math.abs(incumbent[k] - incumbentBefore[k]) > 1e-9).map((k) => [k, { from: +incumbentBefore[k].toFixed(4), to: +incumbent[k].toFixed(4) }])
-  );
-  history.push({
-    gen,
-    seeds: [seeds[0], seeds[seeds.length - 1]],
-    control,
-    confirm,
-    confirmControl,
-    bench,
-    benchPrev,
-    work,
-    changed,
-    candidates: candidates.map((c) => ({ id: c.id, result: c.result, profile: c.profile })),
-    promoted,
-    incumbentAfter: incumbent,
-    ms: Date.now() - t0
-  });
-  flush("running");
-  console.log(
-    `gen ${gen}: control ${fit(control)}${FITNESS === "chips" ? "c" : "pt"} \xB7 best ${fit(best.result)}${FITNESS === "chips" ? "c" : "pt"}` + (confirm ? ` \xB7 confirm ${fit(confirm)}${FITNESS === "chips" ? "c" : "pt"}` : "") + ` \xB7 ${promoted === null ? "kept" : `PROMOTED #${promoted}`} \xB7 vs baseline ${bench.chipsPerMatch > 0 ? "+" : ""}${bench.chipsPerMatch} \xB7 vs past champ ${benchPrev.chipsPerMatch > 0 ? "+" : ""}${benchPrev.chipsPerMatch} chips \xB7 ${work.matches}m/${work.hands}h \xB7 ${((Date.now() - t0) / 1e3).toFixed(0)}s`
-  );
-}
-flush("done");
-console.log("final profile written to best-profile.json");
+// tools/sim/validate-bot.ts
+var load = (p) => ({ ...DEFAULT_PROFILE, ...JSON.parse(readFileSync(p, "utf8")) });
+var prof = load(process.argv[2]);
+var N = Number(process.argv[3] ?? 40);
+var base = Number(process.argv[4] ?? 12345678);
+if (process.argv[5]) setSimRuleset(process.argv[5]);
+var seeds = Array.from({ length: N }, (_, i) => base + i * 7919);
+var r = evaluate(prof, prof, seeds, void 0, { allSeats: true });
+var a = r.activity;
+var per = (n) => +(n / a.hands).toFixed(2);
+var wins = a.winsOnDiscard + a.selfDraws;
+var pct = (n, d) => `${(100 * n / Math.max(1, d)).toFixed(0)}%`;
+console.log(`games ${N * 4} (all-seats) \xB7 hands ${a.hands} \xB7 chips/match ${r.chipsPerMatch} (mirror: must be 0)`);
+console.log(`wins ${wins} (${pct(wins, a.hands)} of hands) \u2014 on discard \u98DF\u7CCA ${a.winsOnDiscard} (${pct(a.winsOnDiscard, wins)}) \xB7 self-draw \u81EA\u6478 ${a.selfDraws} (${pct(a.selfDraws, wins)})`);
+console.log(`draws \u6D41\u5C40 ${pct(Math.round(r.drawRate * a.hands), a.hands)} \xB7 refused wins ${r.refusedPerHand}/hand \xB7 threat detection ${Math.round(r.threatDetection * 100)}%`);
+console.log(`claims/hand ${r.claimsPerHand} \u2014 chows \u4E0A ${per(a.chows)} \xB7 pungs \u78B0 ${per(a.pungs)} \xB7 kongs \u69D3 ${per(a.kongs)}`);
+console.log(`mean winning faan ${r.meanFaan}`);
+var fh = a.faanHist;
+var tot = fh.reduce((x, y) => x + y, 0) || 1;
+console.log("faan sizes: " + [1, 2, 3, 4, 5, 6, 7, 8, 9].map((f) => `${f}:${pct(fh[f], tot)}`).join(" ") + ` 10+:${pct(fh.slice(10).reduce((x, y) => x + y, 0), tot)}`);
+var pats = Object.entries(a.patterns).sort((x, y) => y[1] - x[1]).slice(0, 14);
+console.log("hand types (% of wins): " + pats.map(([k, n]) => `${k} ${pct(n, wins)}`).join(" \xB7 "));

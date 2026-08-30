@@ -189,6 +189,15 @@ export interface BotProfile {
   /** Withhold pairable tiles from seats showing an all-pungs appetite
    * (≥2 pung/kong melds) — "stop feeding the collector". */
   feedDenial: number;
+  /**
+   * WHAT FOLDING IS FOR (owner ruling 2026-08-29): "players aggressively try
+   * to hit at least 1 point and only abandon if an opponent will win with a
+   * BIG hand." At 0 the fold pressure is the historical one — how CLOSE the
+   * scariest seat looks. At 1 it is how EXPENSIVE that seat's hand is
+   * (threat x its chips-relative-to-floor payout), so a cheap fast hand no
+   * longer buys a fold and a bomb buys one early. Blends in between.
+   */
+  foldSizeBias: number;
   /** P(the route completes) per remaining tile of distance — disciplines the
    * exponential payout so "slow huge" does not always beat "fast small". */
   routeDecay: number;
@@ -240,6 +249,7 @@ export const DEFAULT_PROFILE: BotProfile = {
   winFastLead: 0,
   foldThreshold: 0,
   feedDenial: 0,
+  foldSizeBias: 0,
   chipValuation: 1,
   // 0.45, not 0.55: on the doubling ladder a claim costs 門前清 (÷2 payout), so
   // a tile of speed must be worth MORE than 2× (1/0.45 ≈ 2.2) or no bot ever
@@ -616,7 +626,16 @@ function routeFaan(r: Route, shape: HandShape, rules: Ruleset, c: readonly numbe
     n += honoursHeld(shape, c) <= 1 ? faanFor(rules, "fullFlush") : faanFor(rules, "halfFlush");
   }
   if (r.pungs) n += faanFor(rules, "allPungs");
-  else if (r.suit === null) n += faanFor(rules, "allChows");
+  else if (r.suit === null && !shape.melds.some((m) => m.kind !== "chow")) {
+    // 平糊 demands that EVERY set be a chow, so one claimed pung or kong kills
+    // it for the rest of the hand. This used to be credited unconditionally,
+    // which handed the balanced route phantom faan: after claiming a pung "for
+    // 對對糊" the bot would find balanced/chows scoring HIGHER (it is nearer to
+    // completion), drift there, and finish a pung/chow hybrid that matches no
+    // pattern at all — 100% of TVB refusals, every one of them a legal winning
+    // shape worth exactly zero (refusal audit, 2026-08-29).
+    n += faanFor(rules, "allChows");
+  }
   return n;
 }
 
@@ -723,6 +742,14 @@ export function assessRoutes(
     // is available to every hand, so a route that still falls short with it is
     // short for good.
     if (attainable < rules.minimumFaan) score -= profile.belowMinimumPenalty;
+    else if (faan < rules.minimumFaan) {
+      // HALF-DEAD: pays only if SELF-DRAWN. Most wins arrive off a discard
+      // (~60% measured), where 自摸's bonus does not exist — so a route that
+      // needs it to qualify is a route whose commonest win is unusable. The
+      // owner's rule (2026-08-29): "players aggressively try to hit at least
+      // 1 point". Charged at the discard share of the same anti-sin penalty.
+      score -= profile.belowMinimumPenalty * DISCARD_WIN_SHARE;
+    }
     if (!feasible) score = Number.NEGATIVE_INFINITY;
     out.push({
       route, key: routeKey(route), feasible, faan, attainable, offRoute, surplus, distance, score,
@@ -894,7 +921,17 @@ export function rankDiscards(v: SeatView, cfg: BotConfig): DiscardScore[] {
   let foldFactor = 0;
   if (profile.threatSensitivity > 0 && threats !== null) {
     const ownStrength = Math.max(0, 1 - chosen.distance / 4);
-    foldFactor = Math.max(0, threats.max - ownStrength * profile.threatPushValue);
+    // Size-aware pressure: the scariest seat by EXPECTED COST, not proximity.
+    // chipsRel is the payout multiple over a floor hand, capped so one lurid
+    // read cannot panic the whole hand; /4 puts a 4x-floor hand on par with
+    // the old proximity scale.
+    let sized = 0;
+    for (const t of threats.seats) {
+      const cost = t.threat * Math.min(t.chipsRel, 12) / 4;
+      if (cost > sized) sized = cost;
+    }
+    const pressure = threats.max + profile.foldSizeBias * (sized - threats.max);
+    foldFactor = Math.max(0, pressure - ownStrength * profile.threatPushValue);
   }
   // HARD FOLD (owner 2026-08-28): past the threshold the seat stops racing —
   // the win is abandoned and every cut is chosen on safety alone. The
@@ -1026,6 +1063,7 @@ const ORPHANS_MIN_KINDS = 6;
  * re-evaluation to 對對糊 the moment those tiles read better as pungs: the
  * owner's own bail path ("pivot into all pungs or terminals").
  */
+const DISCARD_WIN_SHARE = 0.6;
 const ORPHANS_DISTANCE_TAX = 2;
 
 /** Distance to a win along one named route, for the hand as it stands. */

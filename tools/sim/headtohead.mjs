@@ -466,6 +466,7 @@ var DEFAULT_PROFILE = {
   winFastLead: 0,
   foldThreshold: 0,
   feedDenial: 0,
+  foldSizeBias: 0,
   chipValuation: 1,
   // 0.45, not 0.55: on the doubling ladder a claim costs 門前清 (÷2 payout), so
   // a tile of speed must be worth MORE than 2× (1/0.45 ≈ 2.2) or no bot ever
@@ -653,7 +654,9 @@ function routeFaan(r, shape, rules, c) {
     n += honoursHeld(shape, c) <= 1 ? faanFor(rules, "fullFlush") : faanFor(rules, "halfFlush");
   }
   if (r.pungs) n += faanFor(rules, "allPungs");
-  else if (r.suit === null) n += faanFor(rules, "allChows");
+  else if (r.suit === null && !shape.melds.some((m) => m.kind !== "chow")) {
+    n += faanFor(rules, "allChows");
+  }
   return n;
 }
 function assessRoutes(shape, rules, profile2 = DEFAULT_PROFILE, table = null) {
@@ -704,6 +707,9 @@ function assessRoutes(shape, rules, profile2 = DEFAULT_PROFILE, table = null) {
     // down before any tile is thrown at it.
     (route.suit !== null && table !== null ? suitContest(route.suit, table) * profile2.suitContestWeight : 0);
     if (attainable < rules.minimumFaan) score2 -= profile2.belowMinimumPenalty;
+    else if (faan < rules.minimumFaan) {
+      score2 -= profile2.belowMinimumPenalty * DISCARD_WIN_SHARE;
+    }
     if (!feasible) score2 = Number.NEGATIVE_INFINITY;
     out.push({
       route,
@@ -801,7 +807,13 @@ function rankDiscards(v, cfg) {
   let foldFactor = 0;
   if (profile2.threatSensitivity > 0 && threats !== null) {
     const ownStrength = Math.max(0, 1 - chosen.distance / 4);
-    foldFactor = Math.max(0, threats.max - ownStrength * profile2.threatPushValue);
+    let sized = 0;
+    for (const t of threats.seats) {
+      const cost = t.threat * Math.min(t.chipsRel, 12) / 4;
+      if (cost > sized) sized = cost;
+    }
+    const pressure = threats.max + profile2.foldSizeBias * (sized - threats.max);
+    foldFactor = Math.max(0, pressure - ownStrength * profile2.threatPushValue);
   }
   const folding = profile2.foldThreshold > 0 && foldFactor > profile2.foldThreshold;
   const melds = shape.melds.length;
@@ -853,6 +865,7 @@ var TIE_EPSILON = 1e-9;
 var MAX_DISTANCE = 8;
 var MIN_ROUTE_TILES = 7;
 var ORPHANS_MIN_KINDS = 6;
+var DISCARD_WIN_SHARE = 0.6;
 var ORPHANS_DISTANCE_TAX = 2;
 function routeDistanceOf(shape, route) {
   const c = routeCounts(route, counts(shape.concealed));

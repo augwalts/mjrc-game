@@ -1,10 +1,3 @@
-// tools/sim/evolve.ts
-import { writeFileSync } from "node:fs";
-import { spawn } from "node:child_process";
-import { fileURLToPath } from "node:url";
-import { dirname, join as pjoin } from "node:path";
-import { join } from "node:path";
-
 // engine/src/types.ts
 var BAMBOO_START = 9;
 var CIRCLES_START = 18;
@@ -2907,6 +2900,7 @@ function setSimRuleset(id) {
   RULES = r;
   return r;
 }
+var simRuleset = () => RULES;
 function mkDecide(profile, seed) {
   const cfgs = SEATS.map((s) => ({
     ruleset: RULES,
@@ -2924,7 +2918,7 @@ function placementPoints(chips, seat) {
   for (let k = 0; k < equal; k++) sum += PLACEMENT[better + k];
   return sum / equal;
 }
-function evaluate(candidate, incumbent2, seeds, sample, opts) {
+function evaluate(candidate, incumbent, seeds, sample, opts) {
   const plays = opts?.allSeats ? seeds.flatMap((seed) => [0, 1, 2, 3].map((seat) => ({ seed, seat }))) : seeds.map((seed, i) => ({ seed, seat: i % 4 }));
   let chips = 0, won = 0, lost = 0, dealInLoss = 0, dealIns = 0, taxLoss = 0, points = 0, hands = 0, draws = 0, refused = 0, claims = 0;
   let chows = 0, pungs = 0, kongs = 0, wod = 0, sd = 0, tWins = 0, tFlagged = 0;
@@ -2932,7 +2926,7 @@ function evaluate(candidate, incumbent2, seeds, sample, opts) {
   const faans = [];
   plays.forEach(({ seed, seat: mySeat }) => {
     const decideC = mkDecide(candidate, seed);
-    const decideI = mkDecide(incumbent2, seed);
+    const decideI = mkDecide(incumbent, seed);
     const perSeat = SEATS.map((s) => s === mySeat ? (v, l, st) => decideC(v, l, st) : (v, l, st) => decideI(v, l, st));
     const r = playMatch(
       { seed, ruleset: RULES, matchLength: "oneWindRound" },
@@ -2982,177 +2976,10 @@ function evaluate(candidate, incumbent2, seeds, sample, opts) {
     activity: { chows, pungs, kongs, winsOnDiscard: wod, selfDraws: sd, hands, patterns, faanHist }
   };
 }
-
-// tools/sim/evolve.ts
-import { readFileSync as rfs, existsSync as exs } from "node:fs";
-import { readFileSync, existsSync } from "node:fs";
-var args = process.argv.slice(2);
-var flag = (n, d) => {
-  const i = args.indexOf(n);
-  return i >= 0 ? args[i + 1] ?? d : d;
+export {
+  evaluate,
+  mkDecide,
+  placementPoints,
+  setSimRuleset,
+  simRuleset
 };
-var GENS = Number(flag("--gens", "20"));
-var SERIAL = args.includes("--serial");
-var OPPONENT = flag("--opponent", "mirror");
-var MUTSEED = Number(flag("--mutseed", "0"));
-var SIGMA = Number(flag("--sigma", "0.35"));
-var RULESET_ID = flag("--ruleset", "mjrc-standard");
-var RULES2 = setSimRuleset(RULESET_ID);
-var BASELINE_PATH = flag("--baseline", "tools/sim/baseline-v0.json");
-var BASELINE = {
-  ...DEFAULT_PROFILE,
-  ...exs(BASELINE_PATH) ? JSON.parse(rfs(BASELINE_PATH, "utf8")) : {}
-};
-var BENCH_SEEDS = Array.from({ length: 48 }, (_, i) => 88e4 + i * 7919);
-var OUT = flag("--out", "tools/sim");
-var CANDIDATES = 6;
-var MATCHES = Number(flag("--matches", "48"));
-var FITNESS = flag("--fitness", "points");
-var fit = (r) => FITNESS === "chips" ? r.chipsPerMatch : r.pointsPerMatch;
-var PROMOTE_MARGIN = FITNESS === "chips" ? Number(flag("--margin", "4")) : 0.5;
-var KEYS = Object.keys(DEFAULT_PROFILE);
-var WORKER = pjoin(dirname(fileURLToPath(import.meta.url)), "evalworker.mjs");
-function evaluateRemote(candidate, incumbent2, seeds, collect, allSeats) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [WORKER], { stdio: ["pipe", "pipe", "inherit"] });
-    let out = "";
-    child.stdout.on("data", (c) => out += c);
-    child.on("error", reject);
-    child.on("close", (code) => {
-      if (code !== 0) return reject(new Error(`evalworker exited ${code}`));
-      try {
-        resolve(JSON.parse(out));
-      } catch (e) {
-        reject(e);
-      }
-    });
-    child.stdin.end(JSON.stringify({ candidate, incumbent: incumbent2, seeds, collect, allSeats, rulesetId: RULESET_ID }));
-  });
-}
-async function runEval(c, i, seeds, sample, allSeats) {
-  if (SERIAL) return evaluate(c, i, seeds, sample, { allSeats });
-  const { result, sample: got } = await evaluateRemote(c, i, seeds, sample !== void 0, allSeats);
-  if (sample && got) sample.push(...got);
-  return result;
-}
-function mutate(base, rnd, sigma, wild = false) {
-  const out = { ...base };
-  const kicks = 1 + Math.floor(rnd() * 5);
-  const s = (wild ? 2.5 : 1) * sigma;
-  const picked = /* @__PURE__ */ new Set();
-  while (picked.size < kicks) picked.add(Math.floor(rnd() * KEYS.length));
-  for (const i of picked) {
-    const k = KEYS[i];
-    const u1 = Math.max(rnd(), 1e-12), u2 = rnd();
-    const gauss = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
-    out[k] = +(base[k] * Math.exp(gauss * s)).toFixed(4);
-  }
-  return out;
-}
-var history = [];
-var startFrom = flag("--start", "");
-var incumbent = startFrom && existsSync(startFrom) ? { ...DEFAULT_PROFILE, ...JSON.parse(readFileSync(startFrom, "utf8")) } : { ...DEFAULT_PROFILE };
-if (startFrom) console.log(`starting from ${startFrom}`);
-var sampleMatches = [];
-function flush(status) {
-  const baselineName = BASELINE_PATH.split("/").pop()?.replace(/\.json$/, "") ?? BASELINE_PATH;
-  const payload = {
-    status,
-    updated: (/* @__PURE__ */ new Date()).toISOString(),
-    defaults: DEFAULT_PROFILE,
-    keys: KEYS,
-    history,
-    sampleMatches,
-    baseline: BASELINE_PATH,
-    ruleset: RULES2.id,
-    fitness: FITNESS,
-    gens: GENS,
-    sigma: SIGMA,
-    trainingOpponent: OPPONENT,
-    trainingOpponentLabel: OPPONENT === "baseline" ? baselineName : "current incumbent (mirror)",
-    selectionMatches: MATCHES,
-    benchMatches: BENCH_SEEDS.length * 4,
-    benchWalls: BENCH_SEEDS.length,
-    generationsPlanned: GENS
-  };
-  writeFileSync(join(OUT, "data.js"), "window.SIM_DATA = " + JSON.stringify(payload) + ";\n");
-  writeFileSync(join(OUT, "best-profile.json"), JSON.stringify(incumbent, null, 2) + "\n");
-}
-var START_PROFILE = { ...incumbent };
-flush("starting");
-for (let gen = 0; gen < GENS; gen++) {
-  const t0 = Date.now();
-  const incumbentBefore = incumbent;
-  const seedBase = 5e5 + gen * 1e3;
-  const seeds = Array.from({ length: MATCHES }, (_, i) => seedBase + i * 7919);
-  const mrnd = prng(43968 + gen + MUTSEED >>> 0);
-  const sigma = SIGMA;
-  const controlSample = [];
-  const opp = OPPONENT === "baseline" ? BASELINE : incumbent;
-  const mutants = Array.from({ length: CANDIDATES }, (_, id) => ({ id, profile: mutate(incumbent, mrnd, sigma, id === CANDIDATES - 1) }));
-  const [control, ...results] = await Promise.all([
-    runEval(incumbent, opp, seeds, controlSample),
-    ...mutants.map((m) => runEval(m.profile, opp, seeds))
-  ]);
-  sampleMatches = controlSample;
-  const candidates = mutants.map((m, i) => ({ ...m, result: results[i] }));
-  let promoted = null;
-  let confirm = null;
-  let confirmControl = null;
-  const best = [...candidates].sort((a, b) => fit(b.result) - fit(a.result))[0];
-  if (fit(best.result) > fit(control) + PROMOTE_MARGIN) {
-    const confirmSeeds = Array.from({ length: MATCHES }, (_, i) => seedBase + 104729 + i * 7919);
-    const [cf, controlB] = await Promise.all([
-      runEval(best.profile, opp, confirmSeeds),
-      runEval(incumbent, opp, confirmSeeds)
-    ]);
-    confirm = cf;
-    confirmControl = controlB;
-    if (fit(confirm) > fit(controlB) + PROMOTE_MARGIN) {
-      incumbent = best.profile;
-      promoted = best.id;
-    }
-  }
-  const [bench, benchPrev] = await Promise.all([
-    runEval(incumbent, BASELINE, BENCH_SEEDS, void 0, true),
-    runEval(incumbent, START_PROFILE, BENCH_SEEDS, void 0, true)
-  ]);
-  const evalHands = (r) => r.activity.hands;
-  const selectionHands = evalHands(control) + candidates.reduce((n, c) => n + evalHands(c.result), 0);
-  const confirmationHands = confirm && confirmControl ? evalHands(confirm) + evalHands(confirmControl) : 0;
-  const breakdown = {
-    selection: { matches: MATCHES * (CANDIDATES + 1), hands: selectionHands },
-    confirmation: { matches: confirm ? MATCHES * 2 : 0, hands: confirmationHands },
-    fixedBenchmark: { matches: BENCH_SEEDS.length * 4, hands: evalHands(bench) },
-    pastChampionBenchmark: { matches: BENCH_SEEDS.length * 4, hands: evalHands(benchPrev) }
-  };
-  const work = {
-    matches: Object.values(breakdown).reduce((n, part) => n + part.matches, 0),
-    hands: Object.values(breakdown).reduce((n, part) => n + part.hands, 0),
-    breakdown
-  };
-  const changed = promoted === null ? null : Object.fromEntries(
-    Object.keys(incumbent).filter((k) => Math.abs(incumbent[k] - incumbentBefore[k]) > 1e-9).map((k) => [k, { from: +incumbentBefore[k].toFixed(4), to: +incumbent[k].toFixed(4) }])
-  );
-  history.push({
-    gen,
-    seeds: [seeds[0], seeds[seeds.length - 1]],
-    control,
-    confirm,
-    confirmControl,
-    bench,
-    benchPrev,
-    work,
-    changed,
-    candidates: candidates.map((c) => ({ id: c.id, result: c.result, profile: c.profile })),
-    promoted,
-    incumbentAfter: incumbent,
-    ms: Date.now() - t0
-  });
-  flush("running");
-  console.log(
-    `gen ${gen}: control ${fit(control)}${FITNESS === "chips" ? "c" : "pt"} \xB7 best ${fit(best.result)}${FITNESS === "chips" ? "c" : "pt"}` + (confirm ? ` \xB7 confirm ${fit(confirm)}${FITNESS === "chips" ? "c" : "pt"}` : "") + ` \xB7 ${promoted === null ? "kept" : `PROMOTED #${promoted}`} \xB7 vs baseline ${bench.chipsPerMatch > 0 ? "+" : ""}${bench.chipsPerMatch} \xB7 vs past champ ${benchPrev.chipsPerMatch > 0 ? "+" : ""}${benchPrev.chipsPerMatch} chips \xB7 ${work.matches}m/${work.hands}h \xB7 ${((Date.now() - t0) / 1e3).toFixed(0)}s`
-  );
-}
-flush("done");
-console.log("final profile written to best-profile.json");

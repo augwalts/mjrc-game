@@ -1,9 +1,5 @@
-// tools/sim/evolve.ts
-import { writeFileSync } from "node:fs";
-import { spawn } from "node:child_process";
-import { fileURLToPath } from "node:url";
-import { dirname, join as pjoin } from "node:path";
-import { join } from "node:path";
+// tools/sim/refusal-audit.ts
+import { readFileSync } from "node:fs";
 
 // engine/src/types.ts
 var BAMBOO_START = 9;
@@ -2759,400 +2755,73 @@ function viewFor(state, seat) {
     lastDiscard: offered === null ? state.lastDiscard : { tile: offered.tile, from: offered.from }
   };
 }
-function playMatch(config, decide, opts = {}) {
-  let { state, events } = startMatch(config);
-  const r = {
-    chips: [0, 0, 0, 0],
-    hands: 0,
-    draws: 0,
-    wins: 0,
-    refusedWins: 0,
-    claims: 0,
-    faans: [],
-    chows: 0,
-    pungs: 0,
-    kongs: 0,
-    winsOnDiscard: 0,
-    selfDraws: 0,
-    threatWins: 0,
-    threatFlagged: 0,
-    patterns: {},
-    seatWon: [0, 0, 0, 0],
-    seatLost: [0, 0, 0, 0],
-    seatDealInLoss: [0, 0, 0, 0],
-    seatDealInCount: [0, 0, 0, 0],
-    seatTaxLoss: [0, 0, 0, 0],
-    seatChows: [0, 0, 0, 0],
-    seatPungs: [0, 0, 0, 0],
-    seatKongs: [0, 0, 0, 0]
-  };
-  if (opts.recordHands) r.handRecords = [];
-  let pendingWin = null;
-  const step = (a) => {
-    state = a.state;
-    events = a.events;
-  };
+
+// tools/sim/refusal-audit.ts
+var N = Number(process.argv[2] ?? 40);
+var RULES = ruleset(process.argv[3] ?? "") ?? MJRC_STANDARD;
+var PROFILE = process.argv[4] ? { ...DEFAULT_PROFILE, ...JSON.parse(readFileSync(process.argv[4], "utf8")) } : DEFAULT_PROFILE;
+var hands = 0;
+var draws = 0;
+var refusals = 0;
+var drawsWithRefusal = 0;
+var handsWithRefusal = 0;
+var concealedRefusals = 0;
+var zeroFaan = 0;
+var byFaan = /* @__PURE__ */ new Map();
+var byShape = /* @__PURE__ */ new Map();
+for (let m = 0; m < N; m++) {
+  const seed = 31e6 + m * 7919;
+  const cfgs = SEATS.map((s) => ({
+    ruleset: RULES,
+    profile: PROFILE,
+    rnd: prng((seed ^ (s + 1) * 2654435761) >>> 0)
+  }));
+  let { state, events } = startMatch({ seed, ruleset: RULES, matchLength: "oneWindRound" });
+  let refusedThisHand = 0;
   for (let guard = 0; guard < 2e5; guard++) {
     for (const e of events) {
-      if (e.type === "handEnd") {
-        r.hands++;
-        const p = e.payload;
-        if (p.outcome === "exhaustiveDraw") r.draws++;
-        else {
-          r.wins++;
-          if (typeof p.faan === "number") r.faans.push(p.faan);
-        }
-        if (p.chipDeltas) for (const st of SEATS) {
-          const d = p.chipDeltas[st] ?? 0;
-          if (d > 0) {
-            r.seatWon[st] += d;
-            continue;
-          }
-          r.seatLost[st] += d;
-          if (d < 0) {
-            const pay = p;
-            if (pay.outcome === "winOnDiscard" && pay.loser === st) {
-              r.seatDealInLoss[st] += d;
-              r.seatDealInCount[st] += 1;
-            } else if (pay.outcome === "selfDraw") {
-              r.seatTaxLoss[st] += d;
-            }
-          }
-        }
-        if (r.handRecords) {
-          const rec = {
-            outcome: p.outcome,
-            winner: p.winner ?? null,
-            faan: p.faan ?? null,
-            chipDeltas: (p.chipDeltas ?? [0, 0, 0, 0]).slice()
-          };
-          if (pendingWin) rec.winningHand = pendingWin;
-          r.handRecords.push(rec);
-        }
-        pendingWin = null;
+      const ev = e;
+      if (ev.type === "refusedWin") {
+        refusals++;
+        refusedThisHand++;
+        const score2 = ev.payload.score;
+        const melds = ev.payload.melds ?? [];
+        byFaan.set(score2.faan, (byFaan.get(score2.faan) ?? 0) + 1);
+        if (score2.faan === 0) zeroFaan++;
+        if (melds.length === 0) concealedRefusals++;
+        const shape = melds.length === 0 ? "concealed" : melds.every((x) => x.kind === "chow") ? `${melds.length} chow meld(s)` : "has pung/kong meld";
+        byShape.set(shape, (byShape.get(shape) ?? 0) + 1);
       }
-      if (e.type === "refusedWin") r.refusedWins++;
-      if (e.type === "claimed") {
-        r.claims++;
-        const { kind, seat } = e.payload;
-        if (kind === "chow") {
-          r.chows++;
-          if (seat !== void 0) r.seatChows[seat]++;
-        } else if (kind === "pung") {
-          r.pungs++;
-          if (seat !== void 0) r.seatPungs[seat]++;
-        } else if (kind === "kong") {
-          r.kongs++;
-          if (seat !== void 0) r.seatKongs[seat]++;
-        }
+      if (ev.type === "exhaustiveDraw") {
+        draws++;
+        if (refusedThisHand > 0) drawsWithRefusal++;
       }
-      if (e.type === "concealedKong" || e.type === "addedKong") {
-        r.kongs++;
-        const seat = e.payload.seat;
-        if (seat !== void 0) r.seatKongs[seat]++;
-      }
-      if (e.type === "winOnDiscard" || e.type === "selfDraw") {
-        if (e.type === "selfDraw") r.selfDraws++;
-        else r.winsOnDiscard++;
-        const winSeat = e.payload.context?.seat;
-        if (winSeat !== void 0) {
-          r.threatWins++;
-          for (const s of SEATS) {
-            if (s === winSeat) continue;
-            const read = assessSeatThreat(viewFor(state, s), winSeat, config.ruleset);
-            if (read.threat > 0.3) {
-              r.threatFlagged++;
-              break;
-            }
-          }
-        }
-        const p = e.payload;
-        for (const a of p.score?.awards ?? []) r.patterns[a.id] = (r.patterns[a.id] ?? 0) + 1;
-        if (r.handRecords) {
-          pendingWin = {
-            concealed: (p.concealed ?? []).slice(),
-            melds: (p.melds ?? []).map((m) => ({ kind: m.kind, tiles: m.tiles.slice() })),
-            winningTile: p.context?.winningTile ?? -1,
-            awards: (p.score?.awards ?? []).map((a) => ({ id: a.id, faan: a.faan }))
-          };
-        }
+      if (ev.type === "handEnd") {
+        hands++;
+        if (refusedThisHand > 0) handsWithRefusal++;
+        refusedThisHand = 0;
       }
     }
-    if (state.phase === "matchEnd") {
-      for (const s of SEATS) r.chips[s] = state.seats[s].chips;
-      return r;
-    }
+    if (state.phase === "matchEnd") break;
     if (state.phase === "handEnd") {
-      step(startNextHand(state));
+      ({ state, events } = startNextHand(state));
       continue;
     }
     let acted = false;
     for (const seat of SEATS) {
       const options = legalActions(state, seat);
       if (options.length === 0) continue;
-      step(applyAction(state, decide[seat](viewFor(state, seat), options, seat)));
+      ({ state, events } = applyAction(state, decideAction(viewFor(state, seat), options, cfgs[seat])));
       acted = true;
       break;
     }
-    if (!acted) throw new Error(`stuck in phase ${state.phase}`);
+    if (!acted) break;
   }
-  throw new Error("match did not terminate");
 }
-
-// tools/sim/evalcore.ts
-var RULES = MJRC_STANDARD;
-function setSimRuleset(id) {
-  const r = ruleset(id);
-  if (!r) throw new Error(`unknown ruleset ${id}`);
-  RULES = r;
-  return r;
-}
-function mkDecide(profile, seed) {
-  const cfgs = SEATS.map((s) => ({
-    ruleset: RULES,
-    profile,
-    rnd: prng((seed ^ (s + 1) * 2654435761) >>> 0)
-  }));
-  return (view, legal, seat) => decideAction(view, legal, cfgs[seat]);
-}
-var PLACEMENT = [3, 1, -1, -3];
-function placementPoints(chips, seat) {
-  const mine = chips[seat];
-  const better = chips.filter((c) => c > mine).length;
-  const equal = chips.filter((c) => c === mine).length;
-  let sum = 0;
-  for (let k = 0; k < equal; k++) sum += PLACEMENT[better + k];
-  return sum / equal;
-}
-function evaluate(candidate, incumbent2, seeds, sample, opts) {
-  const plays = opts?.allSeats ? seeds.flatMap((seed) => [0, 1, 2, 3].map((seat) => ({ seed, seat }))) : seeds.map((seed, i) => ({ seed, seat: i % 4 }));
-  let chips = 0, won = 0, lost = 0, dealInLoss = 0, dealIns = 0, taxLoss = 0, points = 0, hands = 0, draws = 0, refused = 0, claims = 0;
-  let chows = 0, pungs = 0, kongs = 0, wod = 0, sd = 0, tWins = 0, tFlagged = 0;
-  const patterns = {};
-  const faans = [];
-  plays.forEach(({ seed, seat: mySeat }) => {
-    const decideC = mkDecide(candidate, seed);
-    const decideI = mkDecide(incumbent2, seed);
-    const perSeat = SEATS.map((s) => s === mySeat ? (v, l, st) => decideC(v, l, st) : (v, l, st) => decideI(v, l, st));
-    const r = playMatch(
-      { seed, ruleset: RULES, matchLength: "oneWindRound" },
-      perSeat,
-      { recordHands: sample !== void 0 }
-    );
-    if (sample) {
-      sample.push({ seed, candidateSeat: mySeat, chips: r.chips.slice(), hands: r.hands, handRecords: r.handRecords ?? [] });
-    }
-    chips += r.chips[mySeat];
-    won += r.seatWon[mySeat];
-    lost += r.seatLost[mySeat];
-    dealInLoss += r.seatDealInLoss[mySeat];
-    dealIns += r.seatDealInCount[mySeat];
-    taxLoss += r.seatTaxLoss[mySeat];
-    points += placementPoints(r.chips, mySeat);
-    hands += r.hands;
-    draws += r.draws;
-    refused += r.refusedWins;
-    claims += r.claims;
-    chows += r.chows;
-    pungs += r.pungs;
-    kongs += r.kongs;
-    wod += r.winsOnDiscard;
-    sd += r.selfDraws;
-    tWins += r.threatWins;
-    tFlagged += r.threatFlagged;
-    for (const [k, n] of Object.entries(r.patterns)) patterns[k] = (patterns[k] ?? 0) + n;
-    faans.push(...r.faans);
-  });
-  const faanHist = new Array(14).fill(0);
-  for (const f of faans) faanHist[Math.max(0, Math.min(13, Math.round(f)))]++;
-  return {
-    pointsPerMatch: +(points / plays.length).toFixed(2),
-    chipsPerMatch: +(chips / plays.length).toFixed(1),
-    chipsWonPerMatch: +(won / plays.length).toFixed(1),
-    chipsLostPerMatch: +(lost / plays.length).toFixed(1),
-    winLossRatio: +(won / Math.max(1, Math.abs(lost))).toFixed(2),
-    dealInLossPerMatch: +(dealInLoss / plays.length).toFixed(1),
-    dealInsPerMatch: +(dealIns / plays.length).toFixed(2),
-    taxLossPerMatch: +(taxLoss / plays.length).toFixed(1),
-    drawRate: +(draws / hands).toFixed(3),
-    refusedPerHand: +(refused / hands).toFixed(2),
-    meanFaan: +(faans.reduce((a, b) => a + b, 0) / Math.max(1, faans.length)).toFixed(2),
-    claimsPerHand: +(claims / hands).toFixed(2),
-    threatDetection: +(tFlagged / Math.max(1, tWins)).toFixed(2),
-    activity: { chows, pungs, kongs, winsOnDiscard: wod, selfDraws: sd, hands, patterns, faanHist }
-  };
-}
-
-// tools/sim/evolve.ts
-import { readFileSync as rfs, existsSync as exs } from "node:fs";
-import { readFileSync, existsSync } from "node:fs";
-var args = process.argv.slice(2);
-var flag = (n, d) => {
-  const i = args.indexOf(n);
-  return i >= 0 ? args[i + 1] ?? d : d;
-};
-var GENS = Number(flag("--gens", "20"));
-var SERIAL = args.includes("--serial");
-var OPPONENT = flag("--opponent", "mirror");
-var MUTSEED = Number(flag("--mutseed", "0"));
-var SIGMA = Number(flag("--sigma", "0.35"));
-var RULESET_ID = flag("--ruleset", "mjrc-standard");
-var RULES2 = setSimRuleset(RULESET_ID);
-var BASELINE_PATH = flag("--baseline", "tools/sim/baseline-v0.json");
-var BASELINE = {
-  ...DEFAULT_PROFILE,
-  ...exs(BASELINE_PATH) ? JSON.parse(rfs(BASELINE_PATH, "utf8")) : {}
-};
-var BENCH_SEEDS = Array.from({ length: 48 }, (_, i) => 88e4 + i * 7919);
-var OUT = flag("--out", "tools/sim");
-var CANDIDATES = 6;
-var MATCHES = Number(flag("--matches", "48"));
-var FITNESS = flag("--fitness", "points");
-var fit = (r) => FITNESS === "chips" ? r.chipsPerMatch : r.pointsPerMatch;
-var PROMOTE_MARGIN = FITNESS === "chips" ? Number(flag("--margin", "4")) : 0.5;
-var KEYS = Object.keys(DEFAULT_PROFILE);
-var WORKER = pjoin(dirname(fileURLToPath(import.meta.url)), "evalworker.mjs");
-function evaluateRemote(candidate, incumbent2, seeds, collect, allSeats) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [WORKER], { stdio: ["pipe", "pipe", "inherit"] });
-    let out = "";
-    child.stdout.on("data", (c) => out += c);
-    child.on("error", reject);
-    child.on("close", (code) => {
-      if (code !== 0) return reject(new Error(`evalworker exited ${code}`));
-      try {
-        resolve(JSON.parse(out));
-      } catch (e) {
-        reject(e);
-      }
-    });
-    child.stdin.end(JSON.stringify({ candidate, incumbent: incumbent2, seeds, collect, allSeats, rulesetId: RULESET_ID }));
-  });
-}
-async function runEval(c, i, seeds, sample, allSeats) {
-  if (SERIAL) return evaluate(c, i, seeds, sample, { allSeats });
-  const { result, sample: got } = await evaluateRemote(c, i, seeds, sample !== void 0, allSeats);
-  if (sample && got) sample.push(...got);
-  return result;
-}
-function mutate(base, rnd, sigma, wild = false) {
-  const out = { ...base };
-  const kicks = 1 + Math.floor(rnd() * 5);
-  const s = (wild ? 2.5 : 1) * sigma;
-  const picked = /* @__PURE__ */ new Set();
-  while (picked.size < kicks) picked.add(Math.floor(rnd() * KEYS.length));
-  for (const i of picked) {
-    const k = KEYS[i];
-    const u1 = Math.max(rnd(), 1e-12), u2 = rnd();
-    const gauss = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
-    out[k] = +(base[k] * Math.exp(gauss * s)).toFixed(4);
-  }
-  return out;
-}
-var history = [];
-var startFrom = flag("--start", "");
-var incumbent = startFrom && existsSync(startFrom) ? { ...DEFAULT_PROFILE, ...JSON.parse(readFileSync(startFrom, "utf8")) } : { ...DEFAULT_PROFILE };
-if (startFrom) console.log(`starting from ${startFrom}`);
-var sampleMatches = [];
-function flush(status) {
-  const baselineName = BASELINE_PATH.split("/").pop()?.replace(/\.json$/, "") ?? BASELINE_PATH;
-  const payload = {
-    status,
-    updated: (/* @__PURE__ */ new Date()).toISOString(),
-    defaults: DEFAULT_PROFILE,
-    keys: KEYS,
-    history,
-    sampleMatches,
-    baseline: BASELINE_PATH,
-    ruleset: RULES2.id,
-    fitness: FITNESS,
-    gens: GENS,
-    sigma: SIGMA,
-    trainingOpponent: OPPONENT,
-    trainingOpponentLabel: OPPONENT === "baseline" ? baselineName : "current incumbent (mirror)",
-    selectionMatches: MATCHES,
-    benchMatches: BENCH_SEEDS.length * 4,
-    benchWalls: BENCH_SEEDS.length,
-    generationsPlanned: GENS
-  };
-  writeFileSync(join(OUT, "data.js"), "window.SIM_DATA = " + JSON.stringify(payload) + ";\n");
-  writeFileSync(join(OUT, "best-profile.json"), JSON.stringify(incumbent, null, 2) + "\n");
-}
-var START_PROFILE = { ...incumbent };
-flush("starting");
-for (let gen = 0; gen < GENS; gen++) {
-  const t0 = Date.now();
-  const incumbentBefore = incumbent;
-  const seedBase = 5e5 + gen * 1e3;
-  const seeds = Array.from({ length: MATCHES }, (_, i) => seedBase + i * 7919);
-  const mrnd = prng(43968 + gen + MUTSEED >>> 0);
-  const sigma = SIGMA;
-  const controlSample = [];
-  const opp = OPPONENT === "baseline" ? BASELINE : incumbent;
-  const mutants = Array.from({ length: CANDIDATES }, (_, id) => ({ id, profile: mutate(incumbent, mrnd, sigma, id === CANDIDATES - 1) }));
-  const [control, ...results] = await Promise.all([
-    runEval(incumbent, opp, seeds, controlSample),
-    ...mutants.map((m) => runEval(m.profile, opp, seeds))
-  ]);
-  sampleMatches = controlSample;
-  const candidates = mutants.map((m, i) => ({ ...m, result: results[i] }));
-  let promoted = null;
-  let confirm = null;
-  let confirmControl = null;
-  const best = [...candidates].sort((a, b) => fit(b.result) - fit(a.result))[0];
-  if (fit(best.result) > fit(control) + PROMOTE_MARGIN) {
-    const confirmSeeds = Array.from({ length: MATCHES }, (_, i) => seedBase + 104729 + i * 7919);
-    const [cf, controlB] = await Promise.all([
-      runEval(best.profile, opp, confirmSeeds),
-      runEval(incumbent, opp, confirmSeeds)
-    ]);
-    confirm = cf;
-    confirmControl = controlB;
-    if (fit(confirm) > fit(controlB) + PROMOTE_MARGIN) {
-      incumbent = best.profile;
-      promoted = best.id;
-    }
-  }
-  const [bench, benchPrev] = await Promise.all([
-    runEval(incumbent, BASELINE, BENCH_SEEDS, void 0, true),
-    runEval(incumbent, START_PROFILE, BENCH_SEEDS, void 0, true)
-  ]);
-  const evalHands = (r) => r.activity.hands;
-  const selectionHands = evalHands(control) + candidates.reduce((n, c) => n + evalHands(c.result), 0);
-  const confirmationHands = confirm && confirmControl ? evalHands(confirm) + evalHands(confirmControl) : 0;
-  const breakdown = {
-    selection: { matches: MATCHES * (CANDIDATES + 1), hands: selectionHands },
-    confirmation: { matches: confirm ? MATCHES * 2 : 0, hands: confirmationHands },
-    fixedBenchmark: { matches: BENCH_SEEDS.length * 4, hands: evalHands(bench) },
-    pastChampionBenchmark: { matches: BENCH_SEEDS.length * 4, hands: evalHands(benchPrev) }
-  };
-  const work = {
-    matches: Object.values(breakdown).reduce((n, part) => n + part.matches, 0),
-    hands: Object.values(breakdown).reduce((n, part) => n + part.hands, 0),
-    breakdown
-  };
-  const changed = promoted === null ? null : Object.fromEntries(
-    Object.keys(incumbent).filter((k) => Math.abs(incumbent[k] - incumbentBefore[k]) > 1e-9).map((k) => [k, { from: +incumbentBefore[k].toFixed(4), to: +incumbent[k].toFixed(4) }])
-  );
-  history.push({
-    gen,
-    seeds: [seeds[0], seeds[seeds.length - 1]],
-    control,
-    confirm,
-    confirmControl,
-    bench,
-    benchPrev,
-    work,
-    changed,
-    candidates: candidates.map((c) => ({ id: c.id, result: c.result, profile: c.profile })),
-    promoted,
-    incumbentAfter: incumbent,
-    ms: Date.now() - t0
-  });
-  flush("running");
-  console.log(
-    `gen ${gen}: control ${fit(control)}${FITNESS === "chips" ? "c" : "pt"} \xB7 best ${fit(best.result)}${FITNESS === "chips" ? "c" : "pt"}` + (confirm ? ` \xB7 confirm ${fit(confirm)}${FITNESS === "chips" ? "c" : "pt"}` : "") + ` \xB7 ${promoted === null ? "kept" : `PROMOTED #${promoted}`} \xB7 vs baseline ${bench.chipsPerMatch > 0 ? "+" : ""}${bench.chipsPerMatch} \xB7 vs past champ ${benchPrev.chipsPerMatch > 0 ? "+" : ""}${benchPrev.chipsPerMatch} chips \xB7 ${work.matches}m/${work.hands}h \xB7 ${((Date.now() - t0) / 1e3).toFixed(0)}s`
-  );
-}
-flush("done");
-console.log("final profile written to best-profile.json");
+var pct = (a, b) => `${(100 * a / Math.max(1, b)).toFixed(0)}%`;
+console.log(`ruleset ${RULES.id} (floor ${RULES.minimumFaan} faan) \xB7 ${N} matches \xB7 ${hands} hands`);
+console.log(`refusals ${refusals} (${(refusals / hands).toFixed(2)}/hand) \xB7 hands containing one: ${pct(handsWithRefusal, hands)}`);
+console.log(`  by faan held: ${[...byFaan.entries()].sort((a, b) => a[0] - b[0]).map(([f, n]) => `${f}f:${n} (${pct(n, refusals)})`).join(" \xB7 ")}`);
+console.log(`  zero-faan (no scoring pattern at all): ${pct(zeroFaan, refusals)} \xB7 fully concealed seat: ${pct(concealedRefusals, refusals)}`);
+console.log(`  shape: ${[...byShape.entries()].sort((a, b) => b[1] - a[1]).map(([k, n]) => `${k} ${pct(n, refusals)}`).join(" \xB7 ")}`);
+console.log(`draws ${draws} (${pct(draws, hands)} of hands) \xB7 of those, ${pct(drawsWithRefusal, draws)} had a refusal in them`);
