@@ -445,6 +445,7 @@ var DEFAULT_PROFILE = {
   foldThreshold: 0,
   feedDenial: 0,
   foldSizeBias: 0,
+  claimFallbackWeight: 0,
   chipValuation: 1,
   // 0.45, not 0.55: on the doubling ladder a claim costs 門前清 (÷2 payout), so
   // a tile of speed must be worth MORE than 2× (1/0.45 ≈ 2.2) or no bot ever
@@ -635,6 +636,18 @@ function routeFaan(r2, shape, rules, c) {
   else if (r2.suit === null && !shape.melds.some((m) => m.kind !== "chow")) {
     n += faanFor(rules, "allChows");
   }
+  return n;
+}
+function fallbackFaan(shape, rules) {
+  let n = bonusFaan(shape, rules);
+  const seatTile = WINDS_START + shape.seatWind;
+  const roundTile = WINDS_START + shape.roundWind;
+  if (meldedTriplet(shape.melds, seatTile)) n += faanFor(rules, "seatWind");
+  if (meldedTriplet(shape.melds, roundTile)) n += faanFor(rules, "roundWind");
+  for (let d = DRAGONS_START; d < FLOWERS_START; d++) {
+    if (meldedTriplet(shape.melds, d)) n += faanFor(rules, "dragonPung");
+  }
+  if (isConcealedHand(shape.melds)) n += faanFor(rules, "concealedHand");
   return n;
 }
 function assessRoutes(shape, rules, profile = DEFAULT_PROFILE, table = null) {
@@ -964,8 +977,10 @@ function assessClaim(v, option, cfg, context) {
   const onRouteBefore = routeDistanceOf(before.shape, afterRoute.route);
   const distanceAfter = bestDistanceAfterDiscard(after, afterRoute.route);
   const gain = onRouteBefore - distanceAfter;
-  const bar = option.kind === "kong" ? 0 : profile.claimSpeedGain;
-  if (gain < bar * (2 - profile.aggression)) {
+  const shortfall = Math.max(0, cfg.ruleset.minimumFaan - fallbackFaan(after, cfg.ruleset));
+  const speedBar = (option.kind === "kong" ? 0 : profile.claimSpeedGain) * (2 - profile.aggression);
+  const riskBar = shortfall * profile.claimFallbackWeight;
+  if (gain < speedBar + riskBar) {
     return {
       option,
       reason: "tooSlow",
@@ -975,7 +990,7 @@ function assessClaim(v, option, cfg, context) {
       score: Number.NEGATIVE_INFINITY
     };
   }
-  const score2 = afterRoute.score - before.route.score + gain * 1.4 * profile.aggression + (option.kind === "kong" ? 0.6 : 0) + (afterRoute.attainable - cfg.ruleset.minimumFaan) * 0.15;
+  const score2 = afterRoute.score - before.route.score + gain * 1.4 * profile.aggression + (option.kind === "kong" ? 0.6 : 0) + (afterRoute.attainable - cfg.ruleset.minimumFaan) * 0.15 - shortfall * profile.claimFallbackWeight;
   return {
     option,
     reason: "accepted",

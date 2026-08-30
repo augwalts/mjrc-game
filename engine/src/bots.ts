@@ -190,6 +190,19 @@ export interface BotProfile {
    * (≥2 pung/kong melds) — "stop feeding the collector". */
   feedDenial: number;
   /**
+   * CLAIM ONLY WHAT KEEPS YOU PAYABLE (2026-08-29). A claim that leaves the
+   * hand paying NOTHING unless a pattern is completed perfectly is a bet on
+   * future discipline the bot does not have: routes are re-derived every turn,
+   * so it drifts and finishes a pung/chow hybrid worth zero (100% of TVB
+   * refusals). Measured frontier: claiming freely costs 0.21 refusals/hand;
+   * refusing nearly everything zeroes them but drives draws 16% -> 30%. The
+   * human answer is neither — claim the tiles that PAY (honour pungs, flush
+   * suit, keeping concealment), be wary of the ones that only pay if the plan
+   * survives. This charges a claim by how far its no-discipline fallback sits
+   * below the floor. 0 = historical behaviour.
+   */
+  claimFallbackWeight: number;
+  /**
    * WHAT FOLDING IS FOR (owner ruling 2026-08-29): "players aggressively try
    * to hit at least 1 point and only abandon if an opponent will win with a
    * BIG hand." At 0 the fold pressure is the historical one — how CLOSE the
@@ -250,6 +263,7 @@ export const DEFAULT_PROFILE: BotProfile = {
   foldThreshold: 0,
   feedDenial: 0,
   foldSizeBias: 0,
+  claimFallbackWeight: 0,
   chipValuation: 1,
   // 0.45, not 0.55: on the doubling ladder a claim costs 門前清 (÷2 payout), so
   // a tile of speed must be worth MORE than 2× (1/0.45 ≈ 2.2) or no bot ever
@@ -636,6 +650,28 @@ function routeFaan(r: Route, shape: HandShape, rules: Ruleset, c: readonly numbe
     // shape worth exactly zero (refusal audit, 2026-08-29).
     n += faanFor(rules, "allChows");
   }
+  return n;
+}
+
+/**
+ * What this hand pays if it simply COMPLETES — no pattern discipline assumed.
+ * Bonus tiles, honour sets it already holds, and 門前清 if still concealed.
+ * A chow/pung hybrid earns nothing on its own, so this is exactly the faan a
+ * drifting hand can still bank. The floor test that matters for a claim.
+ */
+export function fallbackFaan(shape: HandShape, rules: Ruleset): number {
+  // BANKED ONLY. honourMeldFaan counts a mere PAIR as reachable, which is
+  // aspiration, not money — measured: that made the shortfall zero on nearly
+  // every claim and the gate inert. Here a triplet must already be MELDED.
+  let n = bonusFaan(shape, rules);
+  const seatTile = WINDS_START + shape.seatWind;
+  const roundTile = WINDS_START + shape.roundWind;
+  if (meldedTriplet(shape.melds, seatTile)) n += faanFor(rules, "seatWind");
+  if (meldedTriplet(shape.melds, roundTile)) n += faanFor(rules, "roundWind");
+  for (let d = DRAGONS_START; d < FLOWERS_START; d++) {
+    if (meldedTriplet(shape.melds, d)) n += faanFor(rules, "dragonPung");
+  }
+  if (isConcealedHand(shape.melds)) n += faanFor(rules, "concealedHand");
   return n;
 }
 
@@ -1297,9 +1333,22 @@ export function assessClaim(
   const onRouteBefore = routeDistanceOf(before.shape, afterRoute.route);
   const distanceAfter = bestDistanceAfterDiscard(after, afterRoute.route);
   const gain = onRouteBefore - distanceAfter;
+  // DISCIPLINE RISK: how far this claim leaves the hand below the floor if it
+  // simply completes without holding the plan together. Honour pungs, a flush
+  // in progress and kept concealment shrink this to zero; a pung of simples on
+  // a mixed hand does not. A risky claim must BUY MORE SPEED to be worth it —
+  // it has to be a gate, because claimDecision accepts on `reason` and never
+  // reads the score (a score-only charge was measured to change nothing).
+  const shortfall = Math.max(0, cfg.ruleset.minimumFaan - fallbackFaan(after, cfg.ruleset));
   // A kong 槓 also buys a replacement draw, so it clears a lower bar.
-  const bar = option.kind === "kong" ? 0 : profile.claimSpeedGain;
-  if (gain < bar * (2 - profile.aggression)) {
+  // Aggression discounts the SPEED bar — that is what a bold personality is —
+  // but it must not discount PAYABILITY. Measured: the champion evolved
+  // aggression to 1.95, which makes (2 - aggression) = 0.05 and switches the
+  // speed gate off almost entirely; a discipline charge folded inside that
+  // multiplier vanished with it. So the risk term is added AFTER the scaling.
+  const speedBar = (option.kind === "kong" ? 0 : profile.claimSpeedGain) * (2 - profile.aggression);
+  const riskBar = shortfall * profile.claimFallbackWeight;
+  if (gain < speedBar + riskBar) {
     return {
       option,
       reason: "tooSlow",
@@ -1314,7 +1363,8 @@ export function assessClaim(
     before.route.score +
     gain * 1.4 * profile.aggression +
     (option.kind === "kong" ? 0.6 : 0) +
-    (afterRoute.attainable - cfg.ruleset.minimumFaan) * 0.15;
+    (afterRoute.attainable - cfg.ruleset.minimumFaan) * 0.15 -
+    shortfall * profile.claimFallbackWeight;
   return {
     option,
     reason: "accepted",
