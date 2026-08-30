@@ -192,6 +192,11 @@ export interface MatchConfig {
   /** Every wall in the match derives from this one number. */
   seed: number;
   rulesetId?: string;
+  /** Convenience: pass the ruleset object itself; its id is used. Added
+   * 2026-08-29 after the silent-fallback incident — every sim had been passing
+   * this (then-undeclared, unread) field and unknowingly playing the DEFAULT
+   * ruleset. The id must still be registered in @mjrc/rulesets. */
+  ruleset?: { id: string };
   dealer?: SeatIndex;
   matchLength?: MatchLength;
   startingChips?: number;
@@ -935,7 +940,8 @@ export function startMatch(config: MatchConfig): Applied {
   const dealer = config.dealer ?? 0;
   if (!isSeat(dealer)) throw new Error(`dealer ${dealer} is not a seat`);
   const chips = config.startingChips ?? 0;
-  const rulesetId = config.rulesetId ?? DEFAULT_RULESET_ID;
+  const rulesetId = config.rulesetId ?? config.ruleset?.id ?? DEFAULT_RULESET_ID;
+  if (!rulesetById(rulesetId)) throw new Error(`unknown ruleset ${rulesetId} — register it in @mjrc/rulesets`);
 
   const state: MatchState = {
     phase: "deal",

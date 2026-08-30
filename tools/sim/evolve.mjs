@@ -2464,7 +2464,8 @@ function startMatch(config) {
   const dealer = config.dealer ?? 0;
   if (!isSeat2(dealer)) throw new Error(`dealer ${dealer} is not a seat`);
   const chips = config.startingChips ?? 0;
-  const rulesetId = config.rulesetId ?? DEFAULT_RULESET_ID;
+  const rulesetId = config.rulesetId ?? config.ruleset?.id ?? DEFAULT_RULESET_ID;
+  if (!ruleset(rulesetId)) throw new Error(`unknown ruleset ${rulesetId} \u2014 register it in @mjrc/rulesets`);
   const state = {
     phase: "deal",
     seats: four((i) => ({

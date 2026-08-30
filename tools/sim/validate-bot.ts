@@ -29,7 +29,7 @@ console.log(`claims/hand ${r.claimsPerHand} — chows 上 ${per(a.chows)} · pun
 console.log(`mean winning faan ${r.meanFaan}`);
 const fh = a.faanHist;
 const tot = fh.reduce((x: number, y: number) => x + y, 0) || 1;
-console.log("faan sizes: " + [3, 4, 5, 6, 7, 8, 9].map((f) => `${f}:${pct(fh[f]!, tot)}`).join(" ") +
+console.log("faan sizes: " + [1, 2, 3, 4, 5, 6, 7, 8, 9].map((f) => `${f}:${pct(fh[f]!, tot)}`).join(" ") +
   ` 10+:${pct(fh.slice(10).reduce((x: number, y: number) => x + y, 0), tot)}`);
 const pats = Object.entries(a.patterns).sort((x, y) => (y[1] as number) - (x[1] as number)).slice(0, 14);
 console.log("hand types (% of wins): " + pats.map(([k, n]) => `${k} ${pct(n as number, wins)}`).join(" · "));
