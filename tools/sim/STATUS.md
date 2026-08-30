@@ -1,6 +1,6 @@
 # Training series — era 5 (vs baseline-v4.json, fitness: chips)
 
-Updated 2026-08-30T04:57:24.765Z · 4.2h remaining · ruleset mjrc-standard (3-10 faan)
+Updated 2026-08-30T04:59:43.095Z · 4.1h remaining · ruleset mjrc-standard (3-10 faan)
 
 **Hall of fame vs baseline-v4: 8.4 chips/match**
 
@@ -60,5 +60,7 @@ All chip numbers here are AVERAGES per one-wind-round match over 160-match block
 | 48 | cmaes | 96 | FAIL |  |  | 0m |
 | 49 | baseline | 48 | 8.4 | 0.7 | **NEW BEST** | 1.5m |
 | 50 | baseline | 96 | 0 | -4.8 |  | 2m |
+| 51 | cmaes | 48 | FAIL |  |  | 0m |
+| 52 | baseline | 96 | 1.6 | -5.1 |  | 2m |
 
 Files: hall-of-fame.json (best weights) · overnight-log.jsonl · runs/cycle-NNN.js (full histories)
