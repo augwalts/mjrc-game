@@ -65,77 +65,134 @@ function buildWall(seed) {
 }
 
 // engine/src/ready.ts
-function minDist(c, i, sets, parts, melds, pair) {
-  while (i < SCORING_KINDS && c[i] === 0) i++;
-  if (i >= SCORING_KINDS) {
-    const total = sets + melds;
-    const capped = total + parts > 4 ? Math.max(0, 4 - total) : parts;
-    return 8 - 2 * total - capped - (pair ? 1 : 0);
+var suitMemo = /* @__PURE__ */ new Map();
+var honourMemo = /* @__PURE__ */ new Map();
+function segmentCombos(v, suited, memo) {
+  let key = 0;
+  for (let i = 0; i < v.length; i++) key = key * 5 + v[i];
+  const hit = memo.get(key);
+  if (hit) return hit;
+  const flags = new Uint8Array(50);
+  const n = v.length;
+  const rec = (i, s, p, e) => {
+    while (i < n && v[i] === 0) i++;
+    if (i >= n) {
+      flags[s * 10 + p * 2 + e] = 1;
+      return;
+    }
+    if (s < 4 && v[i] >= 3) {
+      v[i] -= 3;
+      rec(i, s + 1, p, e);
+      v[i] += 3;
+    }
+    if (s < 4 && suited && i <= 6 && v[i + 1] > 0 && v[i + 2] > 0) {
+      v[i]--;
+      v[i + 1]--;
+      v[i + 2]--;
+      rec(i, s + 1, p, e);
+      v[i]++;
+      v[i + 1]++;
+      v[i + 2]++;
+    }
+    if (v[i] >= 2) {
+      if (p < 4) {
+        v[i] -= 2;
+        rec(i, s, p + 1, e);
+        v[i] += 2;
+      }
+      if (e === 0) {
+        v[i] -= 2;
+        rec(i, s, p, 1);
+        v[i] += 2;
+      }
+    }
+    if (p < 4 && suited && i <= 7 && v[i + 1] > 0) {
+      v[i]--;
+      v[i + 1]--;
+      rec(i, s, p + 1, e);
+      v[i]++;
+      v[i + 1]++;
+    }
+    if (p < 4 && suited && i <= 6 && v[i + 2] > 0) {
+      v[i]--;
+      v[i + 2]--;
+      rec(i, s, p + 1, e);
+      v[i]++;
+      v[i + 2]++;
+    }
+    v[i]--;
+    rec(i, s, p, e);
+    v[i]++;
+  };
+  rec(0, 0, 0, 0);
+  const pruned = new Uint8Array(50);
+  for (let a = 0; a < 50; a++) {
+    if (!flags[a]) continue;
+    const s0 = a / 10 | 0, r0 = a % 10, p0 = r0 / 2 | 0, e0 = r0 % 2;
+    let dominated = false;
+    for (let b = 0; b < 50 && !dominated; b++) {
+      if (!flags[b] || b === a) continue;
+      const s1 = b / 10 | 0, r1 = b % 10, p1 = r1 / 2 | 0, e1 = r1 % 2;
+      if (s1 >= s0 && p1 >= p0 && e1 >= e0 && (s1 > s0 || p1 > p0 || e1 > e0)) dominated = true;
+    }
+    if (!dominated) pruned[a] = 1;
+  }
+  memo.set(key, pruned);
+  return pruned;
+}
+var seg = new Array(9);
+function groupCombos(c, g) {
+  if (g < 3) {
+    for (let r = 0; r < 9; r++) seg[r] = c[g * 9 + r];
+    return segmentCombos(seg, true, suitMemo);
+  }
+  const h = new Array(7);
+  for (let r = 0; r < 7; r++) h[r] = c[27 + r];
+  return segmentCombos(h, false, honourMemo);
+}
+function fastRawDistance(c, melds) {
+  let reach = new Uint8Array(50);
+  reach[0] = 1;
+  for (let g = 0; g < 4; g++) {
+    const combos = groupCombos(c, g);
+    const next = new Uint8Array(50);
+    for (let st = 0; st < 50; st++) {
+      if (!reach[st]) continue;
+      const s0 = st / 10 | 0, rem = st % 10, p0 = rem / 2 | 0, e0 = rem % 2;
+      for (let cb = 0; cb < 50; cb++) {
+        if (!combos[cb]) continue;
+        const s1 = cb / 10 | 0, rem1 = cb % 10, p1 = rem1 / 2 | 0, e1 = rem1 % 2;
+        if (e0 + e1 > 1) continue;
+        const s = Math.min(4, s0 + s1), pp = Math.min(4, p0 + p1);
+        next[s * 10 + pp * 2 + (e0 + e1)] = 1;
+      }
+    }
+    reach = next;
   }
   let best = 99;
-  if (c[i] >= 3) {
-    c[i] -= 3;
-    best = Math.min(best, minDist(c, i, sets + 1, parts, melds, pair));
-    c[i] += 3;
-  }
-  if (isSuited(i) && rankOf(i) <= 6 && c[i + 1] > 0 && c[i + 2] > 0) {
-    c[i]--;
-    c[i + 1]--;
-    c[i + 2]--;
-    best = Math.min(best, minDist(c, i, sets + 1, parts, melds, pair));
-    c[i]++;
-    c[i + 1]++;
-    c[i + 2]++;
-  }
-  if (c[i] >= 2) {
-    c[i] -= 2;
-    best = Math.min(best, minDist(c, i, sets, parts + 1, melds, pair));
-    c[i] += 2;
-  }
-  if (isSuited(i) && rankOf(i) <= 7 && c[i + 1] > 0) {
-    c[i]--;
-    c[i + 1]--;
-    best = Math.min(best, minDist(c, i, sets, parts + 1, melds, pair));
-    c[i]++;
-    c[i + 1]++;
-  }
-  if (isSuited(i) && rankOf(i) <= 6 && c[i + 2] > 0) {
-    c[i]--;
-    c[i + 2]--;
-    best = Math.min(best, minDist(c, i, sets, parts + 1, melds, pair));
-    c[i]++;
-    c[i + 2]++;
-  }
-  c[i]--;
-  best = Math.min(best, minDist(c, i, sets, parts, melds, pair));
-  c[i]++;
-  return best;
-}
-var score = (c, melds, hasPair) => minDist(c, 0, 0, 0, melds, hasPair);
-function rawDistance(c, melds) {
-  const w = c.slice();
-  let best = score(w, melds, false);
-  for (let i = 0; i < SCORING_KINDS; i++) {
-    if (w[i] >= 2) {
-      w[i] -= 2;
-      best = Math.min(best, score(w, melds, true));
-      w[i] += 2;
-    }
+  for (let st = 0; st < 50; st++) {
+    if (!reach[st]) continue;
+    const s = st / 10 | 0, rem = st % 10, p = rem / 2 | 0, e = rem % 2;
+    const total = s + melds;
+    const capped = total + p > 4 ? Math.max(0, 4 - total) : p;
+    const d = 8 - 2 * total - capped - e;
+    if (d < best) best = d;
   }
   return best;
 }
 function distanceToReady(c, melds = 0) {
   let total = melds * 3;
   for (let i = 0; i < SCORING_KINDS; i++) total += c[i];
-  if (total % 3 !== 2) return rawDistance(c, melds);
-  const raw = rawDistance(c, melds);
+  if (total % 3 !== 2) return fastRawDistance(c, melds);
+  const raw = fastRawDistance(c, melds);
   if (raw < 0) return -1;
   const w = c.slice();
   let best = raw;
   for (let i = 0; i < SCORING_KINDS; i++) {
     if (w[i] > 0) {
       w[i]--;
-      best = Math.min(best, rawDistance(w, melds));
+      const d = fastRawDistance(w, melds);
+      if (d < best) best = d;
       w[i]++;
     }
   }
@@ -816,6 +873,15 @@ var LIU_BRACKET_SCHEDULE = {
   onDiscard: (faan) => bracketFor(faan).onDiscard,
   selfDrawFigure: (faan) => bracketFor(faan).selfDrawFigure
 };
+var TVB_LINEAR = {
+  id: "tvb-linear",
+  label: "TVB Championship linear",
+  source: "mjrc-app rulesets.ts tvb_2026 / tvb-championship-2026 Appendix I",
+  domain: [1, 10],
+  onDiscard: (faan) => 10 * clamp(Math.trunc(faan), [1, 10]),
+  selfDrawFigure: (faan) => 5 * clamp(Math.trunc(faan), [1, 10])
+};
+var TVB_LINEAR_PER_PLAYER = paymentTable(TVB_LINEAR, "perPlayer");
 var HK_LIABILITY = [
   "Feeding the third dragon to a hand already showing two dragon pungs (\u5927\u4E09\u5143\u5305).",
   "Feeding the fourth wind to a hand already showing three wind pungs (\u5927\u56DB\u559C\u5305).",
@@ -963,7 +1029,21 @@ var MJRC_STANDARD = {
     Object.entries(HKOS_STANDARD.faanTable).map(([id, faan]) => [id, Math.min(faan, 10)])
   )
 };
-var RULESETS = [HKOS_STANDARD, MJRC_STANDARD, LIU];
+var TVB_2026 = {
+  ...HKOS_STANDARD,
+  id: "tvb-2026",
+  label: "TVB Championship 2026",
+  minimumFaan: 1,
+  limitFaan: 10,
+  useFlowers: false,
+  payment: TVB_LINEAR_PER_PLAYER,
+  // No flowers on the show's table, so no bonus-tile patterns either —
+  // 無花 would be trivially always-on and 正花 unreachable.
+  faanTable: Object.fromEntries(
+    Object.entries(HKOS_STANDARD.faanTable).filter(([id]) => pattern(id).family !== "bonusTile").map(([id, faan]) => [id, Math.min(faan, 10)])
+  )
+};
+var RULESETS = [HKOS_STANDARD, MJRC_STANDARD, TVB_2026, LIU];
 var DEFAULT_RULESET_ID = HKOS_STANDARD.id;
 var ruleset = (id) => RULESETS.find((r) => r.id === id);
 
@@ -1072,7 +1152,7 @@ var settle = (p, ruleset2) => {
     legal: faan >= ruleset2.minimumFaan
   };
 };
-function score2(concealed, melds, flowers, winningTile, ctx, ruleset2) {
+function score(concealed, melds, flowers, winningTile, ctx, ruleset2) {
   const shared = [
     ...situationalPatterns(ctx, melds),
     ...bonusPatterns(flowers, ctx, ruleset2)
@@ -1337,7 +1417,7 @@ function winContext(s, seat, winningTile, selfDraw, from, extra) {
 }
 function scoreDeclaration(d, seat, ctx) {
   const st = d.s.seats[seat];
-  return score2(st.hand.slice(), st.melds.slice(), st.flowers.slice(), ctx.winningTile, ctx, d.ruleset);
+  return score(st.hand.slice(), st.melds.slice(), st.flowers.slice(), ctx.winningTile, ctx, d.ruleset);
 }
 function emitRefusedWin(d, seat, ctx, result) {
   const st = d.s.seats[seat];
@@ -1606,7 +1686,8 @@ function startMatch(config) {
   const dealer = config.dealer ?? 0;
   if (!isSeat2(dealer)) throw new Error(`dealer ${dealer} is not a seat`);
   const chips = config.startingChips ?? 0;
-  const rulesetId = config.rulesetId ?? DEFAULT_RULESET_ID;
+  const rulesetId = config.rulesetId ?? config.ruleset?.id ?? DEFAULT_RULESET_ID;
+  if (!ruleset(rulesetId)) throw new Error(`unknown ruleset ${rulesetId} \u2014 register it in @mjrc/rulesets`);
   const state = {
     phase: "deal",
     seats: four((i) => ({
@@ -1982,6 +2063,11 @@ var DEFAULT_PROFILE = {
   aggression: 1,
   threatSensitivity: 0,
   threatPushValue: 0,
+  leadDefense: 0,
+  trailSwing: 0,
+  winFastLead: 0,
+  foldThreshold: 0,
+  feedDenial: 0,
   chipValuation: 1,
   // 0.45, not 0.55: on the doubling ladder a claim costs 門前清 (÷2 payout), so
   // a tile of speed must be worth MORE than 2× (1/0.45 ≈ 2.2) or no bot ever
@@ -2213,14 +2299,14 @@ function assessRoutes(shape, rules, profile = DEFAULT_PROFILE, table = null) {
       claimSupplyCredit(route, convertiblePairs(routeCounts(route, c)), profile)
     );
     const effDistance = Math.max(0, distance) - credit;
-    let score3 = routeValue(faan, effDistance, rules, profile, urgency) * profile.faanWeight - effDistance * profile.routeDistanceWeight * (route.orphans ? ORPHANS_DISTANCE_TAX : 1) - surplus * profile.offRouteWeight + // 上家 as supply line (owner, 2026-08-27): a suit route lives or dies on
+    let score2 = routeValue(faan, effDistance, rules, profile, urgency) * profile.faanWeight - effDistance * profile.routeDistanceWeight * (route.orphans ? ORPHANS_DISTANCE_TAX : 1) - surplus * profile.offRouteWeight + // 上家 as supply line (owner, 2026-08-27): a suit route lives or dies on
     // whether the seat before you is feeding that suit or hoarding it.
     (route.suit !== null ? leftFeed(shape, route.suit) * profile.leftFeedWeight : 0) - // SUIT SUPPLY: a route into a suit the table is eating — a collector
     // declared on it, or a third of its copies already visible — is priced
     // down before any tile is thrown at it.
     (route.suit !== null && table !== null ? suitContest(route.suit, table) * profile.suitContestWeight : 0);
-    if (attainable < rules.minimumFaan) score3 -= profile.belowMinimumPenalty;
-    if (!feasible) score3 = Number.NEGATIVE_INFINITY;
+    if (attainable < rules.minimumFaan) score2 -= profile.belowMinimumPenalty;
+    if (!feasible) score2 = Number.NEGATIVE_INFINITY;
     out.push({
       route,
       key: routeKey(route),
@@ -2230,7 +2316,7 @@ function assessRoutes(shape, rules, profile = DEFAULT_PROFILE, table = null) {
       offRoute,
       surplus,
       distance,
-      score: score3
+      score: score2
     });
   }
   return out;
@@ -2319,6 +2405,7 @@ function rankDiscards(v, cfg) {
     const ownStrength = Math.max(0, 1 - chosen.distance / 4);
     foldFactor = Math.max(0, threats.max - ownStrength * profile.threatPushValue);
   }
+  const folding = profile.foldThreshold > 0 && foldFactor > profile.foldThreshold;
   const melds = shape.melds.length;
   const c = counts(shape.concealed);
   const candidates = distinctAscending(shape.concealed);
@@ -2339,8 +2426,16 @@ function rankDiscards(v, cfg) {
       }
     }
     const speedDistance = chosen.route.orphans ? routeDistance : distance;
-    const score3 = -speedDistance * profile.discardDistanceWeight - routeDistance * profile.discardRouteWeight * 0.5 + (restricts ? fits ? -profile.discardRouteWeight : profile.discardRouteWeight : 0) - danger * profile.discardSafetyWeight - threatDanger * foldFactor * profile.threatSensitivity;
-    return { tile, distance, outs: -1, danger, onRoute: fits, score: score3 };
+    let denial = 0;
+    if (profile.feedDenial > 0 && Math.max(0, 4 - visible[tile]) >= 2) {
+      for (let si = 0; si < 4; si++) {
+        if (si === v.seat) continue;
+        const pungish = v.melds[si].filter((m) => m.kind !== "chow").length;
+        if (pungish >= 2) denial += 0.5 * pungish;
+      }
+    }
+    const score2 = folding ? -danger * (1 + profile.discardSafetyWeight) - denial * profile.feedDenial - threatDanger * foldFactor * profile.threatSensitivity : -speedDistance * profile.discardDistanceWeight - routeDistance * profile.discardRouteWeight * 0.5 + (restricts ? fits ? -profile.discardRouteWeight : profile.discardRouteWeight : 0) - danger * profile.discardSafetyWeight - denial * profile.feedDenial - threatDanger * foldFactor * profile.threatSensitivity;
+    return { tile, distance, outs: -1, danger, onRoute: fits, score: score2 };
   });
   scored.sort((a, b) => b.score - a.score || a.tile - b.tile);
   const top = scored[0].score;
@@ -2491,18 +2586,30 @@ function assessClaim(v, option, cfg, context) {
       score: Number.NEGATIVE_INFINITY
     };
   }
-  const score3 = afterRoute.score - before.route.score + gain * 1.4 * profile.aggression + (option.kind === "kong" ? 0.6 : 0) + (afterRoute.attainable - cfg.ruleset.minimumFaan) * 0.15;
+  const score2 = afterRoute.score - before.route.score + gain * 1.4 * profile.aggression + (option.kind === "kong" ? 0.6 : 0) + (afterRoute.attainable - cfg.ruleset.minimumFaan) * 0.15;
   return {
     option,
     reason: "accepted",
     faanCeiling: ceiling,
     distanceBefore: onRouteBefore,
     distanceAfter,
-    score: score3
+    score: score2
   };
 }
 function claimDecision(v, options, cfg) {
   const context = claimContext(v, cfg);
+  const profile = cfg.profile ?? DEFAULT_PROFILE;
+  if (profile.foldThreshold > 0 && profile.threatSensitivity > 0) {
+    const threats = tableRead(v, cfg);
+    if (threats !== null) {
+      const cc = counts(v.hand);
+      const ownStrength = Math.max(0, 1 - distanceToReady(cc, v.melds[v.seat].length) / 4);
+      if (Math.max(0, threats.max - ownStrength * profile.threatPushValue) > profile.foldThreshold) {
+        cfg.rnd();
+        return null;
+      }
+    }
+  }
   const assessed = options.filter((o) => o.kind !== "win").map((o) => assessClaim(v, o, cfg, context)).filter((a) => a.reason === "accepted");
   if (assessed.length === 0) {
     cfg.rnd();
@@ -2534,8 +2641,42 @@ function shouldKong(v, tile, form, cfg) {
   }
   return true;
 }
+function chipLead(v) {
+  const st = v.standings;
+  if (!st) return 0;
+  const mine = st[v.seat];
+  let best = -Infinity;
+  for (let i = 0; i < st.length; i++) if (i !== v.seat && st[i] > best) best = st[i];
+  const lead = (mine - best) / 128;
+  return lead > 1 ? 1 : lead < -1 ? -1 : lead;
+}
+function scoreAdjust(profile, v) {
+  if (profile.leadDefense === 0 && profile.trailSwing === 0 && profile.winFastLead === 0) return profile;
+  const L = chipLead(v);
+  if (L === 0) return profile;
+  if (L > 0) {
+    return {
+      ...profile,
+      discardSafetyWeight: profile.discardSafetyWeight * (1 + profile.leadDefense * L),
+      threatSensitivity: profile.threatSensitivity * (1 + profile.leadDefense * L),
+      // easier hard-fold when protecting a lead
+      foldThreshold: profile.foldThreshold > 0 ? profile.foldThreshold / (1 + profile.leadDefense * L) : 0,
+      discardDistanceWeight: profile.discardDistanceWeight * (1 + profile.winFastLead * L),
+      routeDistanceWeight: profile.routeDistanceWeight * (1 + profile.winFastLead * L)
+    };
+  }
+  return {
+    ...profile,
+    faanWeight: profile.faanWeight * (1 + profile.trailSwing * -L),
+    aggression: profile.aggression * (1 + profile.trailSwing * -L)
+  };
+}
 function decideAction(v, legal, cfg) {
   if (legal.length === 0) throw new Error(`seat ${v.seat} was asked to act with no legal action`);
+  if (cfg.profile) {
+    const adj = scoreAdjust(cfg.profile, v);
+    if (adj !== cfg.profile) cfg = { ...cfg, profile: adj };
+  }
   for (const a of legal) if (a.type === "declareWin") return a;
   for (const a of legal) if (a.type === "claim" && a.option.kind === "win") return a;
   const claims = legal.filter(

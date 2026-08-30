@@ -882,9 +882,9 @@ function dealHand(d: Draft): void {
   const s = d.s;
   s.phase = "deal";
   s.handSeed = handSeedFor(s.matchSeed, s.handIndex);
-  s.wall = buildWall(s.handSeed);
+  s.wall = buildWall(s.handSeed, d.ruleset.useFlowers);
   s.wallIndex = 0;
-  s.wallEnd = WALL_SIZE;
+  s.wallEnd = s.wall.length;
   s.lastDiscard = null;
   s.claim = null;
   s.result = null;

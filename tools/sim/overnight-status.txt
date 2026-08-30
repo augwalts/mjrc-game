@@ -1,4 +1,4 @@
-overnight training — cycle 33 done (17.2 min) · 5.2h remaining
-latest cycle: opponent=mirror matches/eval=48 start=tools/sim/hall-of-fame.json
-held-out vs frozen baseline: 36.1 chips/match 
-hall of fame: 70.2 chips/match (tools/sim/hall-of-fame.json)
+era-5 training — cycle 178 done (1.7 min) · -0.0h remaining
+latest cycle: opponent=baseline matches/eval=96 start=tools/sim/hall-of-fame.json
+held-out vs baseline-v4: 10.9 chips/match  · vs v0: -4.2
+hall of fame: 11.2 chips/match (tools/sim/hall-of-fame.json)

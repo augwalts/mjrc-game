@@ -12,11 +12,14 @@ export function prng(seed: number): () => number {
   };
 }
 
-/** 144 tiles: four of each scoring kind, one of each flower. */
-export function buildWall(seed: number): TileId[] {
+/** 144 tiles: four of each scoring kind, one of each flower — or 136 with
+ * the flowers left out entirely, for rulesets that play without them (owner's
+ * TVB fidelity fix 2026-08-29: a flowerless table has MORE live draws, and
+ * modelling flowers as scoreless-but-present inflated the draw rate). */
+export function buildWall(seed: number, useFlowers = true): TileId[] {
   const w: TileId[] = [];
   for (let i = 0; i < SCORING_KINDS; i++) for (let k = 0; k < 4; k++) w.push(i);
-  for (let i = FLOWERS_START; i < FLOWERS_START + 8; i++) w.push(i);
+  if (useFlowers) for (let i = FLOWERS_START; i < FLOWERS_START + 8; i++) w.push(i);
   const rnd = prng(seed);
   for (let i = w.length - 1; i > 0; i--) {
     const j = Math.floor(rnd() * (i + 1));
@@ -26,11 +29,15 @@ export function buildWall(seed: number): TileId[] {
 }
 
 export function assertWallIntact(w: readonly TileId[]): void {
-  if (w.length !== WALL_SIZE) throw new Error(`wall has ${w.length} tiles, expected ${WALL_SIZE}`);
+  if (w.length !== WALL_SIZE && w.length !== WALL_SIZE - 8)
+    throw new Error(`wall has ${w.length} tiles, expected ${WALL_SIZE} (or ${WALL_SIZE - 8} flowerless)`);
   const c = new Map<TileId, number>();
   for (const t of w) c.set(t, (c.get(t) ?? 0) + 1);
   for (let i = 0; i < SCORING_KINDS; i++)
     if (c.get(i) !== 4) throw new Error(`tile ${i} appears ${c.get(i) ?? 0} times, expected 4`);
-  for (let i = FLOWERS_START; i < FLOWERS_START + 8; i++)
-    if (c.get(i) !== 1) throw new Error(`flower ${i} appears ${c.get(i) ?? 0} times, expected 1`);
+  const flowerless = w.length === WALL_SIZE - 8;
+  for (let i = FLOWERS_START; i < FLOWERS_START + 8; i++) {
+    const want = flowerless ? undefined : 1;
+    if (c.get(i) !== want) throw new Error(`flower ${i} appears ${c.get(i) ?? 0} times, expected ${want ?? 0}`);
+  }
 }
