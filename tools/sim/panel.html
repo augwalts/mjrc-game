@@ -1080,7 +1080,7 @@ else if (D.history.length === 0) {
     el.innerHTML = `
       <div class="card" style="margin-bottom:10px"><h2>TVB series — live</h2>
         <div class="mut" style="font-size:12px"><b>${rows.length}</b> cycles · <b>${adm}</b> admissions · enemy <b>${rows[0].enemy}</b> ·
-        fitness ${rows[0].fitness} · seeded from the TVB-adapted bot. Same admission rules as every era: same-block, margin 6, held-out.</div></div>
+        fitness ${rows[0].fitness} · seed: ${(rows[0].start || "").split("/").pop()}. Same admission rules as every era: same-block, margin 6, held-out.</div></div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px">
         ${trend("Exam — chips/match vs the v4 king (TVB rules)", exam, (v) => (v > 0 ? "+" : "") + (+v).toFixed(0), "var(--ok)", true)}
         ${st("meanFaan").length ? trend("Mean winning faan", st("meanFaan"), (v) => (+v).toFixed(1), "var(--acc)") : ""}
