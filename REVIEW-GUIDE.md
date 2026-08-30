@@ -68,7 +68,8 @@ HK mahjong only — `TERMINOLOGY.md` bans Japanese terms repo-wide.
 
 Live: https://augwalts.github.io/mjrc-game/tools/sim/panel.html
 Source: `tools/sim/panel.html` · data contracts: `data.js` (per-generation),
-`overnight.js` (series), `baselines.js` (historical reference), `threat-audit.js`.
+`series-history.js` (longitudinal archive), `overnight.js` (series), and
+`baselines.js` (historical reference).
 Mobile text status: `tools/sim/STATUS.md` (pushed every cycle).
 
 ## Build/test
@@ -79,11 +80,12 @@ Mobile text status: `tools/sim/STATUS.md` (pushed every cycle).
 ## 10. Panel & sim data pipeline (added 2026-08-28 — owner wants an external audit)
 
 The dashboard is `tools/sim/panel.html` (hosted: https://augwalts.github.io/mjrc-game/tools/sim/panel.html).
-It renders five window-globals, each produced by a different tool — audit the CHAIN, not just the page:
+It renders six window-globals from several producers — audit the CHAIN, not just the page:
 
 | data file | producer | contents |
 |---|---|---|
 | `data.js` (`window.SIM_DATA`) | `tools/sim/evolve.ts` (via `evalcore.ts` + `evalworker.ts` + `driver.ts`) | live cycle: per-generation history, bench vs `--baseline`, per-gen dial changes, faan histograms, threatDetection |
+| `series-history.js` (`SERIES_HISTORY`) | backfilled by `tools/sim/build-series-history.js` from committed cycle-end `data.js` snapshots; updated after future cycles by `overnight.mjs` | compact longitudinal generation metrics across all recoverable cycles, with explicit era/cycle/gen coordinates |
 | `overnight.js` (`OVERNIGHT`) | `tools/sim/overnight.mjs` | series state: cycles, hall-of-fame score |
 | `log.js` (`SERIES_LOG`) | `overnight.mjs` (from `overnight-log.jsonl`) | every cycle both eras; era-2 rows carry `enemy`, `ts`, `stats` (from headtohead's `STATS` JSON line) |
 | `experiments.js` (`EXPERIMENTS`) | curated by hand | the experiment ledger |
@@ -96,3 +98,4 @@ Things the owner keeps catching (verify these classes of bug are gone, and hunt 
 4. **Fixed-seed seat-luck bias** — all benches/headtoheads must be all-seats (mirror == exactly 0). Check `evalcore.evaluate` allSeats and `headtohead.ts` seat loop.
 5. **Misattributed think blocks / stale labels** in `transcribe.ts` (fixed once — seat names must come from live wind mapping).
 6. Cross-check every number the panel shows against its producer's units (chips vs placement points; per-match vs per-hand).
+7. **Wrong time scope** — the Overall tab uses `SERIES_HISTORY` across all cycles, while the Current Cycle tab uses only `SIM_DATA.history`; a moment-in-time value must never be labeled as a longitudinal KPI.
