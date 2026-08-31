@@ -94,15 +94,17 @@ const LAYOUTS = [
       return arm===0 ? {x:d*1.3,y:(rnd()-0.5)*6,rot:(rnd()-0.5)*14} : arm===1 ? {x:-d*1.3,y:(rnd()-0.5)*6,rot:(rnd()-0.5)*14}
            : arm===2 ? {x:(rnd()-0.5)*6,y:d*0.85,rot:(rnd()-0.5)*14} : {x:(rnd()-0.5)*6,y:-d*0.85,rot:(rnd()-0.5)*14};
     });}},
-  { name: "8 · Organic heap ★ (owner photo)", note: "What a real table looks like: many orientations including tiles lying sideways, irregular gaps, a roughly circular heap denser in the middle. Placed by rejection sampling against an exact rotated-rectangle test, so tiles nestle close where their angles agree.",
+  { name: "8 · Organic heap ★ (owner photo)", note: "A real table: many orientations including tiles lying sideways, irregular gaps, denser in the middle. Each tile settles as CLOSE TO THE CENTRE as it can legally sit — the radius grows only when nothing fits — so the heap packs tight while staying random.",
     fn: (n, s, rnd) => { const tw = s*0.714, out = [];
       for (let i=0;i<n;i++){ let p=null;
-        for (let tries=0;tries<300 && !p;tries++){
-          const grow = Math.hypot(s,tw)*(0.55 + Math.sqrt(i)*0.62)*(1+tries/340);
-          const a = rnd()*Math.PI*2, r = Math.sqrt(rnd())*grow;
-          const rot = rnd()<0.22 ? (rnd()<0.5?90:-90)+(rnd()-0.5)*26 : (rnd()-0.5)*78;
-          const c = {x:Math.cos(a)*r*1.28, y:Math.sin(a)*r*0.82, rot};
-          if (!out.some(o => overlaps(c,o,tw,s))) p = c;
+        // creep outward from the middle; first legal spot wins
+        for (let r=0; r<220 && !p; r+=Math.max(1.6, s*0.075)){
+          for (let k=0;k<14 && !p;k++){
+            const a = rnd()*Math.PI*2;
+            const rot = rnd()<0.24 ? (rnd()<0.5?90:-90)+(rnd()-0.5)*22 : (rnd()-0.5)*74;
+            const c = {x:Math.cos(a)*r*1.24, y:Math.sin(a)*r*0.80, rot};
+            if (!out.some(o => overlaps(c,o,tw,s))) p = c;
+          }
         }
         out.push(p ?? {x:0,y:0,rot:0}); }
       return out;}},

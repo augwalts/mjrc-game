@@ -3249,12 +3249,14 @@
       if (d.pos) return;
       const placed = pileTiles.filter((o) => o.pos).map((o) => o.pos);
       let best = null;
-      for (let tries = 0; tries < 260 && !best; tries++) {
-        const grow = cell * (0.55 + Math.sqrt(i) * 0.62) * (1 + tries / 300);
-        const a = jr() * Math.PI * 2, r = Math.sqrt(jr()) * grow;
-        const rot = jr() < 0.22 ? (jr() < 0.5 ? 90 : -90) + (jr() - 0.5) * 26 : (jr() - 0.5) * 78;
-        const c = { x: boxW / 2 + Math.cos(a) * r * 1.28, y: boxH / 2 + Math.sin(a) * r * 0.82, rot, spin: 0 };
-        if (!placed.some((o) => hits(c, o, tw, th))) best = c;
+      const step = Math.max(1.6, th * 0.075);
+      for (let r = 0; r < 240 && !best; r += step) {
+        for (let k = 0; k < 14 && !best; k++) {
+          const a = jr() * Math.PI * 2;
+          const rot = jr() < 0.24 ? (jr() < 0.5 ? 90 : -90) + (jr() - 0.5) * 22 : (jr() - 0.5) * 74;
+          const c = { x: boxW / 2 + Math.cos(a) * r * 1.24, y: boxH / 2 + Math.sin(a) * r * 0.8, rot, spin: 0 };
+          if (!placed.some((o) => hits(c, o, tw, th))) best = c;
+        }
       }
       d.pos = best ?? { x: boxW / 2, y: boxH / 2, rot: 0, spin: 0 };
       d.pos.spin = jr() * 220 - 110;

@@ -509,15 +509,19 @@ function render(): void {
   pileTiles.forEach((d, i) => {
     if (d.pos) return;                              // already placed — leave it
     const placed = pileTiles.filter((o) => o.pos).map((o) => o.pos!);
+    // Creep outward from the middle and take the FIRST legal spot, so every
+    // tile settles as close to the centre as it can — a tight heap rather than
+    // a spreading cloud (owner: "closer, but it needs to be more compressed").
     let best: Placed | null = null;
-    for (let tries = 0; tries < 260 && !best; tries++) {
-      // radius grows with the pile; sqrt keeps the middle denser than the rim
-      const grow = cell * (0.55 + Math.sqrt(i) * 0.62) * (1 + tries / 300);
-      const a = jr() * Math.PI * 2, r = Math.sqrt(jr()) * grow;
-      // orientation is genuinely varied — most tiles askew, some lying sideways
-      const rot = jr() < 0.22 ? (jr() < 0.5 ? 90 : -90) + (jr() - 0.5) * 26 : (jr() - 0.5) * 78;
-      const c: Placed = { x: boxW / 2 + Math.cos(a) * r * 1.28, y: boxH / 2 + Math.sin(a) * r * 0.82, rot, spin: 0 };
-      if (!placed.some((o) => hits(c, o, tw, th))) best = c;
+    const step = Math.max(1.6, th * 0.075);
+    for (let r = 0; r < 240 && !best; r += step) {
+      for (let k = 0; k < 14 && !best; k++) {
+        const a = jr() * Math.PI * 2;
+        // orientation is genuinely varied — most askew, some lying sideways
+        const rot = jr() < 0.24 ? (jr() < 0.5 ? 90 : -90) + (jr() - 0.5) * 22 : (jr() - 0.5) * 74;
+        const c: Placed = { x: boxW / 2 + Math.cos(a) * r * 1.24, y: boxH / 2 + Math.sin(a) * r * 0.80, rot, spin: 0 };
+        if (!placed.some((o) => hits(c, o, tw, th))) best = c;
+      }
     }
     d.pos = best ?? { x: boxW / 2, y: boxH / 2, rot: 0, spin: 0 };
     d.pos.spin = jr() * 220 - 110;
