@@ -32,10 +32,16 @@ no accounts. State lives in memory; your record persists in `localStorage`.
   `mjrc-app/web/public/tiles/` — the same faces the scoring pages draw, with
   real pip geometry. Flowers and seasons are keyed BY CHARACTER because the
   engine's array order (梅蘭竹菊) differs from the tile ids (梅蘭菊竹).
-- **A pile that never overlaps.** Discards land on a staggered grid whose cell
-  is the tile's DIAGONAL, so a tile rotated by any angle still cannot touch its
-  neighbour (`sketches/RENDERING.md`). Counting the discards is a core skill; a
-  pile you cannot count is worse than useless.
+- **A pile that never overlaps.** Discards form an organic heap — the owner
+  picked it from ten sketches in `pile-lab.html` against a photo of a real
+  table. A tile lands on its thrower's side, falls toward it until a neighbour
+  stops it, then hops sideways-and-down 220 times looking for somewhere nearer;
+  a separating-axis test on the true rotated rectangle keeps it from ever lying
+  on another tile. 60 % of the heap's area is tile. Counting the discards is a
+  core skill; a pile you cannot count is worse than useless.
+- **Tiles are named by their face.** `4●` circles, `4▮` bamboo, `4萬`
+  characters, honours and flowers in English — the discard feed and the coach
+  should read without Chinese. The tile ART is untouched.
 - **HK table conventions.** Chow is offered only from 上家; the seat and
   round winds, dealer mark 莊 and dealer repeats are all engine state.
 
@@ -61,9 +67,10 @@ show the affordance immediately, animate underneath it):
   side and position, so it reads as shuffling-then-stacking.
 - **Draw off the wall — 0.7s.** The drawn tile arcs from the wall into the gap at
   the right of your hand. Bots' face-down tiles pop in the same way.
-- **Toss — 1.0s.** A discard arcs in *from the thrower's seat* — its `--fx/--fy`
-  vector is the direction that player sits — overshoots slightly, then settles
-  into its slot at its final rotation.
+- **Toss — 1.0s.** A discard flies in *from the thrower's seat* — its `--fx/--fy`
+  vector is the direction that player sits — straight to its slot, arriving at
+  its final rotation. One flight: the keyframes carry only a start and an end,
+  and the easing only decelerates, so a throw never reads as two moves.
 
 The wall itself is decorative (the engine's wall is a shuffled array) but it
 carries what a real wall tells you: how much game is left, and it visibly erodes
