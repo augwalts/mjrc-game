@@ -218,6 +218,7 @@ Dated entries are easiest to act on later._
 | 2026-08-30 | Match state (round / hand / wall) moved **out of the window strip and into the felt**, top-left. The window bar keeps controls only. |
 | 2026-08-30 | **You get a nameplate**, at the near edge of the felt, mirroring the bots: seat wind, 莊, and your chips — none of which were on screen at any point during a hand before. Chips are green up / red down on every plate. |
 | 2026-08-31 | **`mjrc-standard` 清一色 = 7 faan**, ratified by the owner. Corrects a transcription error inherited from the "Wikipedia" column (audit §10). Applied to `MJRC_STANDARD` only — `hkos-standard` stays a faithful reading of its source. Measured: no material change to bot behaviour. See `MJRC-STANDARD-RULES.md`. |
+| 2026-08-31 | **Match length is 1–4 wind rounds.** `matchLength` widened to accept `1\|2\|3\|4` alongside the two legacy strings, rather than renamed — ~15 sim callers pass the strings and they appear in persisted log headers. Start screen picks the length and states its measured cost. |
 
 
 

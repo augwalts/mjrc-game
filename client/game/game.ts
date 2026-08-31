@@ -11,6 +11,7 @@
  *        --outfile=client/game/game.js
  */
 import { startMatch, startNextHand, applyAction, legalActions } from "../../engine/src/reducer.js";
+import type { MatchRounds } from "../../engine/src/reducer.js";
 import type { MatchState } from "../../engine/src/reducer.js";
 import { decideAction, DEFAULT_PROFILE, assessRoutes, shapeOf, rankDiscards, scoreAdjust,
   assessClaim, claimContext, claimDecision, shouldKong,
@@ -158,9 +159,9 @@ function hits(a: { x: number; y: number; rot: number }, b: { x: number; y: numbe
   return true;
 }
 const rec = JSON.parse(localStorage.getItem("mjrc.record") ?? '{"played":0,"won":0,"chips":0}');
-interface Settings { rulesetId: string; tileScale: number; botMs: number; dev: boolean; }
+interface Settings { rulesetId: string; tileScale: number; botMs: number; dev: boolean; rounds: MatchRounds; }
 const SETTINGS: Settings = {
-  rulesetId: "mjrc-standard", tileScale: 1, botMs: 420, dev: false,
+  rulesetId: "mjrc-standard", tileScale: 1, botMs: 420, dev: false, rounds: 1,
   ...JSON.parse(localStorage.getItem("mjrc.settings") ?? "{}"),
 };
 const saveSettings = (): void => {
@@ -169,6 +170,21 @@ const saveSettings = (): void => {
   document.body.classList.toggle("devmode", SETTINGS.dev);
 };
 const rules = (): Ruleset => rulesetById(SETTINGS.rulesetId) ?? MJRC_STANDARD;
+/**
+ * Match length. The numbers are MEASURED, not guessed — 25 matches per length
+ * on the mixed ladder gave 7.5 / 15.6 / 24.8 / 34.6 hands. A wind round is
+ * nowhere near four hands because the dealer repeats on a dealer win AND on
+ * 流局, and the 3-faan floor sends about a third of hands to 流局.
+ *
+ * Stating the cost on the button is deliberate: a player who picks 全莊 without
+ * being told it is an evening is a player who abandons halfway.
+ */
+const LENGTHS: [MatchRounds, string, string][] = [
+  [1, "東圈 · one wind", "~8 hands, 10–15 min. The default."],
+  [2, "東南 · two winds", "~16 hands, 20–30 min."],
+  [3, "東南西 · three winds", "~25 hands, 35–50 min."],
+  [4, "全莊 · four winds", "~35 hands, 50–70 min. A full sitting."],
+];
 const RULE_CHOICES = [
   ["mjrc-standard", "MJRC standard", "3–10 faan · the house ruleset · flowers"],
   ["hkos-standard", "HK Old Style (published)", "3–13 faan · the full limit ladder"],
@@ -180,8 +196,14 @@ function startScreen(): void {
   $("veil").style.display = "flex";
   $("panel").innerHTML = `
     <h1>香港麻雀 · MJRC</h1>
-    <p>Hong Kong Old Style · 3 faan minimum · one wind round.
+    <p>Hong Kong Old Style · 3 faan minimum.
     Your opponents are bots from the training programme — each one measurably stronger than the last.</p>
+    <h2 style="margin-top:12px">How long</h2>
+    <div class="choices lens">${LENGTHS.map(([n, label, blurb]) => `
+      <div class="choice ${SETTINGS.rounds === n ? "sel" : ""}" data-len="${n}">
+        <b>${label}</b><span>${blurb}</span>
+      </div>`).join("")}</div>
+    <h2 style="margin-top:12px">Who you play</h2>
     <div class="choices">${TABLES.map((t) => `
       <div class="choice ${t.id === table.id ? "sel" : ""}" data-t="${t.id}">
         <b>${t.label}</b><span>${t.blurb}</span>
@@ -191,7 +213,11 @@ function startScreen(): void {
       lifetime <b>${rec.chips > 0 ? "+" : ""}${rec.chips}</b> chips</p>` : ""}
     <button id="btnStart">sit down ▸</button>`;
   for (const el of Array.from($("panel").querySelectorAll<HTMLElement>(".choice"))) {
-    el.onclick = () => { table = TABLES.find((t) => t.id === el.dataset.t)!; startScreen(); };
+    el.onclick = () => {
+      if (el.dataset.len) { SETTINGS.rounds = Number(el.dataset.len) as MatchRounds; saveSettings(); }
+      else table = TABLES.find((t) => t.id === el.dataset.t)!;
+      startScreen();
+    };
   }
   ($("btnStart") as HTMLButtonElement).onclick = () => newMatch();
 }
@@ -199,7 +225,7 @@ function startScreen(): void {
 function newMatch(): void {
   seed = Math.floor(Math.random() * 2 ** 31);
   const R = rules();
-  const r = startMatch({ seed, ruleset: R, matchLength: "oneWindRound" } as never);
+  const r = startMatch({ seed, ruleset: R, matchLength: SETTINGS.rounds } as never);
   state = r.state;
   cfgs = [0, 1, 2, 3].map((i) => ({
     ruleset: R,

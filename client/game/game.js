@@ -1209,6 +1209,7 @@
   var ENGINE_VERSION = "mjrc-engine/1.0.0";
   var TICK_MS = 1;
   var CLAIM_WINDOW_MS = 3e3;
+  var roundsOf = (m) => m === "oneWindRound" ? 1 : m === "fourWindRounds" ? 4 : m;
   var asc = (a, b) => a - b;
   var nextSeat = (s) => (s + 1) % 4;
   var isSeat2 = (s) => Number.isInteger(s) && s >= 0 && s <= 3;
@@ -1481,7 +1482,7 @@
     const cycleComplete = !dealerRepeats && nextDealer === s.startingDealer;
     const nextRoundWind = cycleComplete ? (s.roundWind + 1) % 4 : s.roundWind;
     const roundsCompleted = s.roundsCompleted + (cycleComplete ? 1 : 0);
-    const target = s.matchLength === "oneWindRound" ? 1 : 4;
+    const target = s.rounds;
     const matchOver = roundsCompleted >= target;
     s.claim = null;
     s.phase = "handEnd";
@@ -1740,7 +1741,7 @@
       matchSeed: config.seed >>> 0,
       handSeed: 0,
       wallEnd: WALL_SIZE,
-      matchLength: config.matchLength ?? "oneWindRound",
+      rounds: config.matchLength === void 0 ? 1 : roundsOf(config.matchLength),
       startingDealer: dealer,
       startingChips: four(() => chips),
       handsPlayed: 0,
@@ -1778,7 +1779,7 @@
         placements[seat] = i + 1;
       });
       emit(d, "server", "matchEnd", {
-        reason: d.s.matchLength === "oneWindRound" ? "windRoundComplete" : "allRoundsComplete",
+        reason: d.s.rounds === 1 ? "windRoundComplete" : "allRoundsComplete",
         standings: four((i) => d.s.seats[i].chips),
         placements,
         handsPlayed: d.s.handsPlayed
@@ -2939,6 +2940,7 @@
     tileScale: 1,
     botMs: 420,
     dev: false,
+    rounds: 1,
     ...JSON.parse(localStorage.getItem("mjrc.settings") ?? "{}")
   };
   var saveSettings = () => {
@@ -2947,6 +2949,12 @@
     document.body.classList.toggle("devmode", SETTINGS.dev);
   };
   var rules = () => ruleset(SETTINGS.rulesetId) ?? MJRC_STANDARD;
+  var LENGTHS = [
+    [1, "\u6771\u5708 \xB7 one wind", "~8 hands, 10\u201315 min. The default."],
+    [2, "\u6771\u5357 \xB7 two winds", "~16 hands, 20\u201330 min."],
+    [3, "\u6771\u5357\u897F \xB7 three winds", "~25 hands, 35\u201350 min."],
+    [4, "\u5168\u838A \xB7 four winds", "~35 hands, 50\u201370 min. A full sitting."]
+  ];
   var RULE_CHOICES = [
     ["mjrc-standard", "MJRC standard", "3\u201310 faan \xB7 the house ruleset \xB7 flowers"],
     ["hkos-standard", "HK Old Style (published)", "3\u201313 faan \xB7 the full limit ladder"],
@@ -2956,8 +2964,14 @@
     $("veil").style.display = "flex";
     $("panel").innerHTML = `
     <h1>\u9999\u6E2F\u9EBB\u96C0 \xB7 MJRC</h1>
-    <p>Hong Kong Old Style \xB7 3 faan minimum \xB7 one wind round.
+    <p>Hong Kong Old Style \xB7 3 faan minimum.
     Your opponents are bots from the training programme \u2014 each one measurably stronger than the last.</p>
+    <h2 style="margin-top:12px">How long</h2>
+    <div class="choices lens">${LENGTHS.map(([n, label, blurb]) => `
+      <div class="choice ${SETTINGS.rounds === n ? "sel" : ""}" data-len="${n}">
+        <b>${label}</b><span>${blurb}</span>
+      </div>`).join("")}</div>
+    <h2 style="margin-top:12px">Who you play</h2>
     <div class="choices">${TABLES.map((t) => `
       <div class="choice ${t.id === table.id ? "sel" : ""}" data-t="${t.id}">
         <b>${t.label}</b><span>${t.blurb}</span>
@@ -2968,7 +2982,10 @@
     <button id="btnStart">sit down \u25B8</button>`;
     for (const el of Array.from($("panel").querySelectorAll(".choice"))) {
       el.onclick = () => {
-        table = TABLES.find((t) => t.id === el.dataset.t);
+        if (el.dataset.len) {
+          SETTINGS.rounds = Number(el.dataset.len);
+          saveSettings();
+        } else table = TABLES.find((t) => t.id === el.dataset.t);
         startScreen();
       };
     }
@@ -2977,7 +2994,7 @@
   function newMatch() {
     seed = Math.floor(Math.random() * 2 ** 31);
     const R = rules();
-    const r = startMatch({ seed, ruleset: R, matchLength: "oneWindRound" });
+    const r = startMatch({ seed, ruleset: R, matchLength: SETTINGS.rounds });
     state = r.state;
     cfgs = [0, 1, 2, 3].map((i) => ({
       ruleset: R,

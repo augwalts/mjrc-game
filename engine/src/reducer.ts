@@ -102,7 +102,18 @@ export const CLAIM_WINDOW_MS = 3000;
 
 /* ── state ─────────────────────────────────────────────────────────────── */
 
+/**
+ * How many wind rounds a match runs: 1 東圈, 2 東南, 3 東南西, 4 東南西北 全莊.
+ *
+ * The two legacy spellings are kept because ~15 callers across the sim stack
+ * pass them and, more importantly, they appear in persisted log headers — a
+ * rename would make old replay logs unreadable for no gain. `roundsOf`
+ * normalises either form; state stores the resolved number only.
+ */
+export type MatchRounds = 1 | 2 | 3 | 4;
 export type MatchLength = "oneWindRound" | "fourWindRounds";
+export const roundsOf = (m: MatchLength | MatchRounds): MatchRounds =>
+  m === "oneWindRound" ? 1 : m === "fourWindRounds" ? 4 : m;
 
 /** One prompted seat inside an open window, and what it has answered. */
 export interface ClaimOffer {
@@ -157,7 +168,8 @@ export interface MatchState extends GameState {
   handSeed: number;
   /** One past the last live tile. Replacement draws come off here. */
   wallEnd: number;
-  matchLength: MatchLength;
+  /** Resolved wind rounds. See MatchRounds — config may spell it either way. */
+  rounds: MatchRounds;
   startingDealer: SeatIndex;
   startingChips: FourSeats<number>;
   handsPlayed: number;
@@ -198,7 +210,8 @@ export interface MatchConfig {
    * ruleset. The id must still be registered in @mjrc/rulesets. */
   ruleset?: { id: string };
   dealer?: SeatIndex;
-  matchLength?: MatchLength;
+  /** 1-4, or the legacy "oneWindRound" / "fourWindRounds". Defaults to 1. */
+  matchLength?: MatchLength | MatchRounds;
   startingChips?: number;
   /** Logical clock origin. Defaults to 0 so a test's log is stable. */
   startedAt?: number;
@@ -638,7 +651,7 @@ function endHand(
     : (s.roundWind as number)) as WindIndex;
 
   const roundsCompleted = s.roundsCompleted + (cycleComplete ? 1 : 0);
-  const target = s.matchLength === "oneWindRound" ? 1 : 4;
+  const target = s.rounds;
   const matchOver = roundsCompleted >= target;
 
   s.claim = null;
@@ -972,7 +985,7 @@ export function startMatch(config: MatchConfig): Applied {
     matchSeed: config.seed >>> 0,
     handSeed: 0,
     wallEnd: WALL_SIZE,
-    matchLength: config.matchLength ?? "oneWindRound",
+    rounds: config.matchLength === undefined ? 1 : roundsOf(config.matchLength),
     startingDealer: dealer,
     startingChips: four(() => chips),
     handsPlayed: 0,
@@ -1019,7 +1032,7 @@ export function startNextHand(state: MatchState): Applied {
       placements[seat] = (i + 1) as 1 | 2 | 3 | 4;
     });
     emit(d, "server", "matchEnd", {
-      reason: d.s.matchLength === "oneWindRound" ? "windRoundComplete" : "allRoundsComplete",
+      reason: d.s.rounds === 1 ? "windRoundComplete" : "allRoundsComplete",
       standings: four((i) => d.s.seats[i].chips),
       placements,
       handsPlayed: d.s.handsPlayed,

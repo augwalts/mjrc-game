@@ -8,6 +8,21 @@ no accounts. State lives in memory; your record persists in `localStorage`.
 
     python3 -m http.server 8480 --directory client/game
 
+## Match length
+
+One to four wind rounds, chosen on the start screen. The hand counts on the
+buttons are measured, not guessed — 25 matches per length on the mixed ladder:
+
+| | hands | range | est. time |
+| --- | ---: | --- | --- |
+| 東圈 one wind | 7.5 | 4–16 | 10–15 min |
+| 東南 two winds | 15.6 | 8–23 | 20–30 min |
+| 東南西 three winds | 24.8 | 17–32 | 35–50 min |
+| 全莊 four winds | 34.6 | 25–51 | 50–70 min |
+
+A wind round is nowhere near four hands: the dealer repeats on a dealer win
+**and on 流局**, and the 3-faan floor sends about a third of hands to 流局.
+
 ## Settings (⚙ in the top bar)
 
 - **Rules** — MJRC standard (3–10 faan), HK Old Style published (3–13), or TVB

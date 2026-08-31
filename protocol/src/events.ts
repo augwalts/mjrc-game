@@ -74,8 +74,12 @@ export interface MatchLogHeader {
   rulesetId: string;
   startedAt: number;
   players: FourSeats<PlayerRef>;
-  /** Default ranked unit is one wind round 東圈 (§4). */
-  matchLength: "oneWindRound" | "fourWindRounds";
+  /**
+   * Default ranked unit is one wind round 東圈 (§4). A number is the wind-round
+   * count, 1-4; the two strings are the original spelling and still appear in
+   * logs written before matches of 2 and 3 rounds existed, so both are read.
+   */
+  matchLength: "oneWindRound" | "fourWindRounds" | 1 | 2 | 3 | 4;
   /** Starting chips per seat, so standings are auditable from the log alone. */
   startingChips: FourSeats<number>;
 }
