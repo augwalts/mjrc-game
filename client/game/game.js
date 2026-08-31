@@ -2794,7 +2794,24 @@
     faceCache.set(t, svg);
     return svg;
   }
-  var name3 = (t) => TILE_NAMES[t] ?? "?";
+  var HONOUR_NAMES = [
+    "East",
+    "South",
+    "West",
+    "North",
+    "Red",
+    "Green",
+    "White",
+    "Plum",
+    "Orchid",
+    "Chrysanth",
+    "Bamboo",
+    "Spring",
+    "Summer",
+    "Autumn",
+    "Winter"
+  ];
+  var name3 = (t) => t < 9 ? `${t + 1}\u842C` : t < 18 ? `${t - 8}\u25AE` : t < 27 ? `${t - 17}\u25CF` : HONOUR_NAMES[t - 27] ?? "?";
   var tileHtml = (t, cls = "", attrs = "") => `<span class="tile ${cls}" ${attrs}><svg viewBox="0 0 100 140" preserveAspectRatio="xMidYMid meet">${face(t)}</svg></span>`;
   var WIND_CH = ["\u6771", "\u5357", "\u897F", "\u5317"];
   var AWARDS = {
@@ -2876,6 +2893,7 @@
   var busy = false;
   var feed = [];
   var pileTiles = [];
+  var pileSeq = 0;
   function rectCorners(p, w, h) {
     const c = Math.cos(p.rot * Math.PI / 180), s2 = Math.sin(p.rot * Math.PI / 180);
     return [[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, h / 2], [-w / 2, h / 2]].map(([x, y]) => ({ x: p.x + x * c - y * s2, y: p.y + x * s2 + y * c }));
@@ -2960,7 +2978,7 @@
       const who = (s) => s === HUMAN ? "You" : BOT_NAMES[table.seats[s - 1]] ?? "Bot";
       switch (e.type) {
         case "discard":
-          pileTiles.push({ tile: p.tile, seat: p.seat });
+          pileTiles.push({ id: ++pileSeq, tile: p.tile, seat: p.seat });
           feed.push(`${who(p.seat)} discards ${name3(p.tile)}`);
           break;
         case "claimed": {
@@ -3242,35 +3260,73 @@
     renderWall();
     const pileEl = $("pile");
     const boxW = pileEl.clientWidth || 420, boxH = pileEl.clientHeight || 240;
-    const th = 30, tw = th * (100 / 140);
-    const cell = Math.sqrt(th * th + tw * tw) * 0.8;
+    const probe = pileEl.querySelector(".tile");
+    const th = probe?.offsetHeight || 36 * SETTINGS.tileScale;
+    const tw = probe?.offsetWidth || th * 0.714;
     const jr = prng((seed ^ 20973) >>> 0);
-    pileTiles.forEach((d, i) => {
+    pileTiles.forEach((d) => {
       if (d.pos) return;
       const placed = pileTiles.filter((o) => o.pos).map((o) => o.pos);
+      const ax = boxW / 2 + [0, tw * 1.7, 0, -tw * 1.7][d.seat];
+      const ay = boxH / 2 + [th * 0.75, 0, -th * 0.75, 0][d.seat];
+      const CLEAR = 0.3;
+      const fits = (c) => !placed.some((o) => hits(c, o, tw + CLEAR, th + CLEAR));
       let best = null;
-      const step = Math.max(1.6, th * 0.075);
-      for (let r = 0; r < 240 && !best; r += step) {
-        for (let k = 0; k < 14 && !best; k++) {
-          const a = jr() * Math.PI * 2;
-          const rot = jr() < 0.24 ? (jr() < 0.5 ? 90 : -90) + (jr() - 0.5) * 22 : (jr() - 0.5) * 74;
-          const c = { x: boxW / 2 + Math.cos(a) * r * 1.24, y: boxH / 2 + Math.sin(a) * r * 0.8, rot, spin: 0 };
-          if (!placed.some((o) => hits(c, o, tw, th))) best = c;
+      const step = Math.max(0.8, th * 0.028);
+      for (let r = 0; r < 320 && !best; r += step) {
+        const off = jr() * Math.PI * 2;
+        for (let k = 0; k < 40 && !best; k++) {
+          const a = off + k / 40 * Math.PI * 2;
+          for (let t = 0; t < 4 && !best; t++) {
+            const rot = jr() < 0.24 ? (jr() < 0.5 ? 90 : -90) + (jr() - 0.5) * 22 : (jr() - 0.5) * 74;
+            const c = { x: ax + Math.cos(a) * r, y: ay + Math.sin(a) * r * 0.9, rot, spin: 0 };
+            if (fits(c)) best = c;
+          }
+        }
+      }
+      const drop = (c) => {
+        const dx = ax - c.x, dy = ay - c.y, dist = Math.hypot(dx, dy);
+        if (dist < 0.01) return c;
+        const ux = dx / dist * 0.5, uy = dy / dist * 0.5;
+        for (let moved = 0; moved < dist; moved += 0.5) {
+          const n = { ...c, x: c.x + ux, y: c.y + uy };
+          if (!fits(n)) break;
+          c = n;
+        }
+        return c;
+      };
+      if (best) {
+        const far = (c) => (c.x - ax) ** 2 + (c.y - ay) ** 2;
+        best = drop(best);
+        for (let i = 0; i < 220; i++) {
+          const c = {
+            x: best.x + (jr() - 0.5) * 14,
+            y: best.y + (jr() - 0.5) * 14,
+            rot: best.rot + (jr() - 0.5) * 22,
+            spin: 0
+          };
+          if (!fits(c)) continue;
+          const settled = drop(c);
+          if (far(settled) < far(best)) best = settled;
         }
       }
       d.pos = best ?? { x: boxW / 2, y: boxH / 2, rot: 0, spin: 0 };
       d.pos.spin = jr() * 220 - 110;
     });
-    pileEl.innerHTML = pileTiles.map((d, i) => {
-      const fresh = i === pileTiles.length - 1;
+    const live = new Set(pileTiles.map((d) => d.id));
+    const pid = (el) => Number(el.dataset.pid);
+    for (const el of Array.from(pileEl.children)) if (!live.has(pid(el))) el.remove();
+    const have = new Set(Array.from(pileEl.children).map(pid));
+    for (const d of pileTiles) {
+      if (have.has(d.id)) continue;
       const from = [[0, 190], [230, 0], [0, -190], [-230, 0]][d.seat] ?? [0, 190];
-      const fly = fresh ? `--fx:${from[0]}px;--fy:${from[1]}px;--fr:${d.pos.spin.toFixed(0)}deg;--rot:${d.pos.rot.toFixed(1)}deg;--tossms:${TOSS_MS}ms;` : "";
-      return tileHtml(
+      for (const el of Array.from(pileEl.children)) el.classList.remove("hot");
+      pileEl.insertAdjacentHTML("beforeend", tileHtml(
         d.tile,
-        `pt ${fresh ? "hot fresh" : ""}`,
-        `style="left:${d.pos.x.toFixed(1)}px;top:${d.pos.y.toFixed(1)}px;${fly}transform:translate(-50%,-50%) rotate(${d.pos.rot.toFixed(1)}deg)"`
-      );
-    }).join("");
+        "pt fresh hot",
+        `data-pid="${d.id}" style="left:${d.pos.x.toFixed(1)}px;top:${d.pos.y.toFixed(1)}px;--fx:${from[0]}px;--fy:${from[1]}px;--fr:${d.pos.spin.toFixed(0)}deg;--rot:${d.pos.rot.toFixed(1)}deg;--tossms:${TOSS_MS}ms;transform:translate(-50%,-50%) rotate(${d.pos.rot.toFixed(1)}deg)"`
+      ));
+    }
     $("mymelds").innerHTML = me.melds.map((m) => m.tiles.map((t) => tileHtml(t)).join("")).join('<span style="width:10px"></span>') + me.flowers.map((t) => tileHtml(t, "fl")).join("");
     const canDiscard = !!pending?.some((a) => a.type === "discard");
     const hand = [...me.hand].sort((a, b) => a - b);

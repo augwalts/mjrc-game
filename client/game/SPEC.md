@@ -82,6 +82,32 @@ replacing this renderer later costs nothing but the renderer.
 - Tosses arc in **from the thrower's seat direction**, which is how a player
   reads who threw without looking at the log.
 
+### The discard heap
+
+Three passes, in order, per discard — and only for the tile just thrown:
+
+1. **Search.** Creep outward from the thrower's anchor in ~1 px rings, forty
+   angles a ring, four candidate rotations an angle; take the first spot that
+   touches nothing. Four rotations because a tile that will not fit at one tilt
+   often fits at another.
+2. **Gravity.** Walk the tile back toward its anchor in 0.5 px steps until a
+   neighbour stops it.
+3. **Basin-hop, 220 times.** Sidestep up to ±7 px and ±11°, then fall again;
+   keep the result only if it ended nearer the anchor. Without this the tile
+   parks against the first thing that blocks its radial line and leaves a gap
+   beside it — the difference between 51 % and 60 % density.
+
+Overlap is tested with a separating-axis check on the true rotated rectangle,
+fed the tile's **measured** size (`offsetWidth/offsetHeight`, which ignores the
+CSS rotation) plus 0.3 px. Never a hardcoded size: the settings slider scales
+tiles, and a stale constant of 30 px against a rendered 36 px is exactly how
+tiles came to overlap.
+
+A placed tile **never moves again**, and its DOM node is keyed to a discard id,
+never to a count — `render()` runs two or three times a turn and a claim lifts a
+tile back off the pile, so anything count-based re-creates settled tiles and
+restarts their toss animation.
+
 ## 5. Known gaps
 
 Sound · replay viewer · avatars and expressions (`EXPRESSIONS.md`) · richer
@@ -142,6 +168,11 @@ Dated entries are easiest to act on later._
 | 2026-08-29 | Owner: animate the wall — build ≈1.1 s, draw 0.7 s, toss 1.0 s (overrides `ANIMATION.md` §6 budgets; see §3). |
 | 2026-08-29 | Owner review round 2 — see §6a for the full triage. Fixed: measurement artefacts, flower legibility, tile-size hierarchy, immovable wall, immovable pile, table box, calls, turn clock, split dev boxes. |
 | 2026-08-29 | Wall rebuilt to match the owner's photo: pinwheeled corners, two tiles high, 18 stacks a side, whole surface in perspective. |
+| 2026-08-30 | Discard pile = the **organic heap** (`pile-lab.html` layout 8), chosen from ten sketches against the owner's photo of a real table. |
+| 2026-08-30 | Owner: "as tight as possible without overlapping." Packer is now search → gravity → basin-hop (see §4). Density 60 %, footprint 295×291 for 55 tiles; the lab reads 30 k area against 69 k for the first cut. |
+| 2026-08-30 | A discard lands on **its thrower's side** of the heap, as at a real table, not in the middle. |
+| 2026-08-30 | Tiles are **named** by the mark printed on their face — `4●` circles, `4▮` bamboo, `4萬` characters — and honours/flowers in English. Most players do not read Chinese. Tile ART is unchanged. |
+| 2026-08-30 | The toss is **one flight**, thrower's seat straight to the tile's slot. No waypoint, no overshoot in the easing. |
 
 
 

@@ -60,7 +60,19 @@ function face(t: TileId): string {
   faceCache.set(t, svg);
   return svg;
 }
-const name = (t: TileId): string => TILE_NAMES[t] ?? "?";
+/**
+ * How a tile is NAMED in prose — the discard feed, the calls, the coach's
+ * notes. The engine's own names are 萬索筒; most players cannot read them
+ * (owner, 2026-08-30), so a suit is written with the mark that is actually
+ * PRINTED on its face: a circle for circles, a stick for bamboo, and 萬 for
+ * characters, whose face is that character. Honours and flowers get English,
+ * having no mark to borrow. The tile ART is unchanged — this is only prose.
+ */
+const HONOUR_NAMES = ["East", "South", "West", "North", "Red", "Green", "White",
+  "Plum", "Orchid", "Chrysanth", "Bamboo", "Spring", "Summer", "Autumn", "Winter"];
+const name = (t: TileId): string =>
+  t < 9 ? `${t + 1}萬` : t < 18 ? `${t - 8}▮` : t < 27 ? `${t - 17}●`
+  : HONOUR_NAMES[t - 27] ?? "?";
 const tileHtml = (t: TileId, cls = "", attrs = ""): string =>
   `<span class="tile ${cls}" ${attrs}><svg viewBox="0 0 100 140" preserveAspectRatio="xMidYMid meet">${face(t)}</svg></span>`;
 
@@ -110,7 +122,8 @@ let pending: Action[] | null = null;
 let busy = false;
 const feed: string[] = [];
 interface Placed { x: number; y: number; rot: number; spin: number; }
-let pileTiles: { tile: TileId; seat: number; pos?: Placed }[] = [];
+let pileTiles: { id: number; tile: TileId; seat: number; pos?: Placed }[] = [];
+let pileSeq = 0;     // every discard gets an id its DOM node is keyed to
 /**
  * ORGANIC HEAP (owner photo, 2026-08-29). Tiles land where they land: many
  * orientations, irregular gaps, a roughly circular pile that grows outward —
@@ -206,7 +219,7 @@ function consume(events: readonly unknown[]): void {
       s === HUMAN ? "You" : (BOT_NAMES[table.seats[(s as number) - 1]!] ?? "Bot");
     switch (e.type) {
       case "discard":
-        pileTiles.push({ tile: p.tile as TileId, seat: p.seat as number });
+        pileTiles.push({ id: ++pileSeq, tile: p.tile as TileId, seat: p.seat as number });
         feed.push(`${who(p.seat)} discards ${name(p.tile as TileId)}`);
         break;
       case "claimed": {
@@ -494,47 +507,113 @@ function render(): void {
   renderWall();
 
   // THE PILE. A tile lands where it lands and NEVER moves again — the owner's
-  // rule and the real table's: you throw into the middle and tiles accumulate
-  // around what is already there. So slots come from a fixed centre-out square
-  // spiral whose step is the tile's DIAGONAL (a rectangle at any rotation fits
-  // inside a square of its own diagonal, so no two tiles can overlap), and each
-  // discard is assigned its slot ONCE, at the moment it is thrown.
+  // rule and the real table's: you throw in front of yourself and tiles pile up
+  // around what is already there.
+  //
+  // Each discard creeps outward from ITS THROWER'S side of the heap and takes
+  // the first spot that touches nothing, so a seat's tiles gather nearest that
+  // seat while the four lobes still merge into one mass. The overlap test is
+  // exact (separating axis on the true rotated rectangle) and is fed the tile's
+  // MEASURED size, read off the DOM rather than assumed: the CSS draws pile
+  // tiles at 36px and the settings slider scales that, while this code used to
+  // hardcode 30px — a fifth too small, which is exactly how tiles came to
+  // overlap (owner, 2026-08-30).
   const pileEl = $("pile");
   const boxW = pileEl.clientWidth || 420, boxH = pileEl.clientHeight || 240;
-  const th = 30, tw = th * (100 / 140);
-  // Compressed: rotation is kept small so centres can sit closer than the full
-  // diagonal and still never touch (owner: "compress the middle pile more").
-  const cell = Math.sqrt(th * th + tw * tw) * 0.80;
+  const probe = pileEl.querySelector<HTMLElement>(".tile");
+  const th = probe?.offsetHeight || 36 * SETTINGS.tileScale;   // offset*, not the
+  const tw = probe?.offsetWidth || th * 0.714;                 // rotated bounding box
   const jr = prng((seed ^ 0x51ed) >>> 0);
-  pileTiles.forEach((d, i) => {
+  pileTiles.forEach((d) => {
     if (d.pos) return;                              // already placed — leave it
     const placed = pileTiles.filter((o) => o.pos).map((o) => o.pos!);
-    // Creep outward from the middle and take the FIRST legal spot, so every
-    // tile settles as close to the centre as it can — a tight heap rather than
-    // a spreading cloud (owner: "closer, but it needs to be more compressed").
+    // Anchor: the spot on the heap in front of whoever threw. Seats run
+    // you / east / north / west, clockwise from the near edge of the table.
+    const ax = boxW / 2 + [0, tw * 1.7, 0, -tw * 1.7][d.seat]!;
+    const ay = boxH / 2 + [th * 0.75, 0, -th * 0.75, 0][d.seat]!;
+    // Tiles may kiss. They must never overlap (owner, 2026-08-30) — so the
+    // clearance is a hair, not a margin, and the search is fine enough to use
+    // it: rings a pixel apart, forty angles each, four candidate rotations per
+    // angle, because a tile that will not fit at one tilt often fits at another.
+    const CLEAR = 0.3;
+    const fits = (c: Placed): boolean => !placed.some((o) => hits(c, o, tw + CLEAR, th + CLEAR));
     let best: Placed | null = null;
-    const step = Math.max(1.6, th * 0.075);
-    for (let r = 0; r < 240 && !best; r += step) {
-      for (let k = 0; k < 14 && !best; k++) {
-        const a = jr() * Math.PI * 2;
-        // orientation is genuinely varied — most askew, some lying sideways
-        const rot = jr() < 0.24 ? (jr() < 0.5 ? 90 : -90) + (jr() - 0.5) * 22 : (jr() - 0.5) * 74;
-        const c: Placed = { x: boxW / 2 + Math.cos(a) * r * 1.24, y: boxH / 2 + Math.sin(a) * r * 0.80, rot, spin: 0 };
-        if (!placed.some((o) => hits(c, o, tw, th))) best = c;
+    const step = Math.max(0.8, th * 0.028);
+    for (let r = 0; r < 320 && !best; r += step) {
+      const off = jr() * Math.PI * 2;                 // rotate each ring's spokes
+      for (let k = 0; k < 40 && !best; k++) {
+        const a = off + (k / 40) * Math.PI * 2;
+        for (let t = 0; t < 4 && !best; t++) {
+          // orientation is genuinely varied — most askew, some lying sideways
+          const rot = jr() < 0.24 ? (jr() < 0.5 ? 90 : -90) + (jr() - 0.5) * 22 : (jr() - 0.5) * 74;
+          const c: Placed = { x: ax + Math.cos(a) * r, y: ay + Math.sin(a) * r * 0.9, rot, spin: 0 };
+          if (fits(c)) best = c;
+        }
+      }
+    }
+    // Gravity, then settle. Radial gravity walks the tile straight back toward
+    // its anchor until a neighbour stops it — but if that one neighbour blocks
+    // the line, the tile parks with room on both sides of it. So follow with a
+    // jiggle: propose small shifts and tilts, keep any that is legal AND nearer
+    // the anchor. Gravity makes the heap; the jiggle closes its gaps (owner:
+    // "as tight as possible without overlapping").
+    const drop = (c: Placed): Placed => {
+      const dx = ax - c.x, dy = ay - c.y, dist = Math.hypot(dx, dy);
+      if (dist < 0.01) return c;
+      const ux = dx / dist * 0.5, uy = dy / dist * 0.5;
+      for (let moved = 0; moved < dist; moved += 0.5) {
+        const n: Placed = { ...c, x: c.x + ux, y: c.y + uy };
+        if (!fits(n)) break;
+        c = n;
+      }
+      return c;
+    };
+    if (best) {
+      const far = (c: Placed): number => (c.x - ax) ** 2 + (c.y - ay) ** 2;
+      best = drop(best);
+      // Sidestep, THEN fall, and keep the result only if it ended up nearer.
+      // Requiring the sidestep itself to be nearer is what a dropped tile can
+      // never do — it is already as deep as that line goes — so the tile has to
+      // be allowed to move sideways past its blocker first and fall around it.
+      for (let i = 0; i < 220; i++) {
+        // ±22° keeps a sideways tile sideways, so the photo's mix of
+        // orientations survives the squeeze
+        const c: Placed = {
+          x: best.x + (jr() - 0.5) * 14, y: best.y + (jr() - 0.5) * 14,
+          rot: best.rot + (jr() - 0.5) * 22, spin: 0,
+        };
+        if (!fits(c)) continue;
+        const settled = drop(c);
+        if (far(settled) < far(best)) best = settled;
       }
     }
     d.pos = best ?? { x: boxW / 2, y: boxH / 2, rot: 0, spin: 0 };
     d.pos.spin = jr() * 220 - 110;
   });
-  pileEl.innerHTML = pileTiles.map((d, i) => {
-    const fresh = i === pileTiles.length - 1;
+  // NODES ARE KEYED TO TILE IDENTITY, never to a count. render() runs two or
+  // three times per turn — on entry, again once the turn is yours, again on any
+  // settings change — and a claim lifts a tile back off the pile. Rebuilding
+  // the pile's innerHTML, or re-appending after it shrank, restarted the toss
+  // keyframes on tiles that were already lying on the table: the owner's
+  // "double toss animation bug", 4 tiles playing 16 animations. Each discard
+  // carries an id, its node carries the same id, and a node is created exactly
+  // once in its life — so only a genuinely new discard ever animates.
+  const live = new Set(pileTiles.map((d) => d.id));
+  const pid = (el: Element): number => Number((el as HTMLElement).dataset.pid);
+  for (const el of Array.from(pileEl.children)) if (!live.has(pid(el))) el.remove();
+  const have = new Set(Array.from(pileEl.children).map(pid));
+  for (const d of pileTiles) {
+    if (have.has(d.id)) continue;
     const from = [[0, 190], [230, 0], [0, -190], [-230, 0]][d.seat] ?? [0, 190];
-    const fly = fresh
-      ? `--fx:${from[0]}px;--fy:${from[1]}px;--fr:${d.pos!.spin.toFixed(0)}deg;--rot:${d.pos!.rot.toFixed(1)}deg;--tossms:${TOSS_MS}ms;`
-      : "";
-    return tileHtml(d.tile, `pt ${fresh ? "hot fresh" : ""}`,
-      `style="left:${d.pos!.x.toFixed(1)}px;top:${d.pos!.y.toFixed(1)}px;${fly}transform:translate(-50%,-50%) rotate(${d.pos!.rot.toFixed(1)}deg)"`);
-  }).join("");
+    // the gold ring marks the tile in play; it leaves with the tile when
+    // somebody claims it, rather than drifting back onto an older discard
+    for (const el of Array.from(pileEl.children)) el.classList.remove("hot");
+    pileEl.insertAdjacentHTML("beforeend", tileHtml(d.tile, "pt fresh hot",
+      `data-pid="${d.id}" style="left:${d.pos!.x.toFixed(1)}px;top:${d.pos!.y.toFixed(1)}px;`
+      + `--fx:${from[0]}px;--fy:${from[1]}px;--fr:${d.pos!.spin.toFixed(0)}deg;`
+      + `--rot:${d.pos!.rot.toFixed(1)}deg;--tossms:${TOSS_MS}ms;`
+      + `transform:translate(-50%,-50%) rotate(${d.pos!.rot.toFixed(1)}deg)"`));
+  }
 
   $("mymelds").innerHTML = me.melds.map((m) => m.tiles.map((t) => tileHtml(t)).join("")).join('<span style="width:10px"></span>')
     + me.flowers.map((t) => tileHtml(t, "fl")).join("");

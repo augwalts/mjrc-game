@@ -89,12 +89,15 @@ body{background:radial-gradient(ellipse at 50% 30%, #1e1b17 0%, #131110 55%, #0a
 #wallinfo b{color:var(--ink);font-variant-numeric:tabular-nums}
 #pile{position:relative;width:100%;height:100%}
 #pile .tile{position:absolute;--th:36px}
-#pile .tile.fresh{animation:toss var(--tossms,1000ms) cubic-bezier(.18,.7,.3,1.04)}
+/* ONE flight, thrower's seat -> the tile's slot. The old keyframes had a 70%
+   waypoint that stopped short and lifted, then a separate settle into place, so
+   a throw read as two moves; the easing also overshot (the 1.04). Two transform
+   keyframes interpolate along a straight line, and the curve only decelerates,
+   so the tile goes where it is going and stops there (owner, 2026-08-30). */
+#pile .tile.fresh{animation:toss var(--tossms,1000ms) cubic-bezier(.19,.78,.28,1)}
 @keyframes toss{
-  0%{transform:translate(calc(-50% + var(--fx,0px)),calc(-50% + var(--fy,140px))) rotate(var(--fr,0deg)) scale(1.35);opacity:.15}
-  25%{opacity:1}
-  70%{transform:translate(calc(-50% + var(--fx,0px) * .12),calc(-50% + var(--fy,140px) * .12 - 16px))
-      rotate(calc(var(--fr,0deg) * .3)) scale(1.08)}
+  0%{transform:translate(calc(-50% + var(--fx,0px)),calc(-50% + var(--fy,140px))) rotate(var(--fr,0deg)) scale(1.28);opacity:0}
+  18%{opacity:1}
   100%{transform:translate(-50%,-50%) rotate(var(--rot,0deg)) scale(1)}
 }
 #pile .tile.hot{outline:2px solid var(--gold);box-shadow:0 0 12px rgba(216,181,106,.6);z-index:9}

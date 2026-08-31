@@ -94,16 +94,34 @@ const LAYOUTS = [
       return arm===0 ? {x:d*1.3,y:(rnd()-0.5)*6,rot:(rnd()-0.5)*14} : arm===1 ? {x:-d*1.3,y:(rnd()-0.5)*6,rot:(rnd()-0.5)*14}
            : arm===2 ? {x:(rnd()-0.5)*6,y:d*0.85,rot:(rnd()-0.5)*14} : {x:(rnd()-0.5)*6,y:-d*0.85,rot:(rnd()-0.5)*14};
     });}},
-  { name: "8 · Organic heap ★ (owner photo)", note: "A real table: many orientations including tiles lying sideways, irregular gaps, denser in the middle. Each tile settles as CLOSE TO THE CENTRE as it can legally sit — the radius grows only when nothing fits — so the heap packs tight while staying random.",
-    fn: (n, s, rnd) => { const tw = s*0.714, out = [];
-      for (let i=0;i<n;i++){ let p=null;
-        // creep outward from the middle; first legal spot wins
-        for (let r=0; r<220 && !p; r+=Math.max(1.6, s*0.075)){
-          for (let k=0;k<14 && !p;k++){
-            const a = rnd()*Math.PI*2;
-            const rot = rnd()<0.24 ? (rnd()<0.5?90:-90)+(rnd()-0.5)*22 : (rnd()-0.5)*74;
-            const c = {x:Math.cos(a)*r*1.24, y:Math.sin(a)*r*0.80, rot};
-            if (!out.some(o => overlaps(c,o,tw,s))) p = c;
+  { name: "8 · Organic heap ★ SHIPPED", note: "A real table: many orientations including tiles lying sideways, irregular gaps, denser in the middle. This is the algorithm the game now runs. Each tile is thrown from ITS OWN SEAT'S side of the heap, creeps outward until it finds a legal spot, then falls back toward that seat until a neighbour stops it — and finally sidesteps and falls again, 220 times, keeping only what lands nearer. Tiles may touch; they never overlap.",
+    fn: (n, s, rnd) => { const tw = s*0.714, out = [], CLEAR = 0.3;
+      const fits = c => !out.some(o => overlaps(c, o, tw + CLEAR, s + CLEAR));
+      for (let i=0;i<n;i++){
+        // the thrower rotates you / east / north / west, as at the table
+        const seat = i % 4;
+        const ax = [0, tw*1.7, 0, -tw*1.7][seat], ay = [s*0.75, 0, -s*0.75, 0][seat];
+        const far = c => (c.x-ax)**2 + (c.y-ay)**2;
+        const drop = c => { const dx=ax-c.x, dy=ay-c.y, d=Math.hypot(dx,dy); if (d<0.01) return c;
+          const ux=dx/d*0.5, uy=dy/d*0.5;
+          for (let m=0;m<d;m+=0.5){ const nx={...c, x:c.x+ux, y:c.y+uy}; if(!fits(nx)) break; c=nx; }
+          return c; };
+        let p=null;
+        for (let r=0; r<320 && !p; r+=Math.max(0.8, s*0.028)){
+          const off = rnd()*Math.PI*2;
+          for (let k=0;k<40 && !p;k++){ const a = off + (k/40)*Math.PI*2;
+            for (let t=0;t<4 && !p;t++){
+              const rot = rnd()<0.24 ? (rnd()<0.5?90:-90)+(rnd()-0.5)*22 : (rnd()-0.5)*74;
+              const c = {x:ax+Math.cos(a)*r, y:ay+Math.sin(a)*r*0.9, rot};
+              if (fits(c)) p = c;
+            }
+          }
+        }
+        if (p) { p = drop(p);
+          for (let k=0;k<220;k++){
+            const c = {x:p.x+(rnd()-0.5)*14, y:p.y+(rnd()-0.5)*14, rot:p.rot+(rnd()-0.5)*22};
+            if (!fits(c)) continue;
+            const d2 = drop(c); if (far(d2) < far(p)) p = d2;
           }
         }
         out.push(p ?? {x:0,y:0,rot:0}); }
