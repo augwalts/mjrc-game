@@ -51,8 +51,26 @@ Refresh the bot roster after a new champion is frozen:
        ('v4','baseline-v4'),('persona','persona-action')]}; \
       open('client/game/bots.js','w').write('window.BOTS = '+json.dumps(d)+';\n')"
 
+## Animation
+
+Three beats, all pure CSS so none of them can gate input (`MatchScene.ts` rule 1:
+show the affordance immediately, animate underneath it):
+
+- **Build the wall — 1.1s.** At the start of every hand the wall assembles: each
+  face-down tile flies in from a random offset with a random tilt, staggered by
+  side and position, so it reads as shuffling-then-stacking.
+- **Draw off the wall — 0.7s.** The drawn tile arcs from the wall into the gap at
+  the right of your hand. Bots' face-down tiles pop in the same way.
+- **Toss — 1.0s.** A discard arcs in *from the thrower's seat* — its `--fx/--fy`
+  vector is the direction that player sits — overshoots slightly, then settles
+  into its slot at its final rotation.
+
+The wall itself is decorative (the engine's wall is a shuffled array) but it
+carries what a real wall tells you: how much game is left, and it visibly erodes
+as tiles are drawn.
+
 ## Not built yet
 
-Animations beyond the toss and draw pops · sound · replay viewer · avatars and
+Sound · replay viewer · avatars and
 expressions (`EXPRESSIONS.md`) · online play (`DESIGN.md` §5.3 specifies the
 snapshot + actions-since resync the renderer boundary already assumes).

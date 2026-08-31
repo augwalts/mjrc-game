@@ -49,13 +49,36 @@ body{background:radial-gradient(ellipse at 50% 40%, var(--felt) 0%, var(--felt-d
 
 /* ── centre: the pile ── */
 #centre{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
-  width:min(62vw,560px);height:min(40vh,300px);display:flex;flex-direction:column;align-items:center;justify-content:center}
-#wallinfo{font-size:11px;color:var(--dim);margin-bottom:4px;letter-spacing:.04em}
+  width:min(66vw,620px);height:min(46vh,340px)}
+
+/* ── the wall: four stacked sides ringing the table ── */
+#wall{position:absolute;inset:0;pointer-events:none}
+#wall .side{position:absolute;display:flex;gap:2px}
+#wall .side.top{top:0;left:50%;transform:translateX(-50%)}
+#wall .side.bottom{bottom:0;left:50%;transform:translateX(-50%)}
+#wall .side.left{left:0;top:50%;transform:translateY(-50%);flex-direction:column}
+#wall .side.right{right:0;top:50%;transform:translateY(-50%);flex-direction:column}
+.wt{width:11px;height:16px;border-radius:2px;background:linear-gradient(180deg,#2f7a5f,#1d5c46);
+  border:1px solid #14493a;box-shadow:0 1px 0 rgba(0,0,0,.35);flex:0 0 auto}
+#wall .side.left .wt,#wall .side.right .wt{width:16px;height:11px}
+#wall.building .wt{animation:assemble .62s cubic-bezier(.2,.8,.3,1.1) backwards}
+@keyframes assemble{
+  from{transform:translate(var(--ax,0px),var(--ay,-70px)) rotate(var(--ar,-25deg)) scale(.7);opacity:0}
+  60%{opacity:1}
+}
+#wallinfo{position:absolute;left:50%;bottom:-20px;transform:translateX(-50%);
+  font-size:11px;color:var(--dim);letter-spacing:.04em;white-space:nowrap}
 #wallinfo b{color:var(--ink);font-variant-numeric:tabular-nums}
 #pile{position:relative;width:100%;height:100%}
-#pile .tile{position:absolute;--th:36px;transition:transform .28s cubic-bezier(.2,.9,.3,1.2),opacity .2s}
-#pile .tile.fresh{animation:toss .34s cubic-bezier(.2,.9,.3,1.2)}
-@keyframes toss{from{transform:translateY(-46px) scale(1.28) rotate(0deg);opacity:.2}}
+#pile .tile{position:absolute;--th:36px}
+#pile .tile.fresh{animation:toss var(--tossms,1000ms) cubic-bezier(.18,.7,.3,1.04)}
+@keyframes toss{
+  0%{transform:translate(calc(-50% + var(--fx,0px)),calc(-50% + var(--fy,140px))) rotate(var(--fr,0deg)) scale(1.35);opacity:.15}
+  25%{opacity:1}
+  70%{transform:translate(calc(-50% + var(--fx,0px) * .12),calc(-50% + var(--fy,140px) * .12 - 16px))
+      rotate(calc(var(--fr,0deg) * .3)) scale(1.08)}
+  100%{transform:translate(-50%,-50%) rotate(var(--rot,0deg)) scale(1)}
+}
 #pile .tile.hot{outline:2px solid var(--gold);box-shadow:0 0 12px rgba(216,181,106,.6);z-index:9}
 
 /* ── tiles ── */
@@ -75,8 +98,14 @@ body{background:radial-gradient(ellipse at 50% 40%, var(--felt) 0%, var(--felt-d
 #myhand{display:flex;gap:5px;justify-content:center;align-items:flex-end;min-height:62px;flex-wrap:wrap}
 #myhand .tile{--th:78px;cursor:pointer;transition:transform .12s,box-shadow .12s}
 #myhand .tile:hover{transform:translateY(-9px);box-shadow:0 6px 14px rgba(0,0,0,.45)}
-#myhand .tile.drawn{margin-left:16px;animation:pop .28s ease-out}
-@keyframes pop{from{transform:translateY(-22px) scale(.8);opacity:.4}}
+#myhand .tile.drawn{margin-left:18px;animation:drawFromWall var(--drawms,700ms) cubic-bezier(.2,.75,.3,1.05)}
+@keyframes drawFromWall{
+  0%{transform:translate(var(--wx,0px),var(--wy,-190px)) rotate(-18deg) scale(.62);opacity:0}
+  30%{opacity:1}
+  100%{transform:translate(0,0) rotate(0) scale(1)}
+}
+.backrow .wtnew{animation:botDraw .7s cubic-bezier(.2,.75,.3,1.05)}
+@keyframes botDraw{0%{transform:scale(.4) translateY(-26px);opacity:0}60%{opacity:1}100%{transform:none}}
 #myhand.locked .tile{cursor:default}#myhand.locked .tile:hover{transform:none;box-shadow:0 1px 0 #b8ad93,0 2px 4px rgba(0,0,0,.3)}
 #actions{display:flex;gap:8px;justify-content:center;align-items:center;min-height:42px;margin-top:5px}
 #actions button{background:rgba(255,255,255,.1);color:var(--ink);border:1px solid rgba(255,255,255,.22);
@@ -147,7 +176,7 @@ body{background:radial-gradient(ellipse at 50% 40%, var(--felt) 0%, var(--felt-d
   <div class="seat n" id="seatN"></div>
   <div class="seat w" id="seatW"></div>
   <div class="seat e" id="seatE"></div>
-  <div id="centre"><div id="wallinfo"></div><div id="pile"></div></div>
+  <div id="centre"><div id="wall"></div><div id="pile"></div><div id="wallinfo"></div></div>
   <div id="log"></div>
   <div id="devwrap"></div>
 </div>

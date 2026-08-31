@@ -97,6 +97,8 @@ const BOT_NAMES: Record<string, string> = {
 
 /* ── state ─────────────────────────────────────────────────────────────── */
 const HUMAN: SeatIndex = 0;
+const TOSS_MS = 1000;   // owner: ~1s to simulate the throw
+const DRAW_MS = 700;    // owner: ~0.7s to draw off the wall
 const $ = (id: string): HTMLElement => document.getElementById(id)!;
 let state: MatchState;
 let cfgs: BotConfig[];
@@ -160,6 +162,7 @@ function newMatch(): void {
   $("hudTable").textContent = table.label + " — " + table.seats.map((s) => BOT_NAMES[s] ?? s).join(", ");
   consume(r.events);
   advance();
+  buildWall();
 }
 
 /* ── events ────────────────────────────────────────────────────────────── */
@@ -303,10 +306,40 @@ function showOverlay(): void {
   const next = document.getElementById("btnNext");
   if (next) next.onclick = () => {
     overlay = null; $("veil").style.display = "none";
-    const r = startNextHand(state); state = r.state; pileTiles = []; consume(r.events); advance();
+    const r = startNextHand(state); state = r.state; pileTiles = []; devBotLines = [];
+    consume(r.events); advance(); buildWall();
   };
   const again = document.getElementById("btnAgain");
   if (again) again.onclick = () => { overlay = null; startScreen(); };
+}
+
+/* ── the wall ──────────────────────────────────────────────────────────
+ * A ring of face-down tiles around the pile. It is decorative — the engine's
+ * wall is a shuffled array — but it carries the two things a player reads off
+ * a real wall: how much game is left, and where the live end is. Tiles are
+ * removed from the live end as the count falls, so the wall visibly erodes.  */
+let buildAnim = false;
+function renderWall(): void {
+  const left = Math.max(0, state.wallEnd - state.wallIndex);
+  const perSide = Math.ceil(left / 4);
+  const sides = ["top", "right", "bottom", "left"];
+  const jr = prng((seed ^ 0xbeef) >>> 0);
+  $("wall").className = buildAnim ? "building" : "";
+  $("wall").innerHTML = sides.map((side, si) => {
+    const n = Math.min(perSide, Math.max(0, left - si * perSide));
+    return `<div class="side ${side}">${Array.from({ length: n }, (_, i) => {
+      const d = buildAnim
+        ? ` style="--ax:${(jr() * 140 - 70).toFixed(0)}px;--ay:${(jr() * -120 - 30).toFixed(0)}px;--ar:${(jr() * 60 - 30).toFixed(0)}deg;animation-delay:${(si * 90 + i * 7)}ms"`
+        : "";
+      return `<span class="wt"${d}></span>`;
+    }).join("")}</div>`;
+  }).join("");
+}
+/** Shuffle-and-build: run once when a hand starts. */
+function buildWall(): void {
+  buildAnim = true;
+  renderWall();
+  setTimeout(() => { buildAnim = false; renderWall(); }, 1100);
 }
 
 /* ── render ────────────────────────────────────────────────────────────── */
@@ -319,7 +352,8 @@ function seatBox(seat: SeatIndex): string {
       <span class="wind">${WIND_CH[s.wind]}</span>
       ${state.dealer === seat ? '<span class="dealer">莊</span>' : ""}
       <span class="chips">${s.chips > 0 ? "+" : ""}${s.chips}</span></div>
-    <div class="backrow">${'<span class="back"></span>'.repeat(Math.min(hidden, 13))}</div>
+    <div class="backrow">${Array.from({ length: Math.min(hidden, 14) }, (_, i) =>
+      `<span class="back ${i === hidden - 1 && s.drawn !== null ? "wtnew" : ""}"></span>`).join("")}</div>
     <div class="meldrow">${s.melds.map((m) => m.tiles.map((t) => tileHtml(t, "sm")).join("")).join('<span style="width:6px"></span>')}
       ${s.flowers.map((t) => tileHtml(t, "sm")).join("")}</div>`;
 }
@@ -333,6 +367,7 @@ function render(): void {
   $("seatN").innerHTML = seatBox(2);
   $("seatW").innerHTML = seatBox(3);
   $("wallinfo").innerHTML = `wall <b>${Math.max(0, state.wallEnd - state.wallIndex)}</b> tiles left`;
+  renderWall();
 
   // THE PILE. Messy but never overlapping — the guarantee is geometric, from
   // sketches/RENDERING.md: lay centres on a staggered grid whose cell is the
@@ -356,9 +391,14 @@ function render(): void {
     const cy = (row + 0.5) * cell - (Math.ceil(pileTiles.length / perRow) * cell) / 2 + boxH / 2;
     const jx = (jrnd() - 0.5) * cell * 0.06, jy = (jrnd() - 0.5) * cell * 0.06;
     const rot = (jrnd() * 24 - 12).toFixed(1);
-    const hot = i === pileTiles.length - 1 ? "hot fresh" : "";
-    return tileHtml(d.tile, `sm ${hot}`,
-      `style="left:${(cx + jx).toFixed(1)}px;top:${(cy + jy).toFixed(1)}px;transform:translate(-50%,-50%) rotate(${rot}deg)"`);
+    const fresh = i === pileTiles.length - 1;
+    // where it was thrown FROM, so the toss arcs in off the right shoulder
+    const from = [[0, 190], [230, 0], [0, -190], [-230, 0]][d.seat] ?? [0, 190];
+    const fly = fresh
+      ? `--fx:${from[0]}px;--fy:${from[1]}px;--fr:${(jrnd() * 220 - 110).toFixed(0)}deg;--rot:${rot}deg;--tossms:${TOSS_MS}ms;`
+      : "";
+    return tileHtml(d.tile, `sm ${fresh ? "hot fresh" : ""}`,
+      `style="left:${(cx + jx).toFixed(1)}px;top:${(cy + jy).toFixed(1)}px;${fly}transform:translate(-50%,-50%) rotate(${rot}deg)"`);
   }).join("");
 
   $("mymelds").innerHTML = me.melds.map((m) => m.tiles.map((t) => tileHtml(t)).join("")).join('<span style="width:10px"></span>')
@@ -368,7 +408,10 @@ function render(): void {
   const hand = [...me.hand].sort((a, b) => a - b);
   $("myhand").className = canDiscard ? "" : "locked";
   $("myhand").innerHTML = hand.map((t) => tileHtml(t, "", `data-t="${t}"`)).join("")
-    + (me.drawn !== null ? tileHtml(me.drawn, "drawn", `data-t="${me.drawn}"`) : "");
+    + (me.drawn !== null
+        ? tileHtml(me.drawn, "drawn",
+            `data-t="${me.drawn}" style="--drawms:${DRAW_MS}ms;--wx:${(120 - hand.length * 9).toFixed(0)}px;--wy:-190px"`)
+        : "");
   if (canDiscard) {
     for (const el of Array.from($("myhand").querySelectorAll<HTMLElement>(".tile"))) {
       el.onclick = () => {

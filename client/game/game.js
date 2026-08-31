@@ -2864,6 +2864,8 @@
     persona: "Ming"
   };
   var HUMAN = 0;
+  var TOSS_MS = 1e3;
+  var DRAW_MS = 700;
   var $ = (id) => document.getElementById(id);
   var state;
   var cfgs;
@@ -2931,6 +2933,7 @@
     $("hudTable").textContent = table.label + " \u2014 " + table.seats.map((s) => BOT_NAMES[s] ?? s).join(", ");
     consume(r.events);
     advance();
+    buildWall2();
   }
   var overlay = null;
   function consume(events) {
@@ -3085,14 +3088,39 @@
       const r = startNextHand(state);
       state = r.state;
       pileTiles = [];
+      devBotLines = [];
       consume(r.events);
       advance();
+      buildWall2();
     };
     const again = document.getElementById("btnAgain");
     if (again) again.onclick = () => {
       overlay = null;
       startScreen();
     };
+  }
+  var buildAnim = false;
+  function renderWall() {
+    const left = Math.max(0, state.wallEnd - state.wallIndex);
+    const perSide = Math.ceil(left / 4);
+    const sides = ["top", "right", "bottom", "left"];
+    const jr = prng((seed ^ 48879) >>> 0);
+    $("wall").className = buildAnim ? "building" : "";
+    $("wall").innerHTML = sides.map((side, si) => {
+      const n = Math.min(perSide, Math.max(0, left - si * perSide));
+      return `<div class="side ${side}">${Array.from({ length: n }, (_, i) => {
+        const d = buildAnim ? ` style="--ax:${(jr() * 140 - 70).toFixed(0)}px;--ay:${(jr() * -120 - 30).toFixed(0)}px;--ar:${(jr() * 60 - 30).toFixed(0)}deg;animation-delay:${si * 90 + i * 7}ms"` : "";
+        return `<span class="wt"${d}></span>`;
+      }).join("")}</div>`;
+    }).join("");
+  }
+  function buildWall2() {
+    buildAnim = true;
+    renderWall();
+    setTimeout(() => {
+      buildAnim = false;
+      renderWall();
+    }, 1100);
   }
   function seatBox(seat) {
     const s = state.seats[seat];
@@ -3103,7 +3131,7 @@
       <span class="wind">${WIND_CH[s.wind]}</span>
       ${state.dealer === seat ? '<span class="dealer">\u838A</span>' : ""}
       <span class="chips">${s.chips > 0 ? "+" : ""}${s.chips}</span></div>
-    <div class="backrow">${'<span class="back"></span>'.repeat(Math.min(hidden, 13))}</div>
+    <div class="backrow">${Array.from({ length: Math.min(hidden, 14) }, (_, i) => `<span class="back ${i === hidden - 1 && s.drawn !== null ? "wtnew" : ""}"></span>`).join("")}</div>
     <div class="meldrow">${s.melds.map((m) => m.tiles.map((t) => tileHtml(t, "sm")).join("")).join('<span style="width:6px"></span>')}
       ${s.flowers.map((t) => tileHtml(t, "sm")).join("")}</div>`;
   }
@@ -3116,6 +3144,7 @@
     $("seatN").innerHTML = seatBox(2);
     $("seatW").innerHTML = seatBox(3);
     $("wallinfo").innerHTML = `wall <b>${Math.max(0, state.wallEnd - state.wallIndex)}</b> tiles left`;
+    renderWall();
     const pileEl = $("pile");
     const boxW = pileEl.clientWidth || 420, boxH = pileEl.clientHeight || 240;
     const th = 30 * SETTINGS.tileScale, tw = th * (100 / 140);
@@ -3130,18 +3159,24 @@
       const cy = (row + 0.5) * cell - Math.ceil(pileTiles.length / perRow) * cell / 2 + boxH / 2;
       const jx = (jrnd() - 0.5) * cell * 0.06, jy = (jrnd() - 0.5) * cell * 0.06;
       const rot = (jrnd() * 24 - 12).toFixed(1);
-      const hot = i === pileTiles.length - 1 ? "hot fresh" : "";
+      const fresh = i === pileTiles.length - 1;
+      const from = [[0, 190], [230, 0], [0, -190], [-230, 0]][d.seat] ?? [0, 190];
+      const fly = fresh ? `--fx:${from[0]}px;--fy:${from[1]}px;--fr:${(jrnd() * 220 - 110).toFixed(0)}deg;--rot:${rot}deg;--tossms:${TOSS_MS}ms;` : "";
       return tileHtml(
         d.tile,
-        `sm ${hot}`,
-        `style="left:${(cx + jx).toFixed(1)}px;top:${(cy + jy).toFixed(1)}px;transform:translate(-50%,-50%) rotate(${rot}deg)"`
+        `sm ${fresh ? "hot fresh" : ""}`,
+        `style="left:${(cx + jx).toFixed(1)}px;top:${(cy + jy).toFixed(1)}px;${fly}transform:translate(-50%,-50%) rotate(${rot}deg)"`
       );
     }).join("");
     $("mymelds").innerHTML = me.melds.map((m) => m.tiles.map((t) => tileHtml(t)).join("")).join('<span style="width:10px"></span>') + me.flowers.map((t) => tileHtml(t, "sm")).join("");
     const canDiscard = !!pending?.some((a) => a.type === "discard");
     const hand = [...me.hand].sort((a, b) => a - b);
     $("myhand").className = canDiscard ? "" : "locked";
-    $("myhand").innerHTML = hand.map((t) => tileHtml(t, "", `data-t="${t}"`)).join("") + (me.drawn !== null ? tileHtml(me.drawn, "drawn", `data-t="${me.drawn}"`) : "");
+    $("myhand").innerHTML = hand.map((t) => tileHtml(t, "", `data-t="${t}"`)).join("") + (me.drawn !== null ? tileHtml(
+      me.drawn,
+      "drawn",
+      `data-t="${me.drawn}" style="--drawms:${DRAW_MS}ms;--wx:${(120 - hand.length * 9).toFixed(0)}px;--wy:-190px"`
+    ) : "");
     if (canDiscard) {
       for (const el of Array.from($("myhand").querySelectorAll(".tile"))) {
         el.onclick = () => {
