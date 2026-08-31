@@ -2774,6 +2774,7 @@
   }
 
   // client/game/game.ts
+  SHOW_MEASURE = false;
   var faceCache = /* @__PURE__ */ new Map();
   function face(t) {
     const hit = faceCache.get(t);
@@ -2875,6 +2876,17 @@
   var busy = false;
   var feed = [];
   var pileTiles = [];
+  function spiralSlot(n) {
+    if (n === 0) return [0, 0];
+    let ring = 1;
+    while (n >= (2 * ring + 1) ** 2) ring++;
+    const inner = (2 * ring - 1) ** 2;
+    const side = 2 * ring, k = n - inner, e = Math.floor(k / side), o = k % side;
+    if (e === 0) return [ring, -ring + 1 + o];
+    if (e === 1) return [ring - 1 - o, ring];
+    if (e === 2) return [-ring, ring - 1 - o];
+    return [-ring + 1 + o, -ring];
+  }
   var rec = JSON.parse(localStorage.getItem("mjrc.record") ?? '{"played":0,"won":0,"chips":0}');
   var SETTINGS = {
     rulesetId: "mjrc-standard",
@@ -2929,6 +2941,7 @@
     feed.length = 0;
     pileTiles = [];
     devBotLines = [];
+    coachLog.length = 0;
     $("veil").style.display = "none";
     $("hudTable").textContent = table.label + " \u2014 " + table.seats.map((s) => BOT_NAMES[s] ?? s).join(", ");
     consume(r.events);
@@ -2949,16 +2962,20 @@
           pileTiles.pop();
           const verb = p.kind === "chow" ? "chows \u4E0A" : p.kind === "pung" ? "pungs \u78B0" : "kongs \u69D3";
           feed.push(`${who(p.seat)} ${verb} ${name3(p.tile)}`);
+          announce(p.kind, who(p.seat), name3(p.tile));
           break;
         }
         case "concealedKong":
           feed.push(`${who(p.seat)} declares a concealed kong \u6697\u69D3`);
+          announce("concealedKong", who(p.seat));
           break;
         case "addedKong":
           feed.push(`${who(p.seat)} adds a kong \u52A0\u69D3`);
+          announce("addedKong", who(p.seat));
           break;
         case "flowerReplacement":
           feed.push(`${who(p.seat)} reveals ${name3(p.flower)} \u82B1`);
+          if (state.handsPlayed !== void 0 && pileTiles.length > 0) announce("flower", who(p.seat), name3(p.flower));
           break;
         case "refusedWin":
           if (p.context.seat === HUMAN)
@@ -2969,6 +2986,7 @@
           const ctx = p.context;
           const sc = p.score;
           const mine = ctx.seat === HUMAN;
+          announce(ctx.selfDraw ? "selfDraw" : "win", mine ? "You" : who(ctx.seat), `${sc.faan} faan`);
           const tiles = [...p.concealed ?? []].sort((a, b) => a - b);
           const melds = p.melds ?? [];
           overlay = `<h1>${mine ? "You win! \u98DF\u7CCA" : who(ctx.seat) + " wins"}</h1>
@@ -3029,18 +3047,81 @@
     devBotLines.unshift(`<b>${who}</b> ${routes.map((r, i) => `${i === 0 ? "\u25B8" : ""}${routeName(r.route)} <span class="mut">${Math.min(r.faan, 13)}f \xB7 ${Math.max(0, r.distance)} away</span>`).join(" \xB7 ")}` + (reads.length ? `<div class="mut">fears ${reads.join(" \xB7 ")}</div>` : ""));
     if (devBotLines.length > 5) devBotLines.length = 5;
   }
+  var coachLog = [];
+  function gradeMyDiscard(tile) {
+    if (!SETTINGS.dev) return;
+    const v = viewFor(state, HUMAN);
+    const R = rules();
+    const cfg = { ruleset: R, profile: scoreAdjust(profileOf2("v4"), v), rnd: prng(7) };
+    const ranked = [...rankDiscards(v, cfg)].sort((a, b) => b.score - a.score);
+    const best = ranked[0];
+    const mine = ranked.find((d) => d.tile === tile);
+    if (!best || !mine) return;
+    const gap = best.score - mine.score;
+    const rank = ranked.indexOf(mine) + 1;
+    const cls = tile === best.tile || gap < 0.6 ? "good" : gap < 2.2 ? "ok" : "bad";
+    const verdict = tile === best.tile ? "best discard" : gap < 0.6 ? "fine \u2014 within a hair of the best" : gap < 2.2 ? `#${rank} of ${ranked.length} \u2014 champion cuts ${name3(best.tile)}` : `costly \u2014 champion cuts ${name3(best.tile)}`;
+    const why = mine.distance > best.distance ? `slower: ${mine.distance} away vs ${best.distance}` : mine.danger - best.danger > 0.8 ? `riskier: danger ${mine.danger.toFixed(1)} vs ${best.danger.toFixed(1)}` : !mine.onRoute && best.onRoute ? "off your best route" : "";
+    coachLog.unshift(`<div class="ce ${cls}"><b>${name3(tile)}</b> \u2014 ${verdict}
+    ${why ? `<div class="mut">${why}</div>` : ""}</div>`);
+    if (coachLog.length > 24) coachLog.length = 24;
+  }
   function devPanel() {
     if (!SETTINGS.dev) return "";
-    let mine = "";
+    let upcoming = "";
     if (pending?.some((a) => a.type === "discard")) {
       const v = viewFor(state, HUMAN);
-      const R = rules();
-      const cfg = { ruleset: R, profile: scoreAdjust(profileOf2("v4"), v), rnd: prng(7) };
-      const ranked = [...rankDiscards(v, cfg)].sort((a, b) => b.score - a.score).slice(0, 5);
-      mine = `<div class="devsec"><b>champion would discard</b>${ranked.map((d, i) => `<div class="${i === 0 ? "best" : ""}">${i + 1}. ${name3(d.tile)} <span class="mut">${d.distance} away \xB7 danger ${d.danger.toFixed(1)}${d.outs >= 0 ? ` \xB7 ${d.outs} outs` : ""}</span></div>`).join("")}</div>`;
+      const cfg = { ruleset: rules(), profile: scoreAdjust(profileOf2("v4"), v), rnd: prng(7) };
+      const ranked = [...rankDiscards(v, cfg)].sort((a, b) => b.score - a.score).slice(0, 4);
+      upcoming = `<div class="sug">champion would cut ${ranked.map((d, i) => `<span class="${i === 0 ? "best" : ""}">${name3(d.tile)}</span>`).join(" \u203A ")}</div>`;
     }
-    return `<div id="dev"><div class="devsec"><b>what the bots are thinking</b>
-    ${devBotLines.join("") || '<div class="mut">\u2026</div>'}</div>${mine}</div>`;
+    return `<div id="dev">
+    <div class="devbox"><b>what the bots are thinking</b>
+      <div class="scroll">${devBotLines.join("") || '<div class="mut">\u2026</div>'}</div></div>
+    <div class="devbox"><b>discard helper</b>${upcoming}
+      <div class="scroll">${coachLog.join("") || '<div class="mut">your discards get graded here, and the grades stay</div>'}</div></div>
+  </div>`;
+  }
+  var CALLS = {
+    pung: ["\u78B0", "pung"],
+    chow: ["\u4E0A", "chow"],
+    kong: ["\u69D3", "kong"],
+    concealedKong: ["\u6697\u69D3", "concealed kong"],
+    addedKong: ["\u52A0\u69D3", "added kong"],
+    win: ["\u98DF\u7CCA", "win"],
+    selfDraw: ["\u81EA\u6478", "self-draw"],
+    robbingKong: ["\u6436\u69D3", "robbed the kong"],
+    flower: ["\u82B1", "flower"]
+  };
+  var callTimer = 0;
+  function announce(kind, who, extra = "") {
+    const [ch, en] = CALLS[kind] ?? [kind, ""];
+    const el = $("call");
+    el.innerHTML = `<div class="cw">${who}</div><div class="cc">${ch}</div>
+    <div class="ce">${en}${extra ? ` \xB7 ${extra}` : ""}</div>`;
+    el.className = "show " + (kind === "win" || kind === "selfDraw" ? "big" : "");
+    clearTimeout(callTimer);
+    callTimer = window.setTimeout(() => {
+      el.className = "";
+    }, kind === "win" || kind === "selfDraw" ? 1800 : 1150);
+  }
+  var TURN_MS = 3e4;
+  var turnStart = 0;
+  var turnRaf = 0;
+  function startTurnClock() {
+    turnStart = performance.now();
+    cancelAnimationFrame(turnRaf);
+    const tick = () => {
+      if (!pending) {
+        $("clock").style.width = "0%";
+        return;
+      }
+      const frac = Math.min(1, (performance.now() - turnStart) / TURN_MS);
+      $("clock").style.width = `${(1 - frac) * 100}%`;
+      $("clock").className = frac > 0.8 ? "low" : "";
+      turnRaf = requestAnimationFrame(tick);
+    };
+    turnRaf = requestAnimationFrame(tick);
   }
   function advance() {
     render();
@@ -3052,6 +3133,7 @@
     const mine = legalActions(state, HUMAN);
     if (mine.length > 0) {
       pending = mine;
+      startTurnClock();
       render();
       return;
     }
@@ -3073,6 +3155,8 @@
   }
   function act(a) {
     pending = null;
+    cancelAnimationFrame(turnRaf);
+    $("clock").style.width = "0%";
     const r = applyAction(state, a);
     state = r.state;
     consume(r.events);
@@ -3100,21 +3184,27 @@
     };
   }
   var buildAnim = false;
+  var wallBuilt = 0;
   function renderWall() {
     const left = Math.max(0, state.wallEnd - state.wallIndex);
-    const perSide = Math.ceil(left / 4);
-    const sides = ["top", "right", "bottom", "left"];
+    if (!wallBuilt) wallBuilt = 144;
+    const used = Math.max(0, wallBuilt - left);
+    const STACKS = 18;
+    const stacksUsed = Math.floor(used / 2);
     const jr = prng((seed ^ 48879) >>> 0);
     $("wall").className = buildAnim ? "building" : "";
-    $("wall").innerHTML = sides.map((side, si) => {
-      const n = Math.min(perSide, Math.max(0, left - si * perSide));
-      return `<div class="side ${side}">${Array.from({ length: n }, (_, i) => {
-        const d = buildAnim ? ` style="--ax:${(jr() * 140 - 70).toFixed(0)}px;--ay:${(jr() * -120 - 30).toFixed(0)}px;--ar:${(jr() * 60 - 30).toFixed(0)}deg;animation-delay:${si * 90 + i * 7}ms"` : "";
-        return `<span class="wt"${d}></span>`;
+    $("wall").innerHTML = ["top", "right", "bottom", "left"].map((side, si) => {
+      return `<div class="side ${side}">${Array.from({ length: STACKS }, (_, i) => {
+        const idx = si * STACKS + i;
+        const gone = idx < stacksUsed;
+        const dead = idx >= STACKS * 4 - 7;
+        const d = buildAnim ? ` style="--ax:${(jr() * 150 - 75).toFixed(0)}px;--ay:${(jr() * -130 - 30).toFixed(0)}px;--ar:${(jr() * 70 - 35).toFixed(0)}deg;animation-delay:${si * 70 + i * 12}ms"` : "";
+        return `<span class="wt${gone ? " gone" : ""}${dead ? " dead" : ""}"${d}></span>`;
       }).join("")}</div>`;
     }).join("");
   }
   function buildWall2() {
+    wallBuilt = 0;
     buildAnim = true;
     renderWall();
     setTimeout(() => {
@@ -3133,7 +3223,7 @@
       <span class="chips">${s.chips > 0 ? "+" : ""}${s.chips}</span></div>
     <div class="backrow">${Array.from({ length: Math.min(hidden, 14) }, (_, i) => `<span class="back ${i === hidden - 1 && s.drawn !== null ? "wtnew" : ""}"></span>`).join("")}</div>
     <div class="meldrow">${s.melds.map((m) => m.tiles.map((t) => tileHtml(t, "sm")).join("")).join('<span style="width:6px"></span>')}
-      ${s.flowers.map((t) => tileHtml(t, "sm")).join("")}</div>`;
+      ${s.flowers.map((t) => tileHtml(t, "fl")).join("")}</div>`;
   }
   function render() {
     const me = state.seats[HUMAN];
@@ -3147,28 +3237,30 @@
     renderWall();
     const pileEl = $("pile");
     const boxW = pileEl.clientWidth || 420, boxH = pileEl.clientHeight || 240;
-    const th = 30 * SETTINGS.tileScale, tw = th * (100 / 140);
-    const cell = Math.sqrt(th * th + tw * tw) * 1.02;
-    const perRow = Math.max(4, Math.floor(boxW / cell));
-    const jrnd = prng((seed ^ 20973) >>> 0);
+    const th = 34, tw = th * (100 / 140);
+    const cell = Math.sqrt(th * th + tw * tw) * 1.04;
+    const jr = prng((seed ^ 20973) >>> 0);
+    pileTiles.forEach((d, i) => {
+      if (d.pos) return;
+      const [lx, ly] = spiralSlot(i);
+      d.pos = {
+        x: boxW / 2 + lx * cell * 1.12 + (jr() - 0.5) * cell * 0.1,
+        y: boxH / 2 + ly * cell * 0.92 + (jr() - 0.5) * cell * 0.1,
+        rot: jr() * 26 - 13,
+        spin: jr() * 220 - 110
+      };
+    });
     pileEl.innerHTML = pileTiles.map((d, i) => {
-      const row = Math.floor(i / perRow), col = i % perRow;
-      const stagger = row % 2 * 0.5;
-      const inRow = Math.min(perRow, pileTiles.length - row * perRow);
-      const cx = (col + stagger + 0.5) * cell - inRow * cell / 2 + boxW / 2;
-      const cy = (row + 0.5) * cell - Math.ceil(pileTiles.length / perRow) * cell / 2 + boxH / 2;
-      const jx = (jrnd() - 0.5) * cell * 0.06, jy = (jrnd() - 0.5) * cell * 0.06;
-      const rot = (jrnd() * 24 - 12).toFixed(1);
       const fresh = i === pileTiles.length - 1;
       const from = [[0, 190], [230, 0], [0, -190], [-230, 0]][d.seat] ?? [0, 190];
-      const fly = fresh ? `--fx:${from[0]}px;--fy:${from[1]}px;--fr:${(jrnd() * 220 - 110).toFixed(0)}deg;--rot:${rot}deg;--tossms:${TOSS_MS}ms;` : "";
+      const fly = fresh ? `--fx:${from[0]}px;--fy:${from[1]}px;--fr:${d.pos.spin.toFixed(0)}deg;--rot:${d.pos.rot.toFixed(1)}deg;--tossms:${TOSS_MS}ms;` : "";
       return tileHtml(
         d.tile,
-        `sm ${fresh ? "hot fresh" : ""}`,
-        `style="left:${(cx + jx).toFixed(1)}px;top:${(cy + jy).toFixed(1)}px;${fly}transform:translate(-50%,-50%) rotate(${rot}deg)"`
+        `pt ${fresh ? "hot fresh" : ""}`,
+        `style="left:${d.pos.x.toFixed(1)}px;top:${d.pos.y.toFixed(1)}px;${fly}transform:translate(-50%,-50%) rotate(${d.pos.rot.toFixed(1)}deg)"`
       );
     }).join("");
-    $("mymelds").innerHTML = me.melds.map((m) => m.tiles.map((t) => tileHtml(t)).join("")).join('<span style="width:10px"></span>') + me.flowers.map((t) => tileHtml(t, "sm")).join("");
+    $("mymelds").innerHTML = me.melds.map((m) => m.tiles.map((t) => tileHtml(t)).join("")).join('<span style="width:10px"></span>') + me.flowers.map((t) => tileHtml(t, "fl")).join("");
     const canDiscard = !!pending?.some((a) => a.type === "discard");
     const hand = [...me.hand].sort((a, b) => a - b);
     $("myhand").className = canDiscard ? "" : "locked";
@@ -3182,7 +3274,10 @@
         el.onclick = () => {
           const t = Number(el.dataset.t);
           const a = pending?.find((x) => x.type === "discard" && x.tile === t);
-          if (a) act(a);
+          if (a) {
+            gradeMyDiscard(t);
+            act(a);
+          }
         };
       }
     }

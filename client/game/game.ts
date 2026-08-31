@@ -38,6 +38,8 @@ declare const tileDragon: (kind: string) => string;
 declare const FLOWER_TILES: [string, () => string][];
 declare const SEASON_TILES: [string, () => string][];
 declare const recenterGlyphs: (root: Element | Document) => void;
+declare let SHOW_MEASURE: boolean;
+SHOW_MEASURE = false;   // the lab's dimension annotations are not game art
 
 const faceCache = new Map<number, string>();
 function face(t: TileId): string {
@@ -107,7 +109,21 @@ let seed = 0;
 let pending: Action[] | null = null;
 let busy = false;
 const feed: string[] = [];
-let pileTiles: { tile: TileId; seat: number }[] = [];
+interface Placed { x: number; y: number; rot: number; spin: number; }
+let pileTiles: { tile: TileId; seat: number; pos?: Placed }[] = [];
+/** Square-lattice spiral: 0,0 then rings outward. Step is one cell, so the
+ *  diagonal guarantee holds between every pair. */
+function spiralSlot(n: number): [number, number] {
+  if (n === 0) return [0, 0];
+  let ring = 1;
+  while (n >= (2 * ring + 1) ** 2) ring++;
+  const inner = (2 * ring - 1) ** 2;
+  const side = 2 * ring, k = n - inner, e = Math.floor(k / side), o = k % side;
+  if (e === 0) return [ring, -ring + 1 + o];
+  if (e === 1) return [ring - 1 - o, ring];
+  if (e === 2) return [-ring, ring - 1 - o];
+  return [-ring + 1 + o, -ring];
+}
 const rec = JSON.parse(localStorage.getItem("mjrc.record") ?? '{"played":0,"won":0,"chips":0}');
 interface Settings { rulesetId: string; tileScale: number; botMs: number; dev: boolean; }
 const SETTINGS: Settings = {
@@ -157,7 +173,7 @@ function newMatch(): void {
     profile: i === HUMAN ? DEFAULT_PROFILE : profileOf(table.seats[i - 1]!),
     rnd: prng((seed ^ ((i + 1) * 0x9e3779b1)) >>> 0),
   }));
-  feed.length = 0; pileTiles = []; devBotLines = [];
+  feed.length = 0; pileTiles = []; devBotLines = []; coachLog.length = 0;
   $("veil").style.display = "none";
   $("hudTable").textContent = table.label + " — " + table.seats.map((s) => BOT_NAMES[s] ?? s).join(", ");
   consume(r.events);
@@ -181,11 +197,14 @@ function consume(events: readonly unknown[]): void {
         pileTiles.pop();
         const verb = p.kind === "chow" ? "chows 上" : p.kind === "pung" ? "pungs 碰" : "kongs 槓";
         feed.push(`${who(p.seat)} ${verb} ${name(p.tile as TileId)}`);
+        announce(p.kind as string, who(p.seat), name(p.tile as TileId));
         break;
       }
-      case "concealedKong": feed.push(`${who(p.seat)} declares a concealed kong 暗槓`); break;
-      case "addedKong": feed.push(`${who(p.seat)} adds a kong 加槓`); break;
-      case "flowerReplacement": feed.push(`${who(p.seat)} reveals ${name(p.flower as TileId)} 花`); break;
+      case "concealedKong": feed.push(`${who(p.seat)} declares a concealed kong 暗槓`); announce("concealedKong", who(p.seat)); break;
+      case "addedKong": feed.push(`${who(p.seat)} adds a kong 加槓`); announce("addedKong", who(p.seat)); break;
+      case "flowerReplacement": feed.push(`${who(p.seat)} reveals ${name(p.flower as TileId)} 花`);
+        if (state.handsPlayed !== undefined && pileTiles.length > 0) announce("flower", who(p.seat), name(p.flower as TileId));
+        break;
       case "refusedWin":
         if ((p.context as { seat: number }).seat === HUMAN)
           feed.push(`Your hand completes but holds only ${(p.score as { faan: number }).faan} faan — under the 3-faan floor`);
@@ -194,6 +213,7 @@ function consume(events: readonly unknown[]): void {
         const ctx = p.context as { seat: SeatIndex; selfDraw: boolean; from: SeatIndex | null };
         const sc = p.score as { faan: number; awards: { id: string; faan: number }[] };
         const mine = ctx.seat === HUMAN;
+        announce(ctx.selfDraw ? "selfDraw" : "win", mine ? "You" : who(ctx.seat), `${sc.faan} faan`);
         const tiles = [...((p.concealed as TileId[]) ?? [])].sort((a, b) => a - b);
         const melds = (p.melds as { tiles: TileId[] }[] ?? []);
         overlay = `<h1>${mine ? "You win! 食糊" : who(ctx.seat) + " wins"}</h1>
@@ -260,19 +280,90 @@ function noteBotThinking(seat: SeatIndex): void {
     (reads.length ? `<div class="mut">fears ${reads.join(" · ")}</div>` : ""));
   if (devBotLines.length > 5) devBotLines.length = 5;
 }
+/** Graded verdicts on YOUR discards. Kept as a scrollable history so a call
+ *  does not vanish the instant you make it (owner note 2026-08-29). */
+const coachLog: string[] = [];
+function gradeMyDiscard(tile: TileId): void {
+  if (!SETTINGS.dev) return;
+  const v = viewFor(state, HUMAN);
+  const R = rules();
+  const cfg: BotConfig = { ruleset: R, profile: scoreAdjust(profileOf("v4"), v), rnd: prng(7) };
+  const ranked = [...rankDiscards(v, cfg)].sort((a, b) => b.score - a.score);
+  const best = ranked[0];
+  const mine = ranked.find((d) => d.tile === tile);
+  if (!best || !mine) return;
+  const gap = best.score - mine.score;
+  const rank = ranked.indexOf(mine) + 1;
+  const cls = tile === best.tile || gap < 0.6 ? "good" : gap < 2.2 ? "ok" : "bad";
+  const verdict = tile === best.tile ? "best discard"
+    : gap < 0.6 ? "fine — within a hair of the best"
+    : gap < 2.2 ? `#${rank} of ${ranked.length} — champion cuts ${name(best.tile)}`
+    : `costly — champion cuts ${name(best.tile)}`;
+  const why = mine.distance > best.distance ? `slower: ${mine.distance} away vs ${best.distance}`
+    : mine.danger - best.danger > 0.8 ? `riskier: danger ${mine.danger.toFixed(1)} vs ${best.danger.toFixed(1)}`
+    : !mine.onRoute && best.onRoute ? "off your best route"
+    : "";
+  coachLog.unshift(`<div class="ce ${cls}"><b>${name(tile)}</b> — ${verdict}
+    ${why ? `<div class="mut">${why}</div>` : ""}</div>`);
+  if (coachLog.length > 24) coachLog.length = 24;
+}
 function devPanel(): string {
   if (!SETTINGS.dev) return "";
-  let mine = "";
+  let upcoming = "";
   if (pending?.some((a) => a.type === "discard")) {
     const v = viewFor(state, HUMAN);
-    const R = rules();
-    const cfg: BotConfig = { ruleset: R, profile: scoreAdjust(profileOf("v4"), v), rnd: prng(7) };
-    const ranked = [...rankDiscards(v, cfg)].sort((a, b) => b.score - a.score).slice(0, 5);
-    mine = `<div class="devsec"><b>champion would discard</b>${ranked.map((d, i) =>
-      `<div class="${i === 0 ? "best" : ""}">${i + 1}. ${name(d.tile)} <span class="mut">${d.distance} away · danger ${d.danger.toFixed(1)}${d.outs >= 0 ? ` · ${d.outs} outs` : ""}</span></div>`).join("")}</div>`;
+    const cfg: BotConfig = { ruleset: rules(), profile: scoreAdjust(profileOf("v4"), v), rnd: prng(7) };
+    const ranked = [...rankDiscards(v, cfg)].sort((a, b) => b.score - a.score).slice(0, 4);
+    upcoming = `<div class="sug">champion would cut ${ranked.map((d, i) =>
+      `<span class="${i === 0 ? "best" : ""}">${name(d.tile)}</span>`).join(" › ")}</div>`;
   }
-  return `<div id="dev"><div class="devsec"><b>what the bots are thinking</b>
-    ${devBotLines.join("") || '<div class="mut">…</div>'}</div>${mine}</div>`;
+  return `<div id="dev">
+    <div class="devbox"><b>what the bots are thinking</b>
+      <div class="scroll">${devBotLines.join("") || '<div class="mut">…</div>'}</div></div>
+    <div class="devbox"><b>discard helper</b>${upcoming}
+      <div class="scroll">${coachLog.join("") || '<div class="mut">your discards get graded here, and the grades stay</div>'}</div></div>
+  </div>`;
+}
+
+/* ── announcements ─────────────────────────────────────────────────────
+ * A claim used to happen in silence — tiles simply appeared in someone's meld.
+ * At a real table the call IS the event: you hear 碰 before you see anything.
+ * Phrasing follows EXPRESSIONS.md — Cantonese leads, English supports, and it
+ * is a CANNED call, never free text.                                        */
+const CALLS: Record<string, [string, string]> = {
+  pung: ["碰", "pung"], chow: ["上", "chow"], kong: ["槓", "kong"],
+  concealedKong: ["暗槓", "concealed kong"], addedKong: ["加槓", "added kong"],
+  win: ["食糊", "win"], selfDraw: ["自摸", "self-draw"],
+  robbingKong: ["搶槓", "robbed the kong"], flower: ["花", "flower"],
+};
+let callTimer = 0;
+function announce(kind: string, who: string, extra = ""): void {
+  const [ch, en] = CALLS[kind] ?? [kind, ""];
+  const el = $("call");
+  el.innerHTML = `<div class="cw">${who}</div><div class="cc">${ch}</div>
+    <div class="ce">${en}${extra ? ` · ${extra}` : ""}</div>`;
+  el.className = "show " + (kind === "win" || kind === "selfDraw" ? "big" : "");
+  clearTimeout(callTimer);
+  callTimer = window.setTimeout(() => { el.className = ""; }, kind === "win" || kind === "selfDraw" ? 1800 : 1150);
+}
+
+/* ── your clock ────────────────────────────────────────────────────────
+ * A visible, generous timer so a turn feels paced. It is a NUDGE: nothing
+ * expires and no action is taken for you — MatchScene.ts rule 1 says the
+ * affordance must never be taken away by a clock the player cannot see.     */
+const TURN_MS = 30_000;
+let turnStart = 0, turnRaf = 0;
+function startTurnClock(): void {
+  turnStart = performance.now();
+  cancelAnimationFrame(turnRaf);
+  const tick = (): void => {
+    if (!pending) { $("clock").style.width = "0%"; return; }
+    const frac = Math.min(1, (performance.now() - turnStart) / TURN_MS);
+    $("clock").style.width = `${(1 - frac) * 100}%`;
+    $("clock").className = frac > 0.8 ? "low" : "";
+    turnRaf = requestAnimationFrame(tick);
+  };
+  turnRaf = requestAnimationFrame(tick);
 }
 
 /* ── turn loop ─────────────────────────────────────────────────────────── */
@@ -281,7 +372,7 @@ function advance(): void {
   if (overlay) { showOverlay(); return; }
   if (state.phase === "matchEnd" || state.phase === "handEnd") return;
   const mine = legalActions(state, HUMAN);
-  if (mine.length > 0) { pending = mine; render(); return; }
+  if (mine.length > 0) { pending = mine; startTurnClock(); render(); return; }
   for (const seat of [1, 2, 3] as SeatIndex[]) {
     const options = legalActions(state, seat);
     if (options.length === 0) continue;
@@ -297,6 +388,8 @@ function advance(): void {
 }
 function act(a: Action): void {
   pending = null;
+  cancelAnimationFrame(turnRaf);
+  $("clock").style.width = "0%";
   const r = applyAction(state, a);
   state = r.state; consume(r.events); advance();
 }
@@ -319,24 +412,39 @@ function showOverlay(): void {
  * a real wall: how much game is left, and where the live end is. Tiles are
  * removed from the live end as the count falls, so the wall visibly erodes.  */
 let buildAnim = false;
+let wallBuilt = 0;          // tiles the wall was built with, this hand
+/**
+ * The wall is BUILT ONCE and then only erodes. Consumed tiles are hidden in
+ * place, never removed, so nothing reflows — the owner's note: "the wall should
+ * not move and you simply subtract tiles from that wall". Live tiles are drawn
+ * from the front of side 0 onward; the last 14 are the dead wall, where kong
+ * replacements and flowers come from, and they are marked.
+ */
 function renderWall(): void {
   const left = Math.max(0, state.wallEnd - state.wallIndex);
-  const perSide = Math.ceil(left / 4);
-  const sides = ["top", "right", "bottom", "left"];
+  if (!wallBuilt) wallBuilt = 144;              // a real wall is built whole...
+  const used = Math.max(0, wallBuilt - left);   // ...then eaten from the live end
+  // Two tiles high, eighteen stacks a side — the real thing. One rendered
+  // element IS a stack, so it vanishes only when both its tiles are gone.
+  const STACKS = 18;
+  const stacksUsed = Math.floor(used / 2);
   const jr = prng((seed ^ 0xbeef) >>> 0);
   $("wall").className = buildAnim ? "building" : "";
-  $("wall").innerHTML = sides.map((side, si) => {
-    const n = Math.min(perSide, Math.max(0, left - si * perSide));
-    return `<div class="side ${side}">${Array.from({ length: n }, (_, i) => {
+  $("wall").innerHTML = ["top", "right", "bottom", "left"].map((side, si) => {
+    return `<div class="side ${side}">${Array.from({ length: STACKS }, (_, i) => {
+      const idx = si * STACKS + i;
+      const gone = idx < stacksUsed;
+      const dead = idx >= STACKS * 4 - 7;       // the dead wall — kongs and flowers
       const d = buildAnim
-        ? ` style="--ax:${(jr() * 140 - 70).toFixed(0)}px;--ay:${(jr() * -120 - 30).toFixed(0)}px;--ar:${(jr() * 60 - 30).toFixed(0)}deg;animation-delay:${(si * 90 + i * 7)}ms"`
+        ? ` style="--ax:${(jr() * 150 - 75).toFixed(0)}px;--ay:${(jr() * -130 - 30).toFixed(0)}px;--ar:${(jr() * 70 - 35).toFixed(0)}deg;animation-delay:${(si * 70 + i * 12)}ms"`
         : "";
-      return `<span class="wt"${d}></span>`;
+      return `<span class="wt${gone ? " gone" : ""}${dead ? " dead" : ""}"${d}></span>`;
     }).join("")}</div>`;
   }).join("");
 }
 /** Shuffle-and-build: run once when a hand starts. */
 function buildWall(): void {
+  wallBuilt = 0;
   buildAnim = true;
   renderWall();
   setTimeout(() => { buildAnim = false; renderWall(); }, 1100);
@@ -355,7 +463,7 @@ function seatBox(seat: SeatIndex): string {
     <div class="backrow">${Array.from({ length: Math.min(hidden, 14) }, (_, i) =>
       `<span class="back ${i === hidden - 1 && s.drawn !== null ? "wtnew" : ""}"></span>`).join("")}</div>
     <div class="meldrow">${s.melds.map((m) => m.tiles.map((t) => tileHtml(t, "sm")).join("")).join('<span style="width:6px"></span>')}
-      ${s.flowers.map((t) => tileHtml(t, "sm")).join("")}</div>`;
+      ${s.flowers.map((t) => tileHtml(t, "fl")).join("")}</div>`;
 }
 
 function render(): void {
@@ -369,40 +477,39 @@ function render(): void {
   $("wallinfo").innerHTML = `wall <b>${Math.max(0, state.wallEnd - state.wallIndex)}</b> tiles left`;
   renderWall();
 
-  // THE PILE. Messy but never overlapping — the guarantee is geometric, from
-  // sketches/RENDERING.md: lay centres on a staggered grid whose cell is the
-  // tile's DIAGONAL, because a rectangle rotated by any angle fits inside a
-  // square of its own diagonal. Alternate rows offset by half a cell to break
-  // the grid read; nearest-centre distance across the stagger is 1.047 x cell,
-  // so the guarantee survives. Jitter stays inside the slack.
+  // THE PILE. A tile lands where it lands and NEVER moves again — the owner's
+  // rule and the real table's: you throw into the middle and tiles accumulate
+  // around what is already there. So slots come from a fixed centre-out square
+  // spiral whose step is the tile's DIAGONAL (a rectangle at any rotation fits
+  // inside a square of its own diagonal, so no two tiles can overlap), and each
+  // discard is assigned its slot ONCE, at the moment it is thrown.
   const pileEl = $("pile");
   const boxW = pileEl.clientWidth || 420, boxH = pileEl.clientHeight || 240;
-  const th = 30 * SETTINGS.tileScale, tw = th * (100 / 140);
-  const cell = Math.sqrt(th * th + tw * tw) * 1.02;      // diagonal + 2% slack
-  const perRow = Math.max(4, Math.floor(boxW / cell));
-  const jrnd = prng((seed ^ 0x51ed) >>> 0);
+  const th = 34, tw = th * (100 / 140);
+  const cell = Math.sqrt(th * th + tw * tw) * 1.04;
+  const jr = prng((seed ^ 0x51ed) >>> 0);
+  pileTiles.forEach((d, i) => {
+    if (d.pos) return;                              // already placed — leave it
+    const [lx, ly] = spiralSlot(i);
+    d.pos = {
+      x: boxW / 2 + lx * cell * 1.12 + (jr() - 0.5) * cell * 0.1,
+      y: boxH / 2 + ly * cell * 0.92 + (jr() - 0.5) * cell * 0.1,
+      rot: jr() * 26 - 13,
+      spin: jr() * 220 - 110,
+    };
+  });
   pileEl.innerHTML = pileTiles.map((d, i) => {
-    const row = Math.floor(i / perRow), col = i % perRow;
-    const stagger = (row % 2) * 0.5;
-    // centre each row on the tiles it actually holds, so a partial last row
-    // sits under the middle of the table rather than hugging the left edge
-    const inRow = Math.min(perRow, pileTiles.length - row * perRow);
-    const cx = (col + stagger + 0.5) * cell - (inRow * cell) / 2 + boxW / 2;
-    const cy = (row + 0.5) * cell - (Math.ceil(pileTiles.length / perRow) * cell) / 2 + boxH / 2;
-    const jx = (jrnd() - 0.5) * cell * 0.06, jy = (jrnd() - 0.5) * cell * 0.06;
-    const rot = (jrnd() * 24 - 12).toFixed(1);
     const fresh = i === pileTiles.length - 1;
-    // where it was thrown FROM, so the toss arcs in off the right shoulder
     const from = [[0, 190], [230, 0], [0, -190], [-230, 0]][d.seat] ?? [0, 190];
     const fly = fresh
-      ? `--fx:${from[0]}px;--fy:${from[1]}px;--fr:${(jrnd() * 220 - 110).toFixed(0)}deg;--rot:${rot}deg;--tossms:${TOSS_MS}ms;`
+      ? `--fx:${from[0]}px;--fy:${from[1]}px;--fr:${d.pos!.spin.toFixed(0)}deg;--rot:${d.pos!.rot.toFixed(1)}deg;--tossms:${TOSS_MS}ms;`
       : "";
-    return tileHtml(d.tile, `sm ${fresh ? "hot fresh" : ""}`,
-      `style="left:${(cx + jx).toFixed(1)}px;top:${(cy + jy).toFixed(1)}px;${fly}transform:translate(-50%,-50%) rotate(${rot}deg)"`);
+    return tileHtml(d.tile, `pt ${fresh ? "hot fresh" : ""}`,
+      `style="left:${d.pos!.x.toFixed(1)}px;top:${d.pos!.y.toFixed(1)}px;${fly}transform:translate(-50%,-50%) rotate(${d.pos!.rot.toFixed(1)}deg)"`);
   }).join("");
 
   $("mymelds").innerHTML = me.melds.map((m) => m.tiles.map((t) => tileHtml(t)).join("")).join('<span style="width:10px"></span>')
-    + me.flowers.map((t) => tileHtml(t, "sm")).join("");
+    + me.flowers.map((t) => tileHtml(t, "fl")).join("");
 
   const canDiscard = !!pending?.some((a) => a.type === "discard");
   const hand = [...me.hand].sort((a, b) => a - b);
@@ -417,7 +524,7 @@ function render(): void {
       el.onclick = () => {
         const t = Number(el.dataset.t) as TileId;
         const a = pending?.find((x) => x.type === "discard" && x.tile === t);
-        if (a) act(a);
+        if (a) { gradeMyDiscard(t); act(a); }
       };
     }
   }
