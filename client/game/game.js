@@ -1980,7 +1980,7 @@
   }
   var clamp01 = (x) => x < 0 ? 0 : x > 1 ? 1 : x;
   var isMiddle = (t) => isSuited(t) && rankOf(t) >= 2 && rankOf(t) <= 6;
-  function assessSeatThreat(v, seat, rules) {
+  function assessSeatThreat(v, seat, rules2) {
     const melds = v.melds[seat];
     const discards = v.discards[seat];
     const exposure = melds.length / 4;
@@ -2015,25 +2015,25 @@
       readyProxy = exposure * 0.3;
     }
     const read = readDiscards(discards, v.seatWinds[seat], v.roundWind);
-    const floor = rules?.minimumFaan ?? 3;
+    const floor = rules2?.minimumFaan ?? 3;
     let expectedFaan = floor;
     if (read.suitPhasing > 0.55) expectedFaan += 2;
     if (read.earlyValueHonours > 0) expectedFaan += 2;
     if (intentSuit !== null && intentStrength > 0.6) expectedFaan += 1;
     if (read.earlySpread) expectedFaan = Math.max(floor, expectedFaan - 1);
-    expectedFaan = Math.min(expectedFaan, rules?.limitFaan ?? 13);
-    const chipsRel = rules ? Math.max(1, rules.payment.onDiscard(expectedFaan) / Math.max(1, rules.payment.onDiscard(floor))) : Math.pow(2, expectedFaan - floor);
+    expectedFaan = Math.min(expectedFaan, rules2?.limitFaan ?? 13);
+    const chipsRel = rules2 ? Math.max(1, rules2.payment.onDiscard(expectedFaan) / Math.max(1, rules2.payment.onDiscard(floor))) : Math.pow(2, expectedFaan - floor);
     const readiness = clamp01(
       exposure * 0.5 + readyProxy * 0.3 + read.lateHonours * 0.3 + intentStrength * 0.15
     );
     const threat = clamp01(readiness);
     return { seat, exposure, intentSuit, intentStrength, readyProxy, threat, read, expectedFaan, chipsRel };
   }
-  function tableThreat(v, rules) {
+  function tableThreat(v, rules2) {
     const seats = [];
     for (let s = 0; s < 4; s = s + 1) {
       if (s === v.seat) continue;
-      seats.push(assessSeatThreat(v, s, rules));
+      seats.push(assessSeatThreat(v, s, rules2));
     }
     const suitDepletion = [0, 0, 0];
     for (let s = 0; s < 4; s++) {
@@ -2209,15 +2209,15 @@
     for (const m of melds) if (m.kind !== "chow" && m.tiles[0] === tile) return true;
     return false;
   }
-  function honourMeldFaan(r, shape, rules, c) {
+  function honourMeldFaan(r, shape, rules2, c) {
     let n = 0;
     const reachable = (tile) => onRoute(r, tile) && (meldedTriplet(shape.melds, tile) || c[tile] >= 2);
     const seatTile = WINDS_START + shape.seatWind;
     const roundTile = WINDS_START + shape.roundWind;
-    if (reachable(seatTile)) n += faanFor(rules, "seatWind");
-    if (reachable(roundTile)) n += faanFor(rules, "roundWind");
+    if (reachable(seatTile)) n += faanFor(rules2, "seatWind");
+    if (reachable(roundTile)) n += faanFor(rules2, "roundWind");
     for (let d = DRAGONS_START; d < FLOWERS_START; d++) {
-      if (reachable(d)) n += faanFor(rules, "dragonPung");
+      if (reachable(d)) n += faanFor(rules2, "dragonPung");
     }
     return n;
   }
@@ -2238,45 +2238,45 @@
     const rate = route.pungs || route.honoursOnly ? 1 : route.suit !== null ? 0.5 : 0.25;
     return profile.claimSupplyWeight * rate * pairs;
   }
-  function routeValue(faan, distance, rules, profile, urgency) {
+  function routeValue(faan, distance, rules2, profile, urgency) {
     const cv = profile.chipValuation;
     if (cv <= 0) return faan;
-    const floor = rules.minimumFaan;
-    const floorPay = Math.max(1, rules.payment.onDiscard(floor));
-    const rel = Math.max(0, rules.payment.onDiscard(Math.min(faan, rules.limitFaan))) / floorPay;
+    const floor = rules2.minimumFaan;
+    const floorPay = Math.max(1, rules2.payment.onDiscard(floor));
+    const rel = Math.max(0, rules2.payment.onDiscard(Math.min(faan, rules2.limitFaan))) / floorPay;
     const decay = Math.max(0.15, profile.routeDecay * (1 - profile.urgencyWeight * urgency));
     const chipEV = floor * rel * Math.pow(decay, Math.max(0, distance));
     return (1 - cv) * faan + cv * chipEV;
   }
-  function routeFaan(r, shape, rules, c) {
-    if (r.orphans) return faanFor(rules, "thirteenOrphans");
-    let n = bonusFaan(shape, rules) + honourMeldFaan(r, shape, rules, c);
-    if (isConcealedHand(shape.melds)) n += faanFor(rules, "concealedHand");
+  function routeFaan(r, shape, rules2, c) {
+    if (r.orphans) return faanFor(rules2, "thirteenOrphans");
+    let n = bonusFaan(shape, rules2) + honourMeldFaan(r, shape, rules2, c);
+    if (isConcealedHand(shape.melds)) n += faanFor(rules2, "concealedHand");
     if (r.honoursOnly) {
-      return n + faanFor(rules, "allHonours");
+      return n + faanFor(rules2, "allHonours");
     }
     if (r.suit !== null) {
-      n += honoursHeld(shape, c) <= 1 ? faanFor(rules, "fullFlush") : faanFor(rules, "halfFlush");
+      n += honoursHeld(shape, c) <= 1 ? faanFor(rules2, "fullFlush") : faanFor(rules2, "halfFlush");
     }
-    if (r.pungs) n += faanFor(rules, "allPungs");
+    if (r.pungs) n += faanFor(rules2, "allPungs");
     else if (r.suit === null && !shape.melds.some((m) => m.kind !== "chow")) {
-      n += faanFor(rules, "allChows");
+      n += faanFor(rules2, "allChows");
     }
     return n;
   }
-  function fallbackFaan(shape, rules) {
-    let n = bonusFaan(shape, rules);
+  function fallbackFaan(shape, rules2) {
+    let n = bonusFaan(shape, rules2);
     const seatTile = WINDS_START + shape.seatWind;
     const roundTile = WINDS_START + shape.roundWind;
-    if (meldedTriplet(shape.melds, seatTile)) n += faanFor(rules, "seatWind");
-    if (meldedTriplet(shape.melds, roundTile)) n += faanFor(rules, "roundWind");
+    if (meldedTriplet(shape.melds, seatTile)) n += faanFor(rules2, "seatWind");
+    if (meldedTriplet(shape.melds, roundTile)) n += faanFor(rules2, "roundWind");
     for (let d = DRAGONS_START; d < FLOWERS_START; d++) {
-      if (meldedTriplet(shape.melds, d)) n += faanFor(rules, "dragonPung");
+      if (meldedTriplet(shape.melds, d)) n += faanFor(rules2, "dragonPung");
     }
-    if (isConcealedHand(shape.melds)) n += faanFor(rules, "concealedHand");
+    if (isConcealedHand(shape.melds)) n += faanFor(rules2, "concealedHand");
     return n;
   }
-  function assessRoutes(shape, rules, profile = DEFAULT_PROFILE, table2 = null) {
+  function assessRoutes(shape, rules2, profile = DEFAULT_PROFILE, table2 = null) {
     const urgency = table2?.max ?? 0;
     const c = counts(shape.concealed);
     const melds = shape.melds.length;
@@ -2310,21 +2310,21 @@
         distance = route.pungs ? pungDistance(kept, melds) : keptTiles < MIN_ROUTE_TILES ? MAX_DISTANCE : distanceToReady(kept, melds);
       }
       const surplus = Math.max(0, offRoute - Math.max(0, distance));
-      const faan = routeFaan(route, shape, rules, c);
-      const attainable = faan + faanFor(rules, "selfDraw");
+      const faan = routeFaan(route, shape, rules2, c);
+      const attainable = faan + faanFor(rules2, "selfDraw");
       const credit = Math.min(
         Math.max(0, distance) / 2,
         claimSupplyCredit(route, convertiblePairs(routeCounts(route, c)), profile)
       );
       const effDistance = Math.max(0, distance) - credit;
-      let score2 = routeValue(faan, effDistance, rules, profile, urgency) * profile.faanWeight - effDistance * profile.routeDistanceWeight * (route.orphans ? ORPHANS_DISTANCE_TAX : 1) - surplus * profile.offRouteWeight + // 上家 as supply line (owner, 2026-08-27): a suit route lives or dies on
+      let score2 = routeValue(faan, effDistance, rules2, profile, urgency) * profile.faanWeight - effDistance * profile.routeDistanceWeight * (route.orphans ? ORPHANS_DISTANCE_TAX : 1) - surplus * profile.offRouteWeight + // 上家 as supply line (owner, 2026-08-27): a suit route lives or dies on
       // whether the seat before you is feeding that suit or hoarding it.
       (route.suit !== null ? leftFeed(shape, route.suit) * profile.leftFeedWeight : 0) - // SUIT SUPPLY: a route into a suit the table is eating — a collector
       // declared on it, or a third of its copies already visible — is priced
       // down before any tile is thrown at it.
       (route.suit !== null && table2 !== null ? suitContest(route.suit, table2) * profile.suitContestWeight : 0);
-      if (attainable < rules.minimumFaan) score2 -= profile.belowMinimumPenalty;
-      else if (faan < rules.minimumFaan) {
+      if (attainable < rules2.minimumFaan) score2 -= profile.belowMinimumPenalty;
+      else if (faan < rules2.minimumFaan) {
         score2 -= profile.belowMinimumPenalty * DISCARD_WIN_SHARE;
       }
       if (!feasible) score2 = Number.NEGATIVE_INFINITY;
@@ -2342,24 +2342,24 @@
     }
     return out;
   }
-  function chooseRoute(shape, rules, profile = DEFAULT_PROFILE, table2 = null) {
-    const all = assessRoutes(shape, rules, profile, table2);
+  function chooseRoute(shape, rules2, profile = DEFAULT_PROFILE, table2 = null) {
+    const all = assessRoutes(shape, rules2, profile, table2);
     let best = all[0];
     for (const a of all) if (a.score > best.score) best = a;
     return best;
   }
-  function faanCeiling(shape, rules) {
+  function faanCeiling(shape, rules2) {
     const c = counts(shape.concealed);
     let best = 0;
     for (const route of ROUTES) {
       if (route.orphans) continue;
       if (!meldsFit(route, shape.melds)) continue;
-      const f = routeFaan(route, shape, rules, c);
+      const f = routeFaan(route, shape, rules2, c);
       if (f > best) best = f;
     }
-    return best + faanFor(rules, "selfDraw");
+    return best + faanFor(rules2, "selfDraw");
   }
-  var hasFaanPath = (shape, rules) => faanCeiling(shape, rules) >= rules.minimumFaan;
+  var hasFaanPath = (shape, rules2) => faanCeiling(shape, rules2) >= rules2.minimumFaan;
   function seatThreat(v, s) {
     const melds = v.melds[s].length;
     const late = v.wallRemaining < 30 ? 0.2 : 0;
@@ -2774,18 +2774,27 @@
   }
 
   // client/game/game.ts
-  var GLYPH = (() => {
-    const g = [];
-    for (let i = 0; i < 9; i++) g.push(String.fromCodePoint(126983 + i));
-    for (let i = 0; i < 9; i++) g.push(String.fromCodePoint(126992 + i));
-    for (let i = 0; i < 9; i++) g.push(String.fromCodePoint(127001 + i));
-    g.push("\u{1F000}", "\u{1F001}", "\u{1F002}", "\u{1F003}", "\u{1F004}", "\u{1F005}", "\u{1F006}");
-    for (let i = 0; i < 8; i++) g.push(String.fromCodePoint(127010 + i));
-    return g;
-  })();
+  var faceCache = /* @__PURE__ */ new Map();
+  function face(t) {
+    const hit = faceCache.get(t);
+    if (hit !== void 0) return hit;
+    let svg;
+    if (t < 9) svg = tileWan(t + 1);
+    else if (t < 18) svg = tileSuo(t - 8);
+    else if (t < 27) svg = tileTong(t - 17);
+    else if (t < 31) svg = tileWind(["\u6771", "\u5357", "\u897F", "\u5317"][t - 27]);
+    else if (t < 34) svg = tileDragon(["red", "green", "white"][t - 31]);
+    else {
+      const ch = TILE_NAMES[t];
+      const all = [...FLOWER_TILES, ...SEASON_TILES];
+      const hitF = all.find(([label]) => label.includes(ch));
+      svg = hitF ? hitF[1]() : "";
+    }
+    faceCache.set(t, svg);
+    return svg;
+  }
   var name3 = (t) => TILE_NAMES[t] ?? "?";
-  var tileClass = (t) => isFlower(t) ? "flower" : isHonour(t) ? "hon" : suitOf(t) === "chars" ? "man" : suitOf(t) === "bamboo" ? "sou" : "pin";
-  var tileHtml = (t, cls = "", attrs = "") => `<span class="tile ${tileClass(t)} ${cls}" ${attrs}><span class="g">${GLYPH[t] ?? "?"}</span><span class="n">${name3(t)}</span></span>`;
+  var tileHtml = (t, cls = "", attrs = "") => `<span class="tile ${cls}" ${attrs}><svg viewBox="0 0 100 140" preserveAspectRatio="xMidYMid meet">${face(t)}</svg></span>`;
   var WIND_CH = ["\u6771", "\u5357", "\u897F", "\u5317"];
   var AWARDS = {
     selfDraw: "\u81EA\u6478 Self-Draw",
@@ -2865,6 +2874,24 @@
   var feed = [];
   var pileTiles = [];
   var rec = JSON.parse(localStorage.getItem("mjrc.record") ?? '{"played":0,"won":0,"chips":0}');
+  var SETTINGS = {
+    rulesetId: "mjrc-standard",
+    tileScale: 1,
+    botMs: 420,
+    dev: false,
+    ...JSON.parse(localStorage.getItem("mjrc.settings") ?? "{}")
+  };
+  var saveSettings = () => {
+    localStorage.setItem("mjrc.settings", JSON.stringify(SETTINGS));
+    document.documentElement.style.setProperty("--tscale", String(SETTINGS.tileScale));
+    document.body.classList.toggle("devmode", SETTINGS.dev);
+  };
+  var rules = () => ruleset(SETTINGS.rulesetId) ?? MJRC_STANDARD;
+  var RULE_CHOICES = [
+    ["mjrc-standard", "MJRC standard", "3\u201310 faan \xB7 the house ruleset \xB7 flowers"],
+    ["hkos-standard", "HK Old Style (published)", "3\u201313 faan \xB7 the full limit ladder"],
+    ["tvb-2026", "TVB Championship 2026", "1 faan minimum \xB7 linear payments \xB7 no flowers"]
+  ];
   function startScreen() {
     $("veil").style.display = "flex";
     $("panel").innerHTML = `
@@ -2889,15 +2916,17 @@
   }
   function newMatch() {
     seed = Math.floor(Math.random() * 2 ** 31);
-    const r = startMatch({ seed, ruleset: MJRC_STANDARD, matchLength: "oneWindRound" });
+    const R = rules();
+    const r = startMatch({ seed, ruleset: R, matchLength: "oneWindRound" });
     state = r.state;
     cfgs = [0, 1, 2, 3].map((i) => ({
-      ruleset: MJRC_STANDARD,
+      ruleset: R,
       profile: i === HUMAN ? DEFAULT_PROFILE : profileOf2(table.seats[i - 1]),
       rnd: prng((seed ^ (i + 1) * 2654435761) >>> 0)
     }));
     feed.length = 0;
     pileTiles = [];
+    devBotLines = [];
     $("veil").style.display = "none";
     $("hudTable").textContent = table.label + " \u2014 " + table.seats.map((s) => BOT_NAMES[s] ?? s).join(", ");
     consume(r.events);
@@ -2978,6 +3007,38 @@
     }
     if (feed.length > 8) feed.splice(0, feed.length - 8);
   }
+  var SUITG = ["\u842C", "\u7D22", "\u7B52"];
+  function routeName(r) {
+    if (r.orphans) return "13 orphans";
+    if (r.honoursOnly) return "all honours";
+    if (r.suit !== null) return (r.pungs ? "pung-flush " : "flush ") + (r.suit === "chars" ? "\u842C" : r.suit === "bamboo" ? "\u7D22" : "\u7B52");
+    return r.pungs ? "all pungs" : "balanced";
+  }
+  var devBotLines = [];
+  function noteBotThinking(seat) {
+    if (!SETTINGS.dev) return;
+    const v = viewFor(state, seat);
+    const R = rules();
+    const threats = tableThreat(v, R);
+    const routes = assessRoutes(shapeOf(v), R, cfgs[seat].profile, threats).filter((r) => r.feasible && Number.isFinite(r.score)).sort((a, b) => b.score - a.score).slice(0, 2);
+    const who = BOT_NAMES[table.seats[seat - 1]] ?? "Bot";
+    const reads = threats.seats.filter((t) => t.threat > 0.25).sort((a, b) => b.threat - a.threat).slice(0, 2).map((t) => `${t.seat === HUMAN ? "YOU" : BOT_NAMES[table.seats[t.seat - 1]] ?? "?"} ${t.threat.toFixed(2)}` + (t.intentSuit !== null ? `/${SUITG[t.intentSuit]}` : ""));
+    devBotLines.unshift(`<b>${who}</b> ${routes.map((r, i) => `${i === 0 ? "\u25B8" : ""}${routeName(r.route)} <span class="mut">${Math.min(r.faan, 13)}f \xB7 ${Math.max(0, r.distance)} away</span>`).join(" \xB7 ")}` + (reads.length ? `<div class="mut">fears ${reads.join(" \xB7 ")}</div>` : ""));
+    if (devBotLines.length > 5) devBotLines.length = 5;
+  }
+  function devPanel() {
+    if (!SETTINGS.dev) return "";
+    let mine = "";
+    if (pending?.some((a) => a.type === "discard")) {
+      const v = viewFor(state, HUMAN);
+      const R = rules();
+      const cfg = { ruleset: R, profile: scoreAdjust(profileOf2("v4"), v), rnd: prng(7) };
+      const ranked = [...rankDiscards(v, cfg)].sort((a, b) => b.score - a.score).slice(0, 5);
+      mine = `<div class="devsec"><b>champion would discard</b>${ranked.map((d, i) => `<div class="${i === 0 ? "best" : ""}">${i + 1}. ${name3(d.tile)} <span class="mut">${d.distance} away \xB7 danger ${d.danger.toFixed(1)}${d.outs >= 0 ? ` \xB7 ${d.outs} outs` : ""}</span></div>`).join("")}</div>`;
+    }
+    return `<div id="dev"><div class="devsec"><b>what the bots are thinking</b>
+    ${devBotLines.join("") || '<div class="mut">\u2026</div>'}</div>${mine}</div>`;
+  }
   function advance() {
     render();
     if (overlay) {
@@ -2995,6 +3056,7 @@
       const options = legalActions(state, seat);
       if (options.length === 0) continue;
       busy = true;
+      if (options.some((o) => o.type === "discard")) noteBotThinking(seat);
       setTimeout(() => {
         const a = decideAction(viewFor(state, seat), options, cfgs[seat]);
         const r = applyAction(state, a);
@@ -3002,7 +3064,7 @@
         consume(r.events);
         busy = false;
         advance();
-      }, 420);
+      }, SETTINGS.botMs);
       return;
     }
   }
@@ -3054,18 +3116,25 @@
     $("seatN").innerHTML = seatBox(2);
     $("seatW").innerHTML = seatBox(3);
     $("wallinfo").innerHTML = `wall <b>${Math.max(0, state.wallEnd - state.wallIndex)}</b> tiles left`;
-    const rnd = prng(seed >>> 0);
-    const cx = 50, cy = 50;
-    $("pile").innerHTML = pileTiles.map((d, i) => {
-      const ring = Math.floor(i / 9), a = (i * 2.399 + ring) % (Math.PI * 2);
-      const rad = 6 + ring * 9 + rnd() * 6;
-      const x = cx + Math.cos(a) * rad * 1.5, y = cy + Math.sin(a) * rad;
-      const rot = (rnd() * 26 - 13).toFixed(1);
+    const pileEl = $("pile");
+    const boxW = pileEl.clientWidth || 420, boxH = pileEl.clientHeight || 240;
+    const th = 30 * SETTINGS.tileScale, tw = th * (100 / 140);
+    const cell = Math.sqrt(th * th + tw * tw) * 1.02;
+    const perRow = Math.max(4, Math.floor(boxW / cell));
+    const jrnd = prng((seed ^ 20973) >>> 0);
+    pileEl.innerHTML = pileTiles.map((d, i) => {
+      const row = Math.floor(i / perRow), col = i % perRow;
+      const stagger = row % 2 * 0.5;
+      const inRow = Math.min(perRow, pileTiles.length - row * perRow);
+      const cx = (col + stagger + 0.5) * cell - inRow * cell / 2 + boxW / 2;
+      const cy = (row + 0.5) * cell - Math.ceil(pileTiles.length / perRow) * cell / 2 + boxH / 2;
+      const jx = (jrnd() - 0.5) * cell * 0.06, jy = (jrnd() - 0.5) * cell * 0.06;
+      const rot = (jrnd() * 24 - 12).toFixed(1);
       const hot = i === pileTiles.length - 1 ? "hot fresh" : "";
       return tileHtml(
         d.tile,
         `sm ${hot}`,
-        `style="left:${x.toFixed(1)}%;top:${y.toFixed(1)}%;transform:translate(-50%,-50%) rotate(${rot}deg)"`
+        `style="left:${(cx + jx).toFixed(1)}px;top:${(cy + jy).toFixed(1)}px;transform:translate(-50%,-50%) rotate(${rot}deg)"`
       );
     }).join("");
     $("mymelds").innerHTML = me.melds.map((m) => m.tiles.map((t) => tileHtml(t)).join("")).join('<span style="width:10px"></span>') + me.flowers.map((t) => tileHtml(t, "sm")).join("");
@@ -3109,10 +3178,67 @@
       };
     }
     $("log").innerHTML = feed.map((l) => `<div>${l}</div>`).join("");
+    $("devwrap").innerHTML = devPanel();
+    recenterGlyphs(document);
   }
+  function settingsScreen(back) {
+    $("veil").style.display = "flex";
+    $("panel").innerHTML = `
+    <h1>Settings</h1>
+    <h2 style="margin-top:12px">Rules</h2>
+    <div class="choices">${RULE_CHOICES.map(([id, label, blurb]) => `
+      <div class="choice ${SETTINGS.rulesetId === id ? "sel" : ""}" data-r="${id}"><b>${label}</b><span>${blurb}</span></div>`).join("")}</div>
+    <p class="mut">Changing the ruleset applies to the next match.</p>
+    <h2 style="margin-top:14px">Table</h2>
+    <div class="setrow"><label>Tile size</label>
+      <input type="range" id="setScale" min="0.8" max="2" step="0.05" value="${SETTINGS.tileScale}">
+      <span id="setScaleV">${Math.round(SETTINGS.tileScale * 100)}%</span></div>
+    <div class="setrow"><label>Bot speed</label>
+      <input type="range" id="setSpeed" min="0" max="1200" step="60" value="${SETTINGS.botMs}">
+      <span id="setSpeedV">${SETTINGS.botMs === 0 ? "instant" : SETTINGS.botMs + "ms"}</span></div>
+    <div class="setrow"><label>Dev mode</label>
+      <input type="checkbox" id="setDev" ${SETTINGS.dev ? "checked" : ""}>
+      <span class="mut">show what each bot is planning, and how the champion would rank your discards</span></div>
+    <button id="btnBack">done \u25B8</button>`;
+    for (const el of Array.from($("panel").querySelectorAll(".choice"))) {
+      el.onclick = () => {
+        SETTINGS.rulesetId = el.dataset.r;
+        saveSettings();
+        settingsScreen(back);
+      };
+    }
+    const sc = document.getElementById("setScale");
+    sc.oninput = () => {
+      SETTINGS.tileScale = Number(sc.value);
+      $("setScaleV").textContent = Math.round(SETTINGS.tileScale * 100) + "%";
+      saveSettings();
+      render();
+    };
+    const sp = document.getElementById("setSpeed");
+    sp.oninput = () => {
+      SETTINGS.botMs = Number(sp.value);
+      $("setSpeedV").textContent = SETTINGS.botMs === 0 ? "instant" : SETTINGS.botMs + "ms";
+      saveSettings();
+    };
+    const dv = document.getElementById("setDev");
+    dv.onchange = () => {
+      SETTINGS.dev = dv.checked;
+      saveSettings();
+      render();
+    };
+    $("btnBack").onclick = () => {
+      $("veil").style.display = "none";
+      back();
+    };
+  }
+  $("btnSettings").onclick = () => settingsScreen(() => {
+    if (!state) startScreen();
+    else render();
+  });
   $("btnQuit").onclick = () => {
     overlay = null;
     startScreen();
   };
+  saveSettings();
   startScreen();
 })();
