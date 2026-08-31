@@ -100,6 +100,29 @@ coverage on this client (the engine beneath it has ~1,980 tests).
 5. 查叫 (not-ready pays ready at a draw) is still an open owner ruling; it would
    change both the rules config and the end-of-hand screen.
 
+## 6a. Note triage — where each of your comments is tracked
+
+Your comments stay where you wrote them (they are your voice, and the context
+matters). This table says what happened to each and where it now lives.
+
+| your note | status | home |
+|---|---|---|
+| Tile art shows measurement dimensions | **fixed** — the lab's `SHOW_MEASURE` flag was left `true`; the consumer now sets it `false`. Verified: zero numeric text nodes in rendered tiles. | here |
+| Flowers hard to read | **fixed** — flowers render at a larger size than other melded tiles. | here |
+| Tile sizes: hand big, exposed mid, wall ≈ pile, all legible | **fixed** — hand 78 px, melds 52, exposed 44, pile 38, wall stacks sized to match. | here |
+| Walls jump around; wall should not move, just subtract | **fixed** — the wall is built once per hand and only erodes; consumed stacks hide in place, nothing reflows. | here |
+| Pile must not readjust; tiles land and stay | **fixed** — each discard is assigned a slot ONCE from a centre-out spiral (step = tile diagonal, so no overlap at any rotation) and never moves again. | here |
+| Draw a smaller box for the table | **fixed** — felt with a wooden rim, dark room around it. | here |
+| Pung/chow happens silently and is jarring | **partly done** — canned calls now announce 碰 / 上 / 槓 / 食糊 / 自摸 with Cantonese leading. The *grab* animation (tile travelling from the pile into the meld) is still to do. | here + `ANIMATION.md` §6 |
+| Visual timer, ~30 s, slow is fine | **done** — a bar under the table. It is a nudge: nothing expires, nothing is played for you. | here |
+| Dev mode: two boxes, and the helper must persist | **done** — separate "what the bots are thinking" and "discard helper" boxes; the helper keeps a scrollable graded history of what you actually threw. | here |
+| Mahjong makes a diamond; walls overlap at the corners | **partly done** — walls are pinwheeled (each runs past its neighbour) and the surface sits in perspective, two tiles high. A true diamond orientation with dice and a counted break is not built. | `sketches/RENDERING.md` — needs a wall section |
+| Real wall: dice, count around, break point, flowers from the dead end | **not built** — proposed for the next pass. The dead wall is marked visually but is not yet where flowers actually come from. | `sketches/RENDERING.md` |
+| Three pile modes: classic organic / rows-and-columns / Riichi boxes, selectable | **not built** — classic is what exists. Modes belong with the layout spec. | `sketches/RENDERING.md` §4a |
+| Melds should sit in the owner's orientation, not the viewer's | **not built** | `sketches/RENDERING.md` |
+| Bot variants in settings: defensive / aggressive / balanced, all defending | **not built** — and it changes the ladder presets: `v0` and `v1` do not defend, which you called worthless. Variants would be derived from `v4`. | here §2 + `tools/sim/` |
+| Announce events with Cantonese/English (flowers, pairs of flowers, etc.) | **partly done** — claims and wins call out. Flower and other table-talk phrasing should come from the catalogue. | `EXPRESSIONS.md` |
+
 ## 7. Owner notes
 
 _Add anything here — rulings, taste calls, things that felt wrong while playing.
@@ -117,6 +140,8 @@ Dated entries are easiest to act on later._
 | 2026-08-29 | Owner: tiles must not overlap — implemented the diagonal-cell guarantee from `RENDERING.md`.                  |
 | 2026-08-29 | Owner: settings panel for rules and display; dev mode for bot analysis.                                       |
 | 2026-08-29 | Owner: animate the wall — build ≈1.1 s, draw 0.7 s, toss 1.0 s (overrides `ANIMATION.md` §6 budgets; see §3). |
+| 2026-08-29 | Owner review round 2 — see §6a for the full triage. Fixed: measurement artefacts, flower legibility, tile-size hierarchy, immovable wall, immovable pile, table box, calls, turn clock, split dev boxes. |
+| 2026-08-29 | Wall rebuilt to match the owner's photo: pinwheeled corners, two tiles high, 18 stacks a side, whole surface in perspective. |
 
 
 
