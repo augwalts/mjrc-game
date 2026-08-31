@@ -24,6 +24,10 @@ body{background:radial-gradient(ellipse at 50% 30%, #1e1b17 0%, #131110 55%, #0a
 #hud button{background:rgba(255,255,255,.08);color:var(--ink);border:1px solid rgba(255,255,255,.16);
   border-radius:7px;padding:4px 10px;font-size:12px;cursor:pointer}
 #hud button:hover{background:rgba(255,255,255,.16)}
+#hud #btnFeedback{border-color:rgba(216,181,106,.4);color:var(--gold)}
+.panel textarea{width:100%;min-height:110px;padding:10px 12px;font:14px/1.45 inherit;
+  border-radius:9px;background:rgba(255,255,255,.07);color:var(--ink);
+  border:1px solid rgba(255,255,255,.18);resize:vertical}
 
 /* ── table ── */
 #table{flex:1;position:relative;min-height:0;display:flex;align-items:center;justify-content:center}
@@ -264,6 +268,7 @@ body.devmode #mine{padding-top:2px}
 <div id="hud">
   <span class="spacer"></span>
   <span id="hudTable"></span>
+  <button id="btnFeedback">✎ feedback</button>
   <button id="btnSettings">⚙ settings</button>
   <button id="btnQuit">quit</button>
 </div>

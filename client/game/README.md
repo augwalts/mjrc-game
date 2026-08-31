@@ -8,6 +8,39 @@ no accounts. State lives in memory; your record persists in `localStorage`.
 
     python3 -m http.server 8480 --directory client/game
 
+## What gets recorded
+
+A name on first visit — no password, no email, no sign-in. The key is a
+generated uuid, not the name, so two friends both called "Dave" do not merge
+and renaming yourself does not fork you in two. Per-device, and the screen says
+so.
+
+Every match then records, to **IndexedDB** (`store.ts`):
+
+- **The event log** — the engine's outputs, what the stats pages read.
+- **The action log** — the inputs, bots' choices included. Replaying it through
+  the reducer regenerates the events exactly, because the reducer is pure. So a
+  game recorded today still replays correctly after the bots are retrained;
+  their *decisions* are on record and history cannot be quietly rewritten.
+- **Every one of your decisions, graded** against the champion — what you
+  played, what it would have played, the gap, and how much better its first
+  choice was than its second. That last number is what separates a real
+  decision from a forced one: agreeing with the engine on a forced move says
+  nothing about you.
+- **Per-seat outcomes**, so "how do the bots do against real humans" is
+  answerable — the one comparison the whole training programme never made.
+
+Not localStorage: a one-wind match is ~187 KB of events, and localStorage's ~5 MB
+would fill at about 24 games.
+
+Quitting mid-match records a **forfeit**. A player who abandoned every losing
+game would otherwise look like a strong player.
+
+The **✎ feedback** button files a report with the game state attached — match id,
+hand, the last eight log lines, the seed — so a "something looked wrong" can be
+replayed rather than guessed at. It attaches to your last match too, since
+people file feedback about the game they just left.
+
 ## Match length
 
 One to four wind rounds, chosen on the start screen. The hand counts on the

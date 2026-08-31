@@ -219,6 +219,10 @@ Dated entries are easiest to act on later._
 | 2026-08-30 | **You get a nameplate**, at the near edge of the felt, mirroring the bots: seat wind, 莊, and your chips — none of which were on screen at any point during a hand before. Chips are green up / red down on every plate. |
 | 2026-08-31 | **`mjrc-standard` 清一色 = 7 faan**, ratified by the owner. Corrects a transcription error inherited from the "Wikipedia" column (audit §10). Applied to `MJRC_STANDARD` only — `hkos-standard` stays a faithful reading of its source. Measured: no material change to bot behaviour. See `MJRC-STANDARD-RULES.md`. |
 | 2026-08-31 | **Match length is 1–4 wind rounds.** `matchLength` widened to accept `1\|2\|3\|4` alongside the two legacy strings, rather than renamed — ~15 sim callers pass the strings and they appear in persisted log headers. Start screen picks the length and states its measured cost. |
+| 2026-08-31 | **Recording, in IndexedDB.** Name entry (uuid-keyed, no auth), both logs, per-seat outcomes, and every human decision graded. localStorage rejected: ~5 MB caps at ~24 games. |
+| 2026-08-31 | **Move grading always runs.** It cost 0.07 ms and was gated on dev mode and thrown away. Dev mode now controls only whether the reasoning is shown. |
+| 2026-08-31 | **A quit is a forfeit, and is recorded.** Otherwise abandoning losing games flatters the record. |
+| 2026-08-31 | **Feedback carries game state** — match id, hand, last 8 log lines, seed — and attaches to the last match once you have quit. |
 
 
 

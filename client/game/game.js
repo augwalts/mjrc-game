@@ -1818,20 +1818,20 @@
     if (drawn !== null && !alreadyRefused && shapeWins(st, drawn)) {
       out.push({ type: "declareWin", seat, selfDraw: true });
     }
-    const all = drawn === null ? st.hand : [...st.hand, drawn];
+    const all2 = drawn === null ? st.hand : [...st.hand, drawn];
     const seen = [];
     const distinct = [];
-    for (const t of all.slice().sort(asc)) {
+    for (const t of all2.slice().sort(asc)) {
       if (!seen[t]) {
         seen[t] = true;
         distinct.push(t);
       }
     }
     for (const tile of distinct) {
-      if (canConcealedKong(all, tile)) out.push({ type: "concealedKong", seat, tile });
+      if (canConcealedKong(all2, tile)) out.push({ type: "concealedKong", seat, tile });
     }
     for (const tile of distinct) {
-      if (canAddedKong(all, st.melds, tile)) out.push({ type: "addedKong", seat, tile });
+      if (canAddedKong(all2, st.melds, tile)) out.push({ type: "addedKong", seat, tile });
     }
     for (const tile of distinct) out.push({ type: "discard", seat, tile });
     return out;
@@ -2367,9 +2367,9 @@
     return out;
   }
   function chooseRoute(shape, rules2, profile = DEFAULT_PROFILE, table2 = null) {
-    const all = assessRoutes(shape, rules2, profile, table2);
-    let best = all[0];
-    for (const a of all) if (a.score > best.score) best = a;
+    const all2 = assessRoutes(shape, rules2, profile, table2);
+    let best = all2[0];
+    for (const a of all2) if (a.score > best.score) best = a;
     return best;
   }
   function faanCeiling(shape, rules2) {
@@ -2797,6 +2797,102 @@
     };
   }
 
+  // client/game/store.ts
+  var DB_NAME = "mjrc-game";
+  var DB_VERSION = 1;
+  var dbPromise = null;
+  var unavailableReason = "";
+  function open() {
+    if (dbPromise) return dbPromise;
+    dbPromise = new Promise((resolve) => {
+      let req;
+      try {
+        req = indexedDB.open(DB_NAME, DB_VERSION);
+      } catch (e) {
+        unavailableReason = String(e);
+        resolve(null);
+        return;
+      }
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains("player")) db.createObjectStore("player", { keyPath: "id" });
+        if (!db.objectStoreNames.contains("match")) {
+          const m = db.createObjectStore("match", { keyPath: "id" });
+          m.createIndex("playerId", "playerId");
+          m.createIndex("finishedAt", "finishedAt");
+        }
+        if (!db.objectStoreNames.contains("move")) {
+          const mv = db.createObjectStore("move", { autoIncrement: true });
+          mv.createIndex("matchId", "matchId");
+        }
+        if (!db.objectStoreNames.contains("feedback")) {
+          db.createObjectStore("feedback", { keyPath: "id" });
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => {
+        unavailableReason = String(req.error);
+        resolve(null);
+      };
+      req.onblocked = () => {
+        unavailableReason = "another tab holds an older version open";
+        resolve(null);
+      };
+    });
+    return dbPromise;
+  }
+  async function available() {
+    const db = await open();
+    return { ok: db !== null, why: unavailableReason };
+  }
+  async function tx(store, mode, run) {
+    const db = await open();
+    if (!db) return null;
+    return new Promise((resolve) => {
+      try {
+        const t = db.transaction(store, mode);
+        const req = run(t.objectStore(store));
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => resolve(null);
+        t.onabort = () => resolve(null);
+      } catch {
+        resolve(null);
+      }
+    });
+  }
+  async function all(store) {
+    const r = await tx(store, "readonly", (s) => s.getAll());
+    return r ?? [];
+  }
+  async function getPlayer() {
+    const rows = await all("player");
+    return rows[0] ?? null;
+  }
+  async function setPlayerName(name4) {
+    const now = Date.now();
+    const existing = await getPlayer();
+    const rec2 = existing ? { ...existing, name: name4, lastSeen: now } : { id: crypto.randomUUID(), name: name4, firstSeen: now, lastSeen: now };
+    await tx("player", "readwrite", (s) => s.put(rec2));
+    return rec2;
+  }
+  async function putMatch(m) {
+    await tx("match", "readwrite", (s) => s.put(m));
+  }
+  async function putMoves(moves) {
+    if (moves.length === 0) return;
+    const db = await open();
+    if (!db) return;
+    try {
+      const t = db.transaction("move", "readwrite");
+      const s = t.objectStore("move");
+      for (const mv of moves) s.put(mv);
+    } catch {
+    }
+  }
+  async function putFeedback(f) {
+    await tx("feedback", "readwrite", (s) => s.put(f));
+  }
+
   // client/game/game.ts
   SHOW_MEASURE = false;
   var faceCache = /* @__PURE__ */ new Map();
@@ -2811,8 +2907,8 @@
     else if (t < 34) svg = tileDragon(["red", "green", "white"][t - 31]);
     else {
       const ch = TILE_NAMES[t];
-      const all = [...FLOWER_TILES, ...SEASON_TILES];
-      const hitF = all.find(([label]) => label.includes(ch));
+      const all2 = [...FLOWER_TILES, ...SEASON_TILES];
+      const hitF = all2.find(([label]) => label.includes(ch));
       svg = hitF ? hitF[1]() : "";
     }
     faceCache.set(t, svg);
@@ -2941,6 +3037,7 @@
     botMs: 420,
     dev: false,
     rounds: 1,
+    recorded: true,
     ...JSON.parse(localStorage.getItem("mjrc.settings") ?? "{}")
   };
   var saveSettings = () => {
@@ -2960,6 +3057,41 @@
     ["hkos-standard", "HK Old Style (published)", "3\u201313 faan \xB7 the full limit ladder"],
     ["tvb-2026", "TVB Championship 2026", "1 faan minimum \xB7 linear payments \xB7 no flowers"]
   ];
+  function nameScreen(then) {
+    $("veil").style.display = "flex";
+    $("panel").innerHTML = `
+    <h1>\u9999\u6E2F\u9EBB\u96C0 \xB7 MJRC</h1>
+    <p>What should we call you? This is a beta \u2014 your games are recorded so we
+    can see how the bots hold up against real players, and so you can look back
+    at what you played.</p>
+    <div class="setrow" style="margin-top:14px">
+      <input id="nameIn" type="text" maxlength="24" placeholder="your name"
+        value="${(player?.name ?? "").replace(/"/g, "&quot;")}"
+        style="flex:1;padding:9px 12px;font-size:16px;border-radius:9px;
+               background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.18);color:var(--ink)">
+    </div>
+    <p class="mut" id="nameNote">Kept on this device only. Clearing site data clears your history.</p>
+    <button id="btnName">continue \u25B8</button>`;
+    const input = document.getElementById("nameIn");
+    const go = async () => {
+      const nm = input.value.trim();
+      if (!nm) {
+        input.focus();
+        return;
+      }
+      player = await setPlayerName(nm);
+      then();
+    };
+    $("btnName").onclick = () => void go();
+    input.onkeydown = (e) => {
+      if (e.key === "Enter") void go();
+    };
+    input.focus();
+    void available().then((a) => {
+      if (!a.ok) $("nameNote").innerHTML = `<b style="color:var(--danger)">This browser will not let us store anything</b>, so nothing
+       can be recorded \u2014 the game still plays. (${a.why || "IndexedDB unavailable"})`;
+    });
+  }
   function startScreen() {
     $("veil").style.display = "flex";
     $("panel").innerHTML = `
@@ -2977,8 +3109,15 @@
         <b>${t.label}</b><span>${t.blurb}</span>
         <span style="margin-top:5px;color:var(--gold)">${t.seats.map((s) => BOT_NAMES[s] ?? s).join(" \xB7 ")}</span>
       </div>`).join("")}</div>
+    <div class="setrow" style="margin-top:14px">
+      <label>Record this game</label>
+      <input type="checkbox" id="setRec" ${SETTINGS.recorded ? "checked" : ""}>
+      <span class="mut">counts for your stats \xB7 a game you quit is recorded as a forfeit</span>
+    </div>
     ${rec.played ? `<p>Your record: <b>${rec.won}</b> wins in <b>${rec.played}</b> matches \xB7
       lifetime <b>${rec.chips > 0 ? "+" : ""}${rec.chips}</b> chips</p>` : ""}
+    <p class="mut">Playing as <b>${player?.name ?? "\u2014"}</b> \xB7 <a href="#" id="btnRename"
+      style="color:var(--gold)">change name</a></p>
     <button id="btnStart">sit down \u25B8</button>`;
     for (const el of Array.from($("panel").querySelectorAll(".choice"))) {
       el.onclick = () => {
@@ -2989,11 +3128,22 @@
         startScreen();
       };
     }
+    const rcx = document.getElementById("setRec");
+    if (rcx) rcx.onchange = () => {
+      SETTINGS.recorded = rcx.checked;
+      saveSettings();
+    };
+    const ren = document.getElementById("btnRename");
+    if (ren) ren.onclick = (e) => {
+      e.preventDefault();
+      nameScreen(startScreen);
+    };
     $("btnStart").onclick = () => newMatch();
   }
   function newMatch() {
     seed = Math.floor(Math.random() * 2 ** 31);
     const R = rules();
+    beginRecord();
     const r = startMatch({ seed, ruleset: R, matchLength: SETTINGS.rounds });
     state = r.state;
     cfgs = [0, 1, 2, 3].map((i) => ({
@@ -3011,8 +3161,65 @@
     advance();
     buildWall2();
   }
+  var player = null;
+  var rc = null;
+  var lastMatch = null;
+  var rcMoves = [];
+  var humanTurns = 0;
+  function beginRecord() {
+    humanTurns = 0;
+    rcMoves = [];
+    const id = crypto.randomUUID();
+    rc = {
+      id,
+      playerId: player?.id ?? "anonymous",
+      playerName: player?.name ?? "anonymous",
+      rounds: SETTINGS.rounds,
+      rulesetId: rules().id,
+      seats: [...table.seats],
+      tableId: table.id,
+      seed,
+      recorded: SETTINGS.recorded,
+      abandoned: false,
+      startedAt: Date.now(),
+      finishedAt: null,
+      chips: [0, 0, 0, 0],
+      hands: 0,
+      won: 0,
+      selfDrawn: 0,
+      fed: 0,
+      drawnHands: 0,
+      seatWins: [0, 0, 0, 0],
+      matchRate: null,
+      meanGap: null,
+      movesGraded: 0,
+      events: [],
+      actions: []
+    };
+    lastMatch = { id, hand: 0, label: `${SETTINGS.rounds}-wind game vs ${table.label}` };
+  }
+  function summariseMoves() {
+    if (!rc) return;
+    rc.movesGraded = rcMoves.length;
+    if (rcMoves.length === 0) {
+      rc.matchRate = null;
+      rc.meanGap = null;
+      return;
+    }
+    const matched = rcMoves.filter((m) => m.gap <= 1e-4).length;
+    rc.matchRate = matched / rcMoves.length;
+    rc.meanGap = rcMoves.reduce((a, m) => a + m.gap, 0) / rcMoves.length;
+  }
+  function flushRecord() {
+    if (!rc) return;
+    summariseMoves();
+    rc.chips = [0, 1, 2, 3].map((i) => state?.seats[i]?.chips ?? 0);
+    void putMatch({ ...rc, events: [...rc.events], actions: [...rc.actions] });
+    void putMoves(rcMoves.splice(0));
+  }
   var overlay = null;
   function consume(events) {
+    if (rc) rc.events.push(...events);
     for (const e of events) {
       const p = e.payload ?? {};
       const who = (s) => s === HUMAN ? "You" : BOT_NAMES[table.seats[s - 1]] ?? "Bot";
@@ -3047,6 +3254,13 @@
         case "winOnDiscard":
         case "selfDraw": {
           const ctx = p.context;
+          if (rc) {
+            rc.seatWins[ctx.seat]++;
+            if (ctx.seat === HUMAN) {
+              rc.won++;
+              if (ctx.selfDraw) rc.selfDrawn++;
+            } else if (ctx.from === HUMAN) rc.fed++;
+          }
           const sc = p.score;
           const mine = ctx.seat === HUMAN;
           announce(ctx.selfDraw ? "selfDraw" : "win", mine ? "You" : who(ctx.seat), `${sc.faan} faan`, ctx.seat);
@@ -3060,9 +3274,15 @@
           break;
         }
         case "exhaustiveDraw":
+          if (rc) rc.drawnHands++;
           overlay = `<h1>\u6D41\u5C40</h1><h2>The wall ran out \u2014 nobody wins</h2>`;
           break;
         case "handEnd": {
+          if (rc) {
+            rc.hands++;
+            flushRecord();
+          }
+          if (lastMatch) lastMatch.hand = state.handIndex;
           const st = p.standings;
           const d = p.chipDeltas;
           overlay = (overlay ?? "") + `<div class="pay">${[0, 1, 2, 3].map((i) => `
@@ -3080,6 +3300,10 @@
           if (place === 1) rec.won++;
           rec.chips += st[HUMAN];
           localStorage.setItem("mjrc.record", JSON.stringify(rec));
+          if (rc) {
+            rc.finishedAt = Date.now();
+            flushRecord();
+          }
           overlay = `<h1>${place === 1 ? "\u{1F3C6} You win the round" : `You finish ${place}${["st", "nd", "rd", "th"][place - 1]}`}</h1>
           <div class="pay">${order.map((i, r) => `<div>${r + 1}. ${i === HUMAN ? "You" : who(i)}<br>
             <span class="d ${st[i] > 0 ? "up" : st[i] < 0 ? "down" : ""}">${st[i] > 0 ? "+" : ""}${st[i]}</span></div>`).join("")}</div>
@@ -3114,7 +3338,6 @@
   var coachCfg = (v) => ({ ruleset: rules(), profile: scoreAdjust(profileOf2("v4"), v), rnd: prng(7) });
   var verdictHtml = (cls, grade, head, why = "") => `<div class="ce ${cls}"><span class="g">${grade}</span>${head}${why ? `<div class="mut">${why}</div>` : ""}</div>`;
   function gradeMyDiscard(tile) {
-    if (!SETTINGS.dev) return;
     const v = viewFor(state, HUMAN);
     const cfg = coachCfg(v);
     const ranked = [...rankDiscards(v, cfg)].sort((a, b) => b.score - a.score);
@@ -3126,6 +3349,18 @@
     const cls = tile === best.tile || gap < 0.6 ? "good" : gap < 2.2 ? "ok" : "bad";
     const verdict = tile === best.tile ? "best discard" : gap < 0.6 ? "fine \u2014 within a hair of the best" : gap < 2.2 ? `#${rank} of ${ranked.length} \u2014 champion cuts ${name3(best.tile)}` : `costly \u2014 champion cuts ${name3(best.tile)}`;
     const why = mine.distance > best.distance ? `slower: ${mine.distance} away vs ${best.distance}` : mine.danger - best.danger > 0.8 ? `riskier: danger ${mine.danger.toFixed(1)} vs ${best.danger.toFixed(1)}` : !mine.onRoute && best.onRoute ? "off your best route" : "";
+    rcMoves.push({
+      matchId: rc?.id ?? "",
+      hand: state.handIndex,
+      turn: humanTurns++,
+      kind: "discard",
+      played: name3(tile),
+      enginePick: name3(best.tile),
+      gap,
+      top1MinusTop2: ranked.length > 1 ? best.score - ranked[1].score : 0,
+      reason: why
+    });
+    if (!SETTINGS.dev) return;
     coachLog.unshift(verdictHtml(
       cls,
       cls === "good" ? "GOOD" : cls === "ok" ? "OK" : "BAD",
@@ -3164,12 +3399,23 @@
     return rows.join("");
   }
   function gradeMyClaim(action) {
-    if (!SETTINGS.dev) return;
     const v = viewFor(state, HUMAN);
     const cfg = coachCfg(v);
     if (action.type === "concealedKong" || action.type === "addedKong") {
       const form = action.type === "concealedKong" ? "concealed" : "added";
       const yes = shouldKong(v, action.tile, form, coachCfg(v));
+      rcMoves.push({
+        matchId: rc?.id ?? "",
+        hand: state.handIndex,
+        turn: humanTurns++,
+        kind: "kong",
+        played: `kong ${name3(action.tile)}`,
+        enginePick: yes ? `kong ${name3(action.tile)}` : "hold",
+        gap: yes ? 0 : 1,
+        top1MinusTop2: 0,
+        reason: yes ? "" : "the champion holds it"
+      });
+      if (!SETTINGS.dev) return;
       coachLog.unshift(verdictHtml(
         yes ? "good" : "ok",
         yes ? "GOOD" : "OK",
@@ -3212,6 +3458,18 @@
     } else {
       head = `<b>${CLAIM_LABEL(took)}</b> \u2014 playable, but the champion prefers ${CLAIM_LABEL(want)}`;
     }
+    rcMoves.push({
+      matchId: rc?.id ?? "",
+      hand: state.handIndex,
+      turn: humanTurns++,
+      kind: took === null ? "pass" : "claim",
+      played: took === null ? "pass" : CLAIM_LABEL(took),
+      enginePick: want === null ? "pass" : CLAIM_LABEL(want),
+      gap: cls === "good" ? 0 : 1,
+      top1MinusTop2: 0,
+      reason: why
+    });
+    if (!SETTINGS.dev) return;
     coachLog.unshift(verdictHtml(cls, grade, head, why));
     if (coachLog.length > 24) coachLog.length = 24;
   }
@@ -3311,6 +3569,7 @@
       if (options.some((o) => o.type === "discard")) noteBotThinking(seat);
       setTimeout(() => {
         const a = decideAction(viewFor(state, seat), options, cfgs[seat]);
+        if (rc) rc.actions.push(a);
         const r = applyAction(state, a);
         state = r.state;
         consume(r.events);
@@ -3324,6 +3583,7 @@
     pending = null;
     cancelAnimationFrame(turnRaf);
     $("clock").style.width = "0%";
+    if (rc) rc.actions.push(a);
     const r = applyAction(state, a);
     state = r.state;
     consume(r.events);
@@ -3582,14 +3842,84 @@
       back();
     };
   }
+  function feedbackScreen(back) {
+    $("veil").style.display = "flex";
+    const live = rc !== null;
+    const where = live ? `hand ${state.handIndex + 1} of your ${SETTINGS.rounds}-wind game vs ${table.label}` : lastMatch ? `your last game \u2014 hand ${lastMatch.hand + 1} of the ${lastMatch.label}` : "not in a game";
+    $("panel").innerHTML = `
+    <h1>Tell us what you saw</h1>
+    <p class="mut">Bugs, rules that looked wrong, animations that felt off, anything.
+    We attach where you were \u2014 <b>${where}</b> \u2014 so we can replay it.</p>
+    <textarea id="fbText" placeholder="What happened? What did you expect instead?"></textarea>
+    <div class="setrow" style="margin-top:10px">
+      <button id="btnFbSend">send \u25B8</button>
+      <button id="btnFbBack" style="background:rgba(255,255,255,.08)">cancel</button>
+    </div>`;
+    const ta = document.getElementById("fbText");
+    ta.focus();
+    $("btnFbSend").onclick = () => {
+      const text = ta.value.trim();
+      if (!text) {
+        ta.focus();
+        return;
+      }
+      void putFeedback({
+        id: crypto.randomUUID(),
+        matchId: rc?.id ?? lastMatch?.id ?? null,
+        hand: rc ? state.handIndex : lastMatch?.hand ?? null,
+        text,
+        createdAt: Date.now(),
+        context: {
+          player: player?.name,
+          rounds: SETTINGS.rounds,
+          ruleset: SETTINGS.rulesetId,
+          table: table.id,
+          seats: [...table.seats],
+          seed,
+          live,
+          wall: live && state ? state.wallEnd - state.wallIndex : null,
+          chips: state ? [0, 1, 2, 3].map((i) => state.seats[i].chips) : null,
+          recentLog: feed.slice(-8),
+          ua: navigator.userAgent,
+          viewport: [innerWidth, innerHeight]
+        }
+      });
+      $("panel").innerHTML = `<h1>Thank you</h1>
+      <p>Filed against ${where}. It is stored on this device with the game it
+      came from, so we get the whole picture.</p>
+      <button id="btnFbBack2">back to the game \u25B8</button>`;
+      $("btnFbBack2").onclick = () => {
+        $("veil").style.display = "none";
+        back();
+      };
+    };
+    $("btnFbBack").onclick = () => {
+      $("veil").style.display = "none";
+      back();
+    };
+  }
+  $("btnFeedback").onclick = () => feedbackScreen(() => {
+    if (!state) startScreen();
+    else render();
+  });
   $("btnSettings").onclick = () => settingsScreen(() => {
     if (!state) startScreen();
     else render();
   });
   $("btnQuit").onclick = () => {
+    if (rc && rc.finishedAt === null) {
+      rc.abandoned = true;
+      rc.finishedAt = Date.now();
+      flushRecord();
+    }
+    rc = null;
     overlay = null;
     startScreen();
   };
   saveSettings();
-  startScreen();
+  void getPlayer().then((p) => {
+    player = p;
+    if (p) startScreen();
+    else nameScreen(startScreen);
+  });
 })();

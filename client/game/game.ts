@@ -23,6 +23,8 @@ import { prng } from "../../engine/src/wall.js";
 import { TILE_NAMES } from "../../engine/src/tiles.js";
 import type { Action, ClaimOption, SeatIndex, TileId } from "../../engine/src/types.js";
 import { viewFor } from "../../tools/sim/driver.js";
+import * as store from "./store.js";
+import type { MatchRec, MoveRec, PlayerRec } from "./store.js";
 
 declare global {
   interface Window { BOTS?: Record<string, Partial<BotProfile>>; }
@@ -159,9 +161,9 @@ function hits(a: { x: number; y: number; rot: number }, b: { x: number; y: numbe
   return true;
 }
 const rec = JSON.parse(localStorage.getItem("mjrc.record") ?? '{"played":0,"won":0,"chips":0}');
-interface Settings { rulesetId: string; tileScale: number; botMs: number; dev: boolean; rounds: MatchRounds; }
+interface Settings { rulesetId: string; tileScale: number; botMs: number; dev: boolean; rounds: MatchRounds; recorded: boolean; }
 const SETTINGS: Settings = {
-  rulesetId: "mjrc-standard", tileScale: 1, botMs: 420, dev: false, rounds: 1,
+  rulesetId: "mjrc-standard", tileScale: 1, botMs: 420, dev: false, rounds: 1, recorded: true,
   ...JSON.parse(localStorage.getItem("mjrc.settings") ?? "{}"),
 };
 const saveSettings = (): void => {
@@ -192,6 +194,47 @@ const RULE_CHOICES = [
 ];
 
 /* ── flow ──────────────────────────────────────────────────────────────── */
+
+/**
+ * Who is playing. A name and nothing else: no password, no email, no sign-in.
+ * The key is a generated uuid, not the name, so two friends both called "Dave"
+ * do not merge into one record and renaming yourself does not fork you into two.
+ *
+ * The limitation is stated on screen rather than hidden: this is per-device.
+ */
+function nameScreen(then: () => void): void {
+  $("veil").style.display = "flex";
+  $("panel").innerHTML = `
+    <h1>香港麻雀 · MJRC</h1>
+    <p>What should we call you? This is a beta — your games are recorded so we
+    can see how the bots hold up against real players, and so you can look back
+    at what you played.</p>
+    <div class="setrow" style="margin-top:14px">
+      <input id="nameIn" type="text" maxlength="24" placeholder="your name"
+        value="${(player?.name ?? "").replace(/"/g, "&quot;")}"
+        style="flex:1;padding:9px 12px;font-size:16px;border-radius:9px;
+               background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.18);color:var(--ink)">
+    </div>
+    <p class="mut" id="nameNote">Kept on this device only. Clearing site data clears your history.</p>
+    <button id="btnName">continue ▸</button>`;
+  const input = document.getElementById("nameIn") as HTMLInputElement;
+  const go = async (): Promise<void> => {
+    const nm = input.value.trim();
+    if (!nm) { input.focus(); return; }
+    player = await store.setPlayerName(nm);
+    then();
+  };
+  ($("btnName") as HTMLButtonElement).onclick = () => void go();
+  input.onkeydown = (e) => { if (e.key === "Enter") void go(); };
+  input.focus();
+  // say so plainly if the store did not take, rather than silently losing games
+  void store.available().then((a) => {
+    if (!a.ok) $("nameNote").innerHTML =
+      `<b style="color:var(--danger)">This browser will not let us store anything</b>, so nothing
+       can be recorded — the game still plays. (${a.why || "IndexedDB unavailable"})`;
+  });
+}
+
 function startScreen(): void {
   $("veil").style.display = "flex";
   $("panel").innerHTML = `
@@ -209,8 +252,15 @@ function startScreen(): void {
         <b>${t.label}</b><span>${t.blurb}</span>
         <span style="margin-top:5px;color:var(--gold)">${t.seats.map((s) => BOT_NAMES[s] ?? s).join(" · ")}</span>
       </div>`).join("")}</div>
+    <div class="setrow" style="margin-top:14px">
+      <label>Record this game</label>
+      <input type="checkbox" id="setRec" ${SETTINGS.recorded ? "checked" : ""}>
+      <span class="mut">counts for your stats · a game you quit is recorded as a forfeit</span>
+    </div>
     ${rec.played ? `<p>Your record: <b>${rec.won}</b> wins in <b>${rec.played}</b> matches ·
       lifetime <b>${rec.chips > 0 ? "+" : ""}${rec.chips}</b> chips</p>` : ""}
+    <p class="mut">Playing as <b>${player?.name ?? "—"}</b> · <a href="#" id="btnRename"
+      style="color:var(--gold)">change name</a></p>
     <button id="btnStart">sit down ▸</button>`;
   for (const el of Array.from($("panel").querySelectorAll<HTMLElement>(".choice"))) {
     el.onclick = () => {
@@ -219,12 +269,17 @@ function startScreen(): void {
       startScreen();
     };
   }
+  const rcx = document.getElementById("setRec") as HTMLInputElement | null;
+  if (rcx) rcx.onchange = () => { SETTINGS.recorded = rcx.checked; saveSettings(); };
+  const ren = document.getElementById("btnRename");
+  if (ren) ren.onclick = (e) => { e.preventDefault(); nameScreen(startScreen); };
   ($("btnStart") as HTMLButtonElement).onclick = () => newMatch();
 }
 
 function newMatch(): void {
   seed = Math.floor(Math.random() * 2 ** 31);
   const R = rules();
+  beginRecord();
   const r = startMatch({ seed, ruleset: R, matchLength: SETTINGS.rounds } as never);
   state = r.state;
   cfgs = [0, 1, 2, 3].map((i) => ({
@@ -240,9 +295,76 @@ function newMatch(): void {
   buildWall();
 }
 
+/* ── the recorder ───────────────────────────────────────────────────────
+ * Everything a match produces is accumulated in memory and written to
+ * IndexedDB at each hand end. Never on a per-turn basis: a store write must
+ * not sit between a player tapping a tile and the tile moving.
+ *
+ * Nothing here decides anything about the game. If the store is unavailable
+ * the accumulators still fill and the writes quietly no-op — the game is
+ * identical, it just goes unrecorded.                                       */
+let player: PlayerRec | null = null;
+let rc: MatchRec | null = null;         // the match being recorded
+/**
+ * The last match's id and where it got to, kept AFTER `rc` is cleared. People
+ * file feedback about the game they just left, not the one they are in, and a
+ * report that cannot be tied back to a match cannot be replayed.
+ */
+let lastMatch: { id: string; hand: number; label: string } | null = null;
+let rcMoves: MoveRec[] = [];
+let humanTurns = 0;
+
+const RECORD_VERSION = 1;
+
+function beginRecord(): void {
+  humanTurns = 0;
+  rcMoves = [];
+  const id = crypto.randomUUID();
+  rc = {
+    id,
+    playerId: player?.id ?? "anonymous",
+    playerName: player?.name ?? "anonymous",
+    rounds: SETTINGS.rounds,
+    rulesetId: rules().id,
+    seats: [...table.seats],
+    tableId: table.id,
+    seed,
+    recorded: SETTINGS.recorded,
+    abandoned: false,
+    startedAt: Date.now(),
+    finishedAt: null,
+    chips: [0, 0, 0, 0],
+    hands: 0, won: 0, selfDrawn: 0, fed: 0, drawnHands: 0,
+    seatWins: [0, 0, 0, 0],
+    matchRate: null, meanGap: null, movesGraded: 0,
+    events: [], actions: [],
+  };
+  lastMatch = { id, hand: 0, label: `${SETTINGS.rounds}-wind game vs ${table.label}` };
+}
+
+/** Roll the move grades up into the two headline numbers. */
+function summariseMoves(): void {
+  if (!rc) return;
+  rc.movesGraded = rcMoves.length;
+  if (rcMoves.length === 0) { rc.matchRate = null; rc.meanGap = null; return; }
+  const matched = rcMoves.filter((m) => m.gap <= 0.0001).length;
+  rc.matchRate = matched / rcMoves.length;
+  rc.meanGap = rcMoves.reduce((a, m) => a + m.gap, 0) / rcMoves.length;
+}
+
+/** Upsert what we have. Called at hand end, match end, and on quitting. */
+function flushRecord(): void {
+  if (!rc) return;
+  summariseMoves();
+  rc.chips = [0, 1, 2, 3].map((i) => state?.seats[i as SeatIndex]?.chips ?? 0);
+  void store.putMatch({ ...rc, events: [...rc.events], actions: [...rc.actions] });
+  void store.putMoves(rcMoves.splice(0));   // moves are append-only; hand them over once
+}
+
 /* ── events ────────────────────────────────────────────────────────────── */
 let overlay: string | null = null;
 function consume(events: readonly unknown[]): void {
+  if (rc) rc.events.push(...(events as unknown[]));
   for (const e of events as { type: string; payload: Record<string, unknown> }[]) {
     const p = e.payload ?? {};
     const who = (s: unknown): string =>
@@ -270,6 +392,11 @@ function consume(events: readonly unknown[]): void {
         break;
       case "winOnDiscard": case "selfDraw": {
         const ctx = p.context as { seat: SeatIndex; selfDraw: boolean; from: SeatIndex | null };
+        if (rc) {
+          rc.seatWins[ctx.seat]!++;
+          if (ctx.seat === HUMAN) { rc.won++; if (ctx.selfDraw) rc.selfDrawn++; }
+          else if (ctx.from === HUMAN) rc.fed++;   // you paid for that one
+        }
         const sc = p.score as { faan: number; awards: { id: string; faan: number }[] };
         const mine = ctx.seat === HUMAN;
         announce(ctx.selfDraw ? "selfDraw" : "win", mine ? "You" : who(ctx.seat), `${sc.faan} faan`, ctx.seat);
@@ -283,9 +410,12 @@ function consume(events: readonly unknown[]): void {
         break;
       }
       case "exhaustiveDraw":
+        if (rc) rc.drawnHands++;
         overlay = `<h1>流局</h1><h2>The wall ran out — nobody wins</h2>`;
         break;
       case "handEnd": {
+        if (rc) { rc.hands++; flushRecord(); }
+        if (lastMatch) lastMatch.hand = state.handIndex;
         const st = p.standings as number[];
         const d = p.chipDeltas as number[] | undefined;
         overlay = (overlay ?? "") + `<div class="pay">${[0, 1, 2, 3].map((i) => `
@@ -301,6 +431,7 @@ function consume(events: readonly unknown[]): void {
         const place = order.indexOf(HUMAN) + 1;
         rec.played++; if (place === 1) rec.won++; rec.chips += st[HUMAN]!;
         localStorage.setItem("mjrc.record", JSON.stringify(rec));
+        if (rc) { rc.finishedAt = Date.now(); flushRecord(); }
         overlay = `<h1>${place === 1 ? "🏆 You win the round" : `You finish ${place}${["st","nd","rd","th"][place - 1]}`}</h1>
           <div class="pay">${order.map((i, r) => `<div>${r + 1}. ${i === HUMAN ? "You" : who(i)}<br>
             <span class="d ${st[i]! > 0 ? "up" : st[i]! < 0 ? "down" : ""}">${st[i]! > 0 ? "+" : ""}${st[i]}</span></div>`).join("")}</div>
@@ -349,8 +480,15 @@ const coachCfg = (v: SeatView): BotConfig =>
 const verdictHtml = (cls: string, grade: string, head: string, why = ""): string =>
   `<div class="ce ${cls}"><span class="g">${grade}</span>${head}` +
   `${why ? `<div class="mut">${why}</div>` : ""}</div>`;
+/**
+ * Grade one of YOUR discards against the champion's ranking.
+ *
+ * This used to be gated on dev mode and thrown away. It now always runs and is
+ * always recorded: `rankDiscards` costs 0.07 ms, so a whole four-wind match
+ * spends about 45 ms grading — there was never a performance reason to hide it.
+ * Dev mode now controls only whether the reasoning is SHOWN.
+ */
 function gradeMyDiscard(tile: TileId): void {
-  if (!SETTINGS.dev) return;
   const v = viewFor(state, HUMAN);
   const cfg = coachCfg(v);
   const ranked = [...rankDiscards(v, cfg)].sort((a, b) => b.score - a.score);
@@ -368,6 +506,16 @@ function gradeMyDiscard(tile: TileId): void {
     : mine.danger - best.danger > 0.8 ? `riskier: danger ${mine.danger.toFixed(1)} vs ${best.danger.toFixed(1)}`
     : !mine.onRoute && best.onRoute ? "off your best route"
     : "";
+  // The record keeps the NUMBERS; the log keeps the prose. top1MinusTop2 is
+  // stored so an "obvious" turn can be filtered out later: agreeing with the
+  // engine on a forced move says nothing about the player.
+  rcMoves.push({
+    matchId: rc?.id ?? "", hand: state.handIndex, turn: humanTurns++,
+    kind: "discard", played: name(tile), enginePick: name(best.tile),
+    gap, top1MinusTop2: ranked.length > 1 ? best.score - ranked[1]!.score : 0,
+    reason: why,
+  });
+  if (!SETTINGS.dev) return;
   coachLog.unshift(verdictHtml(cls, cls === "good" ? "GOOD" : cls === "ok" ? "OK" : "BAD",
     `<b>${name(tile)}</b> — ${verdict}`, why));
   if (coachLog.length > 24) coachLog.length = 24;
@@ -416,12 +564,17 @@ function claimAdvice(): string {
 
 /** The grade, kept after you have chosen. */
 function gradeMyClaim(action: Action): void {
-  if (!SETTINGS.dev) return;
   const v = viewFor(state, HUMAN);
   const cfg = coachCfg(v);
   if (action.type === "concealedKong" || action.type === "addedKong") {
     const form = action.type === "concealedKong" ? "concealed" : "added";
     const yes = shouldKong(v, action.tile, form, coachCfg(v));
+    rcMoves.push({
+      matchId: rc?.id ?? "", hand: state.handIndex, turn: humanTurns++, kind: "kong",
+      played: `kong ${name(action.tile)}`, enginePick: yes ? `kong ${name(action.tile)}` : "hold",
+      gap: yes ? 0 : 1, top1MinusTop2: 0, reason: yes ? "" : "the champion holds it",
+    });
+    if (!SETTINGS.dev) return;
     coachLog.unshift(verdictHtml(yes ? "good" : "ok", yes ? "GOOD" : "OK",
       `<b>kong ${name(action.tile)}</b> — ${yes ? "the champion lays this too" : "the champion holds it"}`,
       yes ? "" : "a kong fixes four tiles into one set slot, and an added kong opens a 搶槓 window"));
@@ -453,6 +606,18 @@ function gradeMyClaim(action: Action): void {
   } else {
     head = `<b>${CLAIM_LABEL(took)}</b> — playable, but the champion prefers ${CLAIM_LABEL(want)}`;
   }
+  // A claim's "gap" is coarser than a discard's — assessClaim scores options,
+  // it does not rank every alternative on one scale — so it records as 0 when
+  // you did what the champion does and 1 when you did not. Good enough to
+  // measure agreement; do not read it as a magnitude.
+  rcMoves.push({
+    matchId: rc?.id ?? "", hand: state.handIndex, turn: humanTurns++,
+    kind: took === null ? "pass" : "claim",
+    played: took === null ? "pass" : CLAIM_LABEL(took),
+    enginePick: want === null ? "pass" : CLAIM_LABEL(want),
+    gap: cls === "good" ? 0 : 1, top1MinusTop2: 0, reason: why,
+  });
+  if (!SETTINGS.dev) return;
   coachLog.unshift(verdictHtml(cls, grade, head, why));
   if (coachLog.length > 24) coachLog.length = 24;
 }
@@ -552,6 +717,7 @@ function advance(): void {
     if (options.some((o) => o.type === "discard")) noteBotThinking(seat);
     setTimeout(() => {
       const a = decideAction(viewFor(state, seat), options, cfgs[seat]!);
+      if (rc) rc.actions.push(a);
       const r = applyAction(state, a);
       state = r.state; consume(r.events); busy = false; advance();
     }, SETTINGS.botMs);
@@ -562,6 +728,7 @@ function act(a: Action): void {
   pending = null;
   cancelAnimationFrame(turnRaf);
   $("clock").style.width = "0%";
+  if (rc) rc.actions.push(a);
   const r = applyAction(state, a);
   state = r.state; consume(r.events); advance();
 }
@@ -864,7 +1031,73 @@ function settingsScreen(back: () => void): void {
   dv.onchange = () => { SETTINGS.dev = dv.checked; saveSettings(); render(); };
   ($("btnBack") as HTMLButtonElement).onclick = () => { $("veil").style.display = "none"; back(); };
 }
+/**
+ * Feedback, with the game state attached.
+ *
+ * The whole point of the beta is finding bugs and bad feel, and a report that
+ * says "something looked wrong" is worth very little on its own. So every
+ * report carries the match id, the hand, and the last few log lines — enough
+ * to go and replay exactly what they were looking at.
+ */
+function feedbackScreen(back: () => void): void {
+  $("veil").style.display = "flex";
+  const live = rc !== null;
+  const where = live ? `hand ${state.handIndex + 1} of your ${SETTINGS.rounds}-wind game vs ${table.label}`
+    : lastMatch ? `your last game — hand ${lastMatch.hand + 1} of the ${lastMatch.label}`
+    : "not in a game";
+  $("panel").innerHTML = `
+    <h1>Tell us what you saw</h1>
+    <p class="mut">Bugs, rules that looked wrong, animations that felt off, anything.
+    We attach where you were — <b>${where}</b> — so we can replay it.</p>
+    <textarea id="fbText" placeholder="What happened? What did you expect instead?"></textarea>
+    <div class="setrow" style="margin-top:10px">
+      <button id="btnFbSend">send ▸</button>
+      <button id="btnFbBack" style="background:rgba(255,255,255,.08)">cancel</button>
+    </div>`;
+  const ta = document.getElementById("fbText") as HTMLTextAreaElement;
+  ta.focus();
+  ($("btnFbSend") as HTMLButtonElement).onclick = () => {
+    const text = ta.value.trim();
+    if (!text) { ta.focus(); return; }
+    void store.putFeedback({
+      id: crypto.randomUUID(),
+      matchId: rc?.id ?? lastMatch?.id ?? null,
+      hand: rc ? state.handIndex : lastMatch?.hand ?? null,
+      text,
+      createdAt: Date.now(),
+      context: {
+        player: player?.name, rounds: SETTINGS.rounds, ruleset: SETTINGS.rulesetId,
+        table: table.id, seats: [...table.seats], seed,
+        live,
+        wall: live && state ? state.wallEnd - state.wallIndex : null,
+        chips: state ? [0, 1, 2, 3].map((i) => state.seats[i as SeatIndex]!.chips) : null,
+        recentLog: feed.slice(-8),
+        ua: navigator.userAgent, viewport: [innerWidth, innerHeight],
+      },
+    });
+    $("panel").innerHTML = `<h1>Thank you</h1>
+      <p>Filed against ${where}. It is stored on this device with the game it
+      came from, so we get the whole picture.</p>
+      <button id="btnFbBack2">back to the game ▸</button>`;
+    ($("btnFbBack2") as HTMLButtonElement).onclick = () => { $("veil").style.display = "none"; back(); };
+  };
+  ($("btnFbBack") as HTMLButtonElement).onclick = () => { $("veil").style.display = "none"; back(); };
+}
+($("btnFeedback") as HTMLButtonElement).onclick = () =>
+  feedbackScreen(() => { if (!state) startScreen(); else render(); });
 ($("btnSettings") as HTMLButtonElement).onclick = () => settingsScreen(() => { if (!state) startScreen(); else render(); });
-($("btnQuit") as HTMLButtonElement).onclick = () => { overlay = null; startScreen(); };
+($("btnQuit") as HTMLButtonElement).onclick = () => {
+  // A forfeit is a result. Recording it keeps the stats honest — a player who
+  // abandons every losing match would otherwise look like a strong player.
+  if (rc && rc.finishedAt === null) { rc.abandoned = true; rc.finishedAt = Date.now(); flushRecord(); }
+  rc = null;
+  overlay = null;
+  startScreen();
+};
 saveSettings();
-startScreen();
+// Boot: fetch the player, then either greet them or ask who they are. The game
+// never blocks on the store beyond this one read.
+void store.getPlayer().then((p) => {
+  player = p;
+  if (p) startScreen(); else nameScreen(startScreen);
+});
