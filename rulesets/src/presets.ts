@@ -192,9 +192,32 @@ export const MJRC_STANDARD: Ruleset = {
   // Scoring output is identical either way (any single award at the cap
   // saturates alone); what changes is that the table now tells the truth and
   // the bots' route pricing stops valuing limit hands above what they pay.
-  faanTable: Object.fromEntries(
-    Object.entries(HKOS_STANDARD.faanTable).map(([id, faan]) => [id, Math.min(faan, 10)]),
-  ),
+  faanTable: {
+    ...Object.fromEntries(
+      Object.entries(HKOS_STANDARD.faanTable).map(([id, faan]) => [id, Math.min(faan, 10)]),
+    ),
+    /**
+     * 清一色 — **7, ratified by the owner 2026-08-31.**
+     *
+     * The inherited 6 is a transcription error, not a house choice:
+     * RULESET-STANDARDIZATION-PROPOSAL.md §10 checked the column labelled
+     * "Wikipedia" in hk-scoring.ts against Wikipedia and found five of thirteen
+     * values wrong, this among them. The published value is 7, and LIU prices it
+     * at 7 as well (see FAAN_LIU in engine/test/golden/limit.ts).
+     *
+     * The correction lives HERE rather than in HKOS_STANDARD deliberately.
+     * hkos-standard's job is to be a faithful reading of that one column, warts
+     * included, and the golden suite mirrors it — so it keeps the 6 until the
+     * source table is fixed by the team that owns it. mjrc-standard is the house
+     * ruleset and is allowed its own prices, provided they are decisions. This
+     * one is.
+     *
+     * Note for whoever retrains next: the shipped ladder was evolved against a
+     * 6, so flush routes are now priced slightly under what they pay. Expected
+     * to be small; measure it rather than assume it.
+     */
+    fullFlush: 7,
+  },
 };
 
 /**

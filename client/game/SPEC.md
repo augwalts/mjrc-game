@@ -217,6 +217,7 @@ Dated entries are easiest to act on later._
 | 2026-08-30 | A legitimate call **stops the table**: 750 ms after a pung/chow/kong, 500 ms after a flower, before anything else animates. Never applied to the human's own turn. |
 | 2026-08-30 | Match state (round / hand / wall) moved **out of the window strip and into the felt**, top-left. The window bar keeps controls only. |
 | 2026-08-30 | **You get a nameplate**, at the near edge of the felt, mirroring the bots: seat wind, 莊, and your chips — none of which were on screen at any point during a hand before. Chips are green up / red down on every plate. |
+| 2026-08-31 | **`mjrc-standard` 清一色 = 7 faan**, ratified by the owner. Corrects a transcription error inherited from the "Wikipedia" column (audit §10). Applied to `MJRC_STANDARD` only — `hkos-standard` stays a faithful reading of its source. Measured: no material change to bot behaviour. See `MJRC-STANDARD-RULES.md`. |
 
 
 
