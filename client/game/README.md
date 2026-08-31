@@ -17,7 +17,7 @@ no accounts. State lives in memory; your record persists in `localStorage`.
 - **Bot speed** — 0 (instant) to 1.2s per move.
 - **Dev mode** — shows what each bot is planning (its top routes, distance and
   who it fears) and how the champion would rank YOUR discards, using the same
-   /  calls the bot itself makes.
+  `assessRoutes` / `rankDiscards` calls the bot itself makes.
 
 ## What it is
 
@@ -28,16 +28,15 @@ no accounts. State lives in memory; your record persists in `localStorage`.
   original defenceless bot) through `v4` (the strongest bot the programme
   produced), plus `persona-action` (nearly as strong, far more watchable).
   Difficulty here is a measured quantity: see `tools/sim/experiments.js`.
-- **The site's own tile art.**  is the SVG engine from
-   — the same faces the scoring pages draw, with
+- **The site's own tile art.** `tile-engine.js` is the SVG engine copied from
+  `mjrc-app/web/public/tiles/` — the same faces the scoring pages draw, with
   real pip geometry. Flowers and seasons are keyed BY CHARACTER because the
   engine's array order (梅蘭竹菊) differs from the tile ids (梅蘭菊竹).
 - **A pile that never overlaps.** Discards land on a staggered grid whose cell
   is the tile's DIAGONAL, so a tile rotated by any angle still cannot touch its
-  neighbour (). Counting the discards is a core skill; a
+  neighbour (`sketches/RENDERING.md`). Counting the discards is a core skill; a
   pile you cannot count is worse than useless.
-- **HK table conventions.** Discards land in a loose central heap, not tidy
-  rows (`sketches/RENDERING.md`); chow is offered only from 上家; the seat and
+- **HK table conventions.** Chow is offered only from 上家; the seat and
   round winds, dealer mark 莊 and dealer repeats are all engine state.
 
 ## Rebuild after changing `game.ts`
