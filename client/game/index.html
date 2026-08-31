@@ -33,14 +33,38 @@ body{background:radial-gradient(ellipse at 50% 30%, #1e1b17 0%, #131110 55%, #0a
   border:10px solid #2e2016;
   box-shadow:inset 0 0 60px rgba(0,0,0,.45), 0 18px 50px rgba(0,0,0,.55),
     0 0 0 2px #1b120c, inset 0 2px 0 rgba(255,255,255,.06)}
+/* MATCH STATE LIVES ON THE TABLE. Round, hand and wall used to sit in a 12px
+   strip in the corner of the WINDOW, outside the felt — easy to miss on a
+   desktop and with nowhere to hide on a phone (owner 2026-08-30). They go in
+   the felt's top-left, and your own seat plate goes at the near edge opposite
+   them, so everything you need is inside the one box you are looking at.
+
+   It must FIT THE CORNER. The wall square leaves roughly an 18%-of-felt margin
+   each side, and #surface is `preserve-3d`, so its tiles paint by 3D depth and
+   sail straight over a z-index — a card that overlaps the wall loses, however
+   high you stack it. Hence one narrow two-line card, not a row of chips. */
+#state{position:absolute;left:10px;top:8px;z-index:4;max-width:17%;
+  background:rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.1);border-radius:10px;
+  padding:5px 10px;line-height:1.25;white-space:nowrap}
+#state .r1{display:flex;align-items:baseline;gap:7px}
+#state .wind{font-size:19px;font-weight:700;color:var(--gold);line-height:1}
+#state .r1 span:last-child,#state .r2{font-size:11px;color:var(--dim);letter-spacing:.03em}
+#state b{color:var(--ink);font-variant-numeric:tabular-nums;font-size:13px;font-weight:700}
+#state.low .r2 b{color:var(--gold)}
+
 .seat{position:absolute;display:flex;flex-direction:column;align-items:center;gap:3px}
 .seat.n{top:6px;left:50%;transform:translateX(-50%)}
 .seat.e{right:8px;top:50%;transform:translateY(-50%);align-items:flex-end}
 .seat.w{left:8px;top:50%;transform:translateY(-50%);align-items:flex-start}
+/* your seat: the near edge, mirroring north, directly above your own hand */
+.seat.s{bottom:5px;left:50%;transform:translateX(-50%)}
+.seat.s .nameplate{font-size:13.5px;padding:5px 13px;background:rgba(0,0,0,.44)}
+.seat.s .avatar{width:24px;height:24px;font-size:12px}
 .nameplate{display:flex;align-items:center;gap:6px;background:rgba(0,0,0,.32);border-radius:20px;
   padding:3px 10px;font-size:12px;white-space:nowrap}
 .nameplate .wind{font-size:14px;color:var(--gold)}
-.nameplate .chips{font-variant-numeric:tabular-nums}
+.nameplate .chips{font-variant-numeric:tabular-nums;font-weight:600}
+.nameplate .chips.up{color:#7fe0a4}.nameplate .chips.down{color:#ff9b93}
 .nameplate.turn{outline:2px solid var(--gold);box-shadow:0 0 14px rgba(216,181,106,.45)}
 .nameplate .dealer{background:var(--red);color:#fff;border-radius:4px;padding:0 4px;font-size:10px}
 .avatar{width:22px;height:22px;border-radius:50%;background:linear-gradient(160deg,#5b7a6a,#2c4438);
@@ -84,9 +108,6 @@ body{background:radial-gradient(ellipse at 50% 30%, #1e1b17 0%, #131110 55%, #0a
   from{transform:translate(var(--ax,0px),var(--ay,-70px)) rotate(var(--ar,-25deg)) scale(.7);opacity:0}
   60%{opacity:1}
 }
-#wallinfo{position:absolute;left:50%;bottom:-20px;transform:translateX(-50%);
-  font-size:11px;color:var(--dim);letter-spacing:.04em;white-space:nowrap}
-#wallinfo b{color:var(--ink);font-variant-numeric:tabular-nums}
 #pile{position:relative;width:100%;height:100%}
 #pile .tile{position:absolute;--th:36px}
 /* ONE flight, thrower's seat -> the tile's slot. The old keyframes had a 70%
@@ -229,25 +250,30 @@ body.devmode #mine{padding-top:2px}
   #myhand .tile{width:32px;height:44px}#myhand .tile .g{font-size:21px}
   .tile{width:24px;height:33px}.tile .g{font-size:16px}
   #centre{width:60vw}
+  /* The running commentary is the only thing that may go: state and seat
+     plates are the information you cannot play without. */
   #log{display:none}
+  #state{left:6px;top:6px;padding:4px 8px}
+  #state .wind{font-size:16px}
+  #state b{font-size:12px}
+  .seat.s .nameplate{font-size:12.5px;padding:4px 10px}
 }
 </style>
 </head>
 <body>
 <div id="hud">
-  <span>round <b id="hudRound">東</b></span>
-  <span>hand <b id="hudHand">1</b></span>
-  <span>wall <b id="hudWall">—</b></span>
   <span class="spacer"></span>
   <span id="hudTable"></span>
   <button id="btnSettings">⚙ settings</button>
   <button id="btnQuit">quit</button>
 </div>
 <div id="table"><div id="felt">
+  <div id="state"></div>
   <div class="seat n" id="seatN"></div>
   <div class="seat w" id="seatW"></div>
   <div class="seat e" id="seatE"></div>
-  <div id="centre"><div id="surface"><div id="wall"></div><div id="pile"></div></div><div id="wallinfo"></div></div>
+  <div id="centre"><div id="surface"><div id="wall"></div><div id="pile"></div></div></div>
+  <div class="seat s" id="seatS"></div>
   <div id="log"></div>
   <div id="call"></div>
 </div></div>

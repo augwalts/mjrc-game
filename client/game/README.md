@@ -52,6 +52,10 @@ no accounts. State lives in memory; your record persists in `localStorage`.
 - **Tiles are named by their face.** `4●` circles, `4▮` bamboo, `4萬`
   characters, honours and flowers in English — the discard feed and the coach
   should read without Chinese. The tile ART is untouched.
+- **Everything you need is on the table.** Round, hand and wall sit in the
+  felt's top-left; your own plate — seat wind, 莊, chips — sits at the near
+  edge mirroring the bots'. Nothing lives in a window strip a phone would have
+  to drop. Chips read green when you are up, red when you are down.
 - **HK table conventions.** Chow is offered only from 上家; the seat and
   round winds, dealer mark 莊 and dealer repeats are all engine state.
 

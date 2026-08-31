@@ -82,6 +82,23 @@ replacing this renderer later costs nothing but the renderer.
 - Tosses arc in **from the thrower's seat direction**, which is how a player
   reads who threw without looking at the log.
 
+### Anything drawn on the felt must FIT THE CORNERS
+
+`#surface` is `transform-style: preserve-3d`, so the wall's tiles paint by 3D
+depth and sail straight over a `z-index` — an overlay that overlaps the wall
+loses however high you stack it. The wall square leaves roughly an 18 %-of-felt
+margin on each side, and the east/west seat columns take the middle of those
+margins, so a corner overlay has about `18% × 54px` to live in. The state card
+is 82×43 for that reason, and capped at `max-width:17%`.
+
+### Known: the felt does not adapt to portrait
+
+At phone widths the felt goes portrait while the wall geometry still assumes a
+roughly square table: the bottom wall row overflows the felt's width and the
+east/west nameplates end up under the wall and the pile. The state card and
+your own plate were placed to clear this, and do — but the table itself needs a
+proper portrait layout before the game is playable on a phone. Not yet done.
+
 ### Timing
 
 | beat | ms | where |
@@ -198,6 +215,8 @@ Dated entries are easiest to act on later._
 | 2026-08-30 | The helper now covers **claims**: live TAKE/SKIP advice while the buttons are up, then a kept grade. It calls `assessClaim` / `claimDecision` / `shouldKong`, so the advice IS the bot's reasoning, not a story about it. |
 | 2026-08-30 | Beats slowed ~30 %: toss 1.0 → 1.3 s, draw 0.7 → 0.9 s, wall build 1.1 → 1.45 s. Calls hold ~1.6 s legible (2.2 s run, 3.2 s for a win) against ~0.7 s before. |
 | 2026-08-30 | A legitimate call **stops the table**: 750 ms after a pung/chow/kong, 500 ms after a flower, before anything else animates. Never applied to the human's own turn. |
+| 2026-08-30 | Match state (round / hand / wall) moved **out of the window strip and into the felt**, top-left. The window bar keeps controls only. |
+| 2026-08-30 | **You get a nameplate**, at the near edge of the felt, mirroring the bots: seat wind, 莊, and your chips — none of which were on screen at any point during a hand before. Chips are green up / red down on every plate. |
 
 
 

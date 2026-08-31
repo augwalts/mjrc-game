@@ -3339,28 +3339,35 @@
       renderWall();
     }, 1450);
   }
+  function plate(seat, who, initial) {
+    const s = state.seats[seat];
+    const sign = s.chips > 0 ? "up" : s.chips < 0 ? "down" : "";
+    return `<div class="nameplate ${state.turn === seat && !overlay ? "turn" : ""}">
+      <span class="avatar">${initial}</span><span>${who}</span>
+      <span class="wind">${WIND_CH[s.wind]}</span>
+      ${state.dealer === seat ? '<span class="dealer">\u838A</span>' : ""}
+      <span class="chips ${sign}">${s.chips > 0 ? "+" : ""}${s.chips}</span></div>`;
+  }
+  var myPlate = () => plate(HUMAN, "You", "Y");
   function seatBox(seat) {
     const s = state.seats[seat];
     const nm = BOT_NAMES[table.seats[seat - 1]] ?? "Bot";
     const hidden = s.hand.length + (s.drawn !== null ? 1 : 0);
-    return `<div class="nameplate ${state.turn === seat && !overlay ? "turn" : ""}">
-      <span class="avatar">${nm[0]}</span><span>${nm}</span>
-      <span class="wind">${WIND_CH[s.wind]}</span>
-      ${state.dealer === seat ? '<span class="dealer">\u838A</span>' : ""}
-      <span class="chips">${s.chips > 0 ? "+" : ""}${s.chips}</span></div>
+    return plate(seat, nm, nm[0]) + `
     <div class="backrow">${Array.from({ length: Math.min(hidden, 14) }, (_, i) => `<span class="back ${i === hidden - 1 && s.drawn !== null ? "wtnew" : ""}"></span>`).join("")}</div>
     <div class="meldrow">${s.melds.map((m) => m.tiles.map((t) => tileHtml(t, "sm")).join("")).join('<span style="width:6px"></span>')}
       ${s.flowers.map((t) => tileHtml(t, "fl")).join("")}</div>`;
   }
   function render() {
     const me = state.seats[HUMAN];
-    $("hudRound").textContent = WIND_CH[state.roundWind];
-    $("hudHand").textContent = String(state.handIndex + 1);
-    $("hudWall").textContent = String(Math.max(0, state.wallEnd - state.wallIndex));
+    const left = Math.max(0, state.wallEnd - state.wallIndex);
+    const stateEl = $("state");
+    stateEl.className = left <= 16 ? "low" : "";
+    stateEl.innerHTML = `<div class="r1"><span class="wind">${WIND_CH[state.roundWind]}</span><span>hand <b>${state.handIndex + 1}</b></span></div><div class="r2">wall <b>${left}</b> left</div>`;
     $("seatE").innerHTML = seatBox(1);
     $("seatN").innerHTML = seatBox(2);
     $("seatW").innerHTML = seatBox(3);
-    $("wallinfo").innerHTML = `wall <b>${Math.max(0, state.wallEnd - state.wallIndex)}</b> tiles left`;
+    $("seatS").innerHTML = myPlate();
     renderWall();
     const pileEl = $("pile");
     const boxW = pileEl.clientWidth || 420, boxH = pileEl.clientHeight || 240;
