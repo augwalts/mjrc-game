@@ -111,18 +111,34 @@ let busy = false;
 const feed: string[] = [];
 interface Placed { x: number; y: number; rot: number; spin: number; }
 let pileTiles: { tile: TileId; seat: number; pos?: Placed }[] = [];
-/** Square-lattice spiral: 0,0 then rings outward. Step is one cell, so the
- *  diagonal guarantee holds between every pair. */
-function spiralSlot(n: number): [number, number] {
-  if (n === 0) return [0, 0];
-  let ring = 1;
-  while (n >= (2 * ring + 1) ** 2) ring++;
-  const inner = (2 * ring - 1) ** 2;
-  const side = 2 * ring, k = n - inner, e = Math.floor(k / side), o = k % side;
-  if (e === 0) return [ring, -ring + 1 + o];
-  if (e === 1) return [ring - 1 - o, ring];
-  if (e === 2) return [-ring, ring - 1 - o];
-  return [-ring + 1 + o, -ring];
+/**
+ * ORGANIC HEAP (owner photo, 2026-08-29). Tiles land where they land: many
+ * orientations, irregular gaps, a roughly circular pile that grows outward —
+ * and never an overlap, because a real tile cannot lie on top of another.
+ *
+ * Placement is rejection sampling with an exact separating-axis test, not a
+ * grid: sample a point at a radius that grows with the pile, give it a random
+ * angle, keep it if it touches nothing. That is what produces the photo's
+ * texture — tiles nestle close where their angles happen to agree and leave
+ * gaps where they do not.
+ */
+function rectCorners(p: { x: number; y: number; rot: number }, w: number, h: number): { x: number; y: number }[] {
+  const c = Math.cos(p.rot * Math.PI / 180), s2 = Math.sin(p.rot * Math.PI / 180);
+  return [[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, h / 2], [-w / 2, h / 2]]
+    .map(([x, y]) => ({ x: p.x + x * c - y * s2, y: p.y + x * s2 + y * c }));
+}
+function hits(a: { x: number; y: number; rot: number }, b: { x: number; y: number; rot: number },
+              w: number, h: number): boolean {
+  const A = rectCorners(a, w, h), B = rectCorners(b, w, h);
+  for (const poly of [A, B]) {
+    for (let i = 0; i < 4; i++) {
+      const p1 = poly[i]!, p2 = poly[(i + 1) % 4]!;
+      const ax = -(p2.y - p1.y), ay = p2.x - p1.x;
+      const pa = A.map((p) => p.x * ax + p.y * ay), pb = B.map((p) => p.x * ax + p.y * ay);
+      if (Math.max(...pa) < Math.min(...pb) || Math.max(...pb) < Math.min(...pa)) return false;
+    }
+  }
+  return true;
 }
 const rec = JSON.parse(localStorage.getItem("mjrc.record") ?? '{"played":0,"won":0,"chips":0}');
 interface Settings { rulesetId: string; tileScale: number; botMs: number; dev: boolean; }
@@ -197,13 +213,13 @@ function consume(events: readonly unknown[]): void {
         pileTiles.pop();
         const verb = p.kind === "chow" ? "chows 上" : p.kind === "pung" ? "pungs 碰" : "kongs 槓";
         feed.push(`${who(p.seat)} ${verb} ${name(p.tile as TileId)}`);
-        announce(p.kind as string, who(p.seat), name(p.tile as TileId));
+        announce(p.kind as string, who(p.seat), name(p.tile as TileId), p.seat as SeatIndex);
         break;
       }
-      case "concealedKong": feed.push(`${who(p.seat)} declares a concealed kong 暗槓`); announce("concealedKong", who(p.seat)); break;
-      case "addedKong": feed.push(`${who(p.seat)} adds a kong 加槓`); announce("addedKong", who(p.seat)); break;
+      case "concealedKong": feed.push(`${who(p.seat)} declares a concealed kong 暗槓`); announce("concealedKong", who(p.seat), "", p.seat as SeatIndex); break;
+      case "addedKong": feed.push(`${who(p.seat)} adds a kong 加槓`); announce("addedKong", who(p.seat), "", p.seat as SeatIndex); break;
       case "flowerReplacement": feed.push(`${who(p.seat)} reveals ${name(p.flower as TileId)} 花`);
-        if (state.handsPlayed !== undefined && pileTiles.length > 0) announce("flower", who(p.seat), name(p.flower as TileId));
+        if (state.handsPlayed !== undefined && pileTiles.length > 0) announce("flower", who(p.seat), name(p.flower as TileId), p.seat as SeatIndex);
         break;
       case "refusedWin":
         if ((p.context as { seat: number }).seat === HUMAN)
@@ -213,7 +229,7 @@ function consume(events: readonly unknown[]): void {
         const ctx = p.context as { seat: SeatIndex; selfDraw: boolean; from: SeatIndex | null };
         const sc = p.score as { faan: number; awards: { id: string; faan: number }[] };
         const mine = ctx.seat === HUMAN;
-        announce(ctx.selfDraw ? "selfDraw" : "win", mine ? "You" : who(ctx.seat), `${sc.faan} faan`);
+        announce(ctx.selfDraw ? "selfDraw" : "win", mine ? "You" : who(ctx.seat), `${sc.faan} faan`, ctx.seat);
         const tiles = [...((p.concealed as TileId[]) ?? [])].sort((a, b) => a - b);
         const melds = (p.melds as { tiles: TileId[] }[] ?? []);
         overlay = `<h1>${mine ? "You win! 食糊" : who(ctx.seat) + " wins"}</h1>
@@ -337,12 +353,12 @@ const CALLS: Record<string, [string, string]> = {
   robbingKong: ["搶槓", "robbed the kong"], flower: ["花", "flower"],
 };
 let callTimer = 0;
-function announce(kind: string, who: string, extra = ""): void {
+function announce(kind: string, who: string, extra = "", seat: SeatIndex = HUMAN): void {
   const [ch, en] = CALLS[kind] ?? [kind, ""];
   const el = $("call");
-  el.innerHTML = `<div class="cw">${who}</div><div class="cc">${ch}</div>
-    <div class="ce">${en}${extra ? ` · ${extra}` : ""}</div>`;
-  el.className = "show " + (kind === "win" || kind === "selfDraw" ? "big" : "");
+  el.innerHTML = `<div class="inner"><div class="cw">${who}</div><div class="cc">${ch}</div>
+    <div class="ce">${en}${extra ? ` · ${extra}` : ""}</div></div>`;
+  el.className = `show s${seat} ` + (kind === "win" || kind === "selfDraw" ? "big" : "");
   clearTimeout(callTimer);
   callTimer = window.setTimeout(() => { el.className = ""; }, kind === "win" || kind === "selfDraw" ? 1800 : 1150);
 }
@@ -485,18 +501,26 @@ function render(): void {
   // discard is assigned its slot ONCE, at the moment it is thrown.
   const pileEl = $("pile");
   const boxW = pileEl.clientWidth || 420, boxH = pileEl.clientHeight || 240;
-  const th = 34, tw = th * (100 / 140);
-  const cell = Math.sqrt(th * th + tw * tw) * 1.04;
+  const th = 30, tw = th * (100 / 140);
+  // Compressed: rotation is kept small so centres can sit closer than the full
+  // diagonal and still never touch (owner: "compress the middle pile more").
+  const cell = Math.sqrt(th * th + tw * tw) * 0.80;
   const jr = prng((seed ^ 0x51ed) >>> 0);
   pileTiles.forEach((d, i) => {
     if (d.pos) return;                              // already placed — leave it
-    const [lx, ly] = spiralSlot(i);
-    d.pos = {
-      x: boxW / 2 + lx * cell * 1.12 + (jr() - 0.5) * cell * 0.1,
-      y: boxH / 2 + ly * cell * 0.92 + (jr() - 0.5) * cell * 0.1,
-      rot: jr() * 26 - 13,
-      spin: jr() * 220 - 110,
-    };
+    const placed = pileTiles.filter((o) => o.pos).map((o) => o.pos!);
+    let best: Placed | null = null;
+    for (let tries = 0; tries < 260 && !best; tries++) {
+      // radius grows with the pile; sqrt keeps the middle denser than the rim
+      const grow = cell * (0.55 + Math.sqrt(i) * 0.62) * (1 + tries / 300);
+      const a = jr() * Math.PI * 2, r = Math.sqrt(jr()) * grow;
+      // orientation is genuinely varied — most tiles askew, some lying sideways
+      const rot = jr() < 0.22 ? (jr() < 0.5 ? 90 : -90) + (jr() - 0.5) * 26 : (jr() - 0.5) * 78;
+      const c: Placed = { x: boxW / 2 + Math.cos(a) * r * 1.28, y: boxH / 2 + Math.sin(a) * r * 0.82, rot, spin: 0 };
+      if (!placed.some((o) => hits(c, o, tw, th))) best = c;
+    }
+    d.pos = best ?? { x: boxW / 2, y: boxH / 2, rot: 0, spin: 0 };
+    d.pos.spin = jr() * 220 - 110;
   });
   pileEl.innerHTML = pileTiles.map((d, i) => {
     const fresh = i === pileTiles.length - 1;

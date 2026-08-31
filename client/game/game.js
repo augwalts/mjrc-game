@@ -2876,16 +2876,21 @@
   var busy = false;
   var feed = [];
   var pileTiles = [];
-  function spiralSlot(n) {
-    if (n === 0) return [0, 0];
-    let ring = 1;
-    while (n >= (2 * ring + 1) ** 2) ring++;
-    const inner = (2 * ring - 1) ** 2;
-    const side = 2 * ring, k = n - inner, e = Math.floor(k / side), o = k % side;
-    if (e === 0) return [ring, -ring + 1 + o];
-    if (e === 1) return [ring - 1 - o, ring];
-    if (e === 2) return [-ring, ring - 1 - o];
-    return [-ring + 1 + o, -ring];
+  function rectCorners(p, w, h) {
+    const c = Math.cos(p.rot * Math.PI / 180), s2 = Math.sin(p.rot * Math.PI / 180);
+    return [[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, h / 2], [-w / 2, h / 2]].map(([x, y]) => ({ x: p.x + x * c - y * s2, y: p.y + x * s2 + y * c }));
+  }
+  function hits(a, b, w, h) {
+    const A = rectCorners(a, w, h), B = rectCorners(b, w, h);
+    for (const poly of [A, B]) {
+      for (let i = 0; i < 4; i++) {
+        const p1 = poly[i], p2 = poly[(i + 1) % 4];
+        const ax = -(p2.y - p1.y), ay = p2.x - p1.x;
+        const pa = A.map((p) => p.x * ax + p.y * ay), pb = B.map((p) => p.x * ax + p.y * ay);
+        if (Math.max(...pa) < Math.min(...pb) || Math.max(...pb) < Math.min(...pa)) return false;
+      }
+    }
+    return true;
   }
   var rec = JSON.parse(localStorage.getItem("mjrc.record") ?? '{"played":0,"won":0,"chips":0}');
   var SETTINGS = {
@@ -2962,20 +2967,20 @@
           pileTiles.pop();
           const verb = p.kind === "chow" ? "chows \u4E0A" : p.kind === "pung" ? "pungs \u78B0" : "kongs \u69D3";
           feed.push(`${who(p.seat)} ${verb} ${name3(p.tile)}`);
-          announce(p.kind, who(p.seat), name3(p.tile));
+          announce(p.kind, who(p.seat), name3(p.tile), p.seat);
           break;
         }
         case "concealedKong":
           feed.push(`${who(p.seat)} declares a concealed kong \u6697\u69D3`);
-          announce("concealedKong", who(p.seat));
+          announce("concealedKong", who(p.seat), "", p.seat);
           break;
         case "addedKong":
           feed.push(`${who(p.seat)} adds a kong \u52A0\u69D3`);
-          announce("addedKong", who(p.seat));
+          announce("addedKong", who(p.seat), "", p.seat);
           break;
         case "flowerReplacement":
           feed.push(`${who(p.seat)} reveals ${name3(p.flower)} \u82B1`);
-          if (state.handsPlayed !== void 0 && pileTiles.length > 0) announce("flower", who(p.seat), name3(p.flower));
+          if (state.handsPlayed !== void 0 && pileTiles.length > 0) announce("flower", who(p.seat), name3(p.flower), p.seat);
           break;
         case "refusedWin":
           if (p.context.seat === HUMAN)
@@ -2986,7 +2991,7 @@
           const ctx = p.context;
           const sc = p.score;
           const mine = ctx.seat === HUMAN;
-          announce(ctx.selfDraw ? "selfDraw" : "win", mine ? "You" : who(ctx.seat), `${sc.faan} faan`);
+          announce(ctx.selfDraw ? "selfDraw" : "win", mine ? "You" : who(ctx.seat), `${sc.faan} faan`, ctx.seat);
           const tiles = [...p.concealed ?? []].sort((a, b) => a - b);
           const melds = p.melds ?? [];
           overlay = `<h1>${mine ? "You win! \u98DF\u7CCA" : who(ctx.seat) + " wins"}</h1>
@@ -3094,12 +3099,12 @@
     flower: ["\u82B1", "flower"]
   };
   var callTimer = 0;
-  function announce(kind, who, extra = "") {
+  function announce(kind, who, extra = "", seat = HUMAN) {
     const [ch, en] = CALLS[kind] ?? [kind, ""];
     const el = $("call");
-    el.innerHTML = `<div class="cw">${who}</div><div class="cc">${ch}</div>
-    <div class="ce">${en}${extra ? ` \xB7 ${extra}` : ""}</div>`;
-    el.className = "show " + (kind === "win" || kind === "selfDraw" ? "big" : "");
+    el.innerHTML = `<div class="inner"><div class="cw">${who}</div><div class="cc">${ch}</div>
+    <div class="ce">${en}${extra ? ` \xB7 ${extra}` : ""}</div></div>`;
+    el.className = `show s${seat} ` + (kind === "win" || kind === "selfDraw" ? "big" : "");
     clearTimeout(callTimer);
     callTimer = window.setTimeout(() => {
       el.className = "";
@@ -3237,18 +3242,22 @@
     renderWall();
     const pileEl = $("pile");
     const boxW = pileEl.clientWidth || 420, boxH = pileEl.clientHeight || 240;
-    const th = 34, tw = th * (100 / 140);
-    const cell = Math.sqrt(th * th + tw * tw) * 1.04;
+    const th = 30, tw = th * (100 / 140);
+    const cell = Math.sqrt(th * th + tw * tw) * 0.8;
     const jr = prng((seed ^ 20973) >>> 0);
     pileTiles.forEach((d, i) => {
       if (d.pos) return;
-      const [lx, ly] = spiralSlot(i);
-      d.pos = {
-        x: boxW / 2 + lx * cell * 1.12 + (jr() - 0.5) * cell * 0.1,
-        y: boxH / 2 + ly * cell * 0.92 + (jr() - 0.5) * cell * 0.1,
-        rot: jr() * 26 - 13,
-        spin: jr() * 220 - 110
-      };
+      const placed = pileTiles.filter((o) => o.pos).map((o) => o.pos);
+      let best = null;
+      for (let tries = 0; tries < 260 && !best; tries++) {
+        const grow = cell * (0.55 + Math.sqrt(i) * 0.62) * (1 + tries / 300);
+        const a = jr() * Math.PI * 2, r = Math.sqrt(jr()) * grow;
+        const rot = jr() < 0.22 ? (jr() < 0.5 ? 90 : -90) + (jr() - 0.5) * 26 : (jr() - 0.5) * 78;
+        const c = { x: boxW / 2 + Math.cos(a) * r * 1.28, y: boxH / 2 + Math.sin(a) * r * 0.82, rot, spin: 0 };
+        if (!placed.some((o) => hits(c, o, tw, th))) best = c;
+      }
+      d.pos = best ?? { x: boxW / 2, y: boxH / 2, rot: 0, spin: 0 };
+      d.pos.spin = jr() * 220 - 110;
     });
     pileEl.innerHTML = pileTiles.map((d, i) => {
       const fresh = i === pileTiles.length - 1;
