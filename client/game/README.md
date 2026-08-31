@@ -15,9 +15,19 @@ no accounts. State lives in memory; your record persists in `localStorage`.
   next match; the engine does the rest.
 - **Tile size** — 80–200%. Everything scales off one CSS variable.
 - **Bot speed** — 0 (instant) to 1.2s per move.
-- **Dev mode** — shows what each bot is planning (its top routes, distance and
-  who it fears) and how the champion would rank YOUR discards, using the same
-  `assessRoutes` / `rankDiscards` calls the bot itself makes.
+- **Dev mode** — two boxes. The first shows what each bot is planning: its top
+  routes, distance and who it fears. The second is the **helper**, and it
+  covers both halves of a turn:
+  - *Discards* — how the champion ranks yours, graded **green / amber / red**
+    with the reason ("slower: 4 away vs 3", "off your best route").
+  - *Claims* — while the pung/chow buttons are up it says TAKE or SKIP for each
+    and why; once you choose, the verdict joins the log. A refusal is quoted in
+    the bot's own terms ("leaves no path to the faan floor", "kills the
+    concealed hand you are building").
+
+  It runs `assessRoutes` / `rankDiscards` / `assessClaim` / `claimDecision` /
+  `shouldKong` — the very calls the bot makes, so the advice is its reasoning
+  rather than a story told about it.
 
 ## What it is
 
@@ -62,12 +72,12 @@ Refresh the bot roster after a new champion is frozen:
 Three beats, all pure CSS so none of them can gate input (`MatchScene.ts` rule 1:
 show the affordance immediately, animate underneath it):
 
-- **Build the wall — 1.1s.** At the start of every hand the wall assembles: each
+- **Build the wall — 1.45s.** At the start of every hand the wall assembles: each
   face-down tile flies in from a random offset with a random tilt, staggered by
   side and position, so it reads as shuffling-then-stacking.
-- **Draw off the wall — 0.7s.** The drawn tile arcs from the wall into the gap at
+- **Draw off the wall — 0.9s.** The drawn tile arcs from the wall into the gap at
   the right of your hand. Bots' face-down tiles pop in the same way.
-- **Toss — 1.0s.** A discard flies in *from the thrower's seat* — its `--fx/--fy`
+- **Toss — 1.3s.** A discard flies in *from the thrower's seat* — its `--fx/--fy`
   vector is the direction that player sits — straight to its slot, arriving at
   its final rotation. One flight: the keyframes carry only a start and an end,
   and the easing only decelerates, so a throw never reads as two moves.

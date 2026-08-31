@@ -13,13 +13,14 @@
 import { startMatch, startNextHand, applyAction, legalActions } from "../../engine/src/reducer.js";
 import type { MatchState } from "../../engine/src/reducer.js";
 import { decideAction, DEFAULT_PROFILE, assessRoutes, shapeOf, rankDiscards, scoreAdjust,
-  type BotConfig, type BotProfile, type RouteAssessment } from "../../engine/src/bots.js";
+  assessClaim, claimContext, claimDecision, shouldKong,
+  type BotConfig, type BotProfile, type RouteAssessment, type SeatView } from "../../engine/src/bots.js";
 import { tableThreat } from "../../engine/src/threat.js";
 import { MJRC_STANDARD, ruleset as rulesetById } from "../../rulesets/src/presets.js";
 import type { Ruleset } from "../../engine/src/types.js";
 import { prng } from "../../engine/src/wall.js";
 import { TILE_NAMES } from "../../engine/src/tiles.js";
-import type { Action, SeatIndex, TileId } from "../../engine/src/types.js";
+import type { Action, ClaimOption, SeatIndex, TileId } from "../../engine/src/types.js";
 import { viewFor } from "../../tools/sim/driver.js";
 
 declare global {
@@ -111,8 +112,11 @@ const BOT_NAMES: Record<string, string> = {
 
 /* ── state ─────────────────────────────────────────────────────────────── */
 const HUMAN: SeatIndex = 0;
-const TOSS_MS = 1000;   // owner: ~1s to simulate the throw
-const DRAW_MS = 700;    // owner: ~0.7s to draw off the wall
+// Owner asked for ~1s toss and ~0.7s draw, then for the whole thing a shade
+// slower again (2026-08-30). These are the numbers of record; the CSS that
+// paces the wall build and the calls was moved with them.
+const TOSS_MS = 1300;   // the throw
+const DRAW_MS = 900;    // drawing off the wall
 const $ = (id: string): HTMLElement => document.getElementById(id)!;
 let state: MatchState;
 let cfgs: BotConfig[];
@@ -312,11 +316,17 @@ function noteBotThinking(seat: SeatIndex): void {
 /** Graded verdicts on YOUR discards. Kept as a scrollable history so a call
  *  does not vanish the instant you make it (owner note 2026-08-29). */
 const coachLog: string[] = [];
+/** The champion, reading YOUR seat. Fresh each call so its rng never drifts. */
+const coachCfg = (v: SeatView): BotConfig =>
+  ({ ruleset: rules(), profile: scoreAdjust(profileOf("v4"), v), rnd: prng(7) });
+/** A verdict, coloured. Green you played it, amber close, red it cost you. */
+const verdictHtml = (cls: string, grade: string, head: string, why = ""): string =>
+  `<div class="ce ${cls}"><span class="g">${grade}</span>${head}` +
+  `${why ? `<div class="mut">${why}</div>` : ""}</div>`;
 function gradeMyDiscard(tile: TileId): void {
   if (!SETTINGS.dev) return;
   const v = viewFor(state, HUMAN);
-  const R = rules();
-  const cfg: BotConfig = { ruleset: R, profile: scoreAdjust(profileOf("v4"), v), rnd: prng(7) };
+  const cfg = coachCfg(v);
   const ranked = [...rankDiscards(v, cfg)].sort((a, b) => b.score - a.score);
   const best = ranked[0];
   const mine = ranked.find((d) => d.tile === tile);
@@ -332,18 +342,101 @@ function gradeMyDiscard(tile: TileId): void {
     : mine.danger - best.danger > 0.8 ? `riskier: danger ${mine.danger.toFixed(1)} vs ${best.danger.toFixed(1)}`
     : !mine.onRoute && best.onRoute ? "off your best route"
     : "";
-  coachLog.unshift(`<div class="ce ${cls}"><b>${name(tile)}</b> — ${verdict}
-    ${why ? `<div class="mut">${why}</div>` : ""}</div>`);
+  coachLog.unshift(verdictHtml(cls, cls === "good" ? "GOOD" : cls === "ok" ? "OK" : "BAD",
+    `<b>${name(tile)}</b> — ${verdict}`, why));
+  if (coachLog.length > 24) coachLog.length = 24;
+}
+
+/* ── the helper on CLAIMS ──────────────────────────────────────────────
+ * Pung and chow are where a HK hand is won or thrown away, and until now the
+ * helper had nothing to say about them (owner 2026-08-30). It runs the same
+ * `assessClaim` the bot runs, so the advice and the grade are the bot's actual
+ * reasoning rather than a story told about it.                              */
+const CLAIM_LABEL = (o: ClaimOption): string =>
+  o.kind === "pung" ? "pung 碰" : o.kind === "kong" ? "kong 槓"
+  : `chow 上 ${(o.with ?? []).map(name).join("+")}`;
+/** Why a claim was refused, in words a player can act on. */
+const REFUSAL: Record<string, string> = {
+  faanFloor: "it leaves no path to the faan floor — an unpayable hand is a dead one",
+  offRoute: "it is off the route your hand is playing",
+  concealedRoute: "it kills the concealed hand you are building",
+  tooSlow: "it buys too little speed for what it exposes",
+};
+const sameClaim = (a: ClaimOption, b: ClaimOption): boolean =>
+  a.kind === b.kind && (a.with ?? []).join() === (b.with ?? []).join();
+/** The claims on offer to you right now. A win is never a decision. */
+const myClaims = (): ClaimOption[] =>
+  (pending ?? []).flatMap((a) => (a.type === "claim" && a.option.kind !== "win" ? [a.option] : []));
+
+/** Live advice, shown while the buttons are still in front of you. */
+function claimAdvice(): string {
+  const options = myClaims();
+  if (options.length === 0) return "";
+  const v = viewFor(state, HUMAN);
+  const cfg = coachCfg(v);
+  const ctx = claimContext(v, cfg);
+  const want = claimDecision(v, options, coachCfg(v));
+  const rows = options.map((o) => {
+    const a = assessClaim(v, o, cfg, ctx);
+    const take = want !== null && sameClaim(want, o);
+    return verdictHtml(take ? "good" : "bad", take ? "TAKE" : "SKIP", `<b>${CLAIM_LABEL(o)}</b>`,
+      a.reason === "accepted"
+        ? `${a.distanceBefore} → ${a.distanceAfter} from ready, worth up to ${a.faanCeiling} faan`
+        : REFUSAL[a.reason] ?? a.reason);
+  });
+  if (want === null) rows.push(verdictHtml("good", "TAKE", "<b>pass</b>", "the champion claims nothing here"));
+  return rows.join("");
+}
+
+/** The grade, kept after you have chosen. */
+function gradeMyClaim(action: Action): void {
+  if (!SETTINGS.dev) return;
+  const v = viewFor(state, HUMAN);
+  const cfg = coachCfg(v);
+  if (action.type === "concealedKong" || action.type === "addedKong") {
+    const form = action.type === "concealedKong" ? "concealed" : "added";
+    const yes = shouldKong(v, action.tile, form, coachCfg(v));
+    coachLog.unshift(verdictHtml(yes ? "good" : "ok", yes ? "GOOD" : "OK",
+      `<b>kong ${name(action.tile)}</b> — ${yes ? "the champion lays this too" : "the champion holds it"}`,
+      yes ? "" : "a kong fixes four tiles into one set slot, and an added kong opens a 搶槓 window"));
+    if (coachLog.length > 24) coachLog.length = 24;
+    return;
+  }
+  const options = myClaims();
+  if (options.length === 0) return;                 // nothing was on offer
+  if (action.type === "declareWin" || (action.type === "claim" && action.option.kind === "win")) return;
+  const ctx = claimContext(v, cfg);
+  const want = claimDecision(v, options, coachCfg(v));
+  const took = action.type === "claim" ? action.option : null;
+  let cls = "ok", grade = "OK", head = "", why = "";
+  if (took === null && want === null) {
+    cls = "good"; grade = "GOOD"; head = "<b>pass</b> — the champion passes too";
+    why = "nothing on offer was worth the exposure";
+  } else if (took === null) {
+    const w = assessClaim(v, want!, cfg, ctx);
+    cls = "bad"; grade = "BAD"; head = `<b>passed ${CLAIM_LABEL(want!)}</b> — the champion takes it`;
+    why = `it would have moved you ${w.distanceBefore} → ${w.distanceAfter} from ready, worth up to ${w.faanCeiling} faan`;
+  } else if (want === null) {
+    const t = assessClaim(v, took, cfg, ctx);
+    cls = "bad"; grade = "BAD"; head = `<b>${CLAIM_LABEL(took)}</b> — the champion refuses this`;
+    why = REFUSAL[t.reason] ?? "";
+  } else if (sameClaim(took, want)) {
+    const t = assessClaim(v, took, cfg, ctx);
+    cls = "good"; grade = "GOOD"; head = `<b>${CLAIM_LABEL(took)}</b> — what the champion takes`;
+    why = `${t.distanceBefore} → ${t.distanceAfter} from ready, worth up to ${t.faanCeiling} faan`;
+  } else {
+    head = `<b>${CLAIM_LABEL(took)}</b> — playable, but the champion prefers ${CLAIM_LABEL(want)}`;
+  }
+  coachLog.unshift(verdictHtml(cls, grade, head, why));
   if (coachLog.length > 24) coachLog.length = 24;
 }
 function devPanel(): string {
   if (!SETTINGS.dev) return "";
-  let upcoming = "";
+  let upcoming = claimAdvice();
   if (pending?.some((a) => a.type === "discard")) {
     const v = viewFor(state, HUMAN);
-    const cfg: BotConfig = { ruleset: rules(), profile: scoreAdjust(profileOf("v4"), v), rnd: prng(7) };
-    const ranked = [...rankDiscards(v, cfg)].sort((a, b) => b.score - a.score).slice(0, 4);
-    upcoming = `<div class="sug">champion would cut ${ranked.map((d, i) =>
+    const ranked = [...rankDiscards(v, coachCfg(v))].sort((a, b) => b.score - a.score).slice(0, 4);
+    upcoming += `<div class="sug">champion would cut ${ranked.map((d, i) =>
       `<span class="${i === 0 ? "best" : ""}">${name(d.tile)}</span>`).join(" › ")}</div>`;
   }
   return `<div id="dev">
@@ -373,7 +466,9 @@ function announce(kind: string, who: string, extra = "", seat: SeatIndex = HUMAN
     <div class="ce">${en}${extra ? ` · ${extra}` : ""}</div></div>`;
   el.className = `show s${seat} ` + (kind === "win" || kind === "selfDraw" ? "big" : "");
   clearTimeout(callTimer);
-  callTimer = window.setTimeout(() => { el.className = ""; }, kind === "win" || kind === "selfDraw" ? 1800 : 1150);
+  // Long enough to actually read across the table (owner 2026-08-30). Must
+  // match the callIn keyframes, which do the holding.
+  callTimer = window.setTimeout(() => { el.className = ""; }, kind === "win" || kind === "selfDraw" ? 3200 : 2200);
 }
 
 /* ── your clock ────────────────────────────────────────────────────────
@@ -476,7 +571,7 @@ function buildWall(): void {
   wallBuilt = 0;
   buildAnim = true;
   renderWall();
-  setTimeout(() => { buildAnim = false; renderWall(); }, 1100);
+  setTimeout(() => { buildAnim = false; renderWall(); }, 1450);
 }
 
 /* ── render ────────────────────────────────────────────────────────────── */
@@ -659,7 +754,10 @@ function render(): void {
   } else if (!overlay && busy) bar = `<span class="hint">…</span>`;
   $("actions").innerHTML = bar;
   for (const el of Array.from($("actions").querySelectorAll<HTMLElement>("button"))) {
-    el.onclick = () => { const a = pending?.[Number(el.dataset.i)]; if (a) act(a); };
+    el.onclick = () => {
+      const a = pending?.[Number(el.dataset.i)];
+      if (a) { gradeMyClaim(a); act(a); }
+    };
   }
   $("log").innerHTML = feed.map((l) => `<div>${l}</div>`).join("");
   $("devwrap").innerHTML = devPanel();

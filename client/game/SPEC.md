@@ -82,6 +82,18 @@ replacing this renderer later costs nothing but the renderer.
 - Tosses arc in **from the thrower's seat direction**, which is how a player
   reads who threw without looking at the log.
 
+### Timing
+
+| beat | ms | where |
+| ---- | -- | ----- |
+| wall build | 1450 | `buildWall()` + `assemble` keyframes (.82s a tile, staggered) |
+| draw off the wall | 900 | `DRAW_MS` → `--drawms`, `botDraw` for the bots |
+| toss | 1300 | `TOSS_MS` → `--tossms` |
+| a call on screen | 2200 (3200 for a win) | `callIn` keyframes AND the timer in `announce()` — **change both** |
+
+The call's entrance stays quick in absolute terms because the keyframe
+percentages were moved with the duration; what got longer is the hold.
+
 ### The discard heap
 
 Three passes, in order, per discard — and only for the tile just thrown:
@@ -173,6 +185,9 @@ Dated entries are easiest to act on later._
 | 2026-08-30 | A discard lands on **its thrower's side** of the heap, as at a real table, not in the middle. |
 | 2026-08-30 | Tiles are **named** by the mark printed on their face — `4●` circles, `4▮` bamboo, `4萬` characters — and honours/flowers in English. Most players do not read Chinese. Tile ART is unchanged. |
 | 2026-08-30 | The toss is **one flight**, thrower's seat straight to the tile's slot. No waypoint, no overshoot in the easing. |
+| 2026-08-30 | The helper grades in **colour** — green played it, amber close, red it cost you — with the grade as a chip, not a border stripe. |
+| 2026-08-30 | The helper now covers **claims**: live TAKE/SKIP advice while the buttons are up, then a kept grade. It calls `assessClaim` / `claimDecision` / `shouldKong`, so the advice IS the bot's reasoning, not a story about it. |
+| 2026-08-30 | Beats slowed ~30 %: toss 1.0 → 1.3 s, draw 0.7 → 0.9 s, wall build 1.1 → 1.45 s. Calls hold ~1.6 s legible (2.2 s run, 3.2 s for a win) against ~0.7 s before. |
 
 
 

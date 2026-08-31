@@ -2882,8 +2882,8 @@
     persona: "Ming"
   };
   var HUMAN = 0;
-  var TOSS_MS = 1e3;
-  var DRAW_MS = 700;
+  var TOSS_MS = 1300;
+  var DRAW_MS = 900;
   var $ = (id) => document.getElementById(id);
   var state;
   var cfgs;
@@ -3071,11 +3071,12 @@
     if (devBotLines.length > 5) devBotLines.length = 5;
   }
   var coachLog = [];
+  var coachCfg = (v) => ({ ruleset: rules(), profile: scoreAdjust(profileOf2("v4"), v), rnd: prng(7) });
+  var verdictHtml = (cls, grade, head, why = "") => `<div class="ce ${cls}"><span class="g">${grade}</span>${head}${why ? `<div class="mut">${why}</div>` : ""}</div>`;
   function gradeMyDiscard(tile) {
     if (!SETTINGS.dev) return;
     const v = viewFor(state, HUMAN);
-    const R = rules();
-    const cfg = { ruleset: R, profile: scoreAdjust(profileOf2("v4"), v), rnd: prng(7) };
+    const cfg = coachCfg(v);
     const ranked = [...rankDiscards(v, cfg)].sort((a, b) => b.score - a.score);
     const best = ranked[0];
     const mine = ranked.find((d) => d.tile === tile);
@@ -3085,18 +3086,102 @@
     const cls = tile === best.tile || gap < 0.6 ? "good" : gap < 2.2 ? "ok" : "bad";
     const verdict = tile === best.tile ? "best discard" : gap < 0.6 ? "fine \u2014 within a hair of the best" : gap < 2.2 ? `#${rank} of ${ranked.length} \u2014 champion cuts ${name3(best.tile)}` : `costly \u2014 champion cuts ${name3(best.tile)}`;
     const why = mine.distance > best.distance ? `slower: ${mine.distance} away vs ${best.distance}` : mine.danger - best.danger > 0.8 ? `riskier: danger ${mine.danger.toFixed(1)} vs ${best.danger.toFixed(1)}` : !mine.onRoute && best.onRoute ? "off your best route" : "";
-    coachLog.unshift(`<div class="ce ${cls}"><b>${name3(tile)}</b> \u2014 ${verdict}
-    ${why ? `<div class="mut">${why}</div>` : ""}</div>`);
+    coachLog.unshift(verdictHtml(
+      cls,
+      cls === "good" ? "GOOD" : cls === "ok" ? "OK" : "BAD",
+      `<b>${name3(tile)}</b> \u2014 ${verdict}`,
+      why
+    ));
+    if (coachLog.length > 24) coachLog.length = 24;
+  }
+  var CLAIM_LABEL = (o) => o.kind === "pung" ? "pung \u78B0" : o.kind === "kong" ? "kong \u69D3" : `chow \u4E0A ${(o.with ?? []).map(name3).join("+")}`;
+  var REFUSAL = {
+    faanFloor: "it leaves no path to the faan floor \u2014 an unpayable hand is a dead one",
+    offRoute: "it is off the route your hand is playing",
+    concealedRoute: "it kills the concealed hand you are building",
+    tooSlow: "it buys too little speed for what it exposes"
+  };
+  var sameClaim = (a, b) => a.kind === b.kind && (a.with ?? []).join() === (b.with ?? []).join();
+  var myClaims = () => (pending ?? []).flatMap((a) => a.type === "claim" && a.option.kind !== "win" ? [a.option] : []);
+  function claimAdvice() {
+    const options = myClaims();
+    if (options.length === 0) return "";
+    const v = viewFor(state, HUMAN);
+    const cfg = coachCfg(v);
+    const ctx = claimContext(v, cfg);
+    const want = claimDecision(v, options, coachCfg(v));
+    const rows = options.map((o) => {
+      const a = assessClaim(v, o, cfg, ctx);
+      const take = want !== null && sameClaim(want, o);
+      return verdictHtml(
+        take ? "good" : "bad",
+        take ? "TAKE" : "SKIP",
+        `<b>${CLAIM_LABEL(o)}</b>`,
+        a.reason === "accepted" ? `${a.distanceBefore} \u2192 ${a.distanceAfter} from ready, worth up to ${a.faanCeiling} faan` : REFUSAL[a.reason] ?? a.reason
+      );
+    });
+    if (want === null) rows.push(verdictHtml("good", "TAKE", "<b>pass</b>", "the champion claims nothing here"));
+    return rows.join("");
+  }
+  function gradeMyClaim(action) {
+    if (!SETTINGS.dev) return;
+    const v = viewFor(state, HUMAN);
+    const cfg = coachCfg(v);
+    if (action.type === "concealedKong" || action.type === "addedKong") {
+      const form = action.type === "concealedKong" ? "concealed" : "added";
+      const yes = shouldKong(v, action.tile, form, coachCfg(v));
+      coachLog.unshift(verdictHtml(
+        yes ? "good" : "ok",
+        yes ? "GOOD" : "OK",
+        `<b>kong ${name3(action.tile)}</b> \u2014 ${yes ? "the champion lays this too" : "the champion holds it"}`,
+        yes ? "" : "a kong fixes four tiles into one set slot, and an added kong opens a \u6436\u69D3 window"
+      ));
+      if (coachLog.length > 24) coachLog.length = 24;
+      return;
+    }
+    const options = myClaims();
+    if (options.length === 0) return;
+    if (action.type === "declareWin" || action.type === "claim" && action.option.kind === "win") return;
+    const ctx = claimContext(v, cfg);
+    const want = claimDecision(v, options, coachCfg(v));
+    const took = action.type === "claim" ? action.option : null;
+    let cls = "ok", grade = "OK", head = "", why = "";
+    if (took === null && want === null) {
+      cls = "good";
+      grade = "GOOD";
+      head = "<b>pass</b> \u2014 the champion passes too";
+      why = "nothing on offer was worth the exposure";
+    } else if (took === null) {
+      const w = assessClaim(v, want, cfg, ctx);
+      cls = "bad";
+      grade = "BAD";
+      head = `<b>passed ${CLAIM_LABEL(want)}</b> \u2014 the champion takes it`;
+      why = `it would have moved you ${w.distanceBefore} \u2192 ${w.distanceAfter} from ready, worth up to ${w.faanCeiling} faan`;
+    } else if (want === null) {
+      const t = assessClaim(v, took, cfg, ctx);
+      cls = "bad";
+      grade = "BAD";
+      head = `<b>${CLAIM_LABEL(took)}</b> \u2014 the champion refuses this`;
+      why = REFUSAL[t.reason] ?? "";
+    } else if (sameClaim(took, want)) {
+      const t = assessClaim(v, took, cfg, ctx);
+      cls = "good";
+      grade = "GOOD";
+      head = `<b>${CLAIM_LABEL(took)}</b> \u2014 what the champion takes`;
+      why = `${t.distanceBefore} \u2192 ${t.distanceAfter} from ready, worth up to ${t.faanCeiling} faan`;
+    } else {
+      head = `<b>${CLAIM_LABEL(took)}</b> \u2014 playable, but the champion prefers ${CLAIM_LABEL(want)}`;
+    }
+    coachLog.unshift(verdictHtml(cls, grade, head, why));
     if (coachLog.length > 24) coachLog.length = 24;
   }
   function devPanel() {
     if (!SETTINGS.dev) return "";
-    let upcoming = "";
+    let upcoming = claimAdvice();
     if (pending?.some((a) => a.type === "discard")) {
       const v = viewFor(state, HUMAN);
-      const cfg = { ruleset: rules(), profile: scoreAdjust(profileOf2("v4"), v), rnd: prng(7) };
-      const ranked = [...rankDiscards(v, cfg)].sort((a, b) => b.score - a.score).slice(0, 4);
-      upcoming = `<div class="sug">champion would cut ${ranked.map((d, i) => `<span class="${i === 0 ? "best" : ""}">${name3(d.tile)}</span>`).join(" \u203A ")}</div>`;
+      const ranked = [...rankDiscards(v, coachCfg(v))].sort((a, b) => b.score - a.score).slice(0, 4);
+      upcoming += `<div class="sug">champion would cut ${ranked.map((d, i) => `<span class="${i === 0 ? "best" : ""}">${name3(d.tile)}</span>`).join(" \u203A ")}</div>`;
     }
     return `<div id="dev">
     <div class="devbox"><b>what the bots are thinking</b>
@@ -3126,7 +3211,7 @@
     clearTimeout(callTimer);
     callTimer = window.setTimeout(() => {
       el.className = "";
-    }, kind === "win" || kind === "selfDraw" ? 1800 : 1150);
+    }, kind === "win" || kind === "selfDraw" ? 3200 : 2200);
   }
   var TURN_MS = 3e4;
   var turnStart = 0;
@@ -3233,7 +3318,7 @@
     setTimeout(() => {
       buildAnim = false;
       renderWall();
-    }, 1100);
+    }, 1450);
   }
   function seatBox(seat) {
     const s = state.seats[seat];
@@ -3371,7 +3456,10 @@
     for (const el of Array.from($("actions").querySelectorAll("button"))) {
       el.onclick = () => {
         const a = pending?.[Number(el.dataset.i)];
-        if (a) act(a);
+        if (a) {
+          gradeMyClaim(a);
+          act(a);
+        }
       };
     }
     $("log").innerHTML = feed.map((l) => `<div>${l}</div>`).join("");
