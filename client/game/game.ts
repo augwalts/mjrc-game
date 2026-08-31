@@ -459,6 +459,21 @@ const CALLS: Record<string, [string, string]> = {
   robbingKong: ["搶槓", "robbed the kong"], flower: ["花", "flower"],
 };
 let callTimer = 0;
+/**
+ * THE TABLE STOPS FOR A CALL. At a real table nobody moves while someone is
+ * saying 碰 and laying the meld down — the next throw does not overlap the
+ * call (owner 2026-08-30). `announce()` arms the hold, so it fires exactly
+ * when a call was really made and shown, flower gate and all, and the loop
+ * spends it before the next bot moves.
+ *
+ * It never delays YOU: `advance()` clears the hold the moment you have a legal
+ * action, because MatchScene.ts rule 1 says an affordance is never taken away
+ * by an animation.
+ */
+const CLAIM_HOLD_MS = 750;   // pung / chow / kong — a meld goes down
+const FLOWER_HOLD_MS = 500;  // a flower is a smaller moment
+let holdMs = 0;
+const takeHold = (): number => { const h = holdMs; holdMs = 0; return h; };
 function announce(kind: string, who: string, extra = "", seat: SeatIndex = HUMAN): void {
   const [ch, en] = CALLS[kind] ?? [kind, ""];
   const el = $("call");
@@ -469,6 +484,9 @@ function announce(kind: string, who: string, extra = "", seat: SeatIndex = HUMAN
   // Long enough to actually read across the table (owner 2026-08-30). Must
   // match the callIn keyframes, which do the holding.
   callTimer = window.setTimeout(() => { el.className = ""; }, kind === "win" || kind === "selfDraw" ? 3200 : 2200);
+  // A win ends the hand and raises the overlay, which stops play on its own.
+  holdMs = kind === "win" || kind === "selfDraw" ? 0
+    : kind === "flower" ? FLOWER_HOLD_MS : CLAIM_HOLD_MS;
 }
 
 /* ── your clock ────────────────────────────────────────────────────────
@@ -496,7 +514,11 @@ function advance(): void {
   if (overlay) { showOverlay(); return; }
   if (state.phase === "matchEnd" || state.phase === "handEnd") return;
   const mine = legalActions(state, HUMAN);
-  if (mine.length > 0) { pending = mine; startTurnClock(); render(); return; }
+  // Your turn is never held back — and if the call was yours, you have already
+  // spent the beat making it, so the hold is dropped rather than banked.
+  if (mine.length > 0) { holdMs = 0; pending = mine; startTurnClock(); render(); return; }
+  const hold = takeHold();
+  if (hold > 0) { busy = true; setTimeout(() => { busy = false; advance(); }, hold); return; }
   for (const seat of [1, 2, 3] as SeatIndex[]) {
     const options = legalActions(state, seat);
     if (options.length === 0) continue;

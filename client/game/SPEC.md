@@ -90,9 +90,18 @@ replacing this renderer later costs nothing but the renderer.
 | draw off the wall | 900 | `DRAW_MS` → `--drawms`, `botDraw` for the bots |
 | toss | 1300 | `TOSS_MS` → `--tossms` |
 | a call on screen | 2200 (3200 for a win) | `callIn` keyframes AND the timer in `announce()` — **change both** |
+| hold after a claim | 750 | `CLAIM_HOLD_MS` — nothing else moves while a meld goes down |
+| hold after a flower | 500 | `FLOWER_HOLD_MS` |
 
 The call's entrance stays quick in absolute terms because the keyframe
 percentages were moved with the duration; what got longer is the hold.
+
+The hold is armed by `announce()`, not by the event switch, so it fires exactly
+when a call was really made and shown — the flower gate included — and it is
+spent in `advance()` before the next bot moves. It **never delays you**:
+`advance()` drops the hold the moment you have a legal action, both because
+MatchScene.ts rule 1 forbids an animation taking an affordance away, and
+because if the call was yours you have already spent the beat making it.
 
 ### The discard heap
 
@@ -188,6 +197,7 @@ Dated entries are easiest to act on later._
 | 2026-08-30 | The helper grades in **colour** — green played it, amber close, red it cost you — with the grade as a chip, not a border stripe. |
 | 2026-08-30 | The helper now covers **claims**: live TAKE/SKIP advice while the buttons are up, then a kept grade. It calls `assessClaim` / `claimDecision` / `shouldKong`, so the advice IS the bot's reasoning, not a story about it. |
 | 2026-08-30 | Beats slowed ~30 %: toss 1.0 → 1.3 s, draw 0.7 → 0.9 s, wall build 1.1 → 1.45 s. Calls hold ~1.6 s legible (2.2 s run, 3.2 s for a win) against ~0.7 s before. |
+| 2026-08-30 | A legitimate call **stops the table**: 750 ms after a pung/chow/kong, 500 ms after a flower, before anything else animates. Never applied to the human's own turn. |
 
 
 

@@ -82,6 +82,12 @@ show the affordance immediately, animate underneath it):
   its final rotation. One flight: the keyframes carry only a start and an end,
   and the easing only decelerates, so a throw never reads as two moves.
 
+- **The hold after a call — 0.75s (0.5s for a flower).** A pung, chow, kong or
+  flower stops the table: nothing else animates until the call has been made
+  and the meld is down, the way play pauses at a real table. It is armed by
+  `announce()` so it fires exactly when a call was shown, and it never applies
+  to your own turn — an affordance is not taken away by an animation.
+
 The wall itself is decorative (the engine's wall is a shuffled array) but it
 carries what a real wall tells you: how much game is left, and it visibly erodes
 as tiles are drawn.

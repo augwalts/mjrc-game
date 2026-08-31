@@ -3202,6 +3202,14 @@
     flower: ["\u82B1", "flower"]
   };
   var callTimer = 0;
+  var CLAIM_HOLD_MS = 750;
+  var FLOWER_HOLD_MS = 500;
+  var holdMs = 0;
+  var takeHold = () => {
+    const h = holdMs;
+    holdMs = 0;
+    return h;
+  };
   function announce(kind, who, extra = "", seat = HUMAN) {
     const [ch, en] = CALLS[kind] ?? [kind, ""];
     const el = $("call");
@@ -3212,6 +3220,7 @@
     callTimer = window.setTimeout(() => {
       el.className = "";
     }, kind === "win" || kind === "selfDraw" ? 3200 : 2200);
+    holdMs = kind === "win" || kind === "selfDraw" ? 0 : kind === "flower" ? FLOWER_HOLD_MS : CLAIM_HOLD_MS;
   }
   var TURN_MS = 3e4;
   var turnStart = 0;
@@ -3240,9 +3249,19 @@
     if (state.phase === "matchEnd" || state.phase === "handEnd") return;
     const mine = legalActions(state, HUMAN);
     if (mine.length > 0) {
+      holdMs = 0;
       pending = mine;
       startTurnClock();
       render();
+      return;
+    }
+    const hold = takeHold();
+    if (hold > 0) {
+      busy = true;
+      setTimeout(() => {
+        busy = false;
+        advance();
+      }, hold);
       return;
     }
     for (const seat of [1, 2, 3]) {
