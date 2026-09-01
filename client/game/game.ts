@@ -409,6 +409,10 @@ function consume(events: readonly unknown[]): void {
         sayDiscard(p.tile as TileId, p.seat as SeatIndex);
         break;
       case "claimed": {
+        // read the tile's pile position before the pop takes its node away
+        armGrab(p.tile as TileId, p.seat as SeatIndex,
+          pileTiles[pileTiles.length - 1]?.pos?.rot ?? 0);
+        landingMeld = { seat: p.seat as SeatIndex, index: state.seats[p.seat as SeatIndex]!.melds.length - 1 };
         pileTiles.pop();
         const verb = p.kind === "chow" ? "chows 上" : p.kind === "pung" ? "pungs 碰" : "kongs 槓";
         feed.push(`${who(p.seat)} ${verb} ${name(p.tile as TileId)}`);
@@ -723,7 +727,70 @@ let callTimer = 0;
  * action, because MatchScene.ts rule 1 says an affordance is never taken away
  * by an animation.
  */
-const CLAIM_HOLD_MS = 750;   // pung / chow / kong — a meld goes down
+/**
+ * THE GRAB. A claimed tile used to disappear from the pile and reappear in a
+ * meld in the same frame — the owner called it jarring, and it was: nothing
+ * connected the two, so it read as a glitch rather than as somebody taking a
+ * tile.
+ *
+ * It is a MOTION (ANIMATION-SEQUENCE.md §1), so the claim hold is sized to
+ * cover it and nothing else moves while the tile is in the air.
+ *
+ * Two positions have to be captured at different moments, which is the whole
+ * awkwardness here:
+ *   FROM — the tile's spot in the pile, read BEFORE `consume` pops it, because
+ *          the identity-keyed cleanup deletes that node on the next render.
+ *   TO   — where it lands in the meld, readable only AFTER that render.
+ * So the grab is armed during `consume` and launched at the end of `render`.
+ */
+const GRAB_MS = 760;
+interface Grab { tile: TileId; seat: SeatIndex; cx: number; cy: number; w: number; h: number; rot: number; }
+let pendingGrab: Grab | null = null;
+/** Marks the meld that is being flown into, so it stays hidden until it lands. */
+let landingMeld: { seat: SeatIndex; index: number } | null = null;
+
+/**
+ * Measure CENTRE and LAYOUT SIZE, never the bounding rect's size.
+ * A pile tile is rotated, and `getBoundingClientRect()` returns the rotated
+ * AABB — 42px across for a tile that is actually 26px wide. Building the flier
+ * from that makes it too wide and scales it against the wrong basis. The rect
+ * is right for *where* the tile is; `offsetWidth/Height` for *how big*.
+ */
+function centreOf(el: HTMLElement): { cx: number; cy: number; w: number; h: number } {
+  const r = el.getBoundingClientRect();
+  return { cx: r.left + r.width / 2, cy: r.top + r.height / 2, w: el.offsetWidth, h: el.offsetHeight };
+}
+
+function armGrab(tile: TileId, seat: SeatIndex, rot: number): void {
+  const last = $("pile").lastElementChild as HTMLElement | null;
+  if (!last) return;
+  pendingGrab = { tile, seat, rot, ...centreOf(last) };
+}
+
+/** Called at the end of render(), once the destination meld actually exists. */
+function launchGrab(): void {
+  const g = pendingGrab;
+  if (!g) return;
+  pendingGrab = null;
+  const row = g.seat === HUMAN ? $("mymelds")
+    : document.querySelector<HTMLElement>(`.seat.${["", "e", "n", "w"][g.seat]} .meldrow`);
+  const target = row?.querySelector<HTMLElement>(".tile.claimed") ?? row;
+  if (!target || g.w === 0) return;
+  const t = centreOf(target);
+  if (t.w === 0) return;                            // not laid out — skip rather than fly to 0,0
+  const el = document.createElement("span");
+  el.className = "tile";
+  el.innerHTML = `<svg viewBox="0 0 100 140" preserveAspectRatio="xMidYMid meet">${face(g.tile)}</svg>`;
+  el.setAttribute("style",
+    `left:${(g.cx - g.w / 2).toFixed(1)}px;top:${(g.cy - g.h / 2).toFixed(1)}px;`
+    + `width:${g.w}px;height:${g.h}px;`
+    + `--dx:${(t.cx - g.cx).toFixed(1)}px;--dy:${(t.cy - g.cy).toFixed(1)}px;`
+    + `--ds:${(t.w / g.w).toFixed(3)};--r0:${g.rot.toFixed(0)}deg;--grabms:${GRAB_MS}ms`);
+  $("fly").appendChild(el);
+  window.setTimeout(() => { el.remove(); landingMeld = null; }, GRAB_MS + 40);
+}
+
+const CLAIM_HOLD_MS = GRAB_MS + 260;  // the tile must land before anything else moves
 const FLOWER_HOLD_MS = 500;  // a flower is a smaller moment
 let holdMs = 0;
 const takeHold = (): number => { const h = holdMs; holdMs = 0; return h; };
@@ -878,7 +945,9 @@ function seatBox(seat: SeatIndex): string {
     <div class="backrow">${Array.from({ length: Math.min(hidden, 14) }, (_, i) =>
       `<span class="back ${i === hidden - 1 && s.drawn !== null ? "wtnew" : ""}"
          style="--drawdelay:${queueBehindToss()}ms"></span>`).join("")}</div>
-    <div class="meldrow">${s.melds.map((m) => m.tiles.map((t) => tileHtml(t, "sm")).join("")).join('<span style="width:6px"></span>')}
+    <div class="meldrow">${s.melds.map((m, i) => m.tiles.map((t) => tileHtml(t,
+        `sm ${landingMeld && landingMeld.seat === seat && landingMeld.index === i ? "claimed" : ""}`)).join(""))
+        .join('<span style="width:6px"></span>')}
       ${s.flowers.map((t) => tileHtml(t, "fl")).join("")}</div>`;
 }
 
@@ -1018,7 +1087,10 @@ function render(): void {
       + `transform:translate(-50%,-50%) rotate(${d.pos!.rot.toFixed(1)}deg)"`));
   }
 
-  $("mymelds").innerHTML = me.melds.map((m) => m.tiles.map((t) => tileHtml(t)).join("")).join('<span style="width:10px"></span>')
+  const mine = (i: number): string =>
+    landingMeld && landingMeld.seat === HUMAN && landingMeld.index === i ? "claimed" : "";
+  $("mymelds").innerHTML = me.melds.map((m, i) => m.tiles.map((t) => tileHtml(t, mine(i))).join(""))
+    .join('<span style="width:10px"></span>')
     + me.flowers.map((t) => tileHtml(t, "fl")).join("");
 
   const canDiscard = !!pending?.some((a) => a.type === "discard");
@@ -1081,6 +1153,7 @@ function render(): void {
   $("log").innerHTML = feed.map((l) => `<div>${l}</div>`).join("");
   $("devwrap").innerHTML = devPanel();
   recenterGlyphs(document);
+  launchGrab();      // the destination meld is laid out only now
 }
 
 function settingsScreen(back: () => void): void {

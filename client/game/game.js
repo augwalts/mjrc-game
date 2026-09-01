@@ -2761,6 +2761,10 @@
     );
     if (discards.length > 0) {
       const tile = chooseDiscard(v, cfg);
+      const kongInstead = legal.find(
+        (a) => a.type === "addedKong" && a.tile === tile
+      );
+      if (kongInstead) return kongInstead;
       const match = discards.find((a) => a.tile === tile);
       if (match) return match;
       return discards[0];
@@ -3237,6 +3241,12 @@
           sayDiscard(p.tile, p.seat);
           break;
         case "claimed": {
+          armGrab(
+            p.tile,
+            p.seat,
+            pileTiles[pileTiles.length - 1]?.pos?.rot ?? 0
+          );
+          landingMeld = { seat: p.seat, index: state.seats[p.seat].melds.length - 1 };
           pileTiles.pop();
           const verb = p.kind === "chow" ? "chows \u4E0A" : p.kind === "pung" ? "pungs \u78B0" : "kongs \u69D3";
           feed.push(`${who(p.seat)} ${verb} ${name3(p.tile)}`);
@@ -3522,7 +3532,41 @@
     }, SAY_MS);
   }
   var callTimer = 0;
-  var CLAIM_HOLD_MS = 750;
+  var GRAB_MS = 760;
+  var pendingGrab = null;
+  var landingMeld = null;
+  function centreOf(el) {
+    const r = el.getBoundingClientRect();
+    return { cx: r.left + r.width / 2, cy: r.top + r.height / 2, w: el.offsetWidth, h: el.offsetHeight };
+  }
+  function armGrab(tile, seat, rot) {
+    const last = $("pile").lastElementChild;
+    if (!last) return;
+    pendingGrab = { tile, seat, rot, ...centreOf(last) };
+  }
+  function launchGrab() {
+    const g = pendingGrab;
+    if (!g) return;
+    pendingGrab = null;
+    const row = g.seat === HUMAN ? $("mymelds") : document.querySelector(`.seat.${["", "e", "n", "w"][g.seat]} .meldrow`);
+    const target = row?.querySelector(".tile.claimed") ?? row;
+    if (!target || g.w === 0) return;
+    const t = centreOf(target);
+    if (t.w === 0) return;
+    const el = document.createElement("span");
+    el.className = "tile";
+    el.innerHTML = `<svg viewBox="0 0 100 140" preserveAspectRatio="xMidYMid meet">${face(g.tile)}</svg>`;
+    el.setAttribute(
+      "style",
+      `left:${(g.cx - g.w / 2).toFixed(1)}px;top:${(g.cy - g.h / 2).toFixed(1)}px;width:${g.w}px;height:${g.h}px;--dx:${(t.cx - g.cx).toFixed(1)}px;--dy:${(t.cy - g.cy).toFixed(1)}px;--ds:${(t.w / g.w).toFixed(3)};--r0:${g.rot.toFixed(0)}deg;--grabms:${GRAB_MS}ms`
+    );
+    $("fly").appendChild(el);
+    window.setTimeout(() => {
+      el.remove();
+      landingMeld = null;
+    }, GRAB_MS + 40);
+  }
+  var CLAIM_HOLD_MS = GRAB_MS + 260;
   var FLOWER_HOLD_MS = 500;
   var holdMs = 0;
   var takeHold = () => {
@@ -3678,7 +3722,10 @@
     return plate(seat, nm, nm[0]) + `
     <div class="backrow">${Array.from({ length: Math.min(hidden, 14) }, (_, i) => `<span class="back ${i === hidden - 1 && s.drawn !== null ? "wtnew" : ""}"
          style="--drawdelay:${queueBehindToss()}ms"></span>`).join("")}</div>
-    <div class="meldrow">${s.melds.map((m) => m.tiles.map((t) => tileHtml(t, "sm")).join("")).join('<span style="width:6px"></span>')}
+    <div class="meldrow">${s.melds.map((m, i) => m.tiles.map((t) => tileHtml(
+      t,
+      `sm ${landingMeld && landingMeld.seat === seat && landingMeld.index === i ? "claimed" : ""}`
+    )).join("")).join('<span style="width:6px"></span>')}
       ${s.flowers.map((t) => tileHtml(t, "fl")).join("")}</div>`;
   }
   function render() {
@@ -3764,7 +3811,8 @@
         `data-pid="${d.id}" style="left:${d.pos.x.toFixed(1)}px;top:${d.pos.y.toFixed(1)}px;--fx:${from[0]}px;--fy:${from[1]}px;--fr:${d.pos.spin.toFixed(0)}deg;--lx:${lx.toFixed(0)}px;--ly:${ly.toFixed(0)}px;--lr:${lr.toFixed(1)}deg;--rot:${d.pos.rot.toFixed(1)}deg;--tossms:${TOSS_MS}ms;transform:translate(-50%,-50%) rotate(${d.pos.rot.toFixed(1)}deg)"`
       ));
     }
-    $("mymelds").innerHTML = me.melds.map((m) => m.tiles.map((t) => tileHtml(t)).join("")).join('<span style="width:10px"></span>') + me.flowers.map((t) => tileHtml(t, "fl")).join("");
+    const mine = (i) => landingMeld && landingMeld.seat === HUMAN && landingMeld.index === i ? "claimed" : "";
+    $("mymelds").innerHTML = me.melds.map((m, i) => m.tiles.map((t) => tileHtml(t, mine(i))).join("")).join('<span style="width:10px"></span>') + me.flowers.map((t) => tileHtml(t, "fl")).join("");
     const canDiscard = !!pending?.some((a) => a.type === "discard");
     const hand = [...me.hand].sort((a, b) => a - b);
     $("myhand").className = canDiscard ? "" : "locked";
@@ -3822,6 +3870,7 @@
     $("log").innerHTML = feed.map((l) => `<div>${l}</div>`).join("");
     $("devwrap").innerHTML = devPanel();
     recenterGlyphs(document);
+    launchGrab();
   }
   function settingsScreen(back) {
     $("veil").style.display = "flex";

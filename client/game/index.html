@@ -267,6 +267,33 @@ body.devmode #mine{padding-top:2px}
 #call .cw{text-shadow:0 1px 5px rgba(0,0,0,.9)}
 #call .inner{background:rgba(8,20,15,.55);border:1px solid rgba(216,181,106,.4);border-radius:14px;
   padding:8px 18px;backdrop-filter:blur(3px)}
+/* ── the grab ───────────────────────────────────────────────────────────
+ * A claimed tile used to vanish from the pile and reappear in a meld in the
+ * same frame, which read as a glitch rather than an action (owner 2026-08-31).
+ * It now travels: lifted off the pile, carried across, set down in the meld.
+ *
+ * The flier lives in a fixed overlay so it can cross from the felt into the
+ * seat boxes without being clipped by either. It is a MOTION, so the claim hold
+ * covers it and nothing else moves while it is in the air.
+ *
+ * The meld it is heading for is held invisible until it lands (`.claimed`
+ * below) — otherwise the destination tile is already sitting there and you
+ * watch a duplicate fly onto it, which is worse than the jump it replaced.
+ */
+#fly{position:fixed;inset:0;pointer-events:none;z-index:60}
+#fly .tile{position:absolute;animation:grab var(--grabms,760ms) cubic-bezier(.34,.02,.28,1) forwards}
+@keyframes grab{
+  /* picked up — lifts and grows as it comes off the felt */
+  0%{transform:translate(0,0) scale(1) rotate(var(--r0,0deg))}
+  26%{transform:translate(calc(var(--dx,0px) * .18),calc(var(--dy,0px) * .18 - 26px))
+        scale(1.22) rotate(calc(var(--r0,0deg) * .35))}
+  /* set down into the meld */
+  100%{transform:translate(var(--dx,0px),var(--dy,0px)) scale(var(--ds,1)) rotate(0deg)}
+}
+/* the destination meld, invisible until the tile arrives */
+.claimed{animation:meldLand 160ms ease-out var(--grabms,760ms) backwards}
+@keyframes meldLand{from{opacity:0}to{opacity:1}}
+
 /* ── declaring the throw ────────────────────────────────────────────────
  * At a table you say what you throw. This is the ANNOUNCEMENT lane (see
  * ANIMATION-SEQUENCE.md): it runs alongside the toss, never before or after it,
@@ -348,6 +375,7 @@ body.devmode #mine{padding-top:2px}
   <div id="myhand"></div>
   <div id="actions"></div>
 </div>
+<div id="fly"></div>
 <div class="veil" id="veil"><div class="panel" id="panel"></div></div>
 <script>
 for (const f of ["tile-engine.js", "bots.js", "game.js"]) {
