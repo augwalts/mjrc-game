@@ -227,6 +227,11 @@ Dated entries are easiest to act on later._
 | 2026-08-31 | **Motions queue, announcements ride alongside** — the sequencing model, after a discard and the next player's draw were animating in the same frame. Queue by delay + `backwards`, never by gating. See `ANIMATION-SEQUENCE.md`. |
 | 2026-08-31 | **The toss is a thrown tile**: flight → contact short of the slot → pause → skid that accelerates and stops dead. The final easing is an ease-IN ending at (1,1); a decelerating curve read as a glide. |
 | 2026-08-31 | **Every discard is declared** — the tile's name beside the thrower, 640 ms, in the announcement lane so it costs the turn nothing. Its own element at call weight ÷ 4, because it fires eighty times a hand where a call fires seven. |
+| 2026-08-31 | **A claimed tile is carried to the meld**, not teleported. Destination meld held invisible until it lands, or you watch a duplicate fly onto it. |
+| 2026-08-31 | **Home is a lobby**; a finished match returns there, not into another game. Stats and leaderboard hang off it. |
+| 2026-08-31 | **Leaderboard sorts on five columns** — wins (default), hands, chips, net/hand, engine agreement. No single one is the truth and the page says so. |
+| 2026-08-31 | **Three handicaps**: count tiles, calling read, what-if. All derived from `visibleCounts`, so none reveals hidden information. |
+| 2026-08-31 | **Bots never throw a tile they could kong.** The rob-window guard was right but was governing kong-vs-hold, after which the ranker cut the dead tile anyway. |
 
 
 

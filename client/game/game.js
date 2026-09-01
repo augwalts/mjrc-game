@@ -2943,7 +2943,7 @@
     "Winter"
   ];
   var name3 = (t) => t < 9 ? `${t + 1}\u842C` : t < 18 ? `${t - 8}\u25AE` : t < 27 ? `${t - 17}\u25CF` : HONOUR_NAMES[t - 27] ?? "?";
-  var tileHtml = (t, cls = "", attrs = "") => `<span class="tile ${cls}" ${attrs}><svg viewBox="0 0 100 140" preserveAspectRatio="xMidYMid meet">${face(t)}</svg></span>`;
+  var tileHtml = (t, cls = "", attrs = "") => `<span class="tile ${cls}" data-t="${t}" ${attrs}><svg viewBox="0 0 100 140" preserveAspectRatio="xMidYMid meet">${face(t)}</svg></span>`;
   var WIND_CH = ["\u6771", "\u5357", "\u897F", "\u5317"];
   var AWARDS = {
     selfDraw: "\u81EA\u6478 Self-Draw",
@@ -3054,6 +3054,9 @@
     dev: false,
     rounds: 1,
     recorded: true,
+    hcCount: false,
+    hcCalling: false,
+    hcWhatIf: false,
     ...JSON.parse(localStorage.getItem("mjrc.settings") ?? "{}")
   };
   var saveSettings = () => {
@@ -3073,6 +3076,87 @@
     ["hkos-standard", "HK Old Style (published)", "3\u201313 faan \xB7 the full limit ladder"],
     ["tvb-2026", "TVB Championship 2026", "1 faan minimum \xB7 linear payments \xB7 no flowers"]
   ];
+  function readHand(without) {
+    if (!state) return null;
+    const v = viewFor(state, HUMAN);
+    const R = rules();
+    const tiles = [...v.hand, ...v.drawn !== null ? [v.drawn] : []];
+    if (without !== void 0) {
+      const k = tiles.indexOf(without);
+      if (k < 0) return null;
+      tiles.splice(k, 1);
+    }
+    const c = counts(tiles);
+    const melds = v.melds[HUMAN].length;
+    const lt = liveTiles(c, melds, visibleCounts(v));
+    const ceiling = Math.min(faanCeiling(shapeOf(v), R), R.limitFaan);
+    return {
+      distance: lt.distance,
+      calling: lt.distance <= 0,
+      waits: lt.tiles.map((x) => ({ tile: x.tile, unseen: x.unseen })),
+      total: lt.total,
+      ceiling,
+      payable: ceiling >= R.minimumFaan
+    };
+  }
+  var WAIT_LIST_MAX = 6;
+  var waitList = (r) => {
+    if (r.waits.length === 0) return "nothing live";
+    if (r.waits.length > WAIT_LIST_MAX) return `<b>${r.waits.length}</b> different tiles help`;
+    return r.waits.map((w) => `<b>${name3(w.tile)}</b>&thinsp;<span class="n">${w.unseen}</span>`).join(" ");
+  };
+  function callingBar() {
+    if (!SETTINGS.hcCalling || !state || overlay) return "";
+    const r = readHand();
+    if (!r) return "";
+    const faan = r.payable ? `<span class="ok">can reach ${r.ceiling} faan</span>` : `<span class="warn">only ${r.ceiling} faan \u2014 under the ${rules().minimumFaan} minimum,
+       this hand cannot be taken yet</span>`;
+    return `<div id="callbar" class="${r.calling ? "calling" : ""}">
+    ${r.calling ? `<b class="lead">CALLING \u807D\u724C</b> waiting on ${waitList(r)}
+         <span class="tot">${r.total} live</span>` : `<b class="lead">${r.distance} away</b> from calling \xB7 helps: ${waitList(r)}
+         <span class="tot">${r.total} live</span>`}
+    <span class="faan">${faan}</span></div>`;
+  }
+  function whatIf(tile) {
+    const r = readHand(tile);
+    if (!r) return "";
+    return r.calling ? `<b class="lead">cut ${name3(tile)} \u2192 CALLING</b> on ${waitList(r)}
+       <span class="tot">${r.total} live</span>` : `<b class="lead">cut ${name3(tile)} \u2192 ${r.distance} away</b> \xB7 helps: ${waitList(r)}
+       <span class="tot">${r.total} live</span>`;
+  }
+  function wireHover() {
+    document.addEventListener("mouseover", (e) => {
+      const el = e.target?.closest?.(".tile");
+      if (!el?.dataset.t) return;
+      const t = Number(el.dataset.t);
+      if (SETTINGS.hcCount) {
+        for (const o of Array.from(document.querySelectorAll(`.tile[data-t="${t}"]`))) {
+          o.classList.add("samet");
+        }
+      }
+      if (SETTINGS.hcWhatIf && el.closest("#myhand") && !overlay) {
+        const bar = document.getElementById("callbar");
+        if (bar) {
+          bar.dataset.saved ??= bar.innerHTML;
+          bar.innerHTML = whatIf(t);
+          bar.classList.add("whatif");
+        }
+      }
+    });
+    document.addEventListener("mouseout", (e) => {
+      const el = e.target?.closest?.(".tile");
+      if (!el) return;
+      for (const o of Array.from(document.querySelectorAll(".tile.samet"))) {
+        o.classList.remove("samet");
+      }
+      const bar = document.getElementById("callbar");
+      if (bar?.dataset.saved) {
+        bar.innerHTML = bar.dataset.saved;
+        delete bar.dataset.saved;
+        bar.classList.remove("whatif");
+      }
+    });
+  }
   var fmtPct = (x) => x === null ? "\u2014" : `${Math.round(x * 100)}%`;
   var fmtChips = (n) => `${n > 0 ? "+" : ""}${n}`;
   function aggregate(rows) {
@@ -3188,6 +3272,7 @@
       wireBack(lobbyScreen);
     });
   }
+  var boardSort = "wins";
   function boardScreen() {
     $("veil").style.display = "flex";
     $("panel").innerHTML = `<h1>Leaderboard</h1><p class="mut">reading\u2026</p>`;
@@ -3202,33 +3287,57 @@
       }
       const table2 = [...byPlayer.values()].map((e) => {
         const a = aggregate(e.rows);
+        const wins = e.rows.filter((m) => {
+          const c = m.chips ?? [0, 0, 0, 0];
+          return (c[0] ?? 0) >= Math.max(...c.slice(1).map((x) => x ?? 0));
+        }).length;
         return {
           name: e.name,
           games: a.matches,
+          wins,
+          hands: a.hands,
+          handsWon: a.won,
           chips: a.chips,
-          rate: a.graded ? a.matched / a.graded : null,
-          graded: a.graded
+          net: a.hands ? a.chips / a.hands : 0,
+          rate: a.graded ? a.matched / a.graded : null
         };
-      }).sort((x, y) => (y.rate ?? -1) - (x.rate ?? -1));
+      });
+      const key = (r) => boardSort === "wins" ? r.wins : boardSort === "hands" ? r.hands : boardSort === "chips" ? r.chips : boardSort === "net" ? r.net : r.rate ?? -1;
+      table2.sort((x, y) => key(y) - key(x) || y.hands - x.hands);
+      const COLS = [
+        ["wins", "wins"],
+        ["hands", "hands"],
+        ["chips", "chips"],
+        ["net", "net/hd"],
+        ["rate", "agree"]
+      ];
       $("panel").innerHTML = `
       <h1>Leaderboard</h1>
-      <p class="mut">Ranked by <b>engine agreement</b>, not chips. Chips over a handful of
-        hands are mostly wall luck \u2014 the training work measured \xB116 chips of noise in a
-        single block, which is larger than most real differences in skill. Agreement is
-        far steadier. Chips are shown because they are what you feel.</p>
+      <p class="mut">Sorted by <b>${COLS.find((c) => c[0] === boardSort)[1]}</b> \u2014
+        tap a heading to change it. None of these is the whole picture: wins and
+        chips are what you feel but carry most of the luck (\xB116 chips of noise in a
+        single block), while agreement scores every decision rather than the few
+        that ended in a payout.</p>
       ${table2.length === 0 ? "<p>No completed recorded games yet.</p>" : `
-      <div class="rows head"><span class="c1">player</span><span class="c2">games</span>
-        <span class="c2">chips</span><span class="c2">agreement</span></div>
+      <div class="rows head"><span class="c1">player</span>${COLS.map(([k, label]) => `<span class="c2 sortable ${boardSort === k ? "on" : ""}" data-k="${k}">${label}</span>`).join("")}</div>
       <div class="rows">${table2.map((r, i) => `
         <div class="row ${r.name === player?.name ? "me" : ""}">
-          <span class="c1">${i + 1}. ${r.name}</span>
-          <span class="c2">${r.games}</span>
+          <span class="c1">${i + 1}. ${r.name} <span class="mut">\xB7 ${r.games}g</span></span>
+          <span class="c2">${r.wins}</span>
+          <span class="c2">${r.hands}</span>
           <span class="c2 ${r.chips > 0 ? "up" : r.chips < 0 ? "down" : ""}">${fmtChips(r.chips)}</span>
-          <span class="c2"><b>${fmtPct(r.rate)}</b></span>
+          <span class="c2 ${r.net > 0 ? "up" : r.net < 0 ? "down" : ""}">${r.net.toFixed(1)}</span>
+          <span class="c2">${fmtPct(r.rate)}</span>
         </div>`).join("")}</div>`}
       <p class="mut" style="margin-top:10px">Forfeits and casual games are excluded.
         Everyone here plays on this device \u2014 there is no server yet.</p>
       ${backRow(lobbyScreen)}`;
+      for (const h of Array.from($("panel").querySelectorAll(".sortable"))) {
+        h.onclick = () => {
+          boardSort = h.dataset.k;
+          boardScreen();
+        };
+      }
       wireBack(lobbyScreen);
     });
   }
@@ -4037,6 +4146,7 @@
       };
     }
     $("log").innerHTML = feed.map((l) => `<div>${l}</div>`).join("");
+    $("callwrap").innerHTML = callingBar();
     $("devwrap").innerHTML = devPanel();
     recenterGlyphs(document);
     launchGrab();
@@ -4056,6 +4166,20 @@
     <div class="setrow"><label>Bot speed</label>
       <input type="range" id="setSpeed" min="0" max="1200" step="60" value="${SETTINGS.botMs}">
       <span id="setSpeedV">${SETTINGS.botMs === 0 ? "instant" : SETTINGS.botMs + "ms"}</span></div>
+    <h2 style="margin-top:14px">Handicaps</h2>
+    <p class="mut">Training wheels. Each only tells you what a careful player could
+      work out from the table \u2014 nothing hidden is revealed.</p>
+    <div class="setrow"><label>Count tiles</label>
+      <input type="checkbox" id="hcCount" ${SETTINGS.hcCount ? "checked" : ""}>
+      <span class="mut">hover any tile to light up every copy of it on the table</span></div>
+    <div class="setrow"><label>Calling read</label>
+      <input type="checkbox" id="hcCalling" ${SETTINGS.hcCalling ? "checked" : ""}>
+      <span class="mut">whether you are \u807D\u724C, what you wait on, how many are live, and
+        whether the hand can pay</span></div>
+    <div class="setrow"><label>What-if</label>
+      <input type="checkbox" id="hcWhatIf" ${SETTINGS.hcWhatIf ? "checked" : ""}>
+      <span class="mut">hover a tile in your hand to see what cutting it would leave you
+        waiting on (needs the calling read)</span></div>
     <div class="setrow"><label>Dev mode</label>
       <input type="checkbox" id="setDev" ${SETTINGS.dev ? "checked" : ""}>
       <span class="mut">show what each bot is planning, and how the champion would rank your discards</span></div>
@@ -4086,6 +4210,14 @@
       saveSettings();
       render();
     };
+    for (const [id, key] of [["hcCount", "hcCount"], ["hcCalling", "hcCalling"], ["hcWhatIf", "hcWhatIf"]]) {
+      const box = document.getElementById(id);
+      if (box) box.onchange = () => {
+        SETTINGS[key] = box.checked;
+        saveSettings();
+        if (state) render();
+      };
+    }
     $("btnBack").onclick = () => {
       $("veil").style.display = "none";
       back();
@@ -4166,6 +4298,7 @@
     lobbyScreen();
   };
   saveSettings();
+  wireHover();
   void getPlayer().then((p) => {
     player = p;
     if (p) lobbyScreen();

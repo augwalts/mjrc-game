@@ -56,6 +56,27 @@ buttons are measured, not guessed — 25 matches per length on the mixed ladder:
 A wind round is nowhere near four hands: the dealer repeats on a dealer win
 **and on 流局**, and the 3-faan floor sends about a third of hands to 流局.
 
+## Handicaps
+
+Training wheels, each switchable on its own in settings. They tell you only what
+a careful player could work out from the table — `visibleCounts` sees exactly
+what your seat sees, and nothing hidden is revealed.
+
+- **Count tiles** — hover any tile and every copy of it on the table lights up:
+  the pile, the melds, your hand. Counting the discards is a core skill; this
+  does the counting for you, it does not show you anything new.
+- **Calling read** — a standing bar above your hand: whether you are 聽牌, what
+  you are waiting on, **how many of each are still live**, and whether the hand
+  can actually pay. A hand that cannot reach the 3-faan minimum says so, because
+  a complete hand you are not allowed to take is the most expensive way to learn
+  this ruleset.
+- **What-if** — hover a tile in your own hand and the bar shows what cutting it
+  would leave you waiting on. Needs the calling read.
+
+Past six helping tiles the bar stops naming them and gives the count instead:
+five away from calling, nearly every tile in the game helps, and nineteen names
+is wallpaper rather than a reading aid.
+
 ## Settings (⚙ in the top bar)
 
 - **Rules** — MJRC standard (3–10 faan), HK Old Style published (3–13), or TVB

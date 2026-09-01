@@ -14,13 +14,14 @@ import { startMatch, startNextHand, applyAction, legalActions } from "../../engi
 import type { MatchRounds } from "../../engine/src/reducer.js";
 import type { MatchState } from "../../engine/src/reducer.js";
 import { decideAction, DEFAULT_PROFILE, assessRoutes, shapeOf, rankDiscards, scoreAdjust,
-  assessClaim, claimContext, claimDecision, shouldKong,
+  assessClaim, claimContext, claimDecision, shouldKong, visibleCounts, faanCeiling,
   type BotConfig, type BotProfile, type RouteAssessment, type SeatView } from "../../engine/src/bots.js";
 import { tableThreat } from "../../engine/src/threat.js";
 import { MJRC_STANDARD, ruleset as rulesetById } from "../../rulesets/src/presets.js";
 import type { Ruleset } from "../../engine/src/types.js";
 import { prng } from "../../engine/src/wall.js";
-import { TILE_NAMES } from "../../engine/src/tiles.js";
+import { TILE_NAMES, counts } from "../../engine/src/tiles.js";
+import { liveTiles } from "../../engine/src/ready.js";
 import type { Action, ClaimOption, SeatIndex, TileId } from "../../engine/src/types.js";
 import { viewFor } from "../../tools/sim/driver.js";
 import * as store from "./store.js";
@@ -77,8 +78,14 @@ const HONOUR_NAMES = ["East", "South", "West", "North", "Red", "Green", "White",
 const name = (t: TileId): string =>
   t < 9 ? `${t + 1}萬` : t < 18 ? `${t - 8}▮` : t < 27 ? `${t - 17}●`
   : HONOUR_NAMES[t - 27] ?? "?";
+/**
+ * EVERY tile carries `data-t`. The counting handicap lights up every copy of a
+ * tile on the table, and it can only do that if the pile, the melds and the
+ * hand all say which tile they are — not just the hand, which was the only
+ * place that carried it before.
+ */
 const tileHtml = (t: TileId, cls = "", attrs = ""): string =>
-  `<span class="tile ${cls}" ${attrs}><svg viewBox="0 0 100 140" preserveAspectRatio="xMidYMid meet">${face(t)}</svg></span>`;
+  `<span class="tile ${cls}" data-t="${t}" ${attrs}><svg viewBox="0 0 100 140" preserveAspectRatio="xMidYMid meet">${face(t)}</svg></span>`;
 
 const WIND_CH = ["東", "南", "西", "北"];
 const AWARDS: Record<string, string> = {
@@ -193,9 +200,17 @@ function hits(a: { x: number; y: number; rot: number }, b: { x: number; y: numbe
   return true;
 }
 const rec = JSON.parse(localStorage.getItem("mjrc.record") ?? '{"played":0,"won":0,"chips":0}');
-interface Settings { rulesetId: string; tileScale: number; botMs: number; dev: boolean; rounds: MatchRounds; recorded: boolean; }
+interface Settings {
+  rulesetId: string; tileScale: number; botMs: number; dev: boolean;
+  rounds: MatchRounds; recorded: boolean;
+  /** Handicaps — training wheels, each independently switchable. */
+  hcCount: boolean;    // hover a tile, see every copy of it on the table
+  hcCalling: boolean;  // a running read of whether the hand is calling
+  hcWhatIf: boolean;   // hover your own tile, see what cutting it would leave you on
+}
 const SETTINGS: Settings = {
   rulesetId: "mjrc-standard", tileScale: 1, botMs: 420, dev: false, rounds: 1, recorded: true,
+  hcCount: false, hcCalling: false, hcWhatIf: false,
   ...JSON.parse(localStorage.getItem("mjrc.settings") ?? "{}"),
 };
 const saveSettings = (): void => {
@@ -224,6 +239,119 @@ const RULE_CHOICES = [
   ["hkos-standard", "HK Old Style (published)", "3–13 faan · the full limit ladder"],
   ["tvb-2026", "TVB Championship 2026", "1 faan minimum · linear payments · no flowers"],
 ];
+
+/* ── handicaps ─────────────────────────────────────────────────────────
+ * Training wheels, each switchable on its own. They tell the player only what
+ * a careful player could work out from the table themselves — which tiles are
+ * gone, what the hand is waiting on, what a discard would leave them on. No
+ * hidden information: `visibleCounts` sees exactly what this seat can see.
+ */
+interface HandRead {
+  distance: number;
+  calling: boolean;
+  /** Winning tiles when calling, improving tiles otherwise. */
+  waits: { tile: TileId; unseen: number }[];
+  total: number;
+  ceiling: number;
+  payable: boolean;
+}
+/** @param without a tile to imagine having cut first — the what-if handicap */
+function readHand(without?: TileId): HandRead | null {
+  if (!state) return null;
+  const v = viewFor(state, HUMAN);
+  const R = rules();
+  const tiles = [...v.hand, ...(v.drawn !== null ? [v.drawn] : [])];
+  if (without !== undefined) {
+    const k = tiles.indexOf(without);
+    if (k < 0) return null;
+    tiles.splice(k, 1);
+  }
+  const c = counts(tiles);
+  const melds = v.melds[HUMAN]!.length;
+  const lt = liveTiles(c, melds, visibleCounts(v));
+  // faanCeiling adds components without clamping, so it can exceed the house
+  // limit — it read "12 faan" under a 10-cap table. Cap it: 10 is the price.
+  const ceiling = Math.min(faanCeiling(shapeOf(v), R), R.limitFaan);
+  return {
+    distance: lt.distance, calling: lt.distance <= 0,
+    waits: lt.tiles.map((x) => ({ tile: x.tile, unseen: x.unseen })),
+    total: lt.total, ceiling, payable: ceiling >= R.minimumFaan,
+  };
+}
+
+/**
+ * Naming the tiles is only useful when there are few of them. Five away from
+ * calling, `liveTiles` returns nearly every tile in the game — nineteen of them
+ * in testing, which is not a reading aid, it is wallpaper. Past six the count
+ * alone carries the information.
+ */
+const WAIT_LIST_MAX = 6;
+const waitList = (r: HandRead): string => {
+  if (r.waits.length === 0) return "nothing live";
+  if (r.waits.length > WAIT_LIST_MAX) return `<b>${r.waits.length}</b> different tiles help`;
+  return r.waits.map((w) => `<b>${name(w.tile)}</b>&thinsp;<span class="n">${w.unseen}</span>`).join(" ");
+};
+
+/** The standing read, shown above your hand while the handicap is on. */
+function callingBar(): string {
+  if (!SETTINGS.hcCalling || !state || overlay) return "";
+  const r = readHand();
+  if (!r) return "";
+  const faan = r.payable
+    ? `<span class="ok">can reach ${r.ceiling} faan</span>`
+    : `<span class="warn">only ${r.ceiling} faan — under the ${rules().minimumFaan} minimum,
+       this hand cannot be taken yet</span>`;
+  return `<div id="callbar" class="${r.calling ? "calling" : ""}">
+    ${r.calling
+      ? `<b class="lead">CALLING 聽牌</b> waiting on ${waitList(r)}
+         <span class="tot">${r.total} live</span>`
+      : `<b class="lead">${r.distance} away</b> from calling · helps: ${waitList(r)}
+         <span class="tot">${r.total} live</span>`}
+    <span class="faan">${faan}</span></div>`;
+}
+
+/** What cutting THIS tile would leave you on. Driven by hover. */
+function whatIf(tile: TileId): string {
+  const r = readHand(tile);
+  if (!r) return "";
+  return r.calling
+    ? `<b class="lead">cut ${name(tile)} → CALLING</b> on ${waitList(r)}
+       <span class="tot">${r.total} live</span>`
+    : `<b class="lead">cut ${name(tile)} → ${r.distance} away</b> · helps: ${waitList(r)}
+       <span class="tot">${r.total} live</span>`;
+}
+
+/**
+ * Hover wiring, delegated from the document so it survives every re-render.
+ * Counting lights every copy of the tile anywhere on the table; the what-if
+ * read only applies to tiles in your own hand, since cutting somebody else's
+ * is not a move you have.
+ */
+function wireHover(): void {
+  document.addEventListener("mouseover", (e) => {
+    const el = (e.target as HTMLElement | null)?.closest?.(".tile") as HTMLElement | null;
+    if (!el?.dataset.t) return;
+    const t = Number(el.dataset.t) as TileId;
+    if (SETTINGS.hcCount) {
+      for (const o of Array.from(document.querySelectorAll<HTMLElement>(`.tile[data-t="${t}"]`))) {
+        o.classList.add("samet");
+      }
+    }
+    if (SETTINGS.hcWhatIf && el.closest("#myhand") && !overlay) {
+      const bar = document.getElementById("callbar");
+      if (bar) { bar.dataset.saved ??= bar.innerHTML; bar.innerHTML = whatIf(t); bar.classList.add("whatif"); }
+    }
+  });
+  document.addEventListener("mouseout", (e) => {
+    const el = (e.target as HTMLElement | null)?.closest?.(".tile") as HTMLElement | null;
+    if (!el) return;
+    for (const o of Array.from(document.querySelectorAll<HTMLElement>(".tile.samet"))) {
+      o.classList.remove("samet");
+    }
+    const bar = document.getElementById("callbar");
+    if (bar?.dataset.saved) { bar.innerHTML = bar.dataset.saved; delete bar.dataset.saved; bar.classList.remove("whatif"); }
+  });
+}
 
 /* ── the lobby ─────────────────────────────────────────────────────────
  * Home. Everything that is not a game in progress hangs off here: start a
@@ -343,6 +471,25 @@ function statsScreen(): void {
   });
 }
 
+/**
+ * The leaderboard. Sorted by wins by default (owner 2026-08-31), with every
+ * other column sortable — because no single one of them is the truth:
+ *
+ *   wins        matches finished in first place. What people care about, and
+ *               the noisiest thing here over a handful of games.
+ *   hands       most hands played. Rewards showing up, which in a beta is
+ *               exactly what we want to reward.
+ *   chips       the scoreboard. Also mostly wall luck at this sample size —
+ *               the training work measured ±16 chips of noise in one block.
+ *   net/hand    chips normalised by exposure, so a long session does not
+ *               outrank a good one on volume alone.
+ *   agreement   how often you played the engine's own top choice. By far the
+ *               steadiest of the five, because it scores every decision rather
+ *               than the handful that happened to end in a payout.
+ */
+type BoardKey = "wins" | "hands" | "chips" | "net" | "rate";
+let boardSort: BoardKey = "wins";
+
 function boardScreen(): void {
   $("veil").style.display = "flex";
   $("panel").innerHTML = `<h1>Leaderboard</h1><p class="mut">reading…</p>`;
@@ -355,28 +502,51 @@ function boardScreen(): void {
     }
     const table = [...byPlayer.values()].map((e) => {
       const a = aggregate(e.rows);
-      return { name: e.name, games: a.matches, chips: a.chips,
-               rate: a.graded ? a.matched / a.graded : null, graded: a.graded };
-    }).sort((x, y) => (y.rate ?? -1) - (x.rate ?? -1));
+      // a match is won by finishing first on chips; ties share the place
+      const wins = e.rows.filter((m) => {
+        const c = m.chips ?? [0, 0, 0, 0];
+        return (c[0] ?? 0) >= Math.max(...c.slice(1).map((x) => x ?? 0));
+      }).length;
+      return {
+        name: e.name, games: a.matches, wins, hands: a.hands, handsWon: a.won,
+        chips: a.chips, net: a.hands ? a.chips / a.hands : 0,
+        rate: a.graded ? a.matched / a.graded : null,
+      };
+    });
+    const key = (r: typeof table[number]): number =>
+      boardSort === "wins" ? r.wins : boardSort === "hands" ? r.hands
+      : boardSort === "chips" ? r.chips : boardSort === "net" ? r.net : (r.rate ?? -1);
+    table.sort((x, y) => key(y) - key(x) || y.hands - x.hands);
+    const COLS: [BoardKey, string][] = [
+      ["wins", "wins"], ["hands", "hands"], ["chips", "chips"],
+      ["net", "net/hd"], ["rate", "agree"],
+    ];
     $("panel").innerHTML = `
       <h1>Leaderboard</h1>
-      <p class="mut">Ranked by <b>engine agreement</b>, not chips. Chips over a handful of
-        hands are mostly wall luck — the training work measured ±16 chips of noise in a
-        single block, which is larger than most real differences in skill. Agreement is
-        far steadier. Chips are shown because they are what you feel.</p>
+      <p class="mut">Sorted by <b>${COLS.find((c) => c[0] === boardSort)![1]}</b> —
+        tap a heading to change it. None of these is the whole picture: wins and
+        chips are what you feel but carry most of the luck (±16 chips of noise in a
+        single block), while agreement scores every decision rather than the few
+        that ended in a payout.</p>
       ${table.length === 0 ? "<p>No completed recorded games yet.</p>" : `
-      <div class="rows head"><span class="c1">player</span><span class="c2">games</span>
-        <span class="c2">chips</span><span class="c2">agreement</span></div>
+      <div class="rows head"><span class="c1">player</span>${
+        COLS.map(([k, label]) =>
+          `<span class="c2 sortable ${boardSort === k ? "on" : ""}" data-k="${k}">${label}</span>`).join("")}</div>
       <div class="rows">${table.map((r, i) => `
         <div class="row ${r.name === player?.name ? "me" : ""}">
-          <span class="c1">${i + 1}. ${r.name}</span>
-          <span class="c2">${r.games}</span>
+          <span class="c1">${i + 1}. ${r.name} <span class="mut">· ${r.games}g</span></span>
+          <span class="c2">${r.wins}</span>
+          <span class="c2">${r.hands}</span>
           <span class="c2 ${r.chips > 0 ? "up" : r.chips < 0 ? "down" : ""}">${fmtChips(r.chips)}</span>
-          <span class="c2"><b>${fmtPct(r.rate)}</b></span>
+          <span class="c2 ${r.net > 0 ? "up" : r.net < 0 ? "down" : ""}">${r.net.toFixed(1)}</span>
+          <span class="c2">${fmtPct(r.rate)}</span>
         </div>`).join("")}</div>`}
       <p class="mut" style="margin-top:10px">Forfeits and casual games are excluded.
         Everyone here plays on this device — there is no server yet.</p>
       ${backRow(lobbyScreen)}`;
+    for (const h of Array.from($("panel").querySelectorAll<HTMLElement>(".sortable"))) {
+      h.onclick = () => { boardSort = h.dataset.k as BoardKey; boardScreen(); };
+    }
     wireBack(lobbyScreen);
   });
 }
@@ -1309,6 +1479,7 @@ function render(): void {
     };
   }
   $("log").innerHTML = feed.map((l) => `<div>${l}</div>`).join("");
+  $("callwrap").innerHTML = callingBar();
   $("devwrap").innerHTML = devPanel();
   recenterGlyphs(document);
   launchGrab();      // the destination meld is laid out only now
@@ -1329,6 +1500,20 @@ function settingsScreen(back: () => void): void {
     <div class="setrow"><label>Bot speed</label>
       <input type="range" id="setSpeed" min="0" max="1200" step="60" value="${SETTINGS.botMs}">
       <span id="setSpeedV">${SETTINGS.botMs === 0 ? "instant" : SETTINGS.botMs + "ms"}</span></div>
+    <h2 style="margin-top:14px">Handicaps</h2>
+    <p class="mut">Training wheels. Each only tells you what a careful player could
+      work out from the table — nothing hidden is revealed.</p>
+    <div class="setrow"><label>Count tiles</label>
+      <input type="checkbox" id="hcCount" ${SETTINGS.hcCount ? "checked" : ""}>
+      <span class="mut">hover any tile to light up every copy of it on the table</span></div>
+    <div class="setrow"><label>Calling read</label>
+      <input type="checkbox" id="hcCalling" ${SETTINGS.hcCalling ? "checked" : ""}>
+      <span class="mut">whether you are 聽牌, what you wait on, how many are live, and
+        whether the hand can pay</span></div>
+    <div class="setrow"><label>What-if</label>
+      <input type="checkbox" id="hcWhatIf" ${SETTINGS.hcWhatIf ? "checked" : ""}>
+      <span class="mut">hover a tile in your hand to see what cutting it would leave you
+        waiting on (needs the calling read)</span></div>
     <div class="setrow"><label>Dev mode</label>
       <input type="checkbox" id="setDev" ${SETTINGS.dev ? "checked" : ""}>
       <span class="mut">show what each bot is planning, and how the champion would rank your discards</span></div>
@@ -1342,6 +1527,10 @@ function settingsScreen(back: () => void): void {
   sp.oninput = () => { SETTINGS.botMs = Number(sp.value); $("setSpeedV").textContent = SETTINGS.botMs === 0 ? "instant" : SETTINGS.botMs + "ms"; saveSettings(); };
   const dv = document.getElementById("setDev") as HTMLInputElement;
   dv.onchange = () => { SETTINGS.dev = dv.checked; saveSettings(); render(); };
+  for (const [id, key] of [["hcCount", "hcCount"], ["hcCalling", "hcCalling"], ["hcWhatIf", "hcWhatIf"]] as const) {
+    const box = document.getElementById(id) as HTMLInputElement | null;
+    if (box) box.onchange = () => { (SETTINGS as never as Record<string, boolean>)[key] = box.checked; saveSettings(); if (state) render(); };
+  }
   ($("btnBack") as HTMLButtonElement).onclick = () => { $("veil").style.display = "none"; back(); };
 }
 /**
@@ -1408,6 +1597,7 @@ function feedbackScreen(back: () => void): void {
   lobbyScreen();
 };
 saveSettings();
+wireHover();
 // Boot: fetch the player, then either greet them or ask who they are. The game
 // never blocks on the store beyond this one read.
 void store.getPlayer().then((p) => {
