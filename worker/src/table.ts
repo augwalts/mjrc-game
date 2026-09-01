@@ -126,6 +126,12 @@ export interface TableEnv {
   DB?: D1Like;
   /** Shared secret the lobby presents to initialize a table. */
   TABLE_SECRET?: string;
+  /**
+   * Optional JSON `Partial<TableConfig>` — clocks and bot pacing. Meant for
+   * local development and the smoke test, where a full match at human pacing
+   * would take half an hour. Malformed JSON is ignored, not fatal.
+   */
+  TABLE_CONFIG?: string;
 }
 
 /* ── 2. the collaborators ──────────────────────────────────────────────────
@@ -155,7 +161,8 @@ export interface MatchSpec {
   seed: number;
   rulesetId?: string;
   dealer?: SeatIndex;
-  matchLength?: "oneWindRound" | "fourWindRounds";
+  /** As the header spells it: a wind-round count, or the two legacy strings. */
+  matchLength?: MatchLogHeader["matchLength"];
   startingChips?: number;
   startedAt?: number;
 }
@@ -452,6 +459,15 @@ const four = <T>(f: (seat: SeatIndex) => T): FourSeats<T> => [f(0), f(1), f(2), 
 
 const clamp = (n: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, n));
 
+/** 192 bits from the platform's CSPRNG, as hex. Coordination, never game state. */
+function mintSeatToken(): string {
+  const bytes = new Uint8Array(24);
+  (globalThis as { crypto: { getRandomValues(a: Uint8Array): Uint8Array } }).crypto.getRandomValues(bytes);
+  let hex = "";
+  for (const b of bytes) hex += b.toString(16).padStart(2, "0");
+  return hex;
+}
+
 /** Length-independent-ish compare, so a token check is not a timing oracle. */
 function tokensMatch(a: string, b: string): boolean {
   if (typeof a !== "string" || typeof b !== "string") return false;
@@ -670,6 +686,7 @@ export class TableCore {
     await this.hydrate();
     const url = new URL(request.url);
     if (url.pathname.endsWith("/init")) return this.handleInit(request);
+    if (url.pathname.endsWith("/seat")) return this.handleSeat(request);
     if (this.tombstone) return new Response("match over", { status: 410 });
     if (request.headers.get("Upgrade") !== "websocket") {
       return new Response("expected websocket", { status: 400 });
@@ -748,6 +765,64 @@ export class TableCore {
     // start if only `handleJoin` could start them. P0 alpha is bot-backed.
     await this.maybeStartClocks();
     return new Response(JSON.stringify({ ok: true, matchId: init.matchId }), { status: 200 });
+  }
+
+  /**
+   * Lobby → table, the other half of the handoff: bind a player to a human
+   * seat and mint (or rotate) that seat's credential. The platform Worker
+   * calls this on create and on every join — a returning player asking for a
+   * fresh token is the reconnect path (`index.ts` `postJoin`), and rotating
+   * on each call is what makes a leaked old token worthless. The seat's
+   * previous token stops matching the moment this returns; the caller hands
+   * the new one to the client, which is the only party that ever needed one.
+   *
+   * The token is NOT game state: it is coordination, so it comes from the
+   * platform's entropy and never from `prng(seed)`.
+   */
+  private async handleSeat(request: Request): Promise<Response> {
+    const secret = this.env.TABLE_SECRET;
+    if (secret && !tokensMatch(request.headers.get("x-mjrc-table-secret") ?? "", secret)) {
+      return new Response("forbidden", { status: 403 });
+    }
+    if (this.tombstone || this.book.matchOver) return new Response("match over", { status: 410 });
+    if (!this.meta) return new Response("table not initialised", { status: 409 });
+    let claim: { matchId?: unknown; seat?: unknown; playerId?: unknown; displayName?: unknown };
+    try {
+      claim = (await request.json()) as typeof claim;
+    } catch {
+      return new Response("malformed claim", { status: 400 });
+    }
+    const seat = claim.seat;
+    if (
+      !claim ||
+      claim.matchId !== this.meta.matchId ||
+      typeof seat !== "number" ||
+      !SEATS.includes(seat as SeatIndex) ||
+      typeof claim.playerId !== "string" ||
+      claim.playerId === "" ||
+      typeof claim.displayName !== "string"
+    ) {
+      return new Response("malformed claim", { status: 400 });
+    }
+    const s = seat as SeatIndex;
+    const current = this.meta.header.players[s];
+    if (current.bot) return new Response("seat is a bot", { status: 409 });
+    if (current.playerId !== "" && current.playerId !== claim.playerId) {
+      return new Response("seat taken", { status: 409 });
+    }
+    const seatToken = mintSeatToken();
+    const players = four((i) => this.meta!.header.players[i]);
+    players[s] = { playerId: claim.playerId, displayName: claim.displayName, seat: s, bot: false };
+    const seatTokens = four((i) => this.meta!.seatTokens[i]);
+    seatTokens[s] = seatToken;
+    this.meta = { ...this.meta, header: { ...this.meta.header, players }, seatTokens };
+    await this.persistCore();
+    // Nominal: the credential lives as long as the match does (§5.3).
+    const expiresAt = new Date(this.meta.startedAt + 24 * 60 * 60 * 1000).toISOString();
+    return new Response(JSON.stringify({ seatToken, expiresAt }), {
+      status: 200,
+      headers: { "content-type": "application/json; charset=utf-8" },
+    });
   }
 
   /* ── sockets ─────────────────────────────────────────────────────────── */
@@ -1292,7 +1367,9 @@ export class TableCore {
       const att = this.attachmentOf(ws);
       if (!att) continue;
       const redacted = redactEventsFor(att.seat, events);
-      if (redacted.length > 0) this.send(ws, eventsMessage(redacted));
+      // The post-batch snapshot rides along so the client never folds events
+      // into state itself (EventsPayload.snapshot).
+      if (redacted.length > 0) this.send(ws, eventsMessage(redacted, this.viewFor(att.seat)));
     }
     this.sendPrompts();
   }
@@ -1960,6 +2037,24 @@ export function installTableRules(rules: TableRules, bots: BotBrain): void {
   installed = { rules, bots };
 }
 
+/** Only known numeric keys survive, so a typo cannot smuggle in a field. */
+function configOverride(raw: string | undefined): Partial<TableConfig> | undefined {
+  if (!raw) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+  if (!parsed || typeof parsed !== "object") return undefined;
+  const out: Partial<TableConfig> = {};
+  for (const key of Object.keys(DEFAULT_TABLE_CONFIG) as (keyof TableConfig)[]) {
+    const v = (parsed as Record<string, unknown>)[key];
+    if (typeof v === "number" && Number.isFinite(v) && v >= 0) out[key] = v;
+  }
+  return out;
+}
+
 /**
  * The Durable Object binding target. Deliberately not extending
  * `DurableObject`: a DO class only needs these five methods, and skipping the
@@ -1978,6 +2073,7 @@ export class TableDO {
       bots: installed.bots,
       archive: bindingArchive(env),
       clock: () => Date.now(),
+      config: configOverride(env.TABLE_CONFIG),
     });
   }
 

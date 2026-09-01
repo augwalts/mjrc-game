@@ -20,3 +20,7 @@ tools/sim/runs/
 # built by tools/publish-demo.sh; the source is client/game
 deploy/
 .dev.vars
+
+# gamepvp build products and local wrangler state
+gamepvp/assets/
+gamepvp/.wrangler/

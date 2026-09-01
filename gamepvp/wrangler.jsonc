@@ -1,0 +1,63 @@
+// gamepvp — the PvP build, as its own Cloudflare Worker.
+//
+// A Worker rather than a Pages project ON PURPOSE: the live match is a Durable
+// Object (worker/src/table.ts), and a DO can only be hosted by a Worker. Static
+// assets, the platform API, the WebSocket path and the DO all ship in this one
+// script, behind one front-door gate (src/index.ts).
+//
+// Solo — the frozen demo — is a separate Pages project (../wrangler.toml) and is
+// not touched by anything here.
+//
+// Local:
+//   npx wrangler d1 execute mjrc-scoring --local --file ../worker/schema.sql   (once)
+//   ../gamepvp/build.sh                                                        (assets)
+//   npx wrangler dev --port 8787
+//
+// Deploy — ONLY with Augustine's explicit approval (worker/README.md §1). The
+// first deploy creates the Worker, the DO namespace and, once uncommented, the
+// custom domain; the R2 bucket must exist first:
+//   npx wrangler r2 bucket create mjrc-game-logs
+//   npx wrangler secret put GAME_PASSWORD
+//   npx wrangler secret put REPLAY_TOKEN_SECRET
+//   npx wrangler deploy
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "mjrc-gamepvp",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-06-01",
+
+  // Built by ./build.sh from ../client/gamepvp. `run_worker_first` is the whole
+  // point: every request, assets included, passes through the gate in
+  // src/index.ts before anything is served.
+  "assets": { "directory": "./assets", "binding": "ASSETS", "run_worker_first": true },
+
+  // One object per match, keyed idFromName(matchId) (DESIGN.md §5.3).
+  "durable_objects": {
+    "bindings": [{ "name": "TABLES", "class_name": "TableDO" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["TableDO"] }],
+
+  // The SAME database the website and Solo use (../wrangler.toml). The game's
+  // tables (worker/schema.sql) live alongside the rest so results sit next to
+  // everything else. Migrations are owned by mjrc-app; see the plan §3 W1.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "mjrc-scoring",
+      "database_id": "99279695-d091-496d-902d-4320f2249a42"
+    }
+  ],
+
+  // The omniscient event log, one blob per hand. Server only, forever.
+  "r2_buckets": [{ "binding": "LOGS", "bucket_name": "mjrc-game-logs" }],
+
+  // Pinned onto every match row (DESIGN.md §5.5). Must equal ENGINE_VERSION in
+  // engine/src/reducer.ts for the build being deployed; src/index.ts refuses to
+  // start if they disagree.
+  "vars": { "ENGINE_VERSION": "mjrc-engine/1.0.0" },
+
+  // Uncomment on the first approved deploy. wrangler creates the DNS record.
+  // "routes": [{ "pattern": "gamepvp.mahjongresearch.com", "custom_domain": true }],
+
+  "observability": { "enabled": true }
+}

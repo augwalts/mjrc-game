@@ -184,6 +184,14 @@ export interface RestorePayload {
 
 export interface EventsPayload {
   events: SeatVisible<RedactedGameEvent>[];
+  /**
+   * This seat's snapshot AFTER the batch was applied. The live table always
+   * sends it, so a client animates the events and then snaps to the snapshot
+   * rather than folding events into state itself — the client holds no game
+   * logic (DESIGN.md §5), and this is what makes that cheap. Optional in the
+   * type only so a log-fed replay can stream events without one.
+   */
+  snapshot?: SeatVisible<SeatSnapshot>;
 }
 
 /**
@@ -298,7 +306,12 @@ export type ServerToSeatType = ServerToSeat["type"];
 /** Push a batch of already-redacted events. There is no unredacted overload. */
 export const eventsMessage = (
   events: SeatVisible<RedactedGameEvent>[],
-): ServerToSeat => ({ p: PROTOCOL_VERSION, type: "events", payload: { events } });
+  snapshot?: SeatVisible<SeatSnapshot>,
+): ServerToSeat => ({
+  p: PROTOCOL_VERSION,
+  type: "events",
+  payload: snapshot ? { events, snapshot } : { events },
+});
 
 export const rejected = (
   requestId: string,

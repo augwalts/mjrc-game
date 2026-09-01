@@ -751,7 +751,11 @@ async function postJoin(code: string, p: Platform, player: PlayerRow): Promise<R
         break;
       }
       const taken = new Set(seats.map((s) => s.seat));
-      const free = SEATS.find((s) => !taken.has(s));
+      /* Bots hold the HIGH seats and have no match_players row (they are a
+       * count on the match), so the free-seat search must stop short of them
+       * or a joiner is handed a seat the table will refuse. */
+      const firstBotSeat = 4 - Math.max(0, Math.min(4, match.bot_seats));
+      const free = SEATS.find((s) => !taken.has(s) && s < firstBotSeat);
       if (free === undefined) return fail("table_full", 409);
       if (await claimSeat(p.db, match.id, free, player.id)) seat = free;
     }
