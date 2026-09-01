@@ -1,0 +1,429 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Action lab — the chow / pung buttons</title>
+<style>
+body{margin:0;background:#131110;color:#f2ece0;padding:18px 20px 60px;
+  font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+h1{font-size:18px;margin:26px 0 4px}
+h1:first-child{margin-top:0}
+.sub{color:#a9b8ae;font-size:12.5px;max-width:820px;margin-bottom:14px}
+.sub code{background:rgba(255,255,255,.08);padding:1px 5px;border-radius:4px;font-size:12px}
+hr{border:0;border-top:1px solid #2c2823;margin:30px 0 0}
+
+/* ── the button gallery ── */
+.bench{display:grid;grid-template-columns:1fr 1fr;gap:14px;max-width:900px}
+.bench .cell{border:1px solid #2c2823;border-radius:12px;overflow:hidden;background:#1a1815}
+.bench h2{font-size:11.5px;margin:0;padding:8px 12px;letter-spacing:.09em;text-transform:uppercase;
+  color:#a9b8ae;background:rgba(255,255,255,.04);border-bottom:1px solid #2c2823}
+.bench h2.after{color:#d8b56a}
+/* the real felt, so contrast is judged against what these actually sit on */
+.bench .felt{padding:18px 14px;display:flex;flex-wrap:wrap;gap:9px;justify-content:center;
+  align-items:center;min-height:150px;
+  background:radial-gradient(ellipse at 50% 40%,#12503f,#0d3d30 78%,#0b3427)}
+/* The gallery must not squeeze a button narrower than its label — a wrapped
+   label doubles the height and makes `before` look taller than it ships. */
+.bench .felt button{flex:0 0 auto;white-space:nowrap}
+
+/* ── the phones ── */
+.phones{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start}
+.phone{flex:0 0 auto}
+.phone h2{font-size:12px;margin:0 0 7px;letter-spacing:.05em;color:#a9b8ae}
+.phone h2 b{color:#d8b56a;font-weight:600}
+.phone .note{font-size:11.5px;color:#8b9a90;max-width:250px;margin-top:8px;line-height:1.45}
+.frame{width:250px;height:541px;border-radius:20px;overflow:hidden;border:1px solid #3a352e;
+  box-shadow:0 12px 40px rgba(0,0,0,.5)}
+/* a real 375-wide viewport, scaled down to fit three across — so the wrapping,
+   the type size and the touch targets in here are the phone's, not a guess */
+.frame iframe{width:375px;height:812px;border:0;transform:scale(.6667);transform-origin:0 0;display:block}
+
+.controls{display:flex;gap:18px;flex-wrap:wrap;align-items:center;margin-bottom:14px;
+  color:#a9b8ae;font-size:12.5px}
+.controls label{display:flex;gap:6px;align-items:center;cursor:pointer}
+</style>
+</head>
+<body>
+
+<h1>Action lab — the chow / pung buttons</h1>
+<div class="sub">
+  The <b>before</b> column is the stylesheet pulled live out of <code>index.html</code>, so it is
+  exactly what ships today. The <b>after</b> column is the proposed block — it lives only in this
+  file until you approve it, and then it moves into <code>index.html</code> unchanged.
+  The phones below are real 375&times;812 viewports in iframes, scaled down; the type sizes,
+  the wrapping and the touch targets are the phone's.
+</div>
+
+<h1>1 — the buttons</h1>
+<div class="sub">Every call you can be offered, on the felt they sit against. The colours are
+  <b>not new</b>: they are the ones the announcement already flashes when you press the button —
+  green chow, blue pung, purple kong, gold win. Today the buttons ignore that language entirely.</div>
+
+<div class="bench">
+  <div class="cell"><h2>before — 38px tall, 15px type, all one grey</h2>
+    <div class="felt" id="benchBefore"></div></div>
+  <div class="cell"><h2 class="after">after — 52px tall, 18px type, colour-coded</h2>
+    <div class="felt" id="benchAfter"></div></div>
+</div>
+
+<hr>
+
+<h1>2 — where the bar goes</h1>
+<div class="sub">Same hand, same moment: Kwan has just thrown 8<span style="font-family:serif">筒</span>
+  and you can chow it two ways — 6·7·<b>8</b> or <b>8</b>·9 with the 7. Watch where your eye lands first.</div>
+
+<div class="controls">
+  <label>what you are offered
+    <select id="scenario">
+      <option value="chows">two chows + pass — the common case</option>
+      <option value="pungkong">pung + kong + pass</option>
+      <option value="all">everything at once — the worst case</option>
+      <option value="win">a win is on offer</option>
+    </select></label>
+  <label>buttons show
+    <select id="chowStyle">
+      <option value="meld">the finished meld, thrown tile ringed</option>
+      <option value="hand">only what it spends from your hand</option>
+      <option value="text">text — 7▮+9▮</option>
+    </select></label>
+  <label>the WIN button
+    <select id="winFx">
+      <option value="both">sheen + pulse</option>
+      <option value="pulse">pulse only</option>
+      <option value="sheen">sheen only</option>
+      <option value="rays">rays + pulse</option>
+      <option value="none">flat gold, as it ships</option>
+    </select></label>
+  <label>chow colour
+    <select id="chowColour">
+      <option value="orange">orange</option>
+      <option value="cream">cream</option>
+      <option value="red">red</option>
+      <option value="cyan">cyan — close to pung's blue</option>
+    </select></label>
+  <label>the thrown tile
+    <select id="hotStyle">
+      <option value="more">stronger — thicker ring, pulsing halo</option>
+      <option value="now">as it ships — 2px ring, flat glow</option>
+    </select></label>
+  <label><input type="checkbox" id="hilite"> outline the action bar in each</label>
+</div>
+
+<div class="phones" id="phones"></div>
+
+<script src="tile-engine.js"></script>
+<script>
+/* ══ the proposed CSS ═══════════════════════════════════════════════════
+ * This is the block that moves into index.html on approval, verbatim. It is
+ * additive — it overrides #actions and adds the per-call tiers, and touches
+ * nothing else.
+ *
+ * WHY EXPLICIT rgba PER TIER rather than one color-mix() rule: color-mix needs
+ * Safari 16.4, and this is a beta on whatever phones friends happen to own.
+ * Five short lines buy every browser.                                       */
+const PROPOSED = `
+#actions{gap:10px;min-height:56px;margin-top:7px;flex-wrap:wrap}
+#actions button{
+  --c:#cfe3d8;--bg:rgba(255,255,255,.08);--bd:rgba(255,255,255,.2);
+  display:flex;flex-direction:column;align-items:center;gap:1px;
+  background:var(--bg);color:var(--c);border:1.5px solid var(--bd);
+  border-radius:13px;padding:9px 20px;min-height:52px;justify-content:center;
+  font-size:18px;font-weight:700;
+  box-shadow:0 5px 16px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.13);
+  animation:callRise .17s cubic-bezier(.2,.9,.3,1.1) backwards}
+#actions button .sb{font-size:13.5px;font-weight:600;opacity:.72;letter-spacing:.02em}
+/* The tiles the claim would actually make. A row of real tile art reads in one
+   glance where "7▮+9▮" has to be decoded — and when two chows are on offer the
+   tiles ARE the choice, so they belong on the button rather than beside it.
+   Sized explicitly because the mobile block forces .tile to 24x33. */
+#actions button .tw{display:flex;gap:3px;align-items:center;margin-top:2px}
+#actions button .tw .tile{width:21px;height:30px;border-radius:3px;
+  box-shadow:0 1px 0 #b8ad93,0 1px 3px rgba(0,0,0,.45)}
+#actions button .tw .tile.got{outline:2px solid var(--gold);outline-offset:1px}
+#actions button.pung{--c:#8ccff7;--bg:rgba(24,70,104,.94);--bd:rgba(93,184,240,.6)}
+#actions button.kong{--c:#c9aaff;--bg:rgba(62,46,100,.94);--bd:rgba(177,139,245,.6)}
+#actions button.win{--c:#2a2113;--bg:var(--gold);--bd:var(--gold);
+  box-shadow:0 5px 16px rgba(0,0,0,.45), 0 0 26px -4px rgba(255,210,63,.65)}
+#actions button.pass{--c:#93a79d;--bg:rgba(255,255,255,.055);--bd:rgba(255,255,255,.15);
+  font-size:16px;font-weight:500;padding:9px 17px}
+#actions button:active{transform:translateY(1px)}
+@keyframes callRise{from{transform:translateY(10px);opacity:0}}
+`;
+
+/* The offers, as render() builds them. `sb` is the second line — the tiles that
+   distinguish one chow from the other, which is the only thing you are actually
+   choosing between when two are on offer. */
+/* `hand` is what the claim spends out of YOUR hand; the thrown tile is added to
+   it to make the finished meld. Pung spends two of a kind, kong three — so the
+   same two numbers describe every claim and the button needs no special case. */
+const OFFERS = [
+  { cls:"chow", lb:"chow 上",  sb:"6▮+7▮", hand:[6,7] },
+  { cls:"chow", lb:"chow 上",  sb:"7▮+9▮", hand:[7,9] },
+  { cls:"pung", lb:"pung 碰",  sb:"",      hand:[8,8] },
+  { cls:"kong", lb:"kong 槓",  sb:"",      hand:[8,8,8] },
+  { cls:"win",  lb:"WIN 食糊", sb:"" },
+  { cls:"pass", lb:"pass",     sb:"" },
+];
+
+/** The tile Kwan just threw — what every claim on offer is claiming. */
+const THROWN = 8;
+
+/* ── chow's colour ───────────────────────────────────────────────────────
+ * Green was wrong for one reason that outranks the rest: THE FELT IS GREEN.
+ * A green button on a green table is camouflage, which is the opposite of
+ * what the whole change is for. Pung owns blue, kong purple, win gold — so
+ * chow needs a hue none of them hold that also separates from the felt. */
+const CHOW_COLOURS = {
+  orange: { c:"#ffb277", bg:"rgba(110,56,20,.94)",  bd:"rgba(255,157,92,.7)"  },
+  cream:  { c:"#f6edda", bg:"rgba(74,64,45,.94)",   bd:"rgba(235,217,178,.62)"},
+  red:    { c:"#ffa398", bg:"rgba(104,34,30,.94)",  bd:"rgba(255,120,105,.66)"},
+  cyan:   { c:"#7fdcf0", bg:"rgba(16,72,88,.94)",   bd:"rgba(94,205,232,.62)" },
+};
+const chowCss = (name) => {
+  const v = CHOW_COLOURS[name];
+  return `#actions button.chow{--c:${v.c};--bg:${v.bg};--bd:${v.bd}}`;
+};
+
+/* ── the win button ──────────────────────────────────────────────────────
+ * It is the rarest thing you will ever be offered and it ends the hand, so it
+ * should not be a gold rectangle sitting quietly beside `pass`. It also gets
+ * BIGGER than the others rather than only brighter — size is what your eye
+ * catches before colour resolves.
+ *
+ * No tiles on this one, deliberately. Every other button shows the meld it
+ * would build because that is the choice being made; the win has no choice in
+ * it, and giving it the same furniture as chow would make it read as a peer.  */
+const WIN_BASE = `
+#actions button.win{font-size:21px;padding:12px 26px;min-height:58px;letter-spacing:.02em}`;
+const WIN_SHEEN = `
+#actions button.win{position:relative;overflow:hidden}
+#actions button.win::after{content:"";position:absolute;top:0;bottom:0;width:55%;left:-70%;
+  background:linear-gradient(100deg,transparent,rgba(255,255,255,.8),transparent);
+  animation:winSheen 2.2s ease-in-out infinite;pointer-events:none}
+@keyframes winSheen{0%{left:-70%}55%,100%{left:135%}}`;
+/* the glow is box-shadow, which overflow:hidden does NOT clip — so pulse and
+   sheen compose. Rays are a child, so they cannot; rays ships without it. */
+const WIN_PULSE = `
+#actions button.win{animation:winPulse 1.4s ease-in-out infinite}
+@keyframes winPulse{
+  0%,100%{box-shadow:0 5px 16px rgba(0,0,0,.45), 0 0 20px -2px rgba(255,210,63,.6);
+          transform:scale(1)}
+  50%    {box-shadow:0 7px 22px rgba(0,0,0,.5),  0 0 42px 2px rgba(255,210,63,.95);
+          transform:scale(1.045)}}`;
+const WIN_RAYS = `
+#actions button.win{position:relative;overflow:visible;isolation:isolate}
+#actions button.win::before{content:"";position:absolute;inset:-55%;z-index:-1;border-radius:50%;
+  background:repeating-conic-gradient(rgba(255,210,63,.5) 0deg 4deg, transparent 4deg 24deg);
+  -webkit-mask:radial-gradient(closest-side,transparent 42%,#000 62%,transparent 100%);
+  mask:radial-gradient(closest-side,transparent 42%,#000 62%,transparent 100%);
+  animation:winRays 11s linear infinite;pointer-events:none}
+@keyframes winRays{to{transform:rotate(360deg)}}`;
+const WIN_FX = {
+  none:   "",
+  pulse:  WIN_BASE + WIN_PULSE,
+  sheen:  WIN_BASE + WIN_SHEEN,
+  both:   WIN_BASE + WIN_SHEEN + WIN_PULSE,
+  rays:   WIN_BASE + WIN_RAYS + WIN_PULSE,
+};
+
+/* ── the tile in play ────────────────────────────────────────────────────
+ * Shipped: a 2px ring and a box-shadow glow. The glow barely reads, and the
+ * reason is structural — #surface is preserve-3d, so box-shadow paints UNDER
+ * the neighbouring tiles it overlaps. drop-shadow composites with the element
+ * instead, so the halo travels on top where you can see it.                */
+const HOT = {
+  now: "",
+  more: `
+#pile .tile.hot{outline:3px solid var(--gold);outline-offset:1px;box-shadow:none;
+  animation:hotPulse 1.6s ease-in-out infinite}
+@keyframes hotPulse{
+  0%,100%{filter:drop-shadow(0 0 4px rgba(255,210,63,.9)) drop-shadow(0 0 13px rgba(255,210,63,.45))}
+  50%    {filter:drop-shadow(0 0 8px rgba(255,210,63,1))  drop-shadow(0 0 24px rgba(255,210,63,.72))}}`,
+};
+
+const pick = (...c) => OFFERS.filter((o,i) => c.includes(i));
+/* What the reducer can put in front of you at once. The worst case is real:
+   a discard you can chow two ways AND pung is not rare. */
+const SCENARIOS = {
+  chows:    pick(0,1,5),
+  pungkong: pick(2,3,5),
+  all:      pick(0,1,2,3,5),
+  win:      pick(2,4,5),
+};
+
+/* today's markup: one flat label, and only win/pass get a class */
+const beforeHtml = (o) =>
+  `<button class="${o.cls === "win" || o.cls === "pass" ? o.cls : ""}">` +
+  `${o.lb}${o.sb ? " " + o.sb : ""}</button>`;
+
+/* proposed markup: the call's own class, and what it makes on a second line */
+const afterHtml = (o) => {
+  let second = "";
+  if (o.hand) {
+    const style = document.getElementById("chowStyle").value;
+    if (style === "text") second = `<span class="sb">${o.sb || "碰"}</span>`;
+    else {
+      /* `meld` shows what you would BUILD with the thrown tile ringed; `hand`
+         shows only what it costs you. Tag the thrown tile by POSITION, not by
+         value — pung and kong are all the same number, so `n === THROWN` would
+         ring every tile in them. */
+      const parts = o.hand.map((n) => ({ n, got: false }));
+      if (style === "meld") parts.push({ n: THROWN, got: true });
+      parts.sort((a, b) => a.n - b.n);        // stable: the thrown one stays last
+      second = `<span class="tw">` + parts.map((p) =>
+        `<span class="tile${p.got ? " got" : ""}">` +
+        `<svg viewBox="0 0 100 140" preserveAspectRatio="xMidYMid meet">${T.tong(p.n)}</svg>` +
+        `</span>`).join("") + `</span>`;
+    }
+  }
+  return `<button class="${o.cls}"><span class="lb">${o.lb}</span>${second}</button>`;
+};
+
+/* ── tiles, from the shipped engine ──────────────────────────────────── */
+const T = { wan:(n)=>tileWan(n), suo:(n)=>tileSuo(n), tong:(n)=>tileTong(n) };
+const tile = (svg, cls="") =>
+  `<span class="tile ${cls}"><svg viewBox="0 0 100 140" preserveAspectRatio="xMidYMid meet">${svg}</svg></span>`;
+/* the hand you are holding at the moment shown — two chows live in it */
+const HAND = [T.wan(2),T.wan(3),T.suo(4),T.suo(5),T.suo(6),T.tong(5),T.tong(6),
+              T.tong(6),T.tong(8),T.tong(9),T.wan(8),T.wan(8),T.wan(9)];
+
+let SHIPPED = "";
+
+/* Every shipped rule whose selector mentions #actions, pulled out whole so the
+   gallery's `before` column is the real thing rather than a copy of it. */
+function shippedActionRules(){
+  return [...SHIPPED.matchAll(/([^{}]*#actions[^{}]*)\{([^}]*)\}/g)]
+    .map((m) => `${m[1].trim()}{${m[2]}}`).join("\n");
+}
+
+async function boot(){
+  const html = await (await fetch("index.html")).text();
+  SHIPPED = [...html.matchAll(/<style>([\s\S]*?)<\/style>/g)].map((m)=>m[1]).join("\n");
+
+  /* the gallery: shipped CSS scoped so it cannot lay this page out */
+  const st = document.createElement("style");
+  st.textContent = SHIPPED
+    .replace(/(^|\})\s*body\s*\{[^}]*\}/g, "$1")
+    .replace(/(^|\})\s*html\s*\{[^}]*\}/g, "$1");
+  document.head.appendChild(st);
+  /* Both #actions rulesets are id-scoped, so the gallery has to borrow them
+     under its own ids — the shipped ones for `before`, the proposed for
+     `after`. Lifting the real rules out beats retyping them: a copy here
+     would drift the moment index.html changed, which is the whole thing the
+     lab exists to prevent. */
+  benchStyle = document.createElement("style");
+  document.head.appendChild(benchStyle);
+
+  drawBench();
+  buildPhones();
+  for (const id of ["hilite","scenario","chowStyle","chowColour","hotStyle","winFx"]) {
+    document.getElementById(id).onchange = () => { drawBench(); buildPhones(); };
+  }
+}
+
+let benchStyle = null;
+
+function drawBench(){
+  benchStyle.textContent =
+    shippedActionRules().replace(/#actions/g, "#benchBefore")
+    + "\n" + (PROPOSED + chowCss(document.getElementById("chowColour").value)
+                   + WIN_FX[document.getElementById("winFx").value])
+        .replace(/#actions/g, "#benchAfter");
+  document.getElementById("benchBefore").innerHTML = OFFERS.map(beforeHtml).join("");
+  document.getElementById("benchAfter").innerHTML  = OFFERS.map(afterHtml).join("");
+  recenterGlyphs(document);
+}
+
+/* ── the phone mocks ─────────────────────────────────────────────────────
+ * Each is a real iframe at 375x812 carrying the SHIPPED stylesheet and the
+ * game's own DOM shape, so nothing here is a drawing of the layout — it IS
+ * the layout. The three differ only in where #actions sits.               */
+const PHONES = [
+  { key:"now", title:"<b>now</b> — below the hand",
+    note:"The bar is the last element on the page, y≈745 of 812. You look at the table, then travel past thirteen tiles to find out you had a decision." },
+  { key:"A", title:"<b>A</b> — above the hand",
+    note:"y≈600. Board → buttons → your tiles, in that order. Nothing is covered and it is still inside thumb reach." },
+  { key:"B", title:"<b>B</b> — floating on the felt",
+    note:"y≈500, sitting on the table by the pile. Hardest to miss, but it covers the board and it is 250px further from your thumb." },
+];
+
+function phoneDoc(key){
+  const hi = document.getElementById("hilite").checked
+    ? "#actions{outline:2px dashed #d8b56a;outline-offset:4px;border-radius:8px}" : "";
+  const proposed = key === "now" ? ""
+    : PROPOSED + chowCss(document.getElementById("chowColour").value)
+      + WIN_FX[document.getElementById("winFx").value];
+  /* the thrown-tile treatment is independent of placement — it applies to all
+     three, so the three stay a comparison of ONE variable */
+  const hot = HOT[document.getElementById("hotStyle").value];
+  /* B parks the bar over the felt's lower edge. It has to be a CHILD of #felt
+     to do it: #mine is a sibling of #table, so an absolutely-positioned bar
+     left inside #mine would resolve against the page, not the table. */
+  const placeB = key !== "B" ? "" : `
+    #felt>#actions{position:absolute;left:0;right:0;bottom:6%;z-index:6;margin:0}
+    #mine{padding-top:8px}`;
+  const bar = SCENARIOS[document.getElementById("scenario").value]
+    .map(key === "now" ? beforeHtml : afterHtml).join("");
+  const wall = (side) => `<div class="side ${side}">` +
+    Array.from({length:17},()=>`<div class="wt"></div>`).join("") + `</div>`;
+  const plate = (av,nm,wd,ch) =>
+    `<div class="nameplate"><span class="avatar">${av}</span>${nm} <span class="wind">${wd}</span>` +
+    `<span class="chips">${ch}</span></div>`;
+  /* the discard pile, with the tile in play wearing the gold ring */
+  const pile = [[92,38,-14],[126,64,7],[64,86,22],[150,104,-6],[100,128,11]]
+    .map(([x,y,r],i)=>`<span class="tile pt ${i===4?"hot":""}" style="left:${x}px;top:${y}px;`+
+      `transform:translate(-50%,-50%) rotate(${r}deg)">`+
+      `<svg viewBox="0 0 100 140" preserveAspectRatio="xMidYMid meet">${[T.suo(3),T.wan(5),T.tong(2),T.wan(1),T.tong(7)][i]}</svg></span>`).join("");
+
+  /* The one thing that differs between the three: where this div lives.
+     now → after the hand · A → before it · B → inside the felt. */
+  const actions = `<div id="actions">${bar}</div>`;
+  const mine = `<div id="mine">
+      <div id="mymelds"></div>
+      ${key === "A" ? actions : ""}
+      <div id="myhand">${HAND.map((s)=>tile(s)).join("")}</div>
+      ${key === "now" ? actions : ""}
+    </div>`;
+
+  return `<!doctype html><html><head><meta charset="utf-8">
+<style>${SHIPPED}${proposed}${hot}${placeB}${hi}
+/* the mock holds the wall still; renderWall() sets --ws in the real game */
+#wall{--ws:.6}
+#pile .tile.pt{position:absolute}
+</style></head><body>
+<div id="hud"><span class="spacer"></span><span id="hudTable">Mixed table</span>
+  <button>&#9998; feedback</button><button>&#9881; settings</button><button>quit</button></div>
+<div id="table"><div id="felt">
+  <div id="state"><div class="r1"><span class="wind">東</span><span>hand <b>3</b></span></div>
+    <div class="r2">wall <b>62</b> left</div></div>
+  <div class="seat n">${plate("M","Ming","西",0)}<div class="backrow">${
+    Array.from({length:13},()=>`<div class="back"></div>`).join("")}</div></div>
+  <div class="seat w">${plate("L","Ling","北",-8)}<div class="backrow">${
+    Array.from({length:13},()=>`<div class="back"></div>`).join("")}</div></div>
+  <div class="seat e">${plate("K","Kwan","南",24)}<div class="backrow">${
+    Array.from({length:13},()=>`<div class="back"></div>`).join("")}</div></div>
+  <div id="centre"><div id="surface"><div id="wall">${
+    ["top","right","bottom","left"].map(wall).join("")}</div>
+    <div id="pile">${pile}</div></div></div>
+  <div class="seat s">${plate("Y","You","東",-16)}</div>
+  ${key === "B" ? actions : ""}
+</div></div>
+<div id="clockbar"><div id="clock" style="width:58%"></div></div>
+${mine}
+<script src="tile-engine.js"><\/script>
+<script>window.addEventListener("load",()=>recenterGlyphs(document));<\/script>
+</body></html>`;
+}
+
+function buildPhones(){
+  document.getElementById("phones").innerHTML = PHONES.map((p)=>
+    `<div class="phone"><h2>${p.title}</h2><div class="frame">` +
+    `<iframe id="fr-${p.key}"></iframe></div><div class="note">${p.note}</div></div>`).join("");
+  for (const p of PHONES) document.getElementById("fr-" + p.key).srcdoc = phoneDoc(p.key);
+}
+
+boot();
+</script>
+</body>
+</html>
