@@ -154,6 +154,39 @@ claim/win ceremony · online play (`DESIGN.md` §5.3 specifies snapshot +
 actions-since resync, which the renderer boundary already assumes) · no test
 coverage on this client (the engine beneath it has ~1,980 tests).
 
+### Phone landscape is broken. Deliberately not fixed. (2026-09-01)
+
+Portrait works and is the orientation to care about; landscape does not, and the
+owner ruled it a real-app problem rather than a beta one.
+
+Measured on the live demo, iPhone-sized, mid-hand:
+
+| | portrait 375x812 | landscape 812x375 |
+| --- | --- | --- |
+| `#table` height | 547px | **172px** |
+| felt | 353x525 | 763x**165** |
+| side seat (plate + 14 tile backs) | 235px, fits | 235px in a **165px** felt |
+| seats escaping the felt | none | **east and west** |
+| seat plate printing over the HUD | no | **yes** — Kwan lands on `settings` |
+| wall scale `--ws` | 0.589 | 0.589 |
+| anything off-screen | no | no |
+
+The root cause is one thing, not several: **the felt only gets the height left
+over after the HUD and the hand strip**, and the hand strip keeps its desktop
+`--th:86px` tiles. On a 375px-tall viewport that is 37px of HUD plus 166px of
+hand, leaving the whole table 172px — while a side seat's column of concealed
+tiles is a fixed 235px. `#centre` has the same shape of bug: `height:min(52vh,
+360px)` is 195px on a 165px felt, so the pile box starts above the felt's edge.
+
+Fixing it properly means the same treatment the wall got in `renderWall()` —
+measure the felt and scale to it — applied to the seat back-columns and the
+hand, plus `#centre` in felt-relative units rather than `vh`. That is a layout
+pass, not a patch, and it is deferred.
+
+Portrait's one remaining cosmetic flaw: the west nameplate overlaps the left
+wall column by **13px**. Both are translucent, nothing is hidden, and no
+interaction is blocked.
+
 ## 6. Open questions
 
 1. Difficulty presentation — do players pick a *table* (as now) or a single

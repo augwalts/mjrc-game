@@ -98,11 +98,18 @@ body{background:radial-gradient(ellipse at 50% 30%, #1e1b17 0%, #131110 55%, #0a
 #wall .side.bottom{bottom:1%;left:50%;transform:translateX(-54%);justify-content:center}
 #wall .side.left{left:1%;top:50%;transform:translateY(-54%);flex-direction:column;justify-content:center}
 #wall .side.right{right:1%;top:50%;transform:translateY(-46%);flex-direction:column;justify-content:center}
-.wt{width:17px;height:23px;border-radius:3px;flex:0 0 auto;
+/* The wall SCALES to the table (--ws, set in renderWall).
+   It drew 17 stacks a side at a fixed 17px, needing ~289px of width — but the
+   table centre is about 227px on a phone, so the bottom row ran off the edge
+   and the side columns cut straight through the seat nameplates. Portrait was
+   unusable. Sizes below are the desktop dimensions times --ws. */
+.wt{width:calc(17px * var(--ws,1));height:calc(23px * var(--ws,1));
+  border-radius:3px;flex:0 0 auto;
   background:linear-gradient(180deg,#eef3f7 0 42%,#7fb6d8 42% 72%,#5a97bd 72% 100%);
   border:1px solid #4b7f9f;
   box-shadow:0 1px 0 rgba(255,255,255,.5) inset, 0 2px 3px rgba(0,0,0,.45)}
-#wall .side.left .wt,#wall .side.right .wt{width:23px;height:15px;
+#wall .side.left .wt,#wall .side.right .wt{
+  width:calc(23px * var(--ws,1));height:calc(15px * var(--ws,1));
   background:linear-gradient(90deg,#eef3f7 0 42%,#7fb6d8 42% 72%,#5a97bd 72% 100%)}
 #wall .wt.gone{visibility:hidden}
 #wall .wt.dead{filter:saturate(.45) brightness(.9)}
@@ -183,11 +190,24 @@ body{background:radial-gradient(ellipse at 50% 30%, #1e1b17 0%, #131110 55%, #0a
 #actions .hint{color:var(--dim);font-size:13px}
 
 /* ── overlays ── */
-.veil{position:fixed;inset:0;background:rgba(4,12,9,.82);display:flex;align-items:center;justify-content:center;
-  z-index:40;padding:16px}
+/* A PANEL TALLER THAN THE PHONE MUST SCROLL.
+   This centred the panel with flex and gave it no overflow, while body is
+   overflow:hidden — so anything taller than the viewport spilled off both ends
+   with no way to reach it. On a phone the About screen's "got it" button was
+   simply unreachable and a tester could not start a game at all. The same trap
+   sat under the match scoreboard, Your games and the leaderboard.
+
+   `align-items:flex-start` + `margin:auto` on the child is the combination that
+   works: auto margins still centre the panel when it fits, and when it does not
+   the panel starts at the top and the veil scrolls. Centring with
+   `align-items:center` clips the overflow ABOVE the container, which no amount
+   of scrolling can reach. */
+.veil{position:fixed;inset:0;background:rgba(4,12,9,.82);display:flex;
+  align-items:flex-start;justify-content:center;overflow-y:auto;
+  -webkit-overflow-scrolling:touch;z-index:40;padding:16px}
 .panel{background:linear-gradient(180deg,#1b3a30,#12281f);border:1px solid rgba(216,181,106,.35);
   border-radius:14px;padding:22px 26px;max-width:640px;width:100%;text-align:center;
-  box-shadow:0 20px 60px rgba(0,0,0,.5)}
+  margin:auto;box-shadow:0 20px 60px rgba(0,0,0,.5)}
 .panel h1{font-size:20px;margin:0 0 4px}
 .panel h2{font-size:16px;margin:0 0 10px;color:var(--gold)}
 .panel p{color:var(--dim);font-size:13px;margin:6px 0}

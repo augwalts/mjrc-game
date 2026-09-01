@@ -1504,9 +1504,23 @@ function renderWall(): void {
    * only information lost is where the break happened, which this client never
    * modelled anyway.
    */
+  /**
+   * Scale the wall so `perSide` stacks actually FIT the table, in both axes.
+   * A fixed tile size needed ~289px of width for a side; a phone's table centre
+   * is about 227px, so the bottom row ran off the edge and the side columns sat
+   * on top of the seat nameplates. The wall is decorative — its one job is
+   * showing how much game is left — so shrinking it costs nothing and being
+   * clipped cost everything.
+   */
+  const wallEl = $("wall");
+  const bw = wallEl.clientWidth || 480, bh = wallEl.clientHeight || 300;
+  const fitW = (bw / perSide - 2) / 17;      // 17px wide per stack, 2px gap
+  const fitH = (bh / perSide - 2) / 15;      // 15px tall in the side columns
+  const ws = Math.max(0.4, Math.min(1, fitW, fitH));   // never bigger than desktop, never microscopic
+  wallEl.style.setProperty("--ws", ws.toFixed(3));
   const jr = prng((seed ^ 0xbeef) >>> 0);
-  $("wall").className = buildAnim ? "building" : "";
-  $("wall").innerHTML = ["top", "right", "bottom", "left"].map((side, si) => {
+  wallEl.className = buildAnim ? "building" : "";
+  wallEl.innerHTML = ["top", "right", "bottom", "left"].map((side, si) => {
     const share = Math.floor(liveStacks / 4) + (si < liveStacks % 4 ? 1 : 0);
     return `<div class="side ${side}">${Array.from({ length: perSide }, (_, i) => {
       const gone = i >= share;

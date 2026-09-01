@@ -4435,9 +4435,15 @@
     const stacks = total / 2;
     const perSide = Math.ceil(stacks / 4);
     const liveStacks = Math.ceil(left / 2);
+    const wallEl = $("wall");
+    const bw = wallEl.clientWidth || 480, bh = wallEl.clientHeight || 300;
+    const fitW = (bw / perSide - 2) / 17;
+    const fitH = (bh / perSide - 2) / 15;
+    const ws = Math.max(0.4, Math.min(1, fitW, fitH));
+    wallEl.style.setProperty("--ws", ws.toFixed(3));
     const jr = prng((seed ^ 48879) >>> 0);
-    $("wall").className = buildAnim ? "building" : "";
-    $("wall").innerHTML = ["top", "right", "bottom", "left"].map((side, si) => {
+    wallEl.className = buildAnim ? "building" : "";
+    wallEl.innerHTML = ["top", "right", "bottom", "left"].map((side, si) => {
       const share = Math.floor(liveStacks / 4) + (si < liveStacks % 4 ? 1 : 0);
       return `<div class="side ${side}">${Array.from({ length: perSide }, (_, i) => {
         const gone = i >= share;
