@@ -5,6 +5,20 @@ straight in here, no sorting required. This README is the index.
 
 Everything except this README is gitignored (binaries stay local-only).
 
+## Current state (updated 2026-09-01)
+
+The board has outgrown the flat-folder rule below. It is now organised as **many references ×
+few images each** — `mahjong/`, `cities/<city>/`, `materials/`, `grid/<lineage>/`, `games/<title>/`.
+Open **`viewer.html`** to browse (regenerate with `python3 build_viewer.py`); annotations live in
+`notes.json`, attribution in `credits.json`, and culled images in `_culled/`.
+
+Start with `PRECEDENTS.md` — it indexes what's collected and what's still worth collecting.
+Also: `RENDER-AXIS-PROPOSAL.md` (content vs. render axis), `AI-ART-STRATEGY.md`,
+`GENERIC-GAME-STYLE.md`, `AUDIENCE-AND-TASTE.md`.
+
+The direction below is unchanged and still governs. The "one flat folder" and "if the
+collection passes ~100 images" notes are superseded.
+
 ## Direction
 
 **Copy the spirit of Hong Kong, not the look of Hong Kong.** HK's original energy

@@ -1,0 +1,27 @@
+# The playable demo, deployed as its own Cloudflare Pages project at
+# game.mahjongresearch.com.
+#
+# It is a separate project from the website (mjrc) ON PURPOSE. The game needs a
+# password gate over EVERY path — the page, its assets and its upload API — and
+# at the root of its own project one `functions/_middleware.ts` does that. Served
+# under a host rewrite on the main site instead, the static files would be
+# reached through the ASSETS binding, which bypasses Functions and so bypasses
+# the gate.
+#
+# It also means this repo owns its own deploy, rather than copying built files
+# into the website's repo every time the game changes.
+#
+#   ./tools/publish-demo.sh          build the assets into deploy/
+#   npx wrangler pages deploy deploy --project-name mjrc-game
+name = "mjrc-game"
+compatibility_date = "2026-06-01"
+pages_build_output_dir = "deploy"
+
+# The SAME database the website uses. One D1 can be bound to several projects,
+# and the demo's tables (0012_game.sql) live alongside the rest of the data so
+# bot-versus-human results sit next to everything else rather than in a silo.
+# Migrations are owned by mjrc-app, which is where the migrations directory is.
+[[d1_databases]]
+binding = "DB"
+database_name = "mjrc-scoring"
+database_id = "99279695-d091-496d-902d-4320f2249a42"

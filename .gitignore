@@ -16,3 +16,7 @@ tools/sim/runs/
 
 # Local profiler dumps
 *.cpuprofile
+
+# built by tools/publish-demo.sh; the source is client/game
+deploy/
+.dev.vars

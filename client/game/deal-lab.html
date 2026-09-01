@@ -1,0 +1,1754 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Deal lab — shuffle, build, break, deal</title>
+<style>
+:root{
+  --felt:#12503f; --felt-dk:#0d3d30; --ink:#f2ece0; --dim:#a9b8ae;
+  --gold:#d8b56a; --panel:#1a1815; --line:#2c2823;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:radial-gradient(ellipse at 50% 30%,#1e1b17 0%,#131110 55%,#0a0908 100%);
+  color:var(--ink);font:13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  display:flex;overflow:hidden}
+
+/* ── control rail ───────────────────────────────────────────────────────── */
+#rail{width:328px;flex:0 0 auto;height:100%;overflow-y:auto;padding:14px 14px 40px;
+  background:#141210;border-right:1px solid var(--line)}
+#rail h1{font-size:15px;margin:0 0 3px}
+#rail .sub{color:var(--dim);font-size:11.5px;line-height:1.45;margin-bottom:14px}
+.grp{border:1px solid var(--line);border-radius:10px;background:var(--panel);
+  padding:9px 10px;margin-bottom:10px}
+.grp > h2{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--gold);
+  margin:0 0 7px;display:flex;align-items:center;gap:7px}
+.grp > h2 .ms{margin-left:auto;color:var(--dim);letter-spacing:0;text-transform:none;
+  font-variant-numeric:tabular-nums;font-size:10.5px}
+.opt{display:block;padding:5px 7px;border-radius:7px;cursor:pointer;margin-bottom:2px}
+.opt:hover{background:rgba(255,255,255,.05)}
+.opt input{margin-right:6px;vertical-align:-1px}
+.opt b{font-weight:600;font-size:12.5px}
+.opt .why{display:block;color:var(--dim);font-size:11px;line-height:1.35;padding-left:19px;margin-top:1px}
+.opt.on{background:rgba(216,181,106,.1);outline:1px solid rgba(216,181,106,.28)}
+.sl{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--dim);margin-top:6px}
+.sl label{flex:0 0 92px}
+.sl input[type=range]{flex:1;min-width:0;accent-color:var(--gold)}
+.sl .v{flex:0 0 50px;text-align:right;color:var(--ink);font-variant-numeric:tabular-nums}
+.grp > .note{color:var(--dim);font-size:11px;line-height:1.4;margin:-2px 0 7px}
+.lay{margin-top:7px;font-size:11px;color:var(--dim);letter-spacing:.02em}
+.chk{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--dim);margin-top:6px;cursor:pointer}
+.chk input{accent-color:var(--gold)}
+.btns{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+button{background:rgba(255,255,255,.09);color:var(--ink);border:1px solid rgba(255,255,255,.18);
+  border-radius:8px;padding:7px 12px;font-size:12.5px;font-weight:600;cursor:pointer;
+  font-family:inherit}
+button:hover{background:rgba(255,255,255,.17)}
+button.pri{background:rgba(216,181,106,.18);border-color:rgba(216,181,106,.5);color:var(--gold)}
+button.pri:hover{background:rgba(216,181,106,.3)}
+button:disabled{opacity:.4;cursor:default}
+#log{font:10.5px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--dim);
+  white-space:pre-wrap;max-height:130px;overflow-y:auto}
+#log b{color:var(--gold);font-weight:600}
+
+/* ── the table ──────────────────────────────────────────────────────────── */
+#stage{flex:1;min-width:0;height:100%;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;padding:14px;position:relative}
+#felt{position:relative;width:min(96%,1000px);height:min(76%,640px);border-radius:22px;
+  background:radial-gradient(ellipse at 50% 42%,var(--felt) 0%,var(--felt-dk) 72%,#0b3427 100%);
+  border:10px solid #2e2016;flex:0 0 auto;
+  box-shadow:inset 0 0 60px rgba(0,0,0,.45),0 18px 50px rgba(0,0,0,.55),
+    0 0 0 2px #1b120c,inset 0 2px 0 rgba(255,255,255,.06)}
+
+/* THE SURFACE IS FLAT.
+ *
+ * The game wraps the table in `perspective(1500px) rotateX(17deg)` and then
+ * draws every tile as a plain rectangle. That is two projections fighting: the
+ * CSS squashes positions, the tile art does not know it has been squashed, and
+ * nothing can tell you how much of a tile's side should show. ANIMATION.md §2
+ * says it the other way round — "nothing is positioned in pixels; everything
+ * is positioned in table space and projected" — so the projection lives in one
+ * function here and the surface is an ordinary 2D box.
+ *
+ * One consequence is visible immediately and is correct: a wall square in table
+ * space lands on screen as a WIDE rectangle, which is what the owner's photo
+ * shows. Under rotateX(17deg) it stayed nearly square. */
+#surface{position:absolute;left:50%;top:50%;width:620px;height:392px;
+  transform:translate(-50%,-50%) scale(var(--fit,1));transform-origin:50% 50%}
+#field{position:absolute;left:0;top:0;width:100%;height:100%}
+
+/* ── ONE TILE, TWO LYING ORIENTATIONS ────────────────────────────────────
+ * A tile is a 20 × 26 × 16 mm block, and what you see of it depends entirely
+ * on how it is lying and how far over the table you are looking from.
+ *
+ * Every tile is drawn as TWO surfaces, never as a gradient pretending to be
+ * two surfaces:
+ *
+ *   .top   the face pointing at the sky — the BACK when face down, the art
+ *          when face up. Screen height = the tile's depth × sin θ.
+ *   .edge  the vertical side facing the viewer — always ivory. Screen height =
+ *          the tile's thickness × cos θ, and it does not care which way round
+ *          the tile is lying.
+ *
+ * θ ALONE DECIDES THE RATIO, and the ratio is the thing that reads as real:
+ *
+ *      θ    face down    a wall stack
+ *     43°       60:40          43:57      ← two-tone, and obviously wrong
+ *     70°       82:18          69:31
+ *     80°       90:10          82:18      ← the owner's render
+ *     84°       94: 6          89:11
+ *
+ * The owner's 3D reference is shot from almost directly overhead: a face-down
+ * tile is "like 90 % blue" and on the wall "you can barely see the white".
+ * 26·sinθ / 16·cosθ = 9 gives θ = 79.8°, so 80° it is. A wall stack shows twice
+ * the side of a loose tile, because there are two tiles of thickness under that
+ * one top face — which falls out of the model rather than being drawn in.
+ */
+.pt{position:absolute;left:0;top:0;transform-origin:50% 50%;will-change:transform}
+.pt .top{position:absolute;left:0;top:0;width:100%;height:var(--toph);
+  border-radius:3px 3px 0 0;overflow:hidden;line-height:0;
+  /* NEARLY FLAT. A steep gradient across a 25 px top face reads as a moulded
+     plastic button, not as a tile lying on a table: looking straight down at a
+     matte surface gives you an even colour and very little else. The lit rim
+     at the top and the darker arris at the bottom are the whole shading. */
+  background:linear-gradient(180deg,#7cb3d5 0%,#6da8cd 62%,#649fc5 100%);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.30),
+             inset 0 -1px 0 rgba(30,60,80,.30)}
+.pt .edge{position:absolute;left:0;top:var(--toph);width:100%;height:var(--edgeh);
+  border-radius:0 0 3px 3px;
+  background:linear-gradient(180deg,#efe9d9 0%,#e2dac6 60%,#cdc5b0 100%)}
+.pt .top svg{width:100%;height:100%;display:block}
+.pt.face .top{background:#FAFAF8;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.6),inset 0 -1px 0 rgba(120,110,90,.28)}
+.pt:not(.face) .top svg{display:none}
+.pt.dead .top{filter:brightness(.72) saturate(.55)}
+.pt.dead .edge{filter:brightness(.82) saturate(.7)}
+.pt.hide{visibility:hidden}
+/* a tile loose on the felt casts a contact shadow; one in a wall is held up by
+   its neighbours. Tight and short, because the light is nearly overhead too. */
+.pt.flat{filter:drop-shadow(0 1.5px 1.5px rgba(0,0,0,.5))}
+
+/* the break marker — a gold cap on the stack the dice chose */
+#mark{position:absolute;left:0;top:0;width:19px;height:25px;border-radius:4px;
+  border:2px solid var(--gold);box-shadow:0 0 12px rgba(216,181,106,.75);
+  pointer-events:none;opacity:0;transform-origin:50% 50%}
+#mark.on{opacity:1}
+
+/* dice land on the felt, flat, in the middle of the square */
+#dice{position:absolute;left:50%;top:50%;display:flex;gap:7px;
+  transform:translate(-50%,-50%);opacity:0;pointer-events:none}
+#dice.on{opacity:1}
+.die{width:26px;height:26px;border-radius:5px;background:#f7f4ec;
+  box-shadow:0 2px 5px rgba(0,0,0,.5),inset 0 -2px 0 rgba(0,0,0,.12);
+  display:grid;grid-template:repeat(3,1fr)/repeat(3,1fr);padding:3.5px;
+  transform-origin:50% 50%}
+.die i{width:5px;height:5px;border-radius:50%;background:#23201c;align-self:center;
+  justify-self:center;visibility:hidden}
+.die i.r{background:#c8392f}
+
+/* the three bot hands, drawn as back rows at the felt edges */
+.hand{position:absolute;display:flex;gap:1px}
+.hand.n{top:8px;left:50%;transform:translateX(-50%)}
+.hand.e{right:8px;top:50%;transform:translateY(-50%);flex-direction:column}
+.hand.w{left:8px;top:50%;transform:translateY(-50%);flex-direction:column}
+.hb{width:12px;height:17px;border-radius:2px;flex:0 0 auto;
+  background:linear-gradient(180deg,#2f7a5f,#1d5c46);border:1px solid #14493a}
+.hand.e .hb,.hand.w .hb{width:17px;height:12px}
+.seatlab{position:absolute;font-size:10px;letter-spacing:.12em;color:rgba(255,255,255,.4)}
+
+/* MY HAND — outside the perspective surface, exactly as the game has it.
+   A tile flying here animates from a screen-space delta, not across containers. */
+#mine{flex:0 0 auto;margin-top:12px;height:104px;display:flex;gap:5px;
+  align-items:flex-end;justify-content:center;width:min(96%,1000px);perspective:900px}
+#mine .pt{position:relative;transform:none}
+#mine .pt .fc{box-shadow:0 1px 0 #b8ad93,0 2px 5px rgba(0,0,0,.35);border-radius:5px}
+#mine .pt.gap{margin-left:18px}
+#hint{position:absolute;left:50%;bottom:6px;transform:translateX(-50%);font-size:11px;
+  color:var(--dim);white-space:nowrap}
+</style>
+</head>
+<body>
+<div id="rail">
+  <h1>Deal lab</h1>
+  <div class="sub">The opening of a hand, in four stages, with the variants side by side.
+  One pool of 144 tiles flows field&nbsp;&rarr;&nbsp;wall&nbsp;&rarr;&nbsp;hands, so continuity
+  between stages is real and not faked. Positions are in table space and projected once, so the
+  camera angle <b>&theta;</b> decides how much of a tile's side you see — in the shuffle, in the
+  wall and in your hand — instead of three gradients guessing separately.</div>
+
+  <div class="btns">
+    <button class="pri" id="bAll">▶ Full opening</button>
+    <button id="bShuf">Shuffle</button>
+    <button id="bBuild">Build</button>
+    <button id="bDeal">Deal</button>
+    <button id="bDrain">Drain wall</button>
+    <button id="bReset">Reset</button>
+  </div>
+
+  <div class="grp">
+    <h2>1 · Shuffle 洗牌 <span class="ms" id="msA">—</span></h2>
+    <div class="note">All 144 lie flat and face down in <b>one layer, nothing overlapping</b> —
+    you cannot stack tiles while you shuffle them. Every variant below is checked against that,
+    and the badge says so.</div>
+    <label class="opt" data-s="A" data-v="0"><input type="radio" name="A" value="0"><b>A1 · Brownian churn</b>
+      <span class="why">Every tile drifts on its own slow random walk. Even, endless, no structure — the cheapest thing that reads as "not yet sorted". Its waypoints are separated before they become keyframes, since a planned path cannot be corrected in flight.</span></label>
+    <label class="opt" data-s="A" data-v="1"><input type="radio" name="A" value="1"><b>A2 · Hand sweeps</b>
+      <span class="why">Four hands circle the field and shove whatever they pass, and the tiles they shove crowd their neighbours aside. This is what shuffling actually looks like: clumps moving, not particles. The one variant that needs a frame loop rather than keyframes — the shove is an interaction, not a path — which is also why it is the one that keeps the layer honest for free.</span></label>
+    <label class="opt" data-s="A" data-v="2"><input type="radio" name="A" value="2"><b>A3 · Sweep and settle</b>
+      <span class="why">Starts as last hand's tidy walls, gets swept inward, churns, then settles into the field. The right opener for hands 2..n, where the tiles were already in rows — the other three have to invent a field out of nothing.</span></label>
+    <label class="opt" data-s="A" data-v="4"><input type="radio" name="A" value="4" checked><b>A5 · Tip out and gather</b>
+      <span class="why">Starts spread over the whole table, the way a set looks when it has just been tipped out, then hands reach in and push one group at a time toward the middle. Sixteen overlapping strokes, each moving only the patch under it — not the whole table turning at once. The net inward flow <i>is</i> the animation, so unlike the others it cannot hollow out: that is the direction it came from.</span></label>
+    <label class="opt" data-s="A" data-v="3"><input type="radio" name="A" value="3"><b>A4 · Slow orbit</b>
+      <span class="why">The whole field turns as one body while tiles jitter in place. Calmest, least distracting, fewest moving parts — and being a rigid rotation it cannot introduce an overlap at all.</span></label>
+    <div class="sl"><label>duration</label><input type="range" id="aDur" min="600" max="4000" step="100" value="1600"><span class="v" id="aDurV">1600</span></div>
+    <div class="sl"><label>churn amount</label><input type="range" id="aAmp" min="2" max="40" step="1" value="16"><span class="v" id="aAmpV">16</span></div>
+    <div class="lay" id="lay">one clean layer</div>
+  </div>
+
+  <div class="grp">
+    <h2>2 · Build 砌牌 <span class="ms" id="msB">—</span></h2>
+    <label class="opt" data-s="B" data-v="0"><input type="radio" name="B" value="0"><b>B1 · Drop in place</b>
+      <span class="why">What the game ships today. Each stack falls from a random offset above its own slot. Fine on its own — but it cannot follow a shuffle, because nothing arrives from the heap.</span></label>
+    <label class="opt" data-s="B" data-v="1"><input type="radio" name="B" value="1"><b>B2 · Groups of nine</b>
+      <span class="why">ANIMATION.md §6.11: eight groups, two per side, each a drop-and-settle staggered behind the last. Reads as four people building at once, and it is 18 animations instead of 72.</span></label>
+    <label class="opt" data-s="B" data-v="2" class="on"><input type="radio" name="B" value="2" checked><b>B3 · Flight from the heap</b>
+      <span class="why">Every stack flies from the actual field tile it was, to the slot it becomes — changing orientation on the way, since a tile in a wall is the same tile turned. The only variant where shuffle and build are one continuous motion.</span></label>
+    <label class="opt" data-s="B" data-v="3"><input type="radio" name="B" value="3"><b>B4 · Pushed into line</b>
+      <span class="why">Each side gathers offside and slides inward as a row, the way two hands square a wall up. Slowest to read, most obviously physical.</span></label>
+    <div class="sl"><label>per tile</label><input type="range" id="bDur" min="80" max="900" step="20" value="360"><span class="v" id="bDurV">360</span></div>
+    <div class="sl"><label>stagger</label><input type="range" id="bStag" min="0" max="60" step="1" value="9"><span class="v" id="bStagV">9</span></div>
+    <div class="sl"><label>side offset</label><input type="range" id="bSide" min="0" max="400" step="10" value="70"><span class="v" id="bSideV">70</span></div>
+    <div class="sl"><label>wall scale</label><input type="range" id="bScale" min="1" max="2.2" step="0.05" value="1.45"><span class="v" id="bScaleV">1.45</span></div>
+    <div class="sl"><label>corner run-past</label><input type="range" id="bPin" min="0" max="4" step="0.25" value="2"><span class="v" id="bPinV">2</span></div>
+    <div class="sl"><label>camera θ</label><input type="range" id="bTheta" min="40" max="88" step="1" value="80"><span class="v" id="bThetaV">80</span></div>
+    <div class="sl"><label>wall angle</label><input type="range" id="bRot" min="-45" max="45" step="1" value="-15"><span class="v" id="bRotV">-15</span></div>
+    <label class="chk"><input type="checkbox" id="bArc" checked> lift and land (arc, not a slide)</label>
+  </div>
+
+  <div class="grp">
+    <h2>3 · Dice and break 擲骰 <span class="ms" id="msC">—</span></h2>
+    <label class="chk"><input type="checkbox" id="cDice" checked> throw the dice and count the break</label>
+    <label class="chk"><input type="checkbox" id="cDir" checked> draw against play (clockwise round the wall)</label>
+    <div class="sl"><label>dice</label><input type="range" id="cN" min="2" max="3" step="1" value="3"><span class="v" id="cNV">3</span></div>
+    <div class="sl"><label>tumble</label><input type="range" id="cTum" min="200" max="1400" step="50" value="650"><span class="v" id="cTumV">650</span></div>
+    <div class="sl"><label>per count hop</label><input type="range" id="cHop" min="20" max="160" step="5" value="55"><span class="v" id="cHopV">55</span></div>
+    <div class="sl"><label>hold on break</label><input type="range" id="cHold" min="0" max="1200" step="50" value="400"><span class="v" id="cHoldV">400</span></div>
+  </div>
+
+  <div class="grp">
+    <h2>4 · Deal 執牌 <span class="ms" id="msD">—</span></h2>
+    <label class="opt" data-s="D" data-v="0"><input type="radio" name="D" value="0"><b>D1 · Blocks of four</b>
+      <span class="why">How it is really done: four rounds of four, every seat in turn, then one single each and the dealer's fourteenth. Two stacks lift together per grab.</span></label>
+    <label class="opt" data-s="D" data-v="1"><input type="radio" name="D" value="1" checked><b>D2 · Blocks of four, overlapped</b>
+      <span class="why">The same order, but a seat's grab starts before the previous seat's has landed. Half the wall clock for the same reading.</span></label>
+    <label class="opt" data-s="D" data-v="2"><input type="radio" name="D" value="2"><b>D3 · One at a time</b>
+      <span class="why">Fifty-three separate tiles, strictly in order. The most literal, and the clearest demonstration of why nobody animates it this way.</span></label>
+    <div class="sl"><label>per block</label><input type="range" id="dBlk" min="60" max="600" step="10" value="230"><span class="v" id="dBlkV">230</span></div>
+    <div class="sl"><label>between seats</label><input type="range" id="dGap" min="0" max="400" step="10" value="90"><span class="v" id="dGapV">90</span></div>
+    <div class="sl"><label>tile stagger</label><input type="range" id="dStag" min="0" max="90" step="2" value="26"><span class="v" id="dStagV">26</span></div>
+    <label class="chk"><input type="checkbox" id="dFlip" checked> my tiles arrive face-down and flip on landing</label>
+    <label class="chk"><input type="checkbox" id="dSort" checked> sort my hand once the deal is over</label>
+    <div class="sl"><label>drain step</label><input type="range" id="dDrain" min="4" max="90" step="2" value="26"><span class="v" id="dDrainV">26</span></div>
+  </div>
+
+  <div class="grp">
+    <h2>Global</h2>
+    <div class="sl"><label>speed</label><input type="range" id="gSpeed" min="0.15" max="2" step="0.05" value="1"><span class="v" id="gSpeedV">1.00×</span></div>
+    <label class="chk"><input type="checkbox" id="gLoop"> loop the full opening</label>
+    <label class="chk"><input type="checkbox" id="gReduced"> honour reduced motion (snap to the end)</label>
+  </div>
+
+  <div class="grp">
+    <h2>Timeline</h2>
+    <div id="log">Press <b>Full opening</b>.</div>
+  </div>
+</div>
+
+<div id="stage">
+  <div id="felt">
+    <div class="seatlab" style="top:6px;left:50%;transform:translateX(-50%) translateY(-14px)"></div>
+    <div id="surface">
+      <div id="field"></div>
+      <div id="mark"></div>
+    </div>
+    <div id="dice"></div>
+    <div class="hand n" id="hN"></div>
+    <div class="hand e" id="hE"></div>
+    <div class="hand w" id="hW"></div>
+  </div>
+  <div id="mine"></div>
+  <div id="hint"></div>
+</div>
+
+<script src="tile-engine.js"></script>
+<script>
+/* Scoped: tile-engine.js owns a dozen bare top-level consts (R, B, G, RULES,
+   SELECT, STAG…) and this file would collide with several of them. */
+(() => {
+"use strict";
+SHOW_MEASURE = false;
+
+/* ══ the set ═══════════════════════════════════════════════════════════════
+ * 144 tiles: 34 kinds × 4, plus 8 flowers. Only the 13 that end up in my hand
+ * are ever drawn face-up, but every tile carries a face so the flip is honest.
+ */
+const FACES = [];
+for (let i = 1; i <= 9; i++) FACES.push(tileWan(i));
+for (let i = 1; i <= 9; i++) FACES.push(tileSuo(i));
+for (let i = 1; i <= 9; i++) FACES.push(tileTong(i));
+for (const c of ["東","南","西","北"]) FACES.push(tileWind(c));
+for (const k of ["red","green","white"]) FACES.push(tileDragon(k));
+
+const TOTAL   = 144;          // with flowers; the game drops to 136 without
+const STACKS  = TOTAL / 2;    // the wall is two tiles high, so 72 stacks
+const PER     = STACKS / 4;   // 18 stacks a side
+
+/* One seeded generator for the whole lab, so a variant looks the same every
+ * time you play it and two variants can be compared on the same heap. */
+let rnd;
+function reseed(n){ let s = n >>> 0;
+  rnd = () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296; }
+reseed(20260901);
+const RR = (a, b) => a + rnd() * (b - a);
+
+/* Two different orders, and conflating them is what broke the ring.
+ *   SIDES     — how the walls JOIN, clockwise on screen. The draw follows this.
+ *   SEAT_SIDE — where the players sit, counter-clockwise. Play and the dice
+ *               count follow this. Seat 0 is you, at the bottom.
+ * They are not rotations of each other, so a seat index is never a ring index
+ * without going through segOf(). */
+const SIDES     = ["bottom", "left", "top", "right"];
+const SEAT_SIDE = ["bottom", "right", "top", "left"];
+const segOf = (seat) => SIDES.indexOf(SEAT_SIDE[seat]);
+
+/* ══ table space, and the one projection ═══════════════════════════════════
+ * A real tile is about 20 × 26 × 16 mm. Everything on this table is placed in
+ * table space — flat millimetres, as if seen from straight above — and turned
+ * into screen pixels by exactly one function.
+ *
+ *   θ is the camera's ELEVATION above the table, ANIMATION.md §2's convention.
+ *   θ = 90° is straight down; θ = 0° is edge-on across the felt.
+ *
+ *   depth on screen  = table depth      × sin θ
+ *   a vertical face  = its real height  × cos θ
+ *
+ * ANIMATION.md leaves θ open and says to fix it at 28–32° "before any sprite is
+ * baked". The owner's photo disagrees: its stacks read about 1.5 : 1 top face
+ * to side, and 26·sinθ / 16·cosθ = 1.5 puts θ near 43°. The game's
+ * rotateX(17deg) corresponds to θ ≈ 73°, far more overhead than the photo.
+ * It is a slider because it is the number every other number depends on, and
+ * it should be settled by looking rather than by arithmetic.
+ */
+const TILE = { w: 20, l: 26, h: 16 };        // millimetres
+const GAP = 2;
+let UNIT = 1, DEPTH = 1, RISE = 0;           // px per mm, sin θ, cos θ
+let TW = 0, TL = 0, TT = 0;                  // one tile, in table px
+let PITCH = 0, SIDE_LEN = 0, OVER = 0, HALF = 0, CW = 0, CH = 0;
+let WROT = 0;                                // the wall square's angle on the table
+let SHUF_W = 560, FIELD_W = 560;             // the shuffle's budget, and what it used
+let FIELD_RX = 0, FIELD_RY = 0;              // the footprint the pile settled at
+let SLOTS = [];
+
+/** Table space → screen. The whole projection, in one line. */
+const projY = (y) => y * DEPTH;
+
+/* What a tile's screen box is, per orientation. This is the answer to "figure
+ * out how to determine what orientation things will be": there are only two
+ * lying poses on this table, and each is a different pair of numbers.
+ *
+ *   flat   long axis running away from you — the top and bottom walls, and
+ *          every tile in the shuffle heap
+ *   flatX  the same tile turned a quarter turn — the left and right walls,
+ *          which therefore show a WIDE top face and a SHALLOW depth
+ *
+ * The side is the same height in both, because a vertical face does not care
+ * which way the tile has been turned. That one fact is what the game's two
+ * hand-written gradients were failing to encode: it gives its left and right
+ * walls a 90° gradient, as though turning a tile could tip its side over.
+ */
+function box(kind){
+  const edge = TT * RISE;
+  return kind === "flatX"
+    ? { w: TL, toph: TW * DEPTH, edgeh: edge }
+    : { w: TW, toph: TL * DEPTH, edgeh: edge };
+}
+
+function geom(scale, pin, theta, wrot){
+  WROT  = wrot;
+  UNIT  = 17 * scale / TILE.w;               // keeps tile width where it was
+  DEPTH = Math.sin(theta * Math.PI / 180);
+  RISE  = Math.cos(theta * Math.PI / 180);
+  TW = TILE.w * UNIT; TL = TILE.l * UNIT; TT = TILE.h * UNIT;
+  PITCH = TW + GAP;                          // tiles sit side by side along a wall
+  SIDE_LEN = PER * PITCH - GAP;
+  OVER = pin * PITCH;                        // how far a wall runs past its neighbour
+  HALF = (SIDE_LEN + TL - OVER) / 2;         // half the square, in TABLE space
+  /* a square turned by A needs |cos A| + |sin A| times its own side to fit */
+  const turn = Math.abs(Math.cos(WROT * Math.PI / 180)) + Math.abs(Math.sin(WROT * Math.PI / 180));
+  const wallW = (2 * (HALF + OVER) + 10) * turn;
+  /* The box must hold the wall square AND the shuffle. The shuffle is the wider
+     of the two, and its width follows from θ and the tile size — so it is
+     computed HERE rather than discovered later by layHeap. Sizing the surface
+     from a stale field width is what clipped the first version's shuffle off
+     the edge of the felt. The 1.16 is headroom for the relax below. */
+  const f = fieldRadii();
+  SHUF_W = Math.round(f.rx * 2 * 1.10);
+  CW = Math.round(Math.max(wallW, SHUF_W + 24));
+  CH = Math.round(Math.max(projY(wallW) + TL * DEPTH + TT * RISE + 10,
+                           f.ry * 2 * 1.10 + 24));
+  const surf = document.getElementById("surface");
+  if (surf){ surf.style.width = CW + "px"; surf.style.height = CH + "px"; fit(); }
+  SLOTS = wallSlots();
+}
+
+/** Shrink the table to whatever felt it has been given.
+ *
+ *  The shuffle spreads WIDER than the wall — that is what a real shuffle does,
+ *  it covers the table and is then gathered into walls — so the surface is
+ *  routinely bigger than a narrow window's felt. Scaling the whole surface is
+ *  the only correction that keeps every proportion intact, and it costs the
+ *  deal nothing: getBoundingClientRect reports post-transform boxes, so the
+ *  wall-to-hand deltas it measures are already in real screen pixels. */
+function fit(){
+  const felt = document.getElementById("felt");
+  if (!felt) return;
+  const r = felt.getBoundingClientRect();
+  if (!r.width) return;
+  const k = Math.min(1, (r.width - 24) / CW, (r.height - 24) / CH);
+  felt.style.setProperty("--fit", k.toFixed(4));
+  document.getElementById("surface").style.setProperty("--fit", k.toFixed(4));
+}
+addEventListener("resize", () => { fit(); });
+
+/* THE PINWHEEL, from the owner's photo of a real set (2026-09-01).
+ *
+ * Each wall BUTTS its tail against the inner face of one neighbour and RUNS
+ * PAST the outer face of the other. That run-past is the whole look: it is why
+ * a real wall reads as a pinwheel with open corners and not as a rectangle.
+ * Four walls that merely meet make a picture frame instead — which is what the
+ * live game builds, because its top/bottom pitch (19) and its left/right pitch
+ * (17) give walls of two different lengths that cannot close.
+ *
+ * Derivation, in table space. Put the centre at the origin and give the top
+ * wall the band y ∈ [−c, −c+T] over x ∈ [a, a+L]. Rotating it 90° three times
+ * generates the other three, so the arrangement is a pinwheel by construction
+ * and there is only one number to choose. Requiring the next wall's tail to
+ * land on the previous wall's inner face fixes both:
+ *
+ *     a = c − L + v          c = (L + T − v) / 2
+ *
+ * with v the run-past. v = 0 collapses to the flush square; two stacks matches
+ * the photo. The square is SQUARE in table space and a wide rectangle on
+ * screen, which is the projection doing its job rather than a fudge.
+ */
+function wallSlots(){
+  const cx = CW / 2, cyT = CH / (2 * DEPTH);     // centre, in table space
+  const a  = HALF - SIDE_LEN + OVER;
+  const along = (i) => a + i * PITCH + TW / 2;
+  const out = { top: [], right: [], bottom: [], left: [] };
+  for (let i = 0; i < PER; i++){
+    /* bottom and left are the 180° rotations of top and right, so the four
+       sides cannot drift apart when the constants change */
+    out.top.push(   { tx: cx + along(i),      ty: cyT - HALF + TL / 2, side: "top",    kind: "flat"  });
+    out.right.push( { tx: cx + HALF - TL / 2, ty: cyT + along(i),      side: "right",  kind: "flatX" });
+    out.bottom.push({ tx: cx - along(i),      ty: cyT + HALF - TL / 2, side: "bottom", kind: "flat"  });
+    out.left.push(  { tx: cx - HALF + TL / 2, ty: cyT - along(i),      side: "left",   kind: "flatX" });
+  }
+  /* THE SQUARE SITS AT AN ANGLE. Owner, 2026-09-01: about 15° counter-clockwise
+     — which is what a real table looks like, because nobody builds a wall
+     square to the edges of the felt, and it is what the 3D reference shows.
+     The turn happens in TABLE space, before the projection, so it reads as a
+     square lying askew on the table rather than a square sheared on screen.
+     Each tile turns with its own wall; the stack offset below does NOT, because
+     the lower tile of a stack is under the upper one in world height, and
+     height projects straight down the screen however the table is turned. */
+  const A = WROT * Math.PI / 180, ca = Math.cos(A), sa = Math.sin(A);
+  for (const k in out) for (const p of out[k]){
+    const b = box(p.kind);
+    const ux = p.tx - cx, uy = p.ty - cyT;
+    p.x = cx + ux * ca - uy * sa;
+    p.y = projY(cyT + ux * sa + uy * ca);
+    p.rot = WROT;
+    p.w = b.w; p.toph = b.toph; p.edgeh = b.edgeh;
+    p.h = b.toph + b.edgeh;
+  }
+  /* ONE CONTINUOUS RING — and the order is bottom, LEFT, top, RIGHT.
+   *
+   * This was wrong, and wrong in a way that reads exactly as "drawing from the
+   * wall in the wrong order": bottom → right → top → left steps 623 px at every
+   * corner, because those two walls are on opposite sides of the table. The
+   * wall did not erode, it disintegrated in four disconnected patches.
+   *
+   * The pinwheel decides this, not the seating. Each wall's head runs PAST its
+   * neighbour, so the wall that carries on from the bottom wall's far end is
+   * the one whose tail is nearest that end — the left. Measured, the corner
+   * step for this order is 63.7 px, about two stack pitches, which is the
+   * pinwheel's own corner gap; every within-wall step is one pitch of 26.6 px.
+   *
+   * Note the consequence for wallStream(): bottom → left → top → right runs
+   * CLOCKWISE on screen, and play runs counter-clockwise, so simply going
+   * forward along this ring already draws the wall against the turn order,
+   * which is what a table does. */
+  return [...out.bottom, ...out.left, ...out.top, ...out.right];
+}
+
+const field = document.getElementById("field");
+const tiles = [];
+/** WALL[k] = [bottomTileIndex, topTileIndex] for stack k, filled by the build.
+ *  The deal reads this, so it never has to assume the pool order survived. */
+const WALL = Array.from({ length: STACKS }, () => [-1, -1]);
+function makePool(){
+  field.innerHTML = "";
+  tiles.length = 0;
+  const frag = document.createDocumentFragment();
+  for (let i = 0; i < TOTAL; i++){
+    const el = document.createElement("div");
+    el.className = "pt";
+    /* Two surfaces, always both present: the face pointing at the sky and the
+       vertical side turned toward the viewer. Which one carries the art and how
+       tall each is are set per orientation, never in the markup. */
+    el.innerHTML = `<div class="top"><svg viewBox="0 0 100 140">${FACES[i % FACES.length]}</svg></div>`
+                 + `<div class="edge"></div>`;
+    frag.appendChild(el);
+    tiles.push({ el, pose: { x: CW / 2, y: CH / 2, r: 0, s: 1 }, kind: i % 34 });
+  }
+  field.appendChild(frag);
+  recenterGlyphs(field);
+}
+
+const css = (p) =>
+  `translate(calc(${p.x.toFixed(1)}px - 50%),calc(${p.y.toFixed(1)}px - 50%))` +
+  ` rotate(${(p.r || 0).toFixed(1)}deg) scale(${(p.s ?? 1).toFixed(3)})`;
+
+/* Move a tile from wherever it is to `to`.
+ *
+ * The resting style is set to the DESTINATION immediately and the animation
+ * plays `backwards` from the origin. That is the same trick the game uses for
+ * queued motions: the node's truth is already its end state, so a delay parks
+ * it at frame 0 instead of showing it in the wrong place, and nothing has to be
+ * committed on finish. Transform and opacity only — ANIMATION.md invariant I4.
+ */
+function move(t, to, ms, { delay = 0, ease = "cubic-bezier(.2,.8,.3,1.05)", mid = null, fade = false } = {}){
+  const from = t.pose;
+  const dest = { x: to.x, y: to.y, r: to.r ?? 0, s: to.s ?? 1 };
+  const kf = mid
+    ? [{ transform: css(from), offset: 0 }, { transform: css(mid), offset: 0.55 }, { transform: css(dest), offset: 1 }]
+    : [{ transform: css(from) }, { transform: css(dest) }];
+  if (fade){ kf[0].opacity = 0; kf[kf.length - 1].opacity = 1; }
+  t.pose = dest;
+  t.el.style.transform = css(dest);
+  if (ms <= 0 || REDUCED) return null;
+  return t.el.animate(kf, { duration: ms, delay, easing: ease, fill: "backwards" });
+}
+
+/** Put a tile into one of the two lying orientations. Sizes come from box(),
+ *  so nothing here decides how much side shows — θ does. */
+function dress(t, kind){
+  const b = box(kind);
+  t.el.style.width  = b.w.toFixed(1) + "px";
+  t.el.style.height = (b.toph + b.edgeh).toFixed(1) + "px";
+  t.el.style.setProperty("--toph",  b.toph.toFixed(1) + "px");
+  t.el.style.setProperty("--edgeh", b.edgeh.toFixed(1) + "px");
+  t.box = b;
+  return b;
+}
+
+/* ══ settings, read straight off the rail ══════════════════════════════════ */
+let REDUCED = false, SPEED = 1, RUN = 0;
+const $ = (id) => document.getElementById(id);
+const num = (id) => +$(id).value;
+const on  = (id) => $(id).checked;
+const pick = (name) => +document.querySelector(`input[name="${name}"]:checked`).value;
+/** Every duration in the lab passes through here, so the speed slider is one knob. */
+const ms = (x) => Math.max(0, Math.round(x / SPEED));
+const sleep = (t) => new Promise((r) => setTimeout(r, ms(t)));
+/** A run token: bumping it makes every in-flight stage give up at its next await. */
+const stale = (tok) => tok !== RUN;
+
+/* ══ the shuffle field ═════════════════════════════════════════════════════
+ * ONE LAYER, NOTHING OVERLAPPING. Owner, 2026-09-01: "in reality, the way
+ * shuffle works is that all the tiles are in a pile. None of them overlap and
+ * they just get shuffled in that way."
+ *
+ * That is not a detail, it is the whole physics. You cannot stack mahjong tiles
+ * while you shuffle them — a hundred and forty-four tiles all lie flat on the
+ * felt at once, which is why a shuffle covers most of the table and why it
+ * reads as a churning FIELD rather than a heap. The previous version drew a
+ * dense scatter with heavy overlap, and no amount of motion was going to fix
+ * that: it looked like a pile of chips because it was one.
+ *
+ * Keeping them apart is a relaxation. Each tile is treated as a disc of radius
+ * SEP·(half its diagonal) — SEP under 1 because two tiles near parallel can sit
+ * much closer than their diagonals suggest, and the true test is the SAT check
+ * below, not the disc. Push overlapping pairs apart, clamp back inside the
+ * field, repeat. It converges in well under a hundred passes for 144 tiles and
+ * the same routine runs per frame during the sweep, so the field can be stirred
+ * without anything ever climbing on top of anything else.
+ */
+/* Keeping the layer honest.
+ *
+ * Discs were the obvious way to keep tiles apart and they do not work. A tile's
+ * bounding circle has the radius of its DIAGONAL, so discs that just touch
+ * leave two near-parallel tiles a third of a tile apart — visibly sparse — while
+ * discs packed tight enough to look right let crossed tiles interpenetrate. The
+ * first version of this ran discs at 0.74 of the diagonal and the SAT audit
+ * found 196 overlapping pairs, which is exactly the pile the owner said it
+ * should not be.
+ *
+ * So separation is done on the real rectangles, by the separating axis theorem,
+ * pushing each pair apart along the axis of LEAST penetration. Four axes per
+ * pair, and the projection radius of a rotated rectangle onto an axis has a
+ * closed form, so no corners are ever enumerated and nothing is allocated —
+ * this runs every frame during the sweep.
+ */
+const HALFDIAG = () => { const b = box("flat"); return Math.hypot(b.w, b.toph + b.edgeh) / 2; };
+
+/** Projection radius of a w×h rectangle at angle (c,s) onto the unit axis. */
+const rad = (c, s, hw, hh, ux, uy) =>
+  Math.abs(hw * (c * ux + s * uy)) + Math.abs(hh * (-s * ux + c * uy));
+
+/** Least-penetration push separating two rotated rectangles, or 0 if apart.
+ *  Writes into MT to stay allocation-free. */
+const MT = { nx: 0, ny: 0, d: 0 };
+function mtv(a, b, hw, hh){
+  const ta = a.r * Math.PI / 180, tb = b.r * Math.PI / 180;
+  const ca = Math.cos(ta), sa = Math.sin(ta), cb = Math.cos(tb), sb = Math.sin(tb);
+  const dx = b.x - a.x, dy = b.y - a.y;
+  let best = Infinity, bx = 0, by = 0;
+  for (let k = 0; k < 4; k++){
+    /* the four edge normals: two from each rectangle */
+    const ux = k === 0 ? ca : k === 1 ? -sa : k === 2 ? cb : -sb;
+    const uy = k === 0 ? sa : k === 1 ?  ca : k === 2 ? sb :  cb;
+    const gap = rad(ca, sa, hw, hh, ux, uy) + rad(cb, sb, hw, hh, ux, uy)
+              - Math.abs(dx * ux + dy * uy);
+    if (gap <= 0){ MT.d = 0; return 0; }        // a separating axis: done
+    if (gap < best){ best = gap; bx = ux; by = uy; }
+  }
+  /* point the push from a toward b */
+  const sign = (dx * bx + dy * by) < 0 ? -1 : 1;
+  MT.nx = bx * sign; MT.ny = by * sign; MT.d = best;
+  return best;
+}
+
+const SLACK = 1.5;    // px of daylight to leave between neighbouring tiles
+const TORQUE = 1.4;   // degrees of turn per px of off-centre shove
+const PACK_PULL = 0.9;// inward step per separation pass — the pile's gravity
+
+/** One separation pass over the whole field. Binned on a grid of the tile
+ *  diagonal, so each tile only tests the handful of neighbours it could
+ *  possibly touch rather than all 143. */
+function separate(P){
+  /* Separate against a slightly INFLATED tile. Resolving to exact contact is
+     what the solver naturally converges to, and it leaves a residue of pairs
+     penetrating by hundredths of a pixel — invisible, but enough to fail a
+     strict audit and send a relax loop chasing a number it can never reach.
+     Half a slack each side gives real daylight and makes "no overlap" a state
+     the solver can actually land on. */
+  const b = box("flat"), hw = b.w / 2 + SLACK / 2, hh = (b.toph + b.edgeh) / 2 + SLACK / 2;
+  const cell = HALFDIAG() * 2;
+  /* The key packs (col,row) with a stride wide enough that a tile far from the
+     origin cannot alias onto another row. Deriving the stride from CW was a
+     real bug: a column past the end wrapped into the next row, so those pairs
+     were never tested and the layer never converged. */
+  const key = (c, r) => (r + 1024) * 4096 + (c + 1024);
+  const bins = new Map(), cols = [];
+  for (let i = 0; i < P.length; i++){
+    const c = Math.floor(P[i].x / cell), r = Math.floor(P[i].y / cell);
+    cols.push(c, r);
+    const k = key(c, r);
+    let bin = bins.get(k); if (!bin) bins.set(k, bin = []);
+    bin.push(i);
+  }
+  for (const [, bin] of bins){
+    const c0 = cols[bin[0] * 2], r0 = cols[bin[0] * 2 + 1];
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++){
+      const nb = bins.get(key(c0 + dx, r0 + dy)); if (!nb) continue;
+      for (const i of bin) for (const j of nb){
+        if (j <= i) continue;
+        if (!mtv(P[i], P[j], hw, hh)) continue;
+        /* split the correction, and over-relax slightly: under-correcting is
+           what leaves a residue of touching pairs after the last pass */
+        const p = MT.d * 0.52;
+        P[i].x -= MT.nx * p; P[i].y -= MT.ny * p;
+        P[j].x += MT.nx * p; P[j].y += MT.ny * p;
+        /* AND THEY TURN. A shove that is purely a translation lets tiles settle
+           into neat radial shells, because nothing ever changes the angle they
+           were seeded at — the ring, one layer down. Real contacts are mostly
+           corner-on-edge, so the push is off the centre line and the tile
+           rotates. Torque is the cross product of the lever arm with the push;
+           it is zero for a dead-centre hit and largest for a glancing one,
+           which is exactly the pile-loosening the packing was missing. */
+        const ax = P[j].x - P[i].x, ay = P[j].y - P[i].y;
+        const m = Math.hypot(ax, ay) || 1;
+        const tq = (ax / m * MT.ny - ay / m * MT.nx) * MT.d * TORQUE;
+        P[i].r -= tq; P[j].r -= tq;
+      }
+    }
+  }
+}
+
+/** Fold anything that has wandered outside the pile back into it.
+ *
+ *  The packing needs no boundary — gravity and collisions find their own
+ *  footprint — but STIRRING does. Four hands shoving tangentially reach a
+ *  terminal speed of roughly push/(1−damping), which at these settings is
+ *  about 34 px a frame, and a 0.55 px inward step cannot argue with that: the
+ *  pile crept outward for the whole sweep and ended visibly wider than it
+ *  started. Once the packing has established a footprint, holding the field to
+ *  it is a correction rather than a force, so it cannot be outrun. */
+function contain(P, cx, cy, rx, ry, k = 0.5){
+  for (const q of P){
+    const ux = (q.x - cx) / rx, uy = (q.y - cy) / ry;   // in units of the rim
+    const m = Math.hypot(ux, uy);
+    if (m <= 1) continue;                               // already inside
+    /* lerp k of the way from where it is back to the rim */
+    const f = (1 - k) + k / m;
+    q.x = cx + ux * f * rx;
+    q.y = cy + uy * f * ry;
+  }
+}
+
+/** Draw the whole field toward the middle by a fixed step.
+ *
+ *  CONSTANT, not proportional to distance. A spring pulls the far tiles hard
+ *  and the near ones not at all, which hollows the centre — the same failure
+ *  as the boundary. A constant step is gravity: every tile presses inward with
+ *  the same force and the pile compacts until collisions hold it up.
+ *
+ *  In TABLE space, so the cluster is round on the table and foreshortened on
+ *  screen like everything else, rather than round on screen and wrong. */
+function pullIn(P, cx, cy, step, jitter = 0){
+  for (const q of P){
+    const dx = cx - q.x, dy = (cy - q.y) / DEPTH;
+    const d = Math.hypot(dx, dy);
+    if (d < 0.01) continue;
+    let ux = dx / d, uy = dy / d;
+    /* Perfectly radial gravity builds a perfectly radial packing: a disc with
+       tiles lying tangentially in shells, which is the ring again in a denser
+       disguise. Wobbling each tile's pull direction breaks the symmetry, and
+       the pile ends up with the irregular outline a swept heap has. */
+    if (jitter){
+      const a = RR(-jitter, jitter), c = Math.cos(a), sn = Math.sin(a);
+      const nx = ux * c - uy * sn; uy = ux * sn + uy * c; ux = nx;
+    }
+    q.x += ux * step;
+    q.y += uy * step * DEPTH;
+  }
+}
+
+/** How big the field has to be to hold 144 tiles lying flat.
+ *
+ *  Sized from tile AREA, not from bounding circles: with real separation the
+ *  tiles nestle, so a circle-derived field comes out nearly twice as big as it
+ *  needs to be and the shuffle spills off the felt.
+ *
+ *  0.60 is the target density. Rectangles dropped at random angles jam well
+ *  below the 0.9 a neat packing reaches, and 0.60 leaves the daylight a real
+ *  shuffle has — enough that you could push one tile without moving six. The
+ *  relax below clears it in a single attempt at this figure. */
+function fieldRadii(){
+  const b = box("flat");
+  const need = TOTAL * b.w * (b.toph + b.edgeh) / 0.60;
+  const rx = Math.sqrt(need / (Math.PI * DEPTH));
+  return { rx, ry: rx * DEPTH };
+}
+
+/** Relax a pile until it is genuinely clean, then stop.
+ *
+ *  A fixed pass count is a guess, and the guess was wrong twice: 40 passes at
+ *  full gravity left 94 overlapping pairs, 70 with gravity eased left 7. Both
+ *  looked settled. Gravity has to ease to nothing — otherwise it compresses as
+ *  fast as separation resolves — and then the loop should CHECK rather than
+ *  count, because how long a jammed pile takes to relax depends on how badly it
+ *  was jammed. Audited from pass 60 so the check itself costs nothing early. */
+function settlePile(P, cx, cy){
+  const b = box("flat"), hw = b.w / 2, hh = (b.toph + b.edgeh) / 2;
+  const lim = (HALFDIAG() * 2) ** 2;
+  for (let k = 0; k < 220; k++){
+    separate(P);
+    const e = Math.max(0, 1 - k / 50);
+    if (e > 0) pullIn(P, cx, cy, PACK_PULL * e);
+    if (k >= 60 && k % 8 === 0){
+      let bad = 0;
+      for (let i = 0; i < P.length && !bad; i++) for (let j = i + 1; j < P.length; j++){
+        const dx = P[i].x - P[j].x, dy = P[i].y - P[j].y;
+        if (dx * dx + dy * dy <= lim && mtv(P[i], P[j], hw, hh) > 0.5){ bad = 1; break; }
+      }
+      if (!bad) return k;
+    }
+  }
+  return -1;
+}
+
+/** The badge: does the field actually hold, at the angles drawn? */
+function reportOverlap(){
+  const b = box("flat"), hw = b.w / 2, hh = (b.toph + b.edgeh) / 2;
+  const lim = (HALFDIAG() * 2) ** 2;
+  const P = tiles.map((t) => t.pose);
+  let bad = 0;
+  for (let i = 0; i < P.length; i++) for (let j = i + 1; j < P.length; j++){
+    const dx = P[i].x - P[j].x, dy = P[i].y - P[j].y;
+    if (dx * dx + dy * dy > lim) continue;
+    if (mtv(P[i], P[j], hw, hh) > 0.5) bad++;
+  }
+  const el = $("lay");
+  if (el){
+    el.textContent = bad ? `${bad} overlapping pair${bad > 1 ? "s" : ""} · ${FIELD_W}px field`
+                         : `one clean layer · ${FIELD_W}px field`;
+    el.style.color = bad ? "#e08a6a" : "var(--dim)";
+  }
+  return bad;
+}
+
+/** Positions for one clean layer, packed as tightly toward the middle as
+ *  not-overlapping allows.
+ *
+ *  THE RING WAS THE ALGORITHM, NOT THE ART. Seeding tiles across an ellipse and
+ *  relaxing them apart crystallises: the boundary is a hard wall, order
+ *  propagates inward from it in shells, and the middle ends up holding two
+ *  tiles with everything else in concentric rings around them. Owner,
+ *  2026-09-01: "they should try to stay as close to the middle as possible and
+ *  they do not overlap."
+ *
+ *  So it packs the other way round. Every tile starts piled on the centre,
+ *  heavily overlapping, and collisions push it out while a constant inward
+ *  step holds it in. Equilibrium is a jammed pile with an irregular edge —
+ *  which is what a shuffle looks like, and is reached without a boundary
+ *  existing at all. The footprint is an OUTPUT of the packing rather than an
+ *  input to it.
+ *
+ *  Gravity is eased off over the last quarter so the final passes are pure
+ *  separation: the layer has to be clean when the music stops. */
+function packField(seed){
+  const b = box("flat"), hw = b.w / 2, hh = (b.toph + b.edgeh) / 2;
+  const lim = (HALFDIAG() * 2) ** 2;
+  const cx = CW / 2, cy = CH / 2;
+  const PASSES = 300;
+  reseed(seed);
+  const P = tiles.map(() => ({ x: cx + RR(-6, 6), y: cy + RR(-6, 6), r: rnd() * 360 }));
+  for (let k = 0; k < PASSES; k++){
+    separate(P);
+    const ease = Math.max(0, 1 - k / (PASSES * 0.75));
+    /* Gravity, wobble and a shiver of rotation while the pile is still
+       settling; all three ease off together so the last quarter is pure
+       separation and the layer is clean when it stops. */
+    if (ease > 0){
+      pullIn(P, cx, cy, PACK_PULL * ease, 0.5 * ease);
+      for (const q of P) q.r += RR(-3, 3) * ease;
+    }
+  }
+  /* the footprint it actually settled at, for the badge and for A2's sweep */
+  let rx = 0, ry = 0;
+  for (const q of P){
+    rx = Math.max(rx, Math.abs(q.x - cx));
+    ry = Math.max(ry, Math.abs(q.y - cy));
+  }
+  rx += b.w; ry += b.toph + b.edgeh;
+  FIELD_W = Math.round(rx * 2);
+  FIELD_RX = rx; FIELD_RY = ry;
+  return { P, rx, ry };
+}
+
+/** Lay all 144 out flat, face down, in one non-overlapping layer. */
+function layHeap(){
+  dress(tiles[0], "flat");
+  const { P } = packField(4711);
+  for (let i = 0; i < TOTAL; i++){
+    const t = tiles[i];
+    dress(t, "flat");
+    t.el.classList.add("flat");
+    t.el.classList.remove("face", "dead", "hide", "wall");
+    /* every tile is on the felt, so none is above another — flat z, and any
+       stacking you see is a bug rather than depth */
+    t.el.style.zIndex = "1";
+    t.pose = { x: P[i].x, y: P[i].y, r: P[i].r, s: 1 };
+    t.el.style.transform = css(t.pose);
+  }
+  reportOverlap();
+}
+
+/* ══ 1 · SHUFFLE ═══════════════════════════════════════════════════════════ */
+
+/* Every variant below moves tiles inside ONE LAYER. Whatever a motion wants to
+ * do, `separate()` runs after it and un-does any overlap it caused, so no
+ * variant can quietly turn the field back into a pile. */
+
+/** A1 — every tile on its own slow random walk, kept apart the whole way.
+ *  Waypoints are separated before they are handed to the animation, so the
+ *  keyframes themselves are already legal — a WAAPI path cannot be corrected
+ *  mid-flight, it can only be planned. */
+function shufBrownian(dur, amp, tok){
+  const cx = CW / 2, cy = CH / 2, STEPS = 5;
+  const home = tiles.map((t) => ({ ...t.pose }));
+  const path = tiles.map(() => []);
+  let P = home.map((h) => ({ x: h.x, y: h.y, r: h.r }));
+  for (let k = 1; k <= STEPS; k++){
+    P = P.map((q, i) => k === STEPS
+      ? { x: home[i].x, y: home[i].y, r: home[i].r }
+      : { x: q.x + RR(-amp, amp), y: q.y + RR(-amp, amp), r: q.r + RR(-amp * 2.2, amp * 2.2) });
+    /* separate, then draw back in — a drift with no inward step
+       spreads the field a little further on every waypoint */
+    for (let n = 0; n < 6; n++){ separate(P); pullIn(P, cx, cy, PACK_PULL); }
+    P.forEach((q, i) => path[i].push({ ...q, s: 1 }));
+  }
+  tiles.forEach((t, i) => {
+    const kf = [{ transform: css(home[i]) }, ...path[i].map((p) => ({ transform: css(p) }))];
+    t.el.animate(kf, { duration: dur, easing: "ease-in-out", fill: "backwards" });
+  });
+  return dur;
+}
+
+/** A4 — the whole field turns as one body; tiles only tremble. Rotating every
+ *  tile about a common centre is rigid, so it cannot introduce an overlap. */
+function shufOrbit(dur, amp){
+  const turn = 26 + amp;
+  for (const t of tiles){
+    const home = t.pose;
+    /* rotate in TABLE space, not on screen: turning the projected positions
+       would swing the field into an ellipse that wobbles as it goes round */
+    const dx = home.x - CW / 2, dy = (home.y - CH / 2) / DEPTH;
+    const at = (deg) => {
+      const a = deg * Math.PI / 180, c = Math.cos(a), s = Math.sin(a);
+      return { x: CW / 2 + dx * c - dy * s,
+               y: CH / 2 + (dx * s + dy * c) * DEPTH,
+               r: home.r + deg, s: 1 };
+    };
+    const kf = [at(-turn), at(-turn * 0.4), at(turn * 0.3), at(turn)].map((p) => ({ transform: css(p) }));
+    t.pose = at(turn);
+    t.el.style.transform = css(t.pose);
+    t.el.animate(kf, { duration: dur, easing: "cubic-bezier(.4,0,.5,1)", fill: "backwards" });
+  }
+  return dur;
+}
+
+/** A2 — four hands circle the field and shove whatever they sweep past.
+ *
+ *  This one has to be a frame loop: the motion is an interaction between the
+ *  sweep and each tile, not a path the tile knows in advance. That is also what
+ *  makes it the best fit for a single layer — the separation pass is just more
+ *  physics in the same loop, so tiles jostle and crowd instead of merging. */
+function shufSweeps(dur, amp, tok){
+  return new Promise((res) => {
+    let done = false;
+    const finish = () => { if (!done){ done = true; reportOverlap(); res(); } };
+    /* requestAnimationFrame does not tick in a background tab, so without this
+       the whole sequence would hang the moment the window lost focus. Every
+       other variant is WAAPI and keeps running on the document timeline. */
+    setTimeout(finish, ms(dur) + 1500);
+    const t0 = performance.now(), D = ms(dur);
+    /* the footprint the pile actually settled at. fieldRadii() is geom()'s
+       generous BUDGET for sizing the box — orbiting hands on that put them
+       outside the pile, dragging its rim outward instead of stirring it. */
+    const rx = FIELD_RX || fieldRadii().rx, ry = FIELD_RY || fieldRadii().ry;
+    const cx = CW / 2, cy = CH / 2;
+    const P = tiles.map((t) => ({ t, x: t.pose.x, y: t.pose.y, r: t.pose.r,
+                                  vx: 0, vy: 0, vr: 0 }));
+    const HANDS = 4;
+
+    /* THE FIELD IS A SWIRL, NOT FOUR SHOVES.
+     *
+     * The first version put four hands on an orbit and had each push whatever
+     * it passed along the HAND's direction of travel. Every tile it touched was
+     * therefore pushed along a tangent that was not its own, and the radial
+     * error is one-signed: measured over a single sweep the pile's mean radius
+     * went 156 → 198 px and the middle hollowed into a ring. Containment could
+     * only hold the rim while the centre emptied — it treated the symptom.
+     *
+     * A rotation about the centre is DIVERGENCE-FREE: it moves every tile along
+     * its own circle, so radius is preserved exactly and the pile cannot
+     * expand, whatever the speed. The hands survive as bumps in the angular
+     * velocity — tiles under a hand swing faster than tiles between hands, so
+     * the field shears, tiles crowd their neighbours, and separation turns that
+     * crowding into the jostle you actually see. Circulation for the motion,
+     * collisions for the texture, and no net flow outward at all. */
+    const gauss = (d, w) => Math.exp(-(d * d) / (2 * w * w));
+    function frame(now){
+      if (done) return;
+      if (stale(tok)) return finish();
+      const p = Math.min(1, (now - t0) / D);
+      const lead = p * Math.PI * 2 * 1.35;
+      for (const q of P){
+        const dx = q.x - cx, dy = (q.y - cy) / DEPTH;   // table space
+        const rr = Math.hypot(dx, dy);
+        if (rr < 0.01) continue;
+        const a = Math.atan2(dy, dx);
+        /* how hard is a hand bearing on this bit of the pile right now */
+        let bump = 0;
+        for (let h = 0; h < HANDS; h++){
+          let da = a - (lead + h * Math.PI / 2);
+          da = Math.atan2(Math.sin(da), Math.cos(da));   // wrap to ±π
+          bump += gauss(da, 0.55);
+        }
+        /* angular speed falls off with radius so the middle is not left behind,
+           and rises where a hand is passing */
+        const om = (0.010 + 0.030 * bump) * amp / 16;
+        q.vx += -Math.sin(a) * om * rr;
+        q.vy +=  Math.cos(a) * om * rr * DEPTH;
+        q.vr += om * 26;
+      }
+      for (const q of P){ q.vx *= 0.82; q.vy *= 0.82; q.vr *= 0.88;
+                          q.x += q.vx; q.y += q.vy; q.r += q.vr; }
+      /* THE LAYER IS MAINTAINED, not hoped for — and gravity runs at the SAME
+         strength the packing used, after every separation pass.
+         
+         This is where the middle kept emptying. separate() can only ever push
+         tiles APART; it has no attractive term, so a dense pile under constant
+         shear inflates from the inside, fastest where the pressure is highest,
+         which is the centre. Running it at 0.35 against a packing that settled
+         under 0.9 meant every frame lost a little ground and the hole grew all
+         sweep. A jammed pile is an EQUILIBRIUM between collisions pushing out
+         and gravity pulling in, so the two have to be quoted at the same
+         strength or it is not the same pile any more. */
+      separate(P); pullIn(P, cx, cy, PACK_PULL);
+      separate(P); pullIn(P, cx, cy, PACK_PULL);
+      contain(P, cx, cy, rx, ry, 0.35);
+      for (const q of P){
+        q.t.pose = { x: q.x, y: q.y, r: q.r, s: 1 };
+        q.t.el.style.transform = css(q.t.pose);
+      }
+      if (p < 1){ requestAnimationFrame(frame); return; }
+      /* SETTLE BEFORE STOPPING. Two passes a frame keeps the layer honest while
+         forces are still being applied, but the last frame stops mid-shove and
+         leaves a handful of pairs resolved only part way — enough for the audit
+         to fail on a sweep that looked perfect. */
+      settlePile(P, cx, cy);
+      for (const q of P){
+        q.t.pose = { x: q.x, y: q.y, r: q.r, s: 1 };
+        q.t.el.style.transform = css(q.t.pose);
+      }
+      finish();
+    }
+    requestAnimationFrame(frame);
+  });
+}
+
+/** Spread all 144 across the WHOLE table, still one layer, still no overlap.
+ *  Uniform over the felt rather than gathered anywhere — the state a set is in
+ *  when it has just been tipped out. */
+function scatterField(seed){
+  const cx = CW / 2, cy = CH / 2;
+  const rx = CW / 2 - TL, ry = CH / 2 - TL;
+  reseed(seed);
+  const P = tiles.map(() => ({ x: cx + RR(-rx, rx), y: cy + RR(-ry, ry), r: rnd() * 360 }));
+  for (let k = 0; k < 130; k++){ separate(P); contain(P, cx, cy, rx, ry, 0.6); }
+  return P;
+}
+
+/** A5 — tipped out across the table, then turned and gathered into the middle.
+ *
+ *  The owner's suggestion, and it solves the problem the other variants fight:
+ *  A2 has to hold a jammed pile perfectly still under shear, and any imbalance
+ *  between collisions pushing out and gravity pulling in shows up as the middle
+ *  slowly emptying. Here the net inward flow IS the animation. Gravity ramps
+ *  from nothing to the packing's own strength, so the tiles converge on exactly
+ *  the arrangement packField would have produced, arriving rather than being
+ *  held. It cannot hollow out, because hollowing is the direction it came from. */
+function shufGather(dur, amp, tok){
+  return new Promise((res) => {
+    let done = false;
+    const finish = () => { if (!done){ done = true; reportOverlap(); res(); } };
+    setTimeout(finish, ms(dur) + 1500);
+    const cx = CW / 2, cy = CH / 2;
+    const bigRx = CW / 2 - TL, bigRy = CH / 2 - TL;
+    const start = scatterField(9001);
+    const P = tiles.map((t, i) => {
+      dress(t, "flat");
+      t.el.classList.add("flat");
+      t.el.classList.remove("face", "dead", "hide", "wall");
+      t.el.style.zIndex = "1";
+      t.pose = { x: start[i].x, y: start[i].y, r: start[i].r, s: 1 };
+      t.el.style.transform = css(t.pose);
+      return { t, x: start[i].x, y: start[i].y, r: start[i].r, vx: 0, vy: 0, vr: 0 };
+    });
+
+    /* STROKES, NOT A SWIRL.
+     *
+     * Owner: "they would not rotate all at once like that. typically you would
+     * push a group towards the middle." A global angular field turns every tile
+     * on the table in step, which reads as the TABLE rotating — one motion, not
+     * a hundred and forty-four. What a hand actually does is local: it lands on
+     * a patch, drives that patch inward, lifts, and the next hand lands
+     * somewhere else. Only the tiles under a stroke move; their neighbours are
+     * shoved aside by contact, and everything else waits its turn.
+     *
+     * Each stroke is a hand travelling from the rim toward the middle over its
+     * own slice of the timeline. They overlap two or three at a time, from
+     * different directions, which is four people reaching in — and it is the
+     * overlapping that keeps the pile from looking swept by a single hand. */
+    const STROKES = 16;
+    reseed(5150);
+    const strokes = Array.from({ length: STROKES }, (_, i) => ({
+      a: (i * 2.39996 + RR(-0.35, 0.35)),          // golden angle: spread, not cyclic
+      t0: (i / STROKES) * 0.88 + RR(-0.03, 0.03),
+      len: RR(0.16, 0.26),
+      reach: RR(0.30, 0.46),                        // how far in this one drives
+      spin: RR(-1, 1),
+    }));
+
+    const t0 = performance.now(), D = ms(dur);
+    function frame(now){
+      if (done) return;
+      if (stale(tok)) return finish();
+      const p = Math.min(1, (now - t0) / D);
+      const R = Math.min(bigRx, bigRy / DEPTH);
+      for (const st of strokes){
+        const u = (p - st.t0) / st.len;
+        if (u < 0 || u > 1) continue;
+        /* the hand comes in from the rim and slows as it reaches its depth */
+        const ease = 1 - (1 - u) * (1 - u);
+        const hr = R * (1.05 - (1.05 - st.reach) * ease);
+        const hx = cx + Math.cos(st.a) * hr;
+        const hy = cy + Math.sin(st.a) * hr * DEPTH;
+        const grip = R * 0.34;                       // the patch a hand covers
+        /* strongest mid-stroke, so a push arrives and leaves rather than
+           switching on and off */
+        const power = Math.sin(Math.PI * u) * 0.55 * amp / 16;
+        for (const q of P){
+          const dx = q.x - hx, dy = (q.y - hy) / DEPTH;
+          const d = Math.hypot(dx, dy);
+          if (d > grip) continue;
+          const f = (1 - d / grip) * power;
+          /* inward, with a little sideways drag — a hand sweeps as well as
+             pushes, and a purely radial shove looks like a piston */
+          q.vx += (Math.cos(st.a) * -f) + (-Math.sin(st.a) * f * 0.35 * st.spin);
+          q.vy += (Math.sin(st.a) * -f + Math.cos(st.a) * f * 0.35 * st.spin) * DEPTH;
+          q.vr += f * 1.8 * st.spin;
+        }
+      }
+      for (const q of P){ q.vx *= 0.80; q.vy *= 0.80; q.vr *= 0.86;
+                          q.x += q.vx; q.y += q.vy; q.r += q.vr; }
+      /* Gravity eases in behind the strokes so the pile is finished even where
+         no hand reached, and lands on exactly the arrangement packField would
+         have produced. Collisions push out, gravity pulls in, and the two are
+         quoted at the same strength — otherwise it is not the same pile. */
+      const g = PACK_PULL * (0.2 + 1.4 * p);
+      separate(P); pullIn(P, cx, cy, g, 0.35);
+      separate(P); pullIn(P, cx, cy, g, 0.35);
+      contain(P, cx, cy, bigRx, bigRy, 0.5);
+      for (const q of P){
+        q.t.pose = { x: q.x, y: q.y, r: q.r, s: 1 };
+        q.t.el.style.transform = css(q.t.pose);
+      }
+      if (p < 1){ requestAnimationFrame(frame); return; }
+      settlePile(P, cx, cy);
+      for (const q of P){
+        q.t.pose = { x: q.x, y: q.y, r: q.r, s: 1 };
+        q.t.el.style.transform = css(q.t.pose);
+      }
+      finish();
+    }
+    requestAnimationFrame(frame);
+  });
+}
+
+/** A3 — last hand's tidy walls get swept in, churn, then relax into the field. */
+async function shufScatter(dur, amp, tok){
+  reseed(881);
+  for (let i = 0; i < TOTAL; i++){
+    const t = tiles[i], sl = SLOTS[i >> 1];
+    dress(t, sl.kind);
+    t.el.classList.add("flat", "wall");
+    t.el.classList.remove("face", "dead", "hide");
+    t.el.style.zIndex = String(200 - (i >> 1));
+    t.pose = { x: sl.x, y: sl.y + (i & 1 ? 0 : TT * RISE), r: sl.rot, s: 1 };
+    t.el.style.transform = css(t.pose);
+  }
+  await sleep(120);
+  if (stale(tok)) return;
+  /* THE SWEEP — inward, and into one layer.
+   *
+   * Pushing every tile along its own angle from the centre was the obvious
+   * thing and it is wrong twice over: the walls are already a ring, so a radial
+   * burst just makes a bigger ring with a hole in it, and a burst that ignores
+   * its neighbours ends as a heap rather than a layer. What happens at a table
+   * is the reverse — four pairs of hands sweep the walls IN and the tiles
+   * spread out flat where they meet. The destination is the packed field, so
+   * the sweep is aiming at a legal arrangement from its first frame. */
+  const burst = dur * 0.4;
+  const { P } = packField(4711);
+  for (let i = 0; i < TOTAL; i++){
+    const t = tiles[i];
+    /* the tile leaves the wall and becomes a loose tile in the same beat: it
+       stops being part of a stack, so it loses the stack's shape and z */
+    const prevW = t.box ? t.box.w : TW;
+    dress(t, "flat");
+    t.el.classList.remove("wall");
+    t.el.style.zIndex = "1";
+    t.pose = { ...t.pose, s: (t.pose.s ?? 1) * (prevW / TW) };
+    move(t, { x: P[i].x, y: P[i].y, r: P[i].r, s: 1 }, ms(burst),
+         { ease: "cubic-bezier(.1,.75,.3,1)" });
+  }
+  await sleep(burst);
+  if (stale(tok)) return;
+  shufBrownian(ms(dur * 0.6), amp * 1.4, tok);
+  await sleep(dur * 0.6);
+  reportOverlap();
+}
+
+async function stageShuffle(tok){
+  const v = pick("A"), dur = num("aDur"), amp = num("aAmp");
+  if (v !== 2 && v !== 4) layHeap();
+  if (REDUCED){ layHeap(); return 0; }
+  if (v === 0){ shufBrownian(ms(dur), amp, tok); await sleep(dur); reportOverlap(); }
+  else if (v === 1){ await shufSweeps(dur, amp, tok); }
+  else if (v === 2){ await shufScatter(dur, amp, tok); }
+  else if (v === 4){ await shufGather(dur, amp, tok); }
+  else { shufOrbit(ms(dur), amp); await sleep(dur); reportOverlap(); }
+  return ms(dur);
+}
+
+/* ══ 2 · BUILD ═════════════════════════════════════════════════════════════
+ * 144 tiles become 72 stacks, two high. Tile 2k is the BOTTOM of stack k and
+ * 2k+1 the top; the bottom is drawn 3 px lower with a lower z, which is what
+ * gives the wall a visible two-high edge. The game fakes that with a gradient
+ * on a single node — worth seeing both.
+ */
+function stackPose(k, top){
+  const sl = SLOTS[k];
+  /* Two tiles high, and the lower one is a REAL tile sitting a tile's thickness
+     lower on screen — not a gradient pretending. Its top face is hidden behind
+     the tile above, so all you see of it is its ivory side, which is exactly
+     what the photo shows. The offset is TT·cos θ, so the stack gets shorter as
+     the camera goes overhead and taller as it drops. */
+  return { x: sl.x, y: sl.y + (top ? 0 : TT * RISE), r: sl.rot, s: 1, slot: sl };
+}
+/** Put a tile into wall dress: right size, right z, and a scale that cancels
+ *  the resize so the motion into place stays continuous. */
+function dressForWall(t, k, top){
+  const sl = SLOTS[k];
+  const prevW = t.box ? t.box.w : TW;  // known; reading offsetWidth here would
+  dress(t, sl.kind);                   // force 144 reflows mid-build
+  t.el.classList.add("wall");
+  t.el.classList.remove("flat");
+  /* PAINTER'S ALGORITHM, on screen y — nearer covers farther.
+   *
+   * Keying z to the ring index instead looks fine on the top and bottom walls,
+   * where stacks sit side by side and never overlap, and is badly wrong on the
+   * left and right walls, where they do. There the wall recedes: the pitch is
+   * a projected 18 px but a tile is 31 px tall, so each stack covers half of
+   * the one behind it — and under ring order the FARTHER tile was painted over
+   * the nearer one, which is the wall drawn inside out.
+   *
+   * The tie inside a stack goes to the upper tile, because the lower one is
+   * genuinely underneath however the light falls on it. */
+  t.el.style.zIndex = String(Math.round(SLOTS[k].y) * 4 + (top ? 2 : 1));
+  t.pose = { ...t.pose, s: (t.pose.s ?? 1) * (prevW / sl.w) };
+  t.el.style.transform = css(t.pose);
+}
+/** Where a stack comes IN from, for the variants that arrive off-table. */
+function offside(sl, d){
+  if (sl.side === "top")    return { x: sl.x, y: sl.y - d };
+  if (sl.side === "bottom") return { x: sl.x, y: sl.y + d };
+  if (sl.side === "left")   return { x: sl.x - d, y: sl.y };
+  return { x: sl.x + d, y: sl.y };
+}
+
+async function stageBuild(tok){
+  const v = pick("B"), dur = num("bDur"), stag = num("bStag");
+  const off = num("bSide"), arc = on("bArc");
+
+  /* B3 assigns each slot the nearest tile still in the heap, so the wall grows
+     out of the heap it is actually touching. Greedy nearest is 72×144 at worst
+     — nothing, and it beats a random pairing badly: random sends a quarter of
+     the tiles straight across the table past each other. */
+  let order = null;
+  if (v === 2){
+    const free = tiles.map((t, i) => i);
+    order = [];
+    for (let k = 0; k < STACKS; k++){
+      const sl = SLOTS[k];
+      for (const top of [0, 1]){
+        let best = 0, bd = Infinity;
+        for (let j = 0; j < free.length; j++){
+          const p = tiles[free[j]].pose;
+          const d = (p.x - sl.x) ** 2 + (p.y - sl.y) ** 2;
+          if (d < bd){ bd = d; best = j; }
+        }
+        order.push(free.splice(best, 1)[0]);
+      }
+    }
+  }
+
+  let total = 0;
+  for (let k = 0; k < STACKS; k++) WALL[k] = [-1, -1];
+  for (let k = 0; k < STACKS; k++){
+    for (const top of [0, 1]){
+      const idx = order ? order[k * 2 + top] : k * 2 + top;
+      const t = tiles[idx];
+      const sl = SLOTS[k];
+      const dest = stackPose(k, top);
+      dressForWall(t, k, top);
+
+      let start, delay, ease = "cubic-bezier(.2,.8,.3,1.05)", mid = null;
+
+      if (v === 0){
+        /* B1 — the game's `assemble`: a random offset above the slot, and no
+           relationship at all to where the tile just was. */
+        start = { x: dest.x + RR(-75, 75), y: dest.y + RR(-160, -30),
+                  r: RR(-35, 35), s: 0.7 };
+        delay = (SIDES.indexOf(sl.side) * 70 + (k % PER) * 12);
+      } else if (v === 1){
+        /* B2 — §6.11: eight groups, two per side. Everything in a group shares
+           one delay, so it lands as a block. */
+        const g = Math.floor(k / (PER / 2));
+        start = { x: dest.x + RR(-26, 26), y: dest.y - RR(40, 90), r: RR(-14, 14), s: 0.86 };
+        delay = g * stag * 4.4;
+      } else if (v === 2){
+        /* B3 — from the heap, as itself. */
+        start = { ...t.pose };
+        delay = k * stag + top * (stag * 0.35);
+        if (arc) mid = { x: (start.x + dest.x) / 2, y: (start.y + dest.y) / 2 - 26,
+                         r: (start.r + dest.r) / 2, s: 1.16 };
+      } else {
+        /* B4 — the row gathers outside its own edge and slides in square. */
+        const o = offside(sl, off);
+        start = { x: o.x, y: o.y, r: 0, s: 1 };
+        delay = SIDES.indexOf(sl.side) * stag * 3 + (k % PER) * (stag * 0.5);
+        ease = "cubic-bezier(.32,.94,.4,1)";
+      }
+
+      t.pose = start;
+      move(t, dest, ms(dur), { delay: ms(delay), ease, mid, fade: v !== 2 });
+      total = Math.max(total, delay + dur);
+      WALL[k][top] = idx;               // which tile is where, for the deal
+    }
+  }
+  await sleep(total);
+  return stale(tok) ? 0 : ms(total);
+}
+
+/* ══ 3 · DICE AND THE BREAK 擲骰 ═══════════════════════════════════════════
+ * SPEC.md line 72, the owner's note: "you would throw dice, you would then
+ * count around the wall and then you would determine from there how to pull
+ * tiles from the wall." None of that is in the game. This is the prototype.
+ *
+ * The count is done twice, because that is how it is done at a table: the sum
+ * picks WHICH wall (counting seats from the dealer, counter-clockwise), then
+ * the same sum counts stacks along that wall to find the break.
+ */
+const PIPS = {
+  1: [4], 2: [0, 8], 3: [0, 4, 8], 4: [0, 2, 6, 8],
+  5: [0, 2, 4, 6, 8], 6: [0, 2, 3, 5, 6, 8],
+};
+const diceBox = $("dice"), markEl = $("mark");
+let BREAK = 0;
+/** A tile jumps very slightly and settles — transform only, so it is legal
+ *  under invariant I4 and costs nothing on the compositor. */
+function pulse(t, d){
+  if (REDUCED) return;
+  const big = css({ ...t.pose, s: (t.pose.s ?? 1) * 1.22 });
+  t.el.animate([{ transform: big }, { transform: css(t.pose) }],
+    { duration: ms(d), easing: "cubic-bezier(.3,1.4,.5,1)" });
+}
+
+function drawDice(vals){
+  diceBox.innerHTML = vals.map((v) => {
+    const set = new Set(PIPS[v]);
+    return `<div class="die">${Array.from({ length: 9 }, (_, i) =>
+      `<i class="${v === 1 || v === 4 ? "r" : ""}" style="visibility:${set.has(i) ? "visible" : "hidden"}"></i>`).join("")}</div>`;
+  }).join("");
+}
+function markTo(k, hop){
+  const sl = SLOTS[k];
+  markEl.style.width = (sl.w + 2) + "px";
+  markEl.style.height = (sl.h + 5) + "px";
+  markEl.classList.add("on");
+  const to = `translate(calc(${sl.x}px - 50%),calc(${sl.y - 1}px - 50%)) rotate(${sl.rot}deg)`;
+  markEl.style.transform = to;
+  if (!REDUCED && hop) markEl.animate(
+    [{ transform: markEl.dataset.at || to }, { transform: to }],
+    { duration: ms(hop), easing: "cubic-bezier(.3,1.5,.5,1)" });
+  markEl.dataset.at = to;
+}
+
+async function stageDice(tok){
+  if (!on("cDice")){ BREAK = 0; markEl.classList.remove("on"); return 0; }
+  const n = num("cN"), tum = num("cTum"), hop = num("cHop"), hold = num("cHold");
+  /* The dice get their OWN entropy. Everything else in the lab runs off a
+     fixed seed so two variants can be compared on the same heap, but that also
+     froze the dice — the same 3+3+3 every run, which is the one thing here you
+     want to see vary. In the game these come off the server's hand seed. */
+  const vals = Array.from({ length: n }, () => 1 + Math.floor(Math.random() * 6));
+  const sum = vals.reduce((a, b) => a + b, 0);
+
+  /* the throw — the dice tumble in the middle of the square and stop dead */
+  drawDice(vals);
+  diceBox.classList.add("on");
+  if (!REDUCED) for (const d of diceBox.children){
+    d.animate([
+      { transform: `translate(${RR(-70, 70)}px,${RR(-60, 60)}px) rotate(${RR(-400, 400)}deg) scale(.5)`, opacity: 0 },
+      { transform: `translate(${RR(-16, 16)}px,${RR(-12, 12)}px) rotate(${RR(-60, 60)}deg) scale(1.15)`, opacity: 1, offset: 0.62 },
+      { transform: "translate(0,0) rotate(0) scale(1)", opacity: 1 },
+    ], { duration: ms(tum), easing: "cubic-bezier(.15,.7,.3,1)", fill: "backwards" });
+  }
+  await sleep(tum);
+  if (stale(tok)) return 0;
+
+  /* count 1 — around the seats, the dealer counting themselves as one. The
+     marker rides the middle of each wall so you can see the count land. */
+  const DEALER = 0;
+  const seat = (DEALER + sum - 1) % 4;
+  const seg = segOf(seat);            // that seat's wall, as a RING segment
+  for (let c = 0; c < sum; c++){
+    const sg = segOf((DEALER + c) % 4);
+    for (let k = sg * PER; k < sg * PER + PER; k++)
+      for (const j of WALL[k]) if (j >= 0) pulse(tiles[j], hop * 1.7);
+    markTo(sg * PER + (PER >> 1), hop);
+    await sleep(hop);
+    if (stale(tok)) return 0;
+  }
+
+  /* count 2 — stacks along that wall, from its far end inward */
+  const start = seg * PER;
+  const steps = ((sum - 1) % PER) + 1;
+  for (let c = 0; c < steps; c++){
+    markTo(start + PER - 1 - c, hop);
+    await sleep(hop);
+    if (stale(tok)) return 0;
+  }
+  BREAK = (start + PER - steps + STACKS) % STACKS;
+
+  /* The dead wall 尾 sits BEHIND the break — seven stacks on the side the draw
+     is moving away from, so it is the last thing the deal would ever reach.
+     It follows the draw direction; pinning it to one side made it the FIRST
+     thing consumed as soon as the direction was corrected. */
+  const back = -drawDir();
+  for (let i = 1; i <= 7; i++){
+    const k = ((BREAK + i * back) % STACKS + STACKS) % STACKS;
+    for (const j of WALL[k]) if (j >= 0) tiles[j].el.classList.add("dead");
+  }
+  log(`dice ${vals.join("+")} = <b>${sum}</b> · ${["your","right","across","left"][seat]} wall (<b>${SIDES[seg]}</b>) · break at stack <b>${BREAK}</b>`);
+  await sleep(hold);
+  return stale(tok) ? 0 : ms(tum + (sum + steps) * hop + hold);
+}
+
+/* ══ 4 · THE DEAL 執牌 ═════════════════════════════════════════════════════
+ * Blocks of four, four rounds, every seat in turn, then one single each and
+ * the dealer's fourteenth. 53 tiles.
+ *
+ * The seats' hands live OUTSIDE #surface — my hand is a plain flex row below
+ * the felt — so a tile cannot animate across containers in 3D. It does not
+ * need to: the destination node is created in its own container and animated
+ * from the SCREEN DELTA to the wall slot it came from, measured once. The path
+ * is identical and there is no cross-container transform to get wrong. This is
+ * the same cheat the game's `drawFromWall` uses, made exact instead of guessed.
+ */
+const mine = $("mine"), bots = { 1: $("hE"), 2: $("hN"), 3: $("hW") };
+const HAND_N = 13;
+
+function resetHands(){
+  mine.innerHTML = "";
+  for (let i = 0; i < 14; i++){
+    const el = document.createElement("div");
+    el.className = "pt hide";
+    el.style.width = "62px"; el.style.height = "87px";
+    el.innerHTML = `<div class="fc bk"></div><div class="fa"><svg viewBox="0 0 100 140"></svg></div>`;
+    if (i === 13) el.classList.add("gap");
+    mine.appendChild(el);
+  }
+  for (const k of [1, 2, 3]){
+    bots[k].innerHTML = Array.from({ length: HAND_N },
+      () => `<div class="hb" style="visibility:hidden"></div>`).join("");
+  }
+}
+
+/** Which way round the ring the wall is eaten. SLOTS runs bottom → right →
+ *  top → left, which is COUNTER-CLOCKWISE on screen and is the direction play
+ *  runs. The wall is drawn the other way. */
+const drawDir = () => (on("cDir") ? 1 : -1);
+
+/** The order tiles leave the wall: round the ring from the break in the draw
+ *  direction, the top of a stack before the tile under it — which is how a
+ *  hand actually takes them.
+ *
+ *  THE DIRECTION WAS WRONG. Drawing forward along the ring eats the wall
+ *  counter-clockwise, the same way play runs, and that is backwards: you break
+ *  the wall and take the four tiles to the LEFT of the break, so the wall is
+ *  consumed clockwise, against the turn order. The dead wall has to sit on the
+ *  other side of the break for the same reason — it is what the draw is moving
+ *  away from. Houses do differ on handedness, so it is a switch rather than a
+ *  constant, but the default is now the common one. */
+function wallStream(){
+  const out = [], dir = drawDir();
+  for (let n = 0; n < STACKS; n++){
+    const k = ((BREAK + n * dir) % STACKS + STACKS) % STACKS;
+    out.push(WALL[k][1], WALL[k][0]);
+  }
+  return out.filter((i) => i >= 0);
+}
+
+/** The 53 grabs, as (seat, count) pairs, in the order they happen.
+ *
+ *  THREE rounds of four, not four: 3 × 4 = 12, then one single each makes 13,
+ *  and 莊 takes a fourteenth. 13 × 4 + 1 = 53. Four rounds would be seventeen
+ *  tiles a seat, which is both wrong and — since a seat only has thirteen slots
+ *  — an overflow that takes the whole stage down with it. */
+function dealPlan(){
+  const p = [];
+  for (let round = 0; round < 3; round++) for (let s = 0; s < 4; s++) p.push([s, 4]);
+  for (let s = 0; s < 4; s++) p.push([s, 1]);
+  p.push([0, 1]);                       // 莊 takes the fourteenth
+  return p;
+}
+
+/** Take EVERY tile off the wall, in the order the deal would take them.
+ *
+ *  A verification tool, not a motion: 53 tiles only reaches a quarter of the
+ *  way round, which is not enough to see whether the path is continuous, where
+ *  it turns a corner, or that the dead wall really is last. Draining all 144
+ *  shows the whole route in one pass, and the printed summary below says the
+ *  same thing in words so it can be checked without watching. */
+async function stageDrain(tok){
+  const per = num("dDrain"), dir = drawDir();
+  const stream = wallStream();
+
+  /* the route in words: which wall, how many stacks, in the order visited */
+  const runs = [];
+  for (let n = 0; n < STACKS; n++){
+    const k = ((BREAK + n * dir) % STACKS + STACKS) % STACKS;
+    const side = SLOTS[k].side;
+    if (runs.length && runs[runs.length - 1][0] === side) runs[runs.length - 1][1]++;
+    else runs.push([side, 1]);
+    /* the marker rides the stack being drawn */
+    setTimeout(() => { if (!stale(tok)) markTo(k, per * 1.6); }, ms(n * 2 * per));
+  }
+  log(`draw path: ${runs.map(([w, n]) => `${w}\u00d7${n}`).join(" \u2192 ")}`);
+  log(`${runs.length} run${runs.length > 1 ? "s" : ""} for 4 walls — `
+    + (runs.length <= 5 ? "<b>continuous</b>" : "<b>BROKEN, it is jumping walls</b>"));
+
+  /* every tile scheduled up front, exactly as the deal does it, so the drain
+     is one timeline rather than 144 sequential awaits */
+  for (let i = 0; i < stream.length; i++)
+    setTimeout(() => { if (!stale(tok)) tiles[stream[i]].el.classList.add("hide"); }, ms(i * per));
+  await sleep(stream.length * per + 250);
+  return ms(stream.length * per);
+}
+
+async function stageDeal(tok){
+  const v = pick("D"), blk = num("dBlk"), gap = num("dGap"), stag = num("dStag");
+  const doFlip = on("dFlip"), doSort = on("dSort");
+  resetHands();
+
+  /* Measure once. 53 separate getBoundingClientRect calls interleaved with
+     style writes would be 53 forced reflows in the middle of the busiest
+     moment in the game; two batched reads are free. */
+  const wallRect = tiles.map((t) => t.el.getBoundingClientRect());
+  const mySlots  = Array.from(mine.children);
+  const myRect   = mySlots.map((el) => el.getBoundingClientRect());
+  const botRect  = {}; for (const k of [1, 2, 3])
+    botRect[k] = Array.from(bots[k].children).map((el) => el.getBoundingClientRect());
+
+  const stream = wallStream();
+  const plan = dealPlan();
+  const want = plan.reduce((n, [, c]) => n + c, 0);
+  if (want !== 53) log(`<b>plan deals ${want}, not 53</b>`);
+  const held = [0, 0, 0, 0];
+  let cursor = 0, at = 0, total = 0;
+
+  for (const [seat, count] of plan){
+    for (let c = 0; c < count; c++){
+      const src = stream[cursor++];
+      const delay = at + c * stag;
+      const dest = held[seat]++;
+      /* the wall gives the tile up the instant the grab is admitted — the
+         model is at its post-event value before anything animates (§3) */
+      setTimeout(() => tiles[src].el.classList.add("hide"), ms(delay));
+
+      if (seat === 0){
+        const el = mySlots[dest], a = wallRect[src], b = myRect[dest];
+        if (!el){ log(`<b>my hand overflowed at ${dest}</b>`); continue; }
+        const k = a.width / b.width;
+        el.classList.remove("hide");
+        el.dataset.k = tiles[src].kind;
+        el.querySelector(".fa svg").innerHTML = FACES[tiles[src].kind];
+        el.style.transform = "none";
+        if (!REDUCED){
+          el.animate([
+            { transform: `translate(${(a.left - b.left).toFixed(1)}px,${(a.top - b.top).toFixed(1)}px)`
+                       + ` scale(${k.toFixed(3)}) rotateY(${doFlip ? 180 : 0}deg)`, opacity: 0 },
+            { opacity: 1, offset: 0.22 },
+            { transform: "translate(0,0) scale(1) rotateY(0deg)", opacity: 1 },
+          ], { duration: ms(blk), delay: ms(delay), fill: "backwards",
+               easing: "cubic-bezier(.2,.78,.3,1.04)" });
+          /* the face appears at the halfway point, when the tile is edge-on —
+             you do not see your hand until it is in front of you (§6.11) */
+          setTimeout(() => el.classList.add("face"), ms(delay + blk * (doFlip ? 0.52 : 0)));
+        } else el.classList.add("face");
+      } else {
+        const el = bots[seat].children[dest], a = wallRect[src], b = botRect[seat][dest];
+        if (!el){ log(`<b>seat ${seat} overflowed at ${dest}</b>`); continue; }
+        el.style.visibility = "visible";
+        if (!REDUCED) el.animate([
+          { transform: `translate(${(a.left - b.left).toFixed(1)}px,${(a.top - b.top).toFixed(1)}px) scale(1.5)`, opacity: 0 },
+          { opacity: 1, offset: 0.3 },
+          { transform: "translate(0,0) scale(1)", opacity: 1 },
+        ], { duration: ms(blk), delay: ms(delay), fill: "backwards",
+             easing: "cubic-bezier(.2,.78,.3,1.04)" });
+        else el.style.visibility = "visible";
+      }
+      total = Math.max(total, delay + blk);
+    }
+    /* D1 waits for the block to land, D2 overlaps it, D3 never blocks at all */
+    at += v === 0 ? blk + gap : v === 1 ? Math.max(gap, stag * count) : stag * count + gap * 0.4;
+  }
+
+  await sleep(total + 60);
+  if (stale(tok)) return 0;
+  if (doSort) sortMyHand();
+  markEl.classList.remove("on");
+  return ms(total + 60);
+}
+
+/** 理牌 — the small tidy-up everyone does the moment the deal stops.
+ *  FLIP: read every rect, reorder the DOM, read again, then animate the
+ *  difference away. The layout change is real and instantaneous; only the
+ *  correction is animated, so nothing here touches width or left. */
+function sortMyHand(){
+  const all = Array.from(mine.children).filter((e) => !e.classList.contains("hide"));
+  const drawn = all.find((e) => e.classList.contains("gap"));
+  const els = all.filter((e) => e !== drawn);
+  const before = new Map(all.map((e) => [e, e.getBoundingClientRect().left]));
+  els.sort((a, b) => (+a.dataset.k) - (+b.dataset.k));
+  for (const e of els) mine.appendChild(e);
+  if (drawn) mine.appendChild(drawn);
+  for (const e of Array.from(mine.children))
+    if (e.classList.contains("hide")) mine.appendChild(e);   // empty slots to the back
+  if (REDUCED) return;
+  for (const e of all){
+    const dx = before.get(e) - e.getBoundingClientRect().left;
+    if (Math.abs(dx) < 0.5) continue;
+    e.animate([{ transform: `translateX(${dx.toFixed(1)}px)` }, { transform: "none" }],
+      { duration: ms(260), easing: "cubic-bezier(.3,.9,.35,1)" });
+  }
+}
+
+/* ══ orchestration ═════════════════════════════════════════════════════════ */
+const logEl = $("log");
+let lines = [];
+function log(s){ lines.push(s); logEl.innerHTML = lines.join("\n"); logEl.scrollTop = 1e6; }
+function clearLog(){ lines = []; logEl.innerHTML = ""; }
+const setMs = (id, v) => { $(id).textContent = v ? v + " ms" : "—"; };
+
+function readGlobals(){
+  SPEED = num("gSpeed");
+  REDUCED = on("gReduced");
+}
+
+function reset(){
+  RUN++;
+  clearLog();
+  geom(num("bScale"), num("bPin"), num("bTheta"), num("bRot"));
+  for (const id of ["msA", "msB", "msC", "msD"]) setMs(id, 0);
+  diceBox.classList.remove("on");
+  markEl.classList.remove("on");
+  markEl.dataset.at = "";
+  makePool();
+  layHeap();
+  resetHands();
+  $("hint").textContent = "";
+}
+
+async function run(which){
+  RUN++;
+  const tok = RUN;
+  readGlobals();
+  clearLog();
+  for (const id of ["msA", "msB", "msC", "msD"]) setMs(id, 0);
+  diceBox.classList.remove("on");
+  markEl.classList.remove("on");
+  markEl.dataset.at = "";
+  $("hint").textContent = "";
+  geom(num("bScale"), num("bPin"), num("bTheta"), num("bRot"));
+  reseed(20260901 + (Date.now() & 0xffff));
+
+  const wantA = which === "all" || which === "A";
+  const wantB = which === "all" || which === "B";
+  const wantC = which === "all" || which === "C" || which === "D";
+  /* draining needs a wall and a break, so it borrows the dice stage */
+  const wantD = which === "all" || which === "D";
+  const wantDrain = which === "drain";
+
+  if (wantA || which === "B"){ makePool(); layHeap(); resetHands(); }
+
+  let grand = 0, msA0 = 0;
+  if (wantA){
+    const t = await stageShuffle(tok); if (stale(tok)) return;
+    setMs("msA", t); grand += t; msA0 = t; log(`shuffle  <b>${t}</b> ms`);
+  }
+  if (wantB){
+    const t = await stageBuild(tok); if (stale(tok)) return;
+    setMs("msB", t); grand += t; log(`build    <b>${t}</b> ms`);
+  } else if ((wantC || wantDrain) && WALL[0][0] < 0){
+    /* jumping straight to the dice needs a wall to count, so snap one in */
+    REDUCED = true; await stageBuild(tok); REDUCED = on("gReduced");
+  }
+  if (wantC || wantDrain){
+    const t = await stageDice(tok); if (stale(tok)) return;
+    setMs("msC", t); grand += t; if (t) log(`dice     <b>${t}</b> ms`);
+  }
+  if (wantDrain){
+    const t = await stageDrain(tok); if (stale(tok)) return;
+    setMs("msD", t); log(`drain    <b>${t}</b> ms for all ${TOTAL}`);
+    return;
+  }
+  if (wantD){
+    const t = await stageDeal(tok); if (stale(tok)) return;
+    setMs("msD", t); grand += t; log(`deal     <b>${t}</b> ms`);
+  }
+  if (which === "all"){
+    log(`─────────────────\ntotal    <b>${grand}</b> ms`);
+    /* §6.11 budgets 1400 ms for hand 0 and 520 ms for every hand after — but
+       it budgets BUILD + BREAK + DEAL, because neither a shuffle nor dice
+       existed when it was written. Comparing the whole opening against 1400
+       would just make every variant look broken, so the ceremony is priced
+       separately. The 520 ms line is the one that actually bites: a default
+       match is one wind round, which is eight to sixteen deals. */
+    const spec = grand - (msA0 || 0);
+    const over = spec - 1400;
+    $("hint").textContent =
+      `build + break + deal ${spec} ms — ${over > 0 ? over + " ms over" : Math.abs(over) + " ms inside"}`
+      + ` §6.11's 1400 ms for hand 0` + (msA0 ? ` · shuffle adds ${msA0} ms on top` : ``)
+      + ` · hands 2..n are budgeted 520 ms`;
+    if (on("gLoop") && !stale(tok)){ await sleep(700); if (!stale(tok)) run("all"); }
+  }
+}
+
+/* ══ wiring ════════════════════════════════════════════════════════════════ */
+for (const el of document.querySelectorAll("input[type=range]")){
+  const out = $(el.id + "V");
+  const show = () => { out.textContent = el.id === "gSpeed" ? (+el.value).toFixed(2) + "×" : el.value; };
+  el.addEventListener("input", () => {
+    show();
+    if (["aAmp","bScale","bPin","bTheta","bRot"].includes(el.id)){
+      readGlobals(); RUN++; geom(num("bScale"), num("bPin"), num("bTheta"), num("bRot"));
+      makePool(); layHeap(); resetHands();
+    }
+  });
+  show();
+}
+function markSel(){
+  for (const l of document.querySelectorAll(".opt"))
+    l.classList.toggle("on", l.querySelector("input").checked);
+}
+for (const el of document.querySelectorAll("input[type=radio]"))
+  el.addEventListener("change", markSel);
+markSel();
+
+$("bAll").onclick   = () => run("all");
+$("bShuf").onclick  = () => run("A");
+$("bBuild").onclick = () => run("B");
+$("bDeal").onclick  = () => run("D");
+$("bDrain").onclick = () => run("drain");
+$("bReset").onclick = () => reset();
+$("gReduced").addEventListener("change", readGlobals);
+addEventListener("keydown", (e) => {
+  if (e.key === " "){ e.preventDefault(); run("all"); }
+  if (e.key === "r") reset();
+});
+
+reset();
+})();
+</script>
+</body>
+</html>

@@ -37,8 +37,9 @@ Two images now in the folder address it directly:
   against a dark stage and against a light wall. It reads both ways. That robustness across
   background value is the exact property to test tile designs for.
 
-And `games/borderlands/ui-bl4-07.jpg` (Claptrap alone, flat dusk light) is the cleanest
-single-object contour study in the pull.
+And `games/borderlands/ui-bl2-12.jpg` (a bandit portrait in flat snow — thick black line,
+flat fill, visible hatching on the vest, near-zero lighting) is the cleanest single-object
+contour study in the pull.
 
 ## Proposed tags
 
@@ -142,10 +143,11 @@ absorbing Western form on its own terms. Method, not vocabulary.
 
 ## What was actually collected
 
-58 images, 56.6 MB, all annotated, under `games/`:
+98 images, 97.6 MB, all annotated, under `games/`:
 
-- `games/borderlands/` — 31 files. Borderlands 3 (8 screenshots) and Borderlands 4
-  (17 screenshots), plus store banners. Source: Steam store API, 1920×1080.
+- `games/borderlands/` — 71 files across five games: Borderlands GOTY Enhanced (15),
+  Borderlands 2 (17), The Pre-Sequel (8), Borderlands 3 (8) and Borderlands 4 (17), plus
+  store banners. Source: Steam store API, 1920×1080.
 - `games/smash/` — 27 files. 18 transparent-background splash renders chosen for art-style
   *range* rather than roster completeness, 6 in-game screenshots, 3 duotone backing panels,
   and `fighter-roster.json`. Source: smashbros.com official asset paths.
@@ -167,3 +169,43 @@ hand, or by noting timecodes.
   and `viewer.html` stay local while the `.md` files are tracked. `notes.json` is **not**
   tracked under the current rule — if the annotations are worth keeping in git, add
   `!moodboard/notes.json` and `!moodboard/build_viewer.py`.
+
+
+---
+
+## Correction — the Borderlands reference is BL2, not BL4 *(added after review)*
+
+The first pull only covered Borderlands 3 and 4. That was the wrong end of the franchise.
+BL1/2/Pre-Sequel have now been added (40 more images) and the group note in `notes.json`
+has been rewritten around what the series actually shows: **a drift, not a style.**
+
+- **BL2 (2012) is the peak.** Thick dark contours and visible cross-hatching baked into the
+  *diffuse texture* — not applied as a post-process — with flat poster-like interior fills
+  and mostly flat daylight. The line carries the read; lighting is nearly absent. This is
+  the "moving comic book" the franchise is remembered for. Best single frame: `ui-bl2-12.jpg`.
+- **BL1 (2009)** established the painterly base, but its contour is noticeably *thinner* than
+  BL2's — it reads more as concept-art painting than as ink. Worth knowing before treating
+  "BL1 and BL2" as one look; they are not quite the same.
+- **The Pre-Sequel (2014)** holds BL2's line and contributes the only in-game HUD frames in
+  the pull — chunky, angular, hard-outlined interface that matches the world's render
+  language. Rare and directly useful for MJRC's table HUD.
+- **BL3 (2019)** keeps the line but glosses the materials.
+- **BL4** largely abandons it. Saturated magenta/cyan practicals, high specularity and heavy
+  bloom now do the work, and the contour has thinned to near-invisibility in places.
+
+The BL4 frames are **kept deliberately as the counter-example** — they are the record of what
+happens when lighting replaces line. Both ends are labelled as such in the viewer.
+
+Two BL2 frames matter beyond technique:
+
+- `ui-bl2-15.jpg` — a wide town vista in flat daylight, blue sky, no neon anywhere. Proof
+  the style does not depend on night or saturation, which is precisely BL4's assumption.
+- `ui-bl2-16.jpg` — Tiny Tina at a tea table, warm and domestic, identical render language.
+  Proof the style does not force an aggressive tone. This one carries weight for the
+  audience question in `AUDIENCE-AND-TASTE.md`.
+
+## Related
+
+`AUDIENCE-AND-TASTE.md` — on whether art direction splits by gender, and why the render/content
+split argued for above is the practical answer to it: the ink contour is audience-neutral,
+Borderlands' *content* is not, and the two are genuinely separable.
