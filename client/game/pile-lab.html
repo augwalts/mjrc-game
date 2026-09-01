@@ -33,7 +33,7 @@ h1{font-size:17px;margin:0 0 4px}
 the badge says <b>CLEAR</b> when no two tiles intersect at their drawn rotation, and reports the footprint
 so you can compare how compact each is. Tell me which you want in the game — they can also be selectable.</div>
 <div class="controls">
-  <label>tiles <input type="range" id="n" min="4" max="60" value="26"><span id="nv">26</span></label>
+  <label>tiles <input type="range" id="n" min="4" max="90" value="26"><span id="nv">26</span></label>
   <label>tile size <input type="range" id="sz" min="18" max="44" value="30"><span id="szv">30</span></label>
   <label><input type="checkbox" id="rot" checked> rotation jitter</label>
 </div>
@@ -95,7 +95,7 @@ const LAYOUTS = [
            : arm===2 ? {x:(rnd()-0.5)*6,y:d*0.85,rot:(rnd()-0.5)*14} : {x:(rnd()-0.5)*6,y:-d*0.85,rot:(rnd()-0.5)*14};
     });}},
   { name: "8 · Organic heap ★ SHIPPED", note: "A real table: many orientations including tiles lying sideways, irregular gaps, denser in the middle. This is the algorithm the game now runs. Each tile is thrown from ITS OWN SEAT'S side of the heap, creeps outward until it finds a legal spot, then falls back toward that seat until a neighbour stops it — and finally sidesteps and falls again, 220 times, keeping only what lands nearer. Tiles may touch; they never overlap.",
-    fn: (n, s, rnd) => { const tw = s*0.714, out = [], CLEAR = 0.3;
+    fn: (n, s, rnd) => { const tw = s*0.714, out = [], CLEAR = 0.3, SQUASH = Math.min(0.9, Math.max(0.5, H/W));
       const fits = c => !out.some(o => overlaps(c, o, tw + CLEAR, s + CLEAR));
       for (let i=0;i<n;i++){
         // the thrower rotates you / east / north / west, as at the table
@@ -112,7 +112,7 @@ const LAYOUTS = [
           for (let k=0;k<40 && !p;k++){ const a = off + (k/40)*Math.PI*2;
             for (let t=0;t<4 && !p;t++){
               const rot = rnd()<0.24 ? (rnd()<0.5?90:-90)+(rnd()-0.5)*22 : (rnd()-0.5)*74;
-              const c = {x:ax+Math.cos(a)*r, y:ay+Math.sin(a)*r*0.9, rot};
+              const c = {x:ax+Math.cos(a)*r, y:ay+Math.sin(a)*r*SQUASH, rot};
               if (fits(c)) p = c;
             }
           }

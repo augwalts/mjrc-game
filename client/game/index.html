@@ -78,7 +78,7 @@ body{background:radial-gradient(ellipse at 50% 30%, #1e1b17 0%, #131110 55%, #0a
   border:1px solid #14493a}
 .seat.e .backrow,.seat.w .backrow{flex-direction:column}
 .seat.e .back,.seat.w .back{width:17px;height:12px}
-.meldrow .tile{--th:44px}
+.meldrow .tile{--th:50px}
 .meldrow{display:flex;gap:4px;flex-wrap:wrap;justify-content:center;max-width:230px}
 
 /* ── centre: the pile ── */
@@ -113,20 +113,13 @@ body{background:radial-gradient(ellipse at 50% 30%, #1e1b17 0%, #131110 55%, #0a
   60%{opacity:1}
 }
 #pile{position:relative;width:100%;height:100%}
-#pile .tile{position:absolute;--th:36px}
-/* A THROWN TILE, not a gliding one (owner 2026-08-31). Real physics in four
-   beats: it flies and DECELERATES as it meets the felt, it LANDS short of its
-   slot and slightly crooked, it lies there for a beat, then it SKIDS the last
-   stretch — accelerating the whole way and stopping dead against the pile.
-
-   The acceleration is why the last curve is an ease-IN ending at (1,1): a
-   cubic-bezier that is still gaining speed at 100% reads as a hard stop, which
-   is what a tile hitting other tiles does. A decelerating curve reads as a
-   glide, which is what this used to be.
-
-   Transform and opacity are SEPARATE animations on purpose. A keyframe exists
-   to change the timing function per phase; folding an opacity ramp into the
-   same track would have split the flight into two differently-eased segments. */
+/* The pile tile SCALES WITH THE BOX, set from JS as --pileth.
+   A fixed size cannot work: the heap's footprint is driven by the tile, and an
+   84-discard 流局 hand — about a third of hands, since that is the draw rate —
+   needs room. Measured against the real box, a fixed 36px already spilled out
+   of a laptop-sized 480x300 centre in 2 of 4 runs, and 42px spilled in 4 of 4.
+   That was a pre-existing bug; making tiles bigger only made it louder. */
+#pile .tile{position:absolute;--th:var(--pileth,38px)}
 #pile .tile.fresh{animation:toss var(--tossms,1300ms) linear backwards,
                             tossFade 170ms ease-out backwards;
                   animation-delay:var(--tossdelay,0ms), var(--tossdelay,0ms)}
@@ -157,16 +150,16 @@ body{background:radial-gradient(ellipse at 50% 30%, #1e1b17 0%, #131110 55%, #0a
   border-radius:5px;box-shadow:0 1px 0 #b8ad93,0 2px 5px rgba(0,0,0,.35);
   background:#FAFAF8;user-select:none;overflow:hidden;line-height:0;flex:0 0 auto}
 .tile svg{width:100%;height:100%;display:block}
-.tile.sm{--th:34px}
+.tile.sm{--th:40px}
 
 /* ── your area ── */
 #mine{flex:0 0 auto;padding:4px 10px 10px;background:linear-gradient(180deg,rgba(0,0,0,0),rgba(0,0,0,.3) 40%)}
 #mymelds{display:flex;gap:10px;justify-content:center;min-height:38px;margin-bottom:3px}
-#mymelds .tile.fl{--th:62px}
-.meldrow .tile.fl{--th:50px}
-#mymelds .tile{--th:52px}
+#mymelds .tile.fl{--th:68px}
+.meldrow .tile.fl{--th:56px}
+#mymelds .tile{--th:58px}
 #myhand{display:flex;gap:5px;justify-content:center;align-items:flex-end;min-height:62px;flex-wrap:wrap}
-#myhand .tile{--th:78px;cursor:pointer;transition:transform .12s,box-shadow .12s}
+#myhand .tile{--th:86px;cursor:pointer;transition:transform .12s,box-shadow .12s}
 #myhand .tile:hover{transform:translateY(-9px);box-shadow:0 6px 14px rgba(0,0,0,.45)}
 /* `backwards` + a delay is what makes a motion QUEUE: the tile sits at frame 0
    — invisible, out at the wall — until its turn comes, rather than appearing in
@@ -218,8 +211,27 @@ body{background:radial-gradient(ellipse at 50% 30%, #1e1b17 0%, #131110 55%, #0a
 #devwrap{flex:0 0 auto;padding:0 10px}
 /* ── handicaps ── */
 /* Every copy of the hovered tile, wherever it is. Counting the discards is a
-   core skill; this does the counting, it does not reveal anything hidden. */
-.tile.samet{outline:2px solid #6fd3ff;box-shadow:0 0 10px rgba(111,211,255,.75);z-index:12}
+   core skill; this does the counting, it does not reveal anything hidden.
+
+   It works by CONTRAST, not by stacking. A highlighted pile tile cannot be
+   lifted above its neighbours: #surface is `preserve-3d`, so its children paint
+   by 3D depth and a z-index is ignored — the same trap the state card hit. So
+   everything that does NOT match is dimmed and desaturated instead, which needs
+   no stacking at all and is far louder than a ring on its own. The ring, the
+   glow and the brightness lift then land on an otherwise muted table.
+
+   Nothing here touches `transform`: pile tiles carry an inline transform with
+   their rotation, so a scale in a class would be silently overridden. */
+body.counting .tile:not(.samet){opacity:.26;filter:saturate(.25) brightness(.8)}
+body.counting #wall .wt{opacity:.3}
+.tile.samet{
+  outline:3px solid #ffd76a;
+  box-shadow:0 0 0 2px rgba(0,0,0,.65), 0 0 22px 6px rgba(255,215,106,.95);
+  filter:brightness(1.12) saturate(1.15);
+  z-index:20}
+.tile.samet::after{content:"";position:absolute;inset:0;border-radius:5px;
+  background:rgba(255,215,106,.18);pointer-events:none}
+.tile{position:relative}
 #callwrap{flex:0 0 auto;padding:0 10px}
 #callbar{max-width:1040px;margin:0 auto 4px;background:rgba(255,255,255,.05);
   border:1px solid rgba(255,255,255,.1);border-radius:9px;padding:5px 11px;

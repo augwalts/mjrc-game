@@ -98,6 +98,12 @@ what your seat sees, and nothing hidden is revealed.
 - **Count tiles** — hover any tile and every copy of it on the table lights up:
   the pile, the melds, your hand. Counting the discards is a core skill; this
   does the counting for you, it does not show you anything new.
+
+  It works by **contrast, not by stacking**. A highlighted pile tile cannot be
+  lifted above its neighbours — `#surface` is `preserve-3d`, so its children
+  paint by depth and a `z-index` is ignored. So everything that does *not* match
+  is dimmed to 26 % and desaturated, and the matches get a gold ring, a glow and
+  a brightness lift on an otherwise muted table.
 - **Calling read** — a standing bar above your hand: whether you are 聽牌, what
   you are waiting on, **how many of each are still live**, and whether the hand
   can actually pay. A hand that cannot reach the 3-faan minimum says so, because

@@ -342,6 +342,8 @@ function wireHover(): void {
     if (!el?.dataset.t) return;
     const t = Number(el.dataset.t) as TileId;
     if (SETTINGS.hcCount) {
+      // the class on <body> is what dims everything else — see index.html
+      document.body.classList.add("counting");
       for (const o of Array.from(document.querySelectorAll<HTMLElement>(`.tile[data-t="${t}"]`))) {
         o.classList.add("samet");
       }
@@ -354,6 +356,7 @@ function wireHover(): void {
   document.addEventListener("mouseout", (e) => {
     const el = (e.target as HTMLElement | null)?.closest?.(".tile") as HTMLElement | null;
     if (!el) return;
+    document.body.classList.remove("counting");
     for (const o of Array.from(document.querySelectorAll<HTMLElement>(".tile.samet"))) {
       o.classList.remove("samet");
     }
@@ -1480,6 +1483,17 @@ function render(): void {
   // overlap (owner, 2026-08-30).
   const pileEl = $("pile");
   const boxW = pileEl.clientWidth || 420, boxH = pileEl.clientHeight || 240;
+  /**
+   * Size the pile tile to the box before anything is measured off it. The
+   * divisor is calibrated so a 600px-wide centre gives 42px — the biggest that
+   * still holds a full 流局 hand there — and a cramped window scales down
+   * rather than stacking tiles on top of each other at the centre, which is
+   * what the fallback in the packer would otherwise do. The 21px floor is set
+   * by the narrowest box the layout produces; below that the table itself is
+   * already unusable (SPEC.md, portrait is a known gap).
+   */
+  pileEl.style.setProperty("--pileth",
+    `${Math.round(Math.min(46, Math.max(21, boxW / 14.3)))}px`);
   const probe = pileEl.querySelector<HTMLElement>(".tile");
   const th = probe?.offsetHeight || 36 * SETTINGS.tileScale;   // offset*, not the
   const tw = probe?.offsetWidth || th * 0.714;                 // rotated bounding box
@@ -1496,6 +1510,14 @@ function render(): void {
     // it: rings a pixel apart, forty angles each, four candidate rotations per
     // angle, because a tile that will not fit at one tilt often fits at another.
     const CLEAR = 0.3;
+    /**
+     * The heap grows as an ellipse shaped like the TABLE, not as a circle.
+     * The pile box is far wider than it is tall (600×360), so a round heap runs
+     * out of height with the width barely touched — and a 流局 hand throws
+     * eighty-odd tiles. Matching the box's aspect reaches both walls at once,
+     * which is the most tiles that fit without anything overlapping.
+     */
+    const squash = Math.min(0.9, Math.max(0.5, boxH / boxW));
     const fits = (c: Placed): boolean => !placed.some((o) => hits(c, o, tw + CLEAR, th + CLEAR));
     let best: Placed | null = null;
     const step = Math.max(0.8, th * 0.028);
@@ -1506,7 +1528,7 @@ function render(): void {
         for (let t = 0; t < 4 && !best; t++) {
           // orientation is genuinely varied — most askew, some lying sideways
           const rot = jr() < 0.24 ? (jr() < 0.5 ? 90 : -90) + (jr() - 0.5) * 22 : (jr() - 0.5) * 74;
-          const c: Placed = { x: ax + Math.cos(a) * r, y: ay + Math.sin(a) * r * 0.9, rot, spin: 0 };
+          const c: Placed = { x: ax + Math.cos(a) * r, y: ay + Math.sin(a) * r * squash, rot, spin: 0 };
           if (fits(c)) best = c;
         }
       }

@@ -3212,6 +3212,7 @@
       if (!el?.dataset.t) return;
       const t = Number(el.dataset.t);
       if (SETTINGS.hcCount) {
+        document.body.classList.add("counting");
         for (const o of Array.from(document.querySelectorAll(`.tile[data-t="${t}"]`))) {
           o.classList.add("samet");
         }
@@ -3228,6 +3229,7 @@
     document.addEventListener("mouseout", (e) => {
       const el = e.target?.closest?.(".tile");
       if (!el) return;
+      document.body.classList.remove("counting");
       for (const o of Array.from(document.querySelectorAll(".tile.samet"))) {
         o.classList.remove("samet");
       }
@@ -4231,6 +4233,10 @@
     renderWall();
     const pileEl = $("pile");
     const boxW = pileEl.clientWidth || 420, boxH = pileEl.clientHeight || 240;
+    pileEl.style.setProperty(
+      "--pileth",
+      `${Math.round(Math.min(46, Math.max(21, boxW / 14.3)))}px`
+    );
     const probe = pileEl.querySelector(".tile");
     const th = probe?.offsetHeight || 36 * SETTINGS.tileScale;
     const tw = probe?.offsetWidth || th * 0.714;
@@ -4241,6 +4247,7 @@
       const ax = boxW / 2 + [0, tw * 1.7, 0, -tw * 1.7][d.seat];
       const ay = boxH / 2 + [th * 0.75, 0, -th * 0.75, 0][d.seat];
       const CLEAR = 0.3;
+      const squash = Math.min(0.9, Math.max(0.5, boxH / boxW));
       const fits = (c) => !placed.some((o) => hits(c, o, tw + CLEAR, th + CLEAR));
       let best = null;
       const step = Math.max(0.8, th * 0.028);
@@ -4250,7 +4257,7 @@
           const a = off + k / 40 * Math.PI * 2;
           for (let t = 0; t < 4 && !best; t++) {
             const rot = jr() < 0.24 ? (jr() < 0.5 ? 90 : -90) + (jr() - 0.5) * 22 : (jr() - 0.5) * 74;
-            const c = { x: ax + Math.cos(a) * r, y: ay + Math.sin(a) * r * 0.9, rot, spin: 0 };
+            const c = { x: ax + Math.cos(a) * r, y: ay + Math.sin(a) * r * squash, rot, spin: 0 };
             if (fits(c)) best = c;
           }
         }
