@@ -539,6 +539,37 @@ body.devmode #mine{padding-top:2px}
   #state .wind{font-size:16px}
   #state b{font-size:12px}
   .seat.s .nameplate{font-size:12.5px;padding:4px 10px}
+
+  /* ── OPPONENTS' MELDS FACE THEIR OWN PLAYER ──────────────────────────
+     A phone leaves a 64px gutter each side of the discard box, and a meld row
+     declared 230px wide cannot live in it — so east's melds lay across the
+     table and the heap covered them. Measured on a full 流局 board, 7 of 16
+     bot meld tiles and 5 of 7 flowers were under the discards.
+
+     Turned, a side seat's whole meld block is about 56px wide and the tiles
+     get BIGGER, not smaller. Same board after: 0 of 16 melds buried.
+
+     A tile in front of a player points AWAY from them, toward the middle of
+     the table — so east sits on the right and its tops point LEFT, west's
+     point RIGHT. Turning both the same way leaves one of them upside down.
+     North is a plain 180: its footprint is unchanged, it just faces away. */
+  .seat.e .meldrow,.seat.w .meldrow{flex-direction:column;max-width:none}
+  .seat.e .meldrow{align-items:flex-end}
+  .seat.w .meldrow{align-items:flex-start}
+  /* the box becomes the tile's OWN rotated bounding box — width and height
+     swapped — and the face turns about the centre inside it, so the flow
+     layout and the picture agree and nothing needs nudging back into place */
+  .seat.e .meldrow .tile,.seat.w .meldrow .tile{
+    --tw:calc(var(--th) * var(--tscale,1) * .714);
+    width:calc(var(--th) * var(--tscale,1));height:var(--tw);position:relative}
+  .seat.e .meldrow .tile svg,.seat.w .meldrow .tile svg{
+    position:absolute;left:50%;top:50%;
+    width:var(--tw);height:calc(var(--th) * var(--tscale,1))}
+  .seat.e .meldrow .tile svg{transform:translate(-50%,-50%) rotate(-90deg)}
+  .seat.w .meldrow .tile svg{transform:translate(-50%,-50%) rotate(90deg)}
+  .seat.n .meldrow .tile svg{transform:rotate(180deg)}
+  /* the 6px spacer between melds is a WIDTH; in a column it must be a height */
+  .seat.e .meldrow>span[style*="width"],.seat.w .meldrow>span[style*="width"]{height:5px}
 }
 </style>
 </head>

@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Flower legibility — the numeral and the name glyph</title>
+<style>
+body{margin:0;background:#131110;color:#f2ece0;padding:18px 20px 60px;
+  font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+h1{font-size:18px;margin:0 0 4px}
+h2{font-size:13px;margin:26px 0 8px;color:#d8b56a;letter-spacing:.04em}
+.sub{color:#a9b8ae;font-size:12.5px;max-width:900px;margin-bottom:8px}
+.sub b{color:#f2ece0}.sub code{background:rgba(255,255,255,.08);padding:1px 5px;border-radius:4px}
+table{border-collapse:collapse;margin-top:10px}
+th{font-size:11px;font-weight:600;color:#a9b8ae;text-align:left;padding:6px 12px 6px 0;
+  letter-spacing:.05em;text-transform:uppercase;vertical-align:bottom}
+td{padding:9px 12px 9px 0;border-top:1px solid #241f1b;vertical-align:middle}
+td.lab{font-size:12px;color:#a9b8ae;white-space:nowrap}
+td.lab b{color:#f2ece0;display:block;font-size:12.5px}
+td.lab .sel{color:#d8b56a}
+.strip{display:flex;gap:5px;align-items:center}
+/* the felt, because that is what these are seen against */
+.felt{background:radial-gradient(ellipse at 50% 40%,#12503f,#0d3d30 80%);
+  padding:8px 10px;border-radius:8px;display:inline-block}
+.tile{display:inline-block;background:#FAFAF8;border-radius:4px;overflow:hidden;line-height:0;
+  box-shadow:0 1px 0 #b8ad93,0 2px 4px rgba(0,0,0,.35);flex:0 0 auto}
+.tile svg{width:100%;height:100%;display:block}
+/* a side-seat meld tile: the box is the rotated bounding box, face turned inside */
+.tile.turned{position:relative}
+.tile.turned svg{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%) rotate(-90deg)}
+.note{font-size:11.5px;color:#8b9a90;max-width:900px;margin-top:8px;line-height:1.5}
+</style>
+</head>
+<body>
+
+<h1>Flower legibility — the numeral <i>and</i> the name glyph</h1>
+<div class="sub">
+  <code>flower-lab.html</code> laddered the <b>index numeral</b> and selected <b>B2 · bottom-left · 52</b>
+  on 2026-09-01. It never varied the <b>name glyph</b> — every rung on that ladder carries
+  <code>gl:{size:24}</code> — and its own lock sheet lists that as still open:
+  <i>“the name glyph is untouched at 24 — still 9.6px in the palette, and more conspicuous once the
+  numeral is fixed.”</i> This page is that missing half.
+  <br><br>
+  It also adds a size that page does not have: the <b>game</b> draws flowers at
+  <code>--th:56px</code> (40&times;56), and on the side seats they are now <b>turned</b> to face
+  their player — so the glyph is read sideways at 56&times;40.
+</div>
+
+<h2>1 — the name glyph, at the sizes that actually ship</h2>
+<div id="glyphLadder"></div>
+<div class="note">
+  A CJK glyph needs roughly 13–14px of rendered height before the strokes separate. On a 140-tall
+  canvas that means <b>size 33 at the 40px palette</b>, or <b>size 24 at the 56px board</b> — which is
+  exactly today's value, and exactly why it reads on the board and dissolves in the palette.
+</div>
+
+<h2>2 — numeral: what ships now vs the selected B2</h2>
+<div id="numLadder"></div>
+<div class="note">
+  B2 also rescales the motif to <code>0.78</code> and shifts it <code>(18, 2)</code> to clear the
+  corner. That part is <b>not</b> previewed here — the motif primitives are baked into each tile
+  function in <code>tile-engine.js</code> and cannot be transformed without editing it. The numeral
+  and glyph are patched live, which is what this page is for.
+</div>
+
+<h2>3 — the game's flowers, upright and turned</h2>
+<div id="gameRow"></div>
+
+<script src="tile-engine.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+
+/* Two different overrides, because the two helpers bind differently.
+ *
+ * `fIndexNum` is a top-level FUNCTION DECLARATION in tile-engine.js, so it is a
+ * property of window and the tile builders resolve it at call time — assigning
+ * to it re-skins every flower.
+ *
+ * `fglyph` is a top-level CONST. A const at the top level of a classic script
+ * is script-scoped and NOT a window property, so `window.fglyph = ...` just
+ * creates a new, unused global while the builders keep calling the original.
+ * That override failed silently — the ladder rendered four identical rows.
+ * The name glyph is therefore re-sized by rewriting the emitted SVG instead:
+ * the glyph is the only thing wrapped in `<g class="glyph">`, and the numeral
+ * is not, so the substitution cannot hit the wrong text node. */
+const ORIG_NUM = window.fIndexNum;
+let GLYPH_SIZE = null;
+
+function patch({ num, gl }){
+  window.fIndexNum = num
+    ? (n, color) => `<text x="${num.x}" y="${num.y}" font-family="Helvetica,Arial" `
+        + `font-weight="bold" font-size="${num.size}" fill="${PAL[color]}"`
+        + (num.halo ? ` stroke="${PAL.face}" stroke-width="${num.halo}" stroke-linejoin="round"`
+                    + ` paint-order="stroke"` : "")
+        + `>${n}</text>`
+    : ORIG_NUM;
+  GLYPH_SIZE = gl || null;
+}
+
+/** Resize the name glyph in a rendered face. No-op when no size is set. */
+function applyGlyph(svg){
+  if (!GLYPH_SIZE) return svg;
+  return svg.replace(/(<g[^>]*class="glyph"[^>]*>\s*<text[^>]*font-size=")([\d.]+)(")/g,
+                     (_m, a, _old, c) => a + GLYPH_SIZE + c);
+}
+
+/* four representative faces: two flowers, two seasons, red index and blue */
+const PICKS = [0, 3, 4, 7];
+function faces(){
+  const all = [...FLOWER_TILES, ...SEASON_TILES];
+  return PICKS.map((i) => applyGlyph(all[i][1]()));
+}
+
+const tile = (svg, w, cls = "") =>
+  `<span class="tile ${cls}" style="width:${w}px;height:${Math.round(w / 0.714)}px">`
+  + `<svg viewBox="0 0 100 140" preserveAspectRatio="xMidYMid meet">${svg}</svg></span>`;
+
+/** One row: patch, render the picks at each width, restore. */
+function row(label, cfg, widths, cls = ""){
+  patch(cfg);
+  const cells = widths.map((w) =>
+    `<td><span class="felt"><span class="strip">`
+    + faces().map((f) => tile(f, w, cls)).join("") + `</span></span></td>`).join("");
+  patch({});
+  return `<tr><td class="lab">${label}</td>${cells}</tr>`;
+}
+
+const B2 = { size: 52, x: 7, y: 134, halo: 4.2 };
+const W = [40, 56];
+
+function boot(){
+  // ── 1: the name glyph ladder, numeral held at B2 so it is not the variable
+  $("glyphLadder").innerHTML = `<table><tr><th></th>
+      <th>40px · studio palette</th><th>56px · board &amp; game</th></tr>`
+    + [24, 30, 36, 42].map((g) => row(
+        `<b>glyph ${g}</b>${g === 24 ? "<span class='sel'>ships today</span>"
+          : `${(g*40/140).toFixed(1)}px @40 · ${(g*56/140).toFixed(1)}px @56`}`,
+        { num: B2, gl: g }, W)).join("")
+    + `</table>`;
+
+  // ── 2: the numeral, glyph held at today's 24
+  $("numLadder").innerHTML = `<table><tr><th></th>
+      <th>40px · studio palette</th><th>56px · board &amp; game</th></tr>`
+    + row(`<b>baseline</b>17px top-left, no halo`, { num: null, gl: null }, W)
+    + row(`<b class='sel'>B2 · selected</b>52px bottom-left, halo 4.2`, { num: B2, gl: null }, W)
+    + `</table>`;
+
+  // ── 3: the game, upright and turned
+  $("gameRow").innerHTML = `<table><tr><th></th>
+      <th>upright — your seat &amp; north</th><th>turned — east &amp; west</th></tr>`
+    + [["ships today", { num: null, gl: null }],
+       ["B2 numeral only", { num: B2, gl: null }],
+       ["B2 + glyph 36", { num: B2, gl: 36 }]].map(([lab, cfg]) => {
+      patch(cfg);
+      const up = `<td><span class="felt"><span class="strip">`
+        + faces().map((f) => tile(f, 40)).join("") + `</span></span></td>`;
+      const tn = `<td><span class="felt"><span class="strip">`
+        + faces().map((f) =>
+            `<span class="tile turned" style="width:56px;height:40px">`
+            + `<svg viewBox="0 0 100 140" preserveAspectRatio="xMidYMid meet" `
+            + `style="width:40px;height:56px">${f}</svg></span>`).join("")
+        + `</span></span></td>`;
+      patch({});
+      return `<tr><td class="lab"><b>${lab}</b></td>${up}${tn}</tr>`;
+    }).join("")
+    + `</table>`;
+
+  recenterGlyphs(document);
+}
+boot();
+</script>
+</body>
+</html>
