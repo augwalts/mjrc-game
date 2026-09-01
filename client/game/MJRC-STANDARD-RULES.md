@@ -9,11 +9,12 @@ Everything below is read out of the shipping code (`rulesets/src/presets.ts`,
 ## 1. The one-line answer
 
 > **`mjrc-standard` is canonical Hong Kong Old Style with the limit lowered from
-> 13 faan to 10, the faan table clamped to 10 to match, and two ratified
-> corrections: 清一色 full flush pays 7 and 么九 all terminals pays 10.**
+> 13 faan to 10, the faan table clamped to 10 to match, two ratified
+> corrections — 清一色 pays 7, 么九 pays 10 — and one house addition: **七對子
+> seven pairs, at 4.**
 
 `MJRC_STANDARD` is `{ ...HKOS_STANDARD, limitFaan: 10, faanTable: <every value
-min'd with 10, plus fullFlush: 7, allTerminals: 10> }`.
+min'd with 10, plus fullFlush: 7, allTerminals: 10, sevenPairs: 4> }`.
 
 Clamping the table rather than only the score matters: under a 10-cap house,
 "十三么 pays 10" **is the price**. Scoring output is identical either way — any
@@ -82,6 +83,7 @@ of the three losers **1×**. Discard total 2×, self-draw total 3×.
 | ---: | --- |
 | 1 | 平糊 allChows · 門前清 concealedHand · 三元牌 dragonPung · 混老頭 mixedTerminals · 無花 noFlowers · 正花 ownFlower · 正花 ownSeason · 搶槓 robbingKong · 圈風 roundWind · 門風 seatWind · 自摸 selfDraw · 槓上開花 winOnKongReplacement · 河底撈魚 winOnLastDiscard · 海底撈月 winOnLastTile |
 | 2 | allFlowers · allSeasons |
+| 4 | **七對子 sevenPairs** ← owner addition |
 | 3 | 對對糊 allPungs · 混一色 halfFlush |
 | 5 | 小三元 smallThreeDragons |
 | 6 | 小四喜 smallFourWinds |
@@ -89,8 +91,23 @@ of the three losers **1×**. Discard total 2×, self-draw total 3×.
 | 8 | 大三元 bigThreeDragons · winByDoubleKong |
 | 10 | 字一色 allHonours · allKongs · **么九 allTerminals** ← owner ruling · 大四喜 bigFourWinds · 地糊 earthlyHand* · 四暗刻 fourConcealedPungs* · 天糊 heavenlyHand* · 九蓮寶燈 nineGates* · 十三么 thirteenOrphans* |
 
-`*` = 13 in `hkos-standard`, clamped to 10 here. Those five plus the two
-ratified corrections are the entire difference between the two rulesets.
+`*` = 13 in `hkos-standard`, clamped to 10 here. Those five, the two ratified
+corrections, and 七對子 are the entire difference between the two rulesets.
+
+### 七對子 — a house addition, not a correction
+
+Seven pairs is **absent from the Wikipedia column entirely**, so this is the
+first departure that is not fixing a transcription slip: `hkos-standard` does not
+play it and should not start. 4 faan is LIU's price, the only value this codebase
+has ever validated — cross-checked against `scoring.py` and asserted by the
+golden fixtures. HKOS sources more often say 5; the owner ruled 5 too high.
+
+**This one needed an engine change, not just a table row.** Seven pairs is a
+*shape* that never reads as four sets and a pair, so `decompose.ts`, `ready.ts`
+and `scoring.ts` each needed a branch. Before that, LIU had priced the pattern
+for as long as it existed and could never award it — the differential test called
+the row "dead config that quietly under-pays". That test's adjudicated exception
+is now deleted, because the engine and the reference finally agree.
 
 **One deliberate, documented departure from the column:** 四暗刻 is priced 13 in
 `hkos-standard` rather than the column's value, because four of the six surveyed

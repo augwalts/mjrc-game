@@ -460,11 +460,19 @@ const waitingCount = (st: SeatState): number => 13 - 3 * st.melds.length;
  * caller bug everywhere except here, where a seat mid-turn legitimately holds
  * the wrong count, so the guard is a count check rather than a catch.
  */
-function shapeWins(st: SeatState, tile: TileId): boolean {
+/**
+ * Does this house play 七對子? A faanTable is both the price list and the
+ * enable list, so pricing the pattern is what turns the shape on. A table that
+ * does not price it never sees seven pairs offered as a win — which keeps
+ * hkos-standard exactly as it was.
+ */
+const playsSevenPairs = (r: Ruleset): boolean => r.faanTable.sevenPairs !== undefined;
+
+function shapeWins(st: SeatState, tile: TileId, sevenPairs: boolean): boolean {
   if (isFlower(tile)) return false;
   if (st.melds.length > 4) return false;
   if (st.hand.length !== waitingCount(st)) return false;
-  return hasWinningShape(st.hand, st.melds, tile);
+  return hasWinningShape(st.hand, st.melds, tile, sevenPairs);
 }
 
 /* ── claim windows ─────────────────────────────────────────────────────── */
@@ -474,9 +482,10 @@ function claimOptionsFor(
   st: SeatState,
   tile: TileId,
   from: SeatIndex,
+  sevenPairs: boolean,
 ): ClaimOption[] {
   const out: ClaimOption[] = [];
-  if (shapeWins(st, tile)) out.push({ kind: "win" });
+  if (shapeWins(st, tile, sevenPairs)) out.push({ kind: "win" });
   if (canExposedKong(st.hand, tile)) out.push({ kind: "kong" });
   if (canPung(st.hand, tile)) out.push({ kind: "pung" });
   // 上 is only ever available from 上家 — chowOptions enforces that itself.
@@ -494,11 +503,12 @@ function openClaimWindow(d: Draft, tile: TileId, from: SeatIndex, robKong: boole
   const offers: ClaimOffer[] = [];
   for (const seat of clockwiseFrom(from)) {
     const st = d.s.seats[seat];
+    const sevenPairs = playsSevenPairs(d.ruleset);
     const options = robKong
-      ? shapeWins(st, tile)
+      ? shapeWins(st, tile, sevenPairs)
         ? ([{ kind: "win" }] as ClaimOption[])
         : []
-      : claimOptionsFor(st, tile, from);
+      : claimOptionsFor(st, tile, from, sevenPairs);
     if (options.length > 0) offers.push({ seat, options, answer: null });
   }
   if (offers.length === 0) return false;
@@ -1083,7 +1093,8 @@ export function legalActions(state: MatchState, seat: SeatIndex): Action[] {
     state.refusedSelfDraw !== null &&
     state.refusedSelfDraw.seat === seat &&
     state.refusedSelfDraw.tile === drawn;
-  if (drawn !== null && !alreadyRefused && shapeWins(st, drawn)) {
+  if (drawn !== null && !alreadyRefused
+      && shapeWins(st, drawn, playsSevenPairs(resolveRuleset(state.rulesetId)))) {
     out.push({ type: "declareWin", seat, selfDraw: true });
   }
 
@@ -1177,7 +1188,9 @@ function doAddedKong(d: Draft, seat: SeatIndex, tile: TileId): void {
 function doDeclareWin(d: Draft, seat: SeatIndex): void {
   const st = d.s.seats[seat];
   if (st.drawn === null) throw new Error(`seat ${seat} has no drawn tile to win on`);
-  if (!shapeWins(st, st.drawn)) throw new Error(`seat ${seat} has no winning shape`);
+  if (!shapeWins(st, st.drawn, playsSevenPairs(d.ruleset))) {
+    throw new Error(`seat ${seat} has no winning shape`);
+  }
   const ctx = winContext(d.s, seat, st.drawn, true, null, {
     onKongReplacement: d.s.onKongReplacement,
     onLastTile: liveTilesLeft(d.s) === 0,

@@ -181,12 +181,24 @@
     }
     return best;
   }
-  function distanceToReady(c, melds = 0) {
+  function sevenPairsDistance(c) {
+    let pairs = 0, kinds = 0;
+    for (let i = 0; i < SCORING_KINDS; i++) {
+      const n = c[i];
+      if (n === 0) continue;
+      kinds++;
+      if (n >= 2) pairs++;
+    }
+    return 6 - pairs + Math.max(0, 7 - kinds);
+  }
+  function distanceToReady(c, melds = 0, sevenPairs = false) {
     let total = melds * 3;
     for (let i = 0; i < SCORING_KINDS; i++) total += c[i];
-    if (total % 3 !== 2) return fastRawDistance(c, melds);
+    const seven = sevenPairs && melds === 0 ? sevenPairsDistance(c) : 99;
+    if (total % 3 !== 2) return Math.min(fastRawDistance(c, melds), seven);
     const raw = fastRawDistance(c, melds);
     if (raw < 0) return -1;
+    if (seven < 0) return -1;
     const w = c.slice();
     let best = raw;
     for (let i = 0; i < SCORING_KINDS; i++) {
@@ -197,17 +209,18 @@
         w[i]++;
       }
     }
+    if (sevenPairs && melds === 0) best = Math.min(best, sevenPairsDistance(c));
     return best;
   }
-  function liveTiles(c, melds = 0, visible) {
+  function liveTiles(c, melds = 0, visible, sevenPairs = false) {
     const w = c.slice();
-    const base = distanceToReady(w, melds);
+    const base = distanceToReady(w, melds, sevenPairs);
     const tiles = [];
     let total = 0;
     for (let i = 0; i < SCORING_KINDS; i++) {
       if (w[i] >= 4) continue;
       w[i]++;
-      const d = distanceToReady(w, melds);
+      const d = distanceToReady(w, melds, sevenPairs);
       w[i]--;
       if (d < base) {
         const unseen = 4 - Math.min(4, visible?.[i] ?? 0);
@@ -458,7 +471,19 @@
     }
     return paired === 1;
   }
-  var hasWinningShape = (concealed, melds, winningTile) => isThirteenOrphansShape(concealed, melds, winningTile) || decomposeWin(concealed, melds, winningTile).length > 0;
+  function isSevenPairsShape(concealed, melds, winningTile) {
+    if (melds.length > 0 || concealed.length !== 13) return false;
+    const c = counts([...concealed, winningTile]);
+    let pairs = 0;
+    for (let t = 0; t < SCORING_KINDS; t++) {
+      const n = c[t];
+      if (n === 0) continue;
+      if (n !== 2) return false;
+      pairs++;
+    }
+    return pairs === 7;
+  }
+  var hasWinningShape = (concealed, melds, winningTile, sevenPairs = false) => isThirteenOrphansShape(concealed, melds, winningTile) || sevenPairs && isSevenPairsShape(concealed, melds, winningTile) || decomposeWin(concealed, melds, winningTile).length > 0;
   function concealedTripletCount(d, winFromDiscard) {
     return d.sets.filter(
       (s) => (s.kind === "pung" || s.kind === "kong") && s.concealed && !(winFromDiscard && s.hasWinningTile)
@@ -1067,7 +1092,25 @@
        * sample. It is corrected because leaving it would mean mjrc-standard still
        * carried an unratified slip, not because it changes play.
        */
-      allTerminals: 10
+      allTerminals: 10,
+      /**
+       * 七對子 — **4, owner ruling 2026-08-31: "enough people I know do play with
+       * it."**
+       *
+       * Absent from the Wikipedia column, so `hkos-standard` does not play it and
+       * this is a house ADDITION rather than a correction — the first departure
+       * here that is not fixing a transcription slip.
+       *
+       * 4 is LIU's price, the only value this codebase has ever validated (it is
+       * cross-checked against scoring.py and asserted by the golden fixtures).
+       * HKOS sources more often say 5; the owner ruled 5 too high.
+       *
+       * This one needed an ENGINE change, not just a row. Seven pairs is a shape
+       * that never reads as four sets and a pair, so decompose/ready/scoring each
+       * needed a branch — before that, LIU had priced the pattern for as long as
+       * it existed and could never award it.
+       */
+      sevenPairs: 4
     }
   };
   var TVB_2026 = {
@@ -1131,7 +1174,17 @@
     }
     return ids;
   }
+  function pairsTilePatterns(tiles) {
+    const out = [];
+    const suits = new Set(tiles.filter(isSuited).map(suitOf));
+    const anyHonour = tiles.some(isHonour);
+    if (suits.size === 0) out.push("allHonours");
+    else if (suits.size === 1) out.push(anyHonour ? "halfFlush" : "fullFlush");
+    if (tiles.every(isTerminalOrHonour)) out.push(anyHonour ? "mixedTerminals" : "allTerminals");
+    return out;
+  }
   var isThirteenOrphans = isThirteenOrphansShape;
+  var isSevenPairs = isSevenPairsShape;
   function isNineGates(concealed, melds, winningTile) {
     if (melds.length > 0 || concealed.length !== 13) return false;
     const tiles = [...concealed, winningTile];
@@ -1203,8 +1256,13 @@
     }
     const special = isNineGates(concealed, melds, winningTile) ? ["nineGates"] : [];
     const readings = decomposeWin(concealed, melds, winningTile);
+    const sevenPairsReading = ruleset2.faanTable.sevenPairs !== void 0 && isSevenPairs(concealed, melds, winningTile) ? settle(price([
+      "sevenPairs",
+      ...pairsTilePatterns([...concealed, winningTile]),
+      ...shared
+    ], ruleset2), ruleset2) : null;
     if (readings.length === 0) {
-      return { faan: 0, rawFaan: 0, capped: false, awards: [], legal: false };
+      return sevenPairsReading ?? { faan: 0, rawFaan: 0, capped: false, awards: [], legal: false };
     }
     let bestResult = null;
     let bestKey = "";
@@ -1216,6 +1274,7 @@
         bestKey = key;
       }
     }
+    if (sevenPairsReading && sevenPairsReading.faan > bestResult.faan) return sevenPairsReading;
     return bestResult;
   }
 
@@ -1380,15 +1439,16 @@
     return replaceDrawnFlowers(d, seat);
   }
   var waitingCount = (st) => 13 - 3 * st.melds.length;
-  function shapeWins(st, tile) {
+  var playsSevenPairs = (r) => r.faanTable.sevenPairs !== void 0;
+  function shapeWins(st, tile, sevenPairs) {
     if (isFlower(tile)) return false;
     if (st.melds.length > 4) return false;
     if (st.hand.length !== waitingCount(st)) return false;
-    return hasWinningShape(st.hand, st.melds, tile);
+    return hasWinningShape(st.hand, st.melds, tile, sevenPairs);
   }
-  function claimOptionsFor(st, tile, from) {
+  function claimOptionsFor(st, tile, from, sevenPairs) {
     const out = [];
-    if (shapeWins(st, tile)) out.push({ kind: "win" });
+    if (shapeWins(st, tile, sevenPairs)) out.push({ kind: "win" });
     if (canExposedKong(st.hand, tile)) out.push({ kind: "kong" });
     if (canPung(st.hand, tile)) out.push({ kind: "pung" });
     for (const pair of chowOptions(st.hand, tile, st.seat, from)) out.push({ kind: "chow", with: pair });
@@ -1398,7 +1458,8 @@
     const offers = [];
     for (const seat of clockwiseFrom(from)) {
       const st = d.s.seats[seat];
-      const options = robKong ? shapeWins(st, tile) ? [{ kind: "win" }] : [] : claimOptionsFor(st, tile, from);
+      const sevenPairs = playsSevenPairs(d.ruleset);
+      const options = robKong ? shapeWins(st, tile, sevenPairs) ? [{ kind: "win" }] : [] : claimOptionsFor(st, tile, from, sevenPairs);
       if (options.length > 0) offers.push({ seat, options, answer: null });
     }
     if (offers.length === 0) return false;
@@ -1832,7 +1893,7 @@
     const st = state2.seats[seat];
     const drawn = st.drawn;
     const alreadyRefused = state2.refusedSelfDraw !== null && state2.refusedSelfDraw.seat === seat && state2.refusedSelfDraw.tile === drawn;
-    if (drawn !== null && !alreadyRefused && shapeWins(st, drawn)) {
+    if (drawn !== null && !alreadyRefused && shapeWins(st, drawn, playsSevenPairs(resolveRuleset(state2.rulesetId)))) {
       out.push({ type: "declareWin", seat, selfDraw: true });
     }
     const all2 = drawn === null ? st.hand : [...st.hand, drawn];
@@ -1908,7 +1969,9 @@
   function doDeclareWin(d, seat) {
     const st = d.s.seats[seat];
     if (st.drawn === null) throw new Error(`seat ${seat} has no drawn tile to win on`);
-    if (!shapeWins(st, st.drawn)) throw new Error(`seat ${seat} has no winning shape`);
+    if (!shapeWins(st, st.drawn, playsSevenPairs(d.ruleset))) {
+      throw new Error(`seat ${seat} has no winning shape`);
+    }
     const ctx = winContext(d.s, seat, st.drawn, true, null, {
       onKongReplacement: d.s.onKongReplacement,
       onLastTile: liveTilesLeft(d.s) === 0
@@ -3105,7 +3168,8 @@
     }
     const c = counts(tiles);
     const melds = v.melds[HUMAN].length;
-    const lt = liveTiles(c, melds, visibleCounts(v));
+    const seven = R.faanTable.sevenPairs !== void 0;
+    const lt = liveTiles(c, melds, visibleCounts(v), seven);
     const ceiling = Math.min(faanCeiling(shapeOf(v), R), R.limitFaan);
     return {
       distance: lt.distance,

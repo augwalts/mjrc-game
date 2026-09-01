@@ -18,8 +18,12 @@
  *  1. A concealed quad is never read as a kong. A kong exists only when it was
  *     DECLARED (melds.ts); four copies sitting in hand are a triplet plus a
  *     spare tile that must belong to another set.
- *  2. No seven-pairs branch. Not a hand in classic HK Old Style (DESIGN.md §4);
- *     the Python engine scores it because it implements the LIU house variant.
+ *  2. Seven pairs is NOT a decomposition. 七對子 is fourteen tiles that never
+ *     form four sets and a pair, so it cannot come out of this search at all —
+ *     it is a separate shape predicate (`isSevenPairsShape`), exactly as 十三么
+ *     is. Both are opt-in: `hasWinningShape` only admits them when the caller
+ *     says the house plays them, so a table that does not price the pattern
+ *     never sees the shape offered.
  *
  * Terminology: ../../TERMINOLOGY.md.
  */
@@ -241,13 +245,51 @@ export function isThirteenOrphansShape(
   return paired === 1;
 }
 
+/**
+ * 七對子 — seven pairs.
+ *
+ * Like 十三么 this is a shape, not a decomposition: fourteen tiles that never
+ * read as four sets and a pair. `decomposeWin` therefore cannot find it and the
+ * predicate has to stand beside it.
+ *
+ * Two rules decisions, both the common ones:
+ *  1. **Seven DISTINCT pairs.** Four of a kind is one pair plus two dead tiles,
+ *     not two pairs. The permissive reading turns every quad into a free pair
+ *     and is a minority rule.
+ *  2. **Concealed only.** Any declared meld kills it — a claimed set is not a
+ *     pair, and analysis.ts already foreclosed the pattern on `exposed` and
+ *     `chow` for exactly this reason.
+ *
+ * Priced only where a ruleset says so; `hasWinningShape` gates on that, because
+ * a faanTable is both the price list and the enable list.
+ */
+export function isSevenPairsShape(
+  concealed: readonly TileId[],
+  melds: readonly Meld[],
+  winningTile: TileId,
+): boolean {
+  if (melds.length > 0 || concealed.length !== 13) return false;
+  const c = counts([...concealed, winningTile]);
+  let pairs = 0;
+  for (let t = 0; t < SCORING_KINDS; t++) {
+    const n = c[t]!;
+    if (n === 0) continue;
+    if (n !== 2) return false;      // a triplet or a quad breaks the shape
+    pairs++;
+  }
+  return pairs === 7;
+}
+
 /** True when these tiles can be read as a win at all — 十三么 included. */
 export const hasWinningShape = (
   concealed: readonly TileId[],
   melds: readonly Meld[],
   winningTile: TileId,
+  /** Does this house play 七對子? Off unless the ruleset prices it. */
+  sevenPairs = false,
 ): boolean =>
   isThirteenOrphansShape(concealed, melds, winningTile) ||
+  (sevenPairs && isSevenPairsShape(concealed, melds, winningTile)) ||
   decomposeWin(concealed, melds, winningTile).length > 0;
 
 /** Physical tiles on the table and in hand for this reading — 14, plus one per kong. */

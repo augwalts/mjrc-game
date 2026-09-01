@@ -268,7 +268,10 @@ function readHand(without?: TileId): HandRead | null {
   }
   const c = counts(tiles);
   const melds = v.melds[HUMAN]!.length;
-  const lt = liveTiles(c, melds, visibleCounts(v));
+  // the house's 七對子 answer, or the assistant reads a six-pair hand as five
+  // away when it is one tile from a win
+  const seven = R.faanTable.sevenPairs !== undefined;
+  const lt = liveTiles(c, melds, visibleCounts(v), seven);
   // faanCeiling adds components without clamping, so it can exceed the house
   // limit — it read "12 faan" under a 10-cap table. Cap it: 10 is the price.
   const ceiling = Math.min(faanCeiling(shapeOf(v), R), R.limitFaan);

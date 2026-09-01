@@ -10,7 +10,8 @@
  * (ENGINE-AUDIT §3). Do not reintroduce it. Measured cost here is ~7µs/call,
  * against the pruned Python's 9.1µs, so there is nothing to buy.
  *
- * No seven-pairs branch: not a hand in classic HKOS.
+ * Seven pairs is an OPT-IN branch: off unless the caller says the house plays
+ * it, so a table that does not price 七對子 measures exactly as it always did.
  */
 import { SCORING_KINDS, type Distance, type LiveTiles, type TileId } from "./types.js";
 import { isSuited, rankOf } from "./tiles.js";
@@ -215,14 +216,44 @@ function fastRawDistance(c: readonly number[], melds: number): Distance {
   return best;
 }
 
-export function distanceToReady(c: readonly number[], melds = 0): Distance {
+/**
+ * 七對子 distance, on the same scale: -1 complete, 0 ready, >0 tiles away.
+ *
+ *   6 - pairs + max(0, 7 - kinds)
+ *
+ * The second term is what stops four-of-a-kind counting as two pairs: a quad
+ * raises `pairs` once but not `kinds`, so the hand is short a distinct type and
+ * the shortfall is charged back. Seven pairs must be seven DIFFERENT pairs
+ * (decompose.ts `isSevenPairsShape` enforces the same rule at the win).
+ *
+ * Seven pairs is concealed by definition, so a melded hand never reaches here.
+ */
+function sevenPairsDistance(c: readonly number[]): Distance {
+  let pairs = 0, kinds = 0;
+  for (let i = 0; i < SCORING_KINDS; i++) {
+    const n = c[i]!;
+    if (n === 0) continue;
+    kinds++;
+    if (n >= 2) pairs++;
+  }
+  return (6 - pairs + Math.max(0, 7 - kinds)) as Distance;
+}
+
+/**
+ * @param sevenPairs does this house play 七對子? Off by default, so every
+ *        existing caller and every ruleset that does not price it are unchanged.
+ */
+export function distanceToReady(c: readonly number[], melds = 0, sevenPairs = false): Distance {
   let total = melds * 3;
   for (let i = 0; i < SCORING_KINDS; i++) total += c[i]!;
 
-  if (total % 3 !== 2) return fastRawDistance(c, melds);
+  const seven = sevenPairs && melds === 0 ? sevenPairsDistance(c) : (99 as Distance);
+
+  if (total % 3 !== 2) return Math.min(fastRawDistance(c, melds), seven) as Distance;
 
   const raw = fastRawDistance(c, melds);
   if (raw < 0) return -1;
+  if (seven < 0) return -1;
 
   const w = c.slice();
   let best = raw;
@@ -234,26 +265,32 @@ export function distanceToReady(c: readonly number[], melds = 0): Distance {
       w[i]!++;
     }
   }
+  // The hand is as close as its BEST reading, and seven pairs is a reading the
+  // four-sets search structurally cannot find.
+  if (sevenPairs && melds === 0) best = Math.min(best, sevenPairsDistance(c)) as Distance;
   return best;
 }
 
-export const isReady = (c: readonly number[], melds = 0): boolean => distanceToReady(c, melds) <= 0;
-export const isComplete = (c: readonly number[], melds = 0): boolean => distanceToReady(c, melds) < 0;
+export const isReady = (c: readonly number[], melds = 0, sevenPairs = false): boolean =>
+  distanceToReady(c, melds, sevenPairs) <= 0;
+export const isComplete = (c: readonly number[], melds = 0, sevenPairs = false): boolean =>
+  distanceToReady(c, melds, sevenPairs) < 0;
 
 /**
  * Tiles that reduce the distance, with copies not yet visible anywhere.
  * @param visible counts of every tile this seat can account for: own hand,
  *                all discards, all melds, all revealed flowers.
  */
-export function liveTiles(c: readonly number[], melds = 0, visible?: readonly number[]): LiveTiles {
+export function liveTiles(c: readonly number[], melds = 0, visible?: readonly number[],
+                          sevenPairs = false): LiveTiles {
   const w = c.slice();
-  const base = distanceToReady(w, melds);
+  const base = distanceToReady(w, melds, sevenPairs);
   const tiles: LiveTiles["tiles"] = [];
   let total = 0;
   for (let i = 0; i < SCORING_KINDS; i++) {
     if (w[i]! >= 4) continue;
     w[i]!++;
-    const d = distanceToReady(w, melds);
+    const d = distanceToReady(w, melds, sevenPairs);
     w[i]!--;
     if (d < base) {
       const unseen = 4 - Math.min(4, visible?.[i] ?? 0);

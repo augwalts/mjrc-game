@@ -234,6 +234,7 @@ Dated entries are easiest to act on later._
 | 2026-08-31 | **A finished match opens a scoreboard**, not a four-line overlay — standings, per-seat table play, hand by hand, and how you played it. Same screen from Your games. All derived from the stored event log. |
 | 2026-08-31 | **`mjrc-standard` 么九 = 10 faan**, ratified — a limit hand under the 10-cap. The second and last correction from audit §10; the ruleset now carries no unratified transcription slips. |
 | 2026-08-31 | **The dealer repeats under `mjrc-standard`** — on a dealer win and on 流局. Ratified with the length cost known: it roughly doubles a match, 16 hands to ~33-39. |
+| 2026-08-31 | **`mjrc-standard` plays 七對子 at 4 faan** — a house ADDITION, absent from the source column. Needed engine branches in decompose/ready/scoring, because seven pairs is a shape that never reads as four sets and a pair. |
 | 2026-08-31 | **Bots never throw a tile they could kong.** The rob-window guard was right but was governing kong-vs-hold, after which the ranker cut the dead tile anyway. |
 
 

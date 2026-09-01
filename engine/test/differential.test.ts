@@ -472,18 +472,6 @@ const ADJUDICATED: readonly Adjudicated[] = [
       "award only where 槓上槓 is actually priced. This changes real chips: it costs a " +
       "faan, and on a 3-faan hand it turns a legal win into a refused one.",
   },
-  {
-    ruleset: "liu",
-    match: /reference-only \[[^\]]*sevenPairs[^\]]*\]/,
-    verdict:
-      "七對子 is priced by the LIU preset (4 faan) and can never be awarded. " +
-      "decompose.ts states outright that it carries no seven-pairs branch, and scoring.ts " +
-      "adds no special case, so a hand that is BOTH seven pairs and four-sets-plus-a-pair " +
-      "is scored only as the latter, and a hand that is seven pairs and nothing else " +
-      "scores 0 faan with an empty breakdown and is refused. THE REFERENCE IS RIGHT that " +
-      "a LIU table owes the award. Either LIU's sevenPairs row comes out of presets.ts or " +
-      "the pattern gets a detector; today the row is dead config that quietly under-pays.",
-  },
 ];
 
 const adjudication = (signature: string, ruleset: Ruleset): string | null => {

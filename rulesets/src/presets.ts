@@ -107,7 +107,9 @@ export const HKOS_STANDARD: Ruleset = {
     earthlyHand: 13,
 
     // Absent on purpose:
-    //   sevenPairs 七對子 — not classic HK Old Style.
+    //   sevenPairs 七對子 — not classic HK Old Style, and the column has no
+    //     value for it. mjrc-standard DOES play it (owner ruling 2026-08-31);
+    //     that is a house addition made there, not a correction made here.
     //   jadeDragon / rubyDragon / pearlDragon — the column reads "—". MJ Time
     //     and MJB pay them as limit hands, so a house that plays them should
     //     add them rather than have a value invented here.
@@ -234,6 +236,24 @@ export const MJRC_STANDARD: Ruleset = {
      * carried an unratified slip, not because it changes play.
      */
     allTerminals: 10,
+    /**
+     * 七對子 — **4, owner ruling 2026-08-31: "enough people I know do play with
+     * it."**
+     *
+     * Absent from the Wikipedia column, so `hkos-standard` does not play it and
+     * this is a house ADDITION rather than a correction — the first departure
+     * here that is not fixing a transcription slip.
+     *
+     * 4 is LIU's price, the only value this codebase has ever validated (it is
+     * cross-checked against scoring.py and asserted by the golden fixtures).
+     * HKOS sources more often say 5; the owner ruled 5 too high.
+     *
+     * This one needed an ENGINE change, not just a row. Seven pairs is a shape
+     * that never reads as four sets and a pair, so decompose/ready/scoring each
+     * needed a branch — before that, LIU had priced the pattern for as long as
+     * it existed and could never award it.
+     */
+    sevenPairs: 4,
   },
 };
 

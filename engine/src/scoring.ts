@@ -36,6 +36,7 @@ import {
   decomposeWin,
   decompositionKey,
   isThirteenOrphansShape,
+  isSevenPairsShape,
   type DecomposedSet,
   type Decomposition,
 } from "./decompose.js";
@@ -158,6 +159,27 @@ function readingPatterns(d: Decomposition, ctx: WinSituation): string[] {
   return ids;
 }
 
+/**
+ * Tile-class patterns for a 七對子 reading — 清一色 混一色 字一色 and the
+ * terminal hands — read straight off the fourteen tiles.
+ *
+ * `readingPatterns` cannot supply these here: it derives them from a
+ * decomposition, and it gates the terminal hands on four triplets, which a
+ * pairs hand never has. Without this the seven-pairs candidate scored bare and
+ * lost to a four-sets reading that DID collect 清一色 on the same tiles — the
+ * differential test caught it in both directions, first the early return
+ * hiding the flush, then the flush hiding the pairs.
+ */
+function pairsTilePatterns(tiles: readonly TileId[]): string[] {
+  const out: string[] = [];
+  const suits = new Set(tiles.filter(isSuited).map(suitOf));
+  const anyHonour = tiles.some(isHonour);
+  if (suits.size === 0) out.push("allHonours");
+  else if (suits.size === 1) out.push(anyHonour ? "halfFlush" : "fullFlush");
+  if (tiles.every(isTerminalOrHonour)) out.push(anyHonour ? "mixedTerminals" : "allTerminals");
+  return out;
+}
+
 /* ── shape-independent patterns ────────────────────────────────────────────
  * The win context, the bonus tiles, and the two limit hands that have no
  * four-sets-and-a-pair reading at all. */
@@ -168,6 +190,7 @@ function readingPatterns(d: Decomposition, ctx: WinSituation): string[] {
  * same test to OFFER the win, so the offer and the award cannot drift.
  */
 const isThirteenOrphans = isThirteenOrphansShape;
+const isSevenPairs = isSevenPairsShape;
 
 /**
  * 九蓮寶燈 — 1112345678999 of one suit plus any tile of that suit, held
@@ -308,8 +331,30 @@ export function score(
 
   const special = isNineGates(concealed, melds, winningTile) ? ["nineGates"] : [];
   const readings = decomposeWin(concealed, melds, winningTile);
+
+  /**
+   * 七對子 is a READING, not a short circuit.
+   *
+   * It has no four-sets-and-a-pair decomposition of its own, so it cannot come
+   * out of `decomposeWin` — but a hand is very often BOTH. 1萬1萬 2萬2萬 3萬3萬
+   * 6萬6萬 7萬7萬 8萬8萬 9萬9萬 is seven pairs and also 123·123·678·678·99, and
+   * the second reading earns 清一色 worth far more. Returning early on the
+   * seven-pairs shape scored that hand 6 where it owes 13 — caught by the
+   * differential test against the reference scorer, which considers both.
+   *
+   * So it joins the candidate list and wins only if it actually scores best.
+   * Gated on the house pricing it: a table that does not play seven pairs must
+   * fall through to the decomposition exactly as before.
+   */
+  const sevenPairsReading =
+    ruleset.faanTable.sevenPairs !== undefined && isSevenPairs(concealed, melds, winningTile)
+      ? settle(price(["sevenPairs", ...pairsTilePatterns([...concealed, winningTile]),
+                      ...shared], ruleset), ruleset)
+      : null;
+
   if (readings.length === 0) {
-    return { faan: 0, rawFaan: 0, capped: false, awards: [], legal: false };
+    return sevenPairsReading
+      ?? { faan: 0, rawFaan: 0, capped: false, awards: [], legal: false };
   }
 
   // Score every reading, then take the best. Ties break on decompositionKey so
@@ -330,5 +375,7 @@ export function score(
       bestKey = key;
     }
   }
+  // the pairs reading competes on the same terms as every decomposition
+  if (sevenPairsReading && sevenPairsReading.faan > bestResult!.faan) return sevenPairsReading;
   return bestResult!;
 }
