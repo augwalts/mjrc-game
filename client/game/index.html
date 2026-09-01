@@ -520,8 +520,17 @@ body.devmode #mine{padding-top:2px}
 #log{position:absolute;left:8px;bottom:8px;font-size:11px;color:rgba(255,255,255,.5);max-width:210px;
   pointer-events:none;line-height:1.5}
 @media (max-width:820px){
-  #myhand .tile{width:32px;height:44px}#myhand .tile .g{font-size:21px}
-  .tile{width:24px;height:33px}.tile .g{font-size:16px}
+  /* Shrink tiles through --th, NEVER by setting width/height here.
+     This block used to hard-code `.tile{width:24px;height:33px}`, which
+     outranks `#pile .tile{--th:var(--pileth)}` on width and height and so
+     defeated the pile's own scaling entirely: renderPile sized the tile to
+     21px for a phone's 225px-wide centre, then the browser drew it at 33px.
+     A 流局 hand's 84 discards need 82% of the box at that size — no packer
+     fits that — so 27 of them spilled out of the heap and buried the bots'
+     melds. Sizing through --th leaves #pile's higher-specificity rule in
+     charge. The numbers are unchanged: --th * 0.714 is the same 32 and 24. */
+  #myhand .tile{--th:44px}#myhand .tile .g{font-size:21px}
+  .tile{--th:33px}.tile .g{font-size:16px}
   #centre{width:60vw}
   /* The running commentary is the only thing that may go: state and seat
      plates are the information you cannot play without. */
