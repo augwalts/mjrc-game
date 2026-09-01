@@ -124,8 +124,13 @@ async function gate(request: Request, env: Env): Promise<GateResult> {
   const cookie = cookieValue(request, GATE_COOKIE);
   if (cookie !== null && constantTimeEqual(cookie, digest)) return { ok: true, setCookie: null };
 
+  // Admitted by query: set the cookie too, so a page opened this way (a link
+  // shared with the digest, or a browser that cannot answer a Basic Auth
+  // prompt) carries the gate on every fetch and socket that follows.
   const query = new URL(request.url).searchParams.get("gate");
-  if (query !== null && constantTimeEqual(query, digest)) return { ok: true, setCookie: null };
+  if (query !== null && constantTimeEqual(query, digest)) {
+    return { ok: true, setCookie: gateCookie(request, digest) };
+  }
 
   const auth = request.headers.get("authorization") ?? "";
   if (auth.startsWith("Basic ")) {
@@ -137,14 +142,15 @@ async function gate(request: Request, env: Env): Promise<GateResult> {
     }
     const password = decoded.slice(decoded.indexOf(":") + 1);
     if (constantTimeEqual(await sha256Hex(password), await sha256Hex(expected))) {
-      const secure = new URL(request.url).protocol === "https:" ? "; Secure" : "";
-      return {
-        ok: true,
-        setCookie: `${GATE_COOKIE}=${digest}; Path=/; Max-Age=${60 * 60 * 24 * 90}; SameSite=Lax; HttpOnly${secure}`,
-      };
+      return { ok: true, setCookie: gateCookie(request, digest) };
     }
   }
   return { ok: false, response: challenge("gamepvp is a private beta. Enter the password to continue.") };
+}
+
+function gateCookie(request: Request, digest: string): string {
+  const secure = new URL(request.url).protocol === "https:" ? "; Secure" : "";
+  return `${GATE_COOKIE}=${digest}; Path=/; Max-Age=${60 * 60 * 24 * 90}; SameSite=Lax; HttpOnly${secure}`;
 }
 
 /* ── 3. the API's view of the match plane ──────────────────────────────── */
