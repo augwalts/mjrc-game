@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Felt lab — fitting a full board on a phone</title>
+<style>
+body{margin:0;background:#131110;color:#f2ece0;padding:18px 20px 60px;
+  font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+h1{font-size:18px;margin:0 0 4px}
+.sub{color:#a9b8ae;font-size:12.5px;max-width:900px;margin-bottom:14px}
+.sub code{background:rgba(255,255,255,.08);padding:1px 5px;border-radius:4px;font-size:12px}
+.sub b{color:#f2ece0}
+
+.controls{display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-bottom:8px;
+  color:#a9b8ae;font-size:12.5px;padding:11px 13px;background:#1a1815;
+  border:1px solid #2c2823;border-radius:11px}
+.controls label{display:flex;gap:6px;align-items:center}
+.controls input[type=range]{width:104px}
+.controls .v{color:#d8b56a;font-variant-numeric:tabular-nums;min-width:44px}
+button.go{background:rgba(216,181,106,.16);border:1px solid #d8b56a;color:#f2ece0;
+  border-radius:8px;padding:7px 15px;font:inherit;font-weight:600;cursor:pointer}
+button.go:disabled{opacity:.4;cursor:default}
+#status{margin:10px 0 16px;font-size:12.5px;color:#d8b56a;font-variant-numeric:tabular-nums}
+
+.pair{display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start}
+.side{flex:0 0 auto}
+.side h2{font-size:12.5px;margin:0 0 7px;letter-spacing:.04em;color:#a9b8ae}
+.side h2 b{color:#d8b56a}
+.frame{width:300px;height:650px;border-radius:20px;overflow:hidden;border:1px solid #3a352e;
+  box-shadow:0 12px 40px rgba(0,0,0,.5);background:#0a0908}
+/* a real 375-wide viewport, scaled to fit two across */
+.frame iframe{width:375px;height:812px;border:0;transform:scale(.8);transform-origin:0 0;display:block}
+.readout{margin-top:9px;width:300px;font-size:12px;border-collapse:collapse}
+.readout td{padding:3px 0;border-bottom:1px solid #241f1b;color:#a9b8ae}
+.readout td:last-child{text-align:right;color:#f2ece0;font-variant-numeric:tabular-nums}
+.readout tr.bad td:last-child{color:#ff9b93}
+.readout tr.good td:last-child{color:#7fe0a4}
+</style>
+</head>
+<body>
+
+<h1>Felt lab — fitting a full board on a phone</h1>
+<div class="sub">
+  Two <b>real games</b>, not mockups: each iframe is a 375&times;812 viewport running the shipped
+  <code>index.html</code>, with <code>Math.random</code> pinned to the same seed so both deal and play
+  the <b>identical hand</b>. They differ only in the CSS on the right. Press play and both auto-play
+  to 流局 — always passing, always cutting the last tile — so the board fills to eighty-odd discards
+  with the bots melding, which is the worst case the layout ever sees.
+  <br>
+  The measurements come from the packer's own output (<code>style.left/top</code>), not from
+  <code>getBoundingClientRect</code> — a tile mid-toss reports where it is flying, not where it lands.
+</div>
+
+<div class="controls">
+  <button class="go" id="play">▶ deal and play both to 流局</button>
+  <span id="status">idle</span>
+</div>
+
+<div class="controls">
+  <label>centre width <input type="range" id="cw" min="34" max="72" step="2" value="60">
+    <span class="v" id="cwv">60vw</span></label>
+  <label>centre height <input type="range" id="ch" min="40" max="80" step="2" value="62">
+    <span class="v" id="chv">62vh</span></label>
+  <label>meld tile <input type="range" id="mt" min="18" max="40" step="2" value="24">
+    <span class="v" id="mtv">24px</span></label>
+  <label>flower tile <input type="range" id="fl" min="20" max="56" step="2" value="56">
+    <span class="v" id="flv">56px</span></label>
+  <label><input type="checkbox" id="turned" checked> turn side melds to face their player</label>
+  <label><input type="checkbox" id="north" checked> turn north's melds too (180&deg;)</label>
+  <label><input type="checkbox" id="noanim" checked> freeze animations (measure the settled board)</label>
+</div>
+
+<div class="pair">
+  <div class="side">
+    <h2><b>now</b> — 60vw &times; 52vh centre, 230px meld rows</h2>
+    <div class="frame"><iframe id="fr-now"></iframe></div>
+    <table class="readout" id="ro-now"></table>
+  </div>
+  <div class="side">
+    <h2><b>proposed</b> — side melds turned to face their player</h2>
+    <div class="frame"><iframe id="fr-new"></iframe></div>
+    <table class="readout" id="ro-new"></table>
+  </div>
+</div>
+
+<script>
+/* ══ the proposed CSS ═══════════════════════════════════════════════════
+ * A phone is portrait and the pile box is not. Measured on a full board, the
+ * heap used 221 of 225px of width and only 201 of 360px of height — it is
+ * being squeezed sideways while a third of the box goes unused below it.
+ *
+ * Narrowing the box turns the heap portrait too, and every pixel taken off its
+ * width becomes GUTTER — the strip the side seats' melds have to live in. That
+ * gutter is 64px today against meld rows declared 230px wide, which is why
+ * east's melds end up under the discards.                                    */
+function proposedCss(cw, ch, mt, fl, turned){ return `
+@media (max-width:820px){
+  /* The height cap is the quiet half of this. #centre ships as
+     min(52vh,360px) — on an 812px phone that 360 throws away 62px the packer
+     could have used, so the heap is forced wider than it needs to be. */
+  #centre{width:${cw}vw;height:${ch}vh}
+  /* the gutter is (felt - centre)/2; the meld row must fit inside it */
+  .meldrow{max-width:calc((94vw - ${cw}vw)/2 - 6px);gap:2px}
+  .meldrow .tile{--th:${mt}px}
+  #mymelds .tile{--th:${mt + 12}px}
+  /* FLOWERS IGNORE THE MOBILE SHRINK: .meldrow .tile.fl pins --th to 56px and
+     outranks the block's own .tile rule, so on a phone a flower is the largest
+     tile on the felt — 40x56, bigger than a bot's melds and nearly the size of
+     your own hand. Four of them reach straight into the discard heap. */
+  .meldrow .tile.fl{--th:${fl}px}
+  #mymelds .tile.fl{--th:${fl + 12}px}
+}` + (turned ? turnedCss($("north").checked) : ""); }
+
+/* ── melds that face their own player ────────────────────────────────────
+ * The side seats' CONCEALED backs already run vertically — `.seat.e .back`
+ * swaps to 17x12 and the row stacks in a column. Their melds never followed,
+ * so a kong lies across the table as a 63px-wide row in a 64px gutter.
+ *
+ * Turned, the same kong is a ~15px-wide vertical strip. The tile keeps a box
+ * that is exactly its own rotated bounding box — width and height swapped —
+ * and the face is rotated about the centre inside it, so the flow layout and
+ * the picture agree and nothing has to be nudged back into place by hand.   */
+function turnedCss(north){ return `
+@media (max-width:820px){
+  .seat.e .meldrow,.seat.w .meldrow{flex-direction:column;max-width:none}
+  .seat.e .meldrow{align-items:flex-end}
+  .seat.w .meldrow{align-items:flex-start}
+  /* the box becomes the tile's own rotated bounding box: width and height
+     swapped. The face is then rotated about the centre inside it, so the flow
+     layout and the picture agree and nothing needs nudging back. */
+  .seat.e .meldrow .tile,.seat.w .meldrow .tile{
+    --tw:calc(var(--th) * var(--tscale,1) * .714);
+    width:calc(var(--th) * var(--tscale,1));height:var(--tw);position:relative}
+  .seat.e .meldrow .tile svg,.seat.w .meldrow .tile svg{
+    position:absolute;left:50%;top:50%;
+    width:var(--tw);height:calc(var(--th) * var(--tscale,1))}
+  /* A tile in front of a player has its design pointing AWAY from them, toward
+     the middle of the table. East sits on the right, so east's tops point LEFT;
+     west's point RIGHT. Turning both the same way leaves one of them upside
+     down — which is what the first cut of this did. */
+  .seat.e .meldrow .tile svg{transform:translate(-50%,-50%) rotate(-90deg)}
+  .seat.w .meldrow .tile svg{transform:translate(-50%,-50%) rotate(90deg)}
+  /* the 6px spacer between melds is a WIDTH; in a column it must be a height */
+  .seat.e .meldrow>span[style*="width"],.seat.w .meldrow>span[style*="width"]{height:5px}
+  ${north ? `.seat.n .meldrow .tile svg{transform:rotate(180deg)}` : ""}
+}`; }
+
+const $ = (id) => document.getElementById(id);
+const SEED = 0x5eed1234;
+
+/* Deterministic RNG, installed into both frames so the two deal the same wall
+   and the bots make the same decisions. Without it the sides play different
+   hands and the comparison means nothing.
+
+   It is installed AFTER load rather than injected into the markup, and that is
+   safe: Math.random is not consumed until newMatch(), which only runs when this
+   page clicks "sit down". So there is no race to lose. */
+function pinRng(win){
+  let s = SEED >>> 0;
+  win.Math.random = function(){
+    s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+    return s / 4294967296;
+  };
+}
+
+async function boot(){
+  for (const [id, v] of [["cw","cwv"],["ch","chv"],["mt","mtv"],["fl","flv"]]) {
+    $(id).oninput = () => { paint(); restyle(); };
+  }
+  $("noanim").onchange = restyle;
+  $("turned").onchange = restyle;
+  $("north").onchange = restyle;
+  $("play").onclick = playBoth;
+  paint();
+  build();
+}
+
+function paint(){
+  $("cwv").textContent = $("cw").value + "vw";
+  $("chv").textContent = $("ch").value + "vh";
+  $("mtv").textContent = $("mt").value + "px";
+  $("flv").textContent = $("fl").value + "px";
+}
+
+/* The frames load index.html at its REAL url, not via srcdoc. srcdoc gives the
+   document `about:srcdoc` for a location, and sync.ts builds its API base with
+   `new URL(".", location.href)` — which throws on that, killing game.js before
+   it draws anything. A real src costs nothing and keeps the page identical to
+   what ships. Everything variant-specific is added after load instead. */
+function restyle(){
+  for (const w of ["now","new"]) {
+    const d = $("fr-" + w).contentDocument;
+    if (!d) continue;
+    let tag = d.getElementById("__labcss");
+    if (!tag) { tag = d.createElement("style"); tag.id = "__labcss"; d.head.appendChild(tag); }
+    tag.textContent =
+      (w === "new" ? proposedCss(+$("cw").value, +$("ch").value, +$("mt").value,
+                                 +$("fl").value, $("turned").checked) : "")
+      + ($("noanim").checked ? "*{animation:none!important;transition:none!important}" : "");
+  }
+}
+
+function build(){
+  // settings both sides share: instant bots, nothing recorded, one wind round
+  try {
+    localStorage.setItem("mjrc.settings", JSON.stringify({
+      rulesetId:"mjrc-standard", tileScale:1, botMs:0, dev:false,
+      rounds:1, recorded:false, hcCount:false, hcCalling:false, hcWhatIf:false }));
+    localStorage.setItem("mjrc.name", "Felt Lab");
+  } catch {}
+  $("ro-now").innerHTML = ""; $("ro-new").innerHTML = "";
+  $("status").textContent = "loading…";
+  return Promise.all(["now","new"].map((w) => new Promise((done) => {
+    const fr = $("fr-" + w);
+    fr.onload = () => { pinRng(fr.contentWindow); done(); };
+    fr.src = "index.html?lab=" + w + "&t=" + Date.now();
+  }))).then(() => { restyle(); $("status").textContent = "ready"; });
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** Walk one frame from the name screen to a seated table. */
+async function seat(win){
+  const d = win.document;
+  const nameIn = d.getElementById("nameIn");
+  if (nameIn) { nameIn.value = "Felt Lab"; d.getElementById("btnName").click(); await sleep(500); }
+  if (d.getElementById("btnAbout")) { d.getElementById("btnAbout").click(); await sleep(350); }
+  if (d.getElementById("goPlay")) { d.getElementById("goPlay").click(); await sleep(400); }
+  const sit = [...d.querySelectorAll("button")].find((b) => /sit down/i.test(b.textContent));
+  if (sit) { sit.click(); await sleep(1400); }
+  return !!d.querySelector("#wall .wt");
+}
+
+/** One auto-play tick. Returns false once the wall is spent. */
+function tick(win){
+  const d = win.document;
+  const wall = Number((d.getElementById("state")?.textContent.match(/wall\s*(\d+)/) || [])[1]);
+  if (!(wall > 4)) return false;
+  const veil = d.getElementById("veil");
+  if (veil && win.getComputedStyle(veil).display !== "none") return false;
+  const btns = [...d.querySelectorAll("#actions button")];
+  if (btns.length) {
+    const pass = btns.find((b) => /^pass/i.test(b.textContent.trim()));
+    (pass || btns[btns.length - 1]).click();
+    return true;
+  }
+  const t = [...d.querySelectorAll("#myhand:not(.locked) .tile")];
+  if (t.length) t[t.length - 1].click();
+  return true;
+}
+
+async function playBoth(){
+  $("play").disabled = true;
+  await build();
+  await sleep(500);
+  const wins = { now: $("fr-now").contentWindow, new: $("fr-new").contentWindow };
+  $("status").textContent = "seating…";
+  for (const k of ["now","new"]) if (!(await seat(wins[k]))) {
+    $("status").textContent = "could not seat " + k; $("play").disabled = false; return;
+  }
+  $("status").textContent = "playing…";
+  let live = { now: true, new: true };
+  for (let i = 0; i < 900 && (live.now || live.new); i++) {
+    for (const k of ["now","new"]) if (live[k]) live[k] = tick(wins[k]);
+    if (i % 20 === 0) $("status").textContent =
+      `playing… wall ${wallOf(wins.now)} / ${wallOf(wins["new"])}`;
+    await sleep(28);
+  }
+  await sleep(700);
+  for (const k of ["now","new"]) report(k, wins[k]);
+  $("status").textContent = "done — both played the same hand";
+  $("play").disabled = false;
+}
+
+const wallOf = (win) =>
+  (win.document.getElementById("state")?.textContent.match(/wall\s*(\d+)/) || ["","?"])[1];
+
+/* ── the measurements ────────────────────────────────────────────────────
+ * Everything about the heap is read from the packer's coordinates. Everything
+ * about the seats is read from the DOM with animations frozen, which is the
+ * only state in which a rect means what it says.                            */
+function report(which, win){
+  const d = win.document;
+  const pile = d.getElementById("pile");
+  const felt = d.getElementById("felt").getBoundingClientRect();
+  const centre = d.getElementById("centre").getBoundingClientRect();
+  const tiles = [...pile.querySelectorAll(".tile")];
+  const W = pile.clientWidth, H = pile.clientHeight;
+
+  let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9,outside=0;
+  for (const t of tiles) {
+    const cx = parseFloat(t.style.left), cy = parseFloat(t.style.top);
+    const w = t.offsetWidth, h = t.offsetHeight;
+    const rot = ((t.style.transform.match(/rotate\(([-\d.]+)deg\)/) || [])[1]) || 0;
+    const a = Math.abs(Math.cos(rot*Math.PI/180)), s = Math.abs(Math.sin(rot*Math.PI/180));
+    const bw = w*a + h*s, bh = w*s + h*a;
+    const l=cx-bw/2, r=cx+bw/2, tp=cy-bh/2, bt=cy+bh/2;
+    x0=Math.min(x0,l);y0=Math.min(y0,tp);x1=Math.max(x1,r);y1=Math.max(y1,bt);
+    if (l<-0.5||r>W+0.5||tp<-0.5||bt>H+0.5) outside++;
+  }
+  // meld tiles sitting under the heap, per seat
+  let buried = 0, meldTiles = 0, flBuried = 0, flTotal = 0, flSize = "\u2014";
+  const hitsHeap = (b) => tiles.some((p) => { const q = p.getBoundingClientRect();
+    return !(q.right<b.left||q.left>b.right||q.bottom<b.top||q.top>b.bottom); });
+  for (const s of ["n","e","w"]) {
+    for (const m of d.querySelectorAll(".seat."+s+" .tile")) {
+      const b = m.getBoundingClientRect();
+      if (m.classList.contains("fl")) {
+        flTotal++; if (hitsHeap(b)) flBuried++; flSize = `${m.offsetWidth}\u00d7${m.offsetHeight}`;
+      } else { meldTiles++; if (hitsHeap(b)) buried++; }
+    }
+  }
+  const gutter = Math.round((felt.width - centre.width) / 2);
+  const rows = [
+    ["discards on the table", tiles.length, null],
+    ["pile tile", `${tiles[0]?.offsetWidth}×${tiles[0]?.offsetHeight}`, null],
+    ["centre box", `${Math.round(centre.width)}×${Math.round(centre.height)}`, null],
+    ["heap extent", `${Math.round(x1-x0)}×${Math.round(y1-y0)}`, null],
+    ["discards outside the box", outside, outside === 0],
+    ["gutter each side", gutter + "px", gutter >= 80],
+    ["bot meld tiles under the heap", `${buried}/${meldTiles}`, buried === 0],
+    ["flower tile", flSize, null],
+    ["flowers under the heap", `${flBuried}/${flTotal}`, flBuried === 0],
+  ];
+  $("ro-" + which).innerHTML = rows.map(([k,v,ok]) =>
+    `<tr class="${ok === null ? "" : ok ? "good" : "bad"}"><td>${k}</td><td>${v}</td></tr>`).join("");
+}
+
+boot();
+</script>
+</body>
+</html>
