@@ -4057,9 +4057,8 @@
   function announce(kind, who, extra = "", seat = HUMAN) {
     const [ch, en] = CALLS[kind] ?? [kind, ""];
     const el = $("call");
-    el.innerHTML = `<div class="inner"><div class="cw">${who}</div><div class="cc">${ch}</div>
-    <div class="ce">${en}${extra ? ` \xB7 ${extra}` : ""}</div></div>`;
-    el.className = `show s${seat} ` + (kind === "win" || kind === "selfDraw" ? "big" : "");
+    el.innerHTML = `<div class="inner"><div class="cw">${who}</div><div class="cc${ch.length > 1 ? " two" : ""}">${ch}</div><div class="ce">${en}${extra ? ` \xB7 ${extra}` : ""}</div></div>`;
+    el.className = `show s${seat} k-${kind} ` + (kind === "win" || kind === "selfDraw" ? "big" : "");
     clearTimeout(callTimer);
     callTimer = window.setTimeout(() => {
       el.className = "";

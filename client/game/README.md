@@ -176,6 +176,35 @@ is wallpaper rather than a reading aid.
 - **HK table conventions.** Chow is offered only from 上家; the seat and
   round winds, dealer mark 莊 and dealer repeats are all engine state.
 
+## The calls
+
+Every claim, flower and win puts up an announcement — and they are **tiered by
+how much the call matters**, then coloured by kind, so a player learns to read
+the colour before the character:
+
+| call | colour | why |
+| --- | --- | --- |
+| 上 chow | teal | the cheapest claim there is |
+| 碰 pung | blue | the common claim |
+| 槓 kong · 暗槓 · 加槓 | violet | rarer, and it draws a replacement |
+| 花 flower | rose | barely an event — smallest of the set |
+| 搶槓 robbing the kong | orange | rare enough to be a story |
+| 食糊 win · 自摸 self-draw | gold | the hand is over. Biggest, and it throws rays |
+
+Two CSS variables carry it: `--cc` is the glyph colour and `--cg` the light it
+throws. Every rule reads those, so a new call type is three lines.
+
+Before this they were all one thing — white glyph, thin gold box — so a routine
+上 and a 食糊 that ended the hand were the same visual event, which wastes the
+one moment the table has to say something.
+
+**`call-lab.html`** shows all of them: a stage that plays the sequence with the
+real animation and the real hold (2.2s a claim, 3.2s a win, seats rotating), and
+a grid of every call held still for comparison. It **pulls the stylesheet live
+out of `index.html`**, so there is no second copy to drift — it strips the
+game's page-level `body` rules on the way in, which otherwise turn the lab into
+a flex column and squash the stage.
+
 ## Rebuild after changing `game.ts`
 
     ../../../mjrc-app/web/node_modules/.bin/esbuild client/game/game.ts \

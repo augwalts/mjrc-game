@@ -355,15 +355,70 @@ body.devmode #mine{padding-top:2px}
    timers in announce(). */
 #call.show{animation:callIn 2.2s cubic-bezier(.2,.9,.3,1.15) forwards}
 #call.show.big{animation-duration:3.2s}
-#call .cw{font-size:11px;color:var(--gold);letter-spacing:.14em;text-transform:uppercase}
-#call .cc{font-size:52px;font-weight:800;line-height:1.05;color:#fff;
-  -webkit-text-stroke:2px rgba(0,0,0,.55);paint-order:stroke fill;
-  text-shadow:0 2px 10px rgba(0,0,0,.8),0 0 30px rgba(216,181,106,.9)}
-#call.big .cc{font-size:74px}
+/* ── the call, by kind ──────────────────────────────────────────────────
+ * Every call used to look the same: white glyph, thin gold box. A routine 上
+ * and a 食糊 that ends the hand were the same visual event, which wastes the
+ * one moment the table has to say something (owner 2026-08-31).
+ *
+ * They are now tiered by how much the call MATTERS, and coloured by kind so a
+ * player learns to read the colour before the character:
+ *
+ *   上 chow    teal      taking a run, the cheapest claim there is
+ *   碰 pung    blue      a triplet, the common claim
+ *   槓 kong    violet    all three forms — rarer, and it draws a replacement
+ *   花 flower  rose      barely an event; smallest of the set
+ *   搶槓       orange    robbing a kong. Rare enough to be a story
+ *   食糊/自摸  gold      the hand is over. Biggest, with rays
+ *
+ * `--cc` is the glyph colour and `--cg` the light it throws; every rule below
+ * reads those two, so a new call type is three lines. */
+#call .cw{font-size:11px;color:var(--cc,#d8b56a);letter-spacing:.14em;text-transform:uppercase;
+  text-shadow:0 1px 5px rgba(0,0,0,.9);font-weight:700}
+#call .cc{font-size:54px;font-weight:800;line-height:1.02;color:var(--cc,#fff);
+  -webkit-text-stroke:2px rgba(0,0,0,.6);paint-order:stroke fill;white-space:nowrap;
+  text-shadow:0 2px 10px rgba(0,0,0,.85), 0 0 22px var(--cg,rgba(216,181,106,.9))}
+/* two-character calls carry twice the width; ease them down so the box keeps
+   its shape and 暗槓 does not tower over 碰 */
+#call .cc.two{font-size:42px}
 #call .ce{font-size:13px;color:#fff;letter-spacing:.06em;text-shadow:0 1px 6px rgba(0,0,0,.9)}
-#call .cw{text-shadow:0 1px 5px rgba(0,0,0,.9)}
-#call .inner{background:rgba(8,20,15,.55);border:1px solid rgba(216,181,106,.4);border-radius:14px;
-  padding:8px 18px;backdrop-filter:blur(3px)}
+#call .inner{position:relative;border-radius:16px;padding:9px 20px 8px;
+  background:radial-gradient(ellipse at 50% 38%, rgba(6,16,12,.82), rgba(6,16,12,.62));
+  border:2px solid var(--cc,#d8b56a);
+  box-shadow:0 0 0 1px rgba(0,0,0,.55), 0 6px 26px -6px rgba(0,0,0,.9),
+             0 0 30px -6px var(--cg,transparent), inset 0 0 26px -12px var(--cg,transparent);
+  backdrop-filter:blur(3px)}
+/* the burst behind the glyph — what makes it read as an event, not a label */
+#call .inner::before{content:"";position:absolute;inset:-12%;border-radius:50%;
+  background:radial-gradient(circle at 50% 45%, var(--cg,transparent) 0%, transparent 62%);
+  opacity:.5;pointer-events:none;z-index:-1}
+
+#call.k-chow          {--cc:#5fd39a;--cg:rgba(95,211,154,.85)}
+#call.k-pung          {--cc:#5db8f0;--cg:rgba(93,184,240,.85)}
+#call.k-kong,
+#call.k-concealedKong,
+#call.k-addedKong     {--cc:#b18bf5;--cg:rgba(177,139,245,.85)}
+#call.k-flower        {--cc:#f58bb0;--cg:rgba(245,139,176,.7)}
+#call.k-robbingKong   {--cc:#ff8a5b;--cg:rgba(255,138,91,.95)}
+#call.k-win,
+#call.k-selfDraw      {--cc:#ffd23f;--cg:rgba(255,210,63,.95)}
+
+/* 花 is the smallest thing that happens; it should not shout like a claim */
+#call.k-flower .cc{font-size:40px}
+#call.k-flower .inner{padding:7px 16px 6px}
+
+/* the win: bigger, and it throws rays */
+#call.big .cc{font-size:78px}
+#call.big .cc.two{font-size:64px}
+#call.big .inner{padding:12px 26px 10px;border-width:3px}
+#call.big .inner::after{content:"";position:absolute;inset:-60%;z-index:-2;
+  pointer-events:none;opacity:.5;
+  background:repeating-conic-gradient(from 0deg at 50% 50%,
+    var(--cg) 0deg 5deg, transparent 5deg 22deg);
+  -webkit-mask-image:radial-gradient(circle at 50% 50%, #000 12%, transparent 62%);
+  mask-image:radial-gradient(circle at 50% 50%, #000 12%, transparent 62%);
+  animation:rays 3.2s linear}
+@keyframes rays{from{transform:rotate(0)}to{transform:rotate(28deg)}}
+
 /* ── the grab ───────────────────────────────────────────────────────────
  * A claimed tile used to vanish from the pile and reappear in a meld in the
  * same frame, which read as a glitch rather than an action (owner 2026-08-31).

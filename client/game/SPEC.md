@@ -238,6 +238,7 @@ Dated entries are easiest to act on later._
 | 2026-08-31 | **Setup screen streamlined**: length as a segmented control with its cost as a caption, rules and table as paired cards. Ruleset moved out of settings — one place to set one thing. |
 | 2026-08-31 | **TVB offered for demo**, alongside MJRC standard. Only rulesets actually played through the client are listed. |
 | 2026-08-31 | **Wall size comes from the ruleset**, not a hardcoded 144 — a flowerless table ate four stacks that were never there. Erosion now spreads across the four sides: legibility over literalism. |
+| 2026-08-31 | **Calls are tiered and coloured by kind** — teal chow, blue pung, violet kong, rose flower, orange 搶槓, gold win with rays. `--cc`/`--cg` carry it. `call-lab.html` plays the sequence and pulls the live stylesheet. |
 | 2026-08-31 | **Bots never throw a tile they could kong.** The rob-window guard was right but was governing kong-vs-hold, after which the ranker cut the dead tile anyway. |
 
 

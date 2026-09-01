@@ -1271,9 +1271,13 @@ const takeHold = (): number => { const h = holdMs; holdMs = 0; return h; };
 function announce(kind: string, who: string, extra = "", seat: SeatIndex = HUMAN): void {
   const [ch, en] = CALLS[kind] ?? [kind, ""];
   const el = $("call");
-  el.innerHTML = `<div class="inner"><div class="cw">${who}</div><div class="cc">${ch}</div>
-    <div class="ce">${en}${extra ? ` · ${extra}` : ""}</div></div>`;
-  el.className = `show s${seat} ` + (kind === "win" || kind === "selfDraw" ? "big" : "");
+  // the kind rides on the element as a class, so the stylesheet can colour and
+  // size each call on its own — see "the call, by kind" in index.html
+  el.innerHTML = `<div class="inner"><div class="cw">${who}</div>`
+    + `<div class="cc${ch.length > 1 ? " two" : ""}">${ch}</div>`
+    + `<div class="ce">${en}${extra ? ` · ${extra}` : ""}</div></div>`;
+  el.className = `show s${seat} k-${kind} `
+    + (kind === "win" || kind === "selfDraw" ? "big" : "");
   clearTimeout(callTimer);
   // Long enough to actually read across the table (owner 2026-08-30). Must
   // match the callIn keyframes, which do the holding.
