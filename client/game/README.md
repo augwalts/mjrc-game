@@ -102,8 +102,12 @@ what your seat sees, and nothing hidden is revealed.
   It works by **contrast, not by stacking**. A highlighted pile tile cannot be
   lifted above its neighbours — `#surface` is `preserve-3d`, so its children
   paint by depth and a `z-index` is ignored. So everything that does *not* match
-  is dimmed to 26 % and desaturated, and the matches get a gold ring, a glow and
-  a brightness lift on an otherwise muted table.
+  drops 10 % in opacity and desaturates slightly, and the matches get a thin
+  gold ring and a soft glow.
+
+  Both halves are deliberately **gentle**. The first cut dimmed the table to
+  26 % and put a hard glow on the matches; it was unmissable and far too loud to
+  sit behind for a whole hand. This is a reading aid, not an alarm.
 - **Calling read** — a standing bar above your hand: whether you are 聽牌, what
   you are waiting on, **how many of each are still live**, and whether the hand
   can actually pay. A hand that cannot reach the 3-faan minimum says so, because
