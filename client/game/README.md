@@ -99,17 +99,20 @@ what your seat sees, and nothing hidden is revealed.
   the pile, the melds, your hand. Counting the discards is a core skill; this
   does the counting for you, it does not show you anything new.
 
-  A match reads as **lifted off the table**: a hard yellow edge plus a
-  directional `drop-shadow`. Everything else dims only 10 %.
+  A match **glows**: a hot yellow edge, a warm wash across the face, and light
+  spilling a short way past the border. Everything else dims only 10 %.
 
-  Three attempts got here, and the reasoning is worth keeping. A pile tile
-  cannot be raised by `z-index` — `#surface` is `preserve-3d`, so its children
-  paint by depth. Dimming the rest to 26 % worked but was an alarm you had to
-  sit behind for a whole hand. Softening that to a faint glow made it vanish
-  again, because **a glow diffuses into the very neighbours a buried tile is
-  crowded by**. Elevation is what survives crowding: `filter: drop-shadow`
-  follows the tile's shape and composites over its neighbours rather than under
-  them, so the match looks picked up off the heap while the table stays lit.
+  The spill is `filter: drop-shadow` in yellow, not `box-shadow`, and that is
+  the whole reason it works. **A `box-shadow` glow paints UNDER neighbouring
+  tiles**, so in a dense heap it is swallowed by the very tiles it needs to
+  stand out from — which is why the first attempt was invisible. `drop-shadow`
+  follows the tile's shape and composites over them.
+
+  A pile tile also cannot be raised by `z-index` (`#surface` is `preserve-3d`,
+  so its children paint by depth) and cannot be moved or scaled (it carries an
+  inline `transform` for its rotation, which silently beats anything in a
+  class). Light was the only lever left.
+
 - **Calling read** — a standing bar above your hand: whether you are 聽牌, what
   you are waiting on, **how many of each are still live**, and whether the hand
   can actually pay. A hand that cannot reach the 3-faan minimum says so, because

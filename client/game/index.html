@@ -226,23 +226,35 @@ body{background:radial-gradient(ellipse at 50% 30%, #1e1b17 0%, #131110 55%, #0a
    their rotation, so a scale in a class would be silently overridden. */
 body.counting .tile:not(.samet){opacity:.9;filter:saturate(.85)}
 body.counting #wall .wt{opacity:.85}
-/* LIFTED, not glowing. A glow diffuses into the neighbours a tile is buried
-   among, which is exactly where the pile needs it to work — so the match gets a
-   hard yellow edge and a directional DROP SHADOW instead, which reads as the
-   tile sitting above the table rather than being lit up. Elevation survives
-   crowding in a way a halo does not, and it stays quiet on an undimmed table.
+/* THE TILE GLOWS. Not a halo painted around it — the tile itself reads as lit:
+   a hot yellow edge, a warm wash across the face, and light spilling a short
+   way past the border.
 
-   `filter: drop-shadow` rather than `box-shadow`: it follows the tile's actual
-   shape, and it composites over neighbours instead of under them. The tile
-   cannot simply be moved up — pile tiles carry an inline transform for their
-   rotation, so a translate here would be silently overridden. */
+   The spill is `filter: drop-shadow` in YELLOW rather than `box-shadow`, and
+   that choice is the whole reason this works where the first attempt did not.
+   A box-shadow glow paints UNDER neighbouring tiles, so in a dense heap it is
+   swallowed by the very tiles it needs to stand out from. drop-shadow follows
+   the tile's shape and composites OVER them.
+
+   Uniform and tight — no offset, small radii — so it reads as the tile
+   emitting light rather than being lit from one side (owner, 2026-08-31).
+
+   The tile cannot be moved or scaled to help: pile tiles carry an inline
+   transform for their rotation, and anything in a class is silently
+   overridden. */
 .tile.samet{
   outline:3px solid #ffd23f;
-  outline-offset:-1px;
-  filter:drop-shadow(0 6px 7px rgba(0,0,0,.8)) drop-shadow(0 1px 2px rgba(0,0,0,.6));
+  outline-offset:0;                       /* the ring sits OUTSIDE the tile */
+  filter:
+    drop-shadow(0 0 3px rgba(255,216,80,.9))
+    drop-shadow(0 0 7px rgba(255,196,40,.55))
+    brightness(1.04);
   z-index:20}
+/* the warm wash that makes the FACE look lit rather than merely ringed */
 .tile.samet::after{content:"";position:absolute;inset:0;border-radius:5px;
-  background:rgba(255,210,63,.1);pointer-events:none}
+  background:radial-gradient(ellipse at 50% 45%,
+    rgba(255,232,150,.30) 0%, rgba(255,205,60,.14) 70%, rgba(255,196,40,.05) 100%);
+  pointer-events:none}
 .tile{position:relative}
 #callwrap{flex:0 0 auto;padding:0 10px}
 #callbar{max-width:1040px;margin:0 auto 4px;background:rgba(255,255,255,.05);
