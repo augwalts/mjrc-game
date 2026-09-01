@@ -2893,8 +2893,15 @@
     } catch {
     }
   }
+  var allMatches = () => all("match");
   async function putFeedback(f) {
     await tx("feedback", "readwrite", (s) => s.put(f));
+  }
+  async function usage() {
+    const matches = await allMatches();
+    let bytes = 0;
+    for (const m of matches) bytes += JSON.stringify(m).length;
+    return { matches: matches.length, approxBytes: bytes };
   }
 
   // client/game/game.ts
@@ -3066,6 +3073,165 @@
     ["hkos-standard", "HK Old Style (published)", "3\u201313 faan \xB7 the full limit ladder"],
     ["tvb-2026", "TVB Championship 2026", "1 faan minimum \xB7 linear payments \xB7 no flowers"]
   ];
+  var fmtPct = (x) => x === null ? "\u2014" : `${Math.round(x * 100)}%`;
+  var fmtChips = (n) => `${n > 0 ? "+" : ""}${n}`;
+  function aggregate(rows) {
+    const a = {
+      matches: 0,
+      finished: 0,
+      abandoned: 0,
+      hands: 0,
+      won: 0,
+      selfDrawn: 0,
+      fed: 0,
+      drawnHands: 0,
+      chips: 0,
+      graded: 0,
+      matched: 0,
+      gapSum: 0,
+      seatWins: [0, 0, 0, 0],
+      seatGames: 0
+    };
+    for (const m of rows) {
+      a.matches++;
+      if (m.abandoned) a.abandoned++;
+      else if (m.finishedAt) a.finished++;
+      a.hands += m.hands;
+      a.won += m.won;
+      a.selfDrawn += m.selfDrawn;
+      a.fed += m.fed;
+      a.drawnHands += m.drawnHands;
+      a.chips += m.chips[0] ?? 0;
+      a.graded += m.movesGraded;
+      if (m.matchRate !== null) a.matched += m.matchRate * m.movesGraded;
+      if (m.meanGap !== null) a.gapSum += m.meanGap * m.movesGraded;
+      for (let i = 0; i < 4; i++) a.seatWins[i] += m.seatWins[i] ?? 0;
+      a.seatGames++;
+    }
+    return a;
+  }
+  function lobbyScreen() {
+    overlay = null;
+    $("veil").style.display = "flex";
+    $("panel").innerHTML = `
+    <h1>\u9999\u6E2F\u9EBB\u96C0 \xB7 MJRC</h1>
+    <p class="mut">Playing as <b>${player?.name ?? "\u2014"}</b> \xB7
+      <a href="#" id="btnRename" style="color:var(--gold)">change name</a></p>
+    <div class="choices lobby" style="margin-top:16px">
+      <div class="choice" id="goPlay"><b>Play \u25B8</b><span>Pick a length and a table, then sit down.</span></div>
+      <div class="choice" id="goStats"><b>Your games</b><span>Every match you have played, and how close to the engine you played it.</span></div>
+      <div class="choice" id="goBoard"><b>Leaderboard</b><span>How everyone on this device compares.</span></div>
+    </div>
+    <div id="lobbySum" class="mut" style="margin-top:14px">\u2026</div>`;
+    $("goPlay").onclick = () => startScreen();
+    $("goStats").onclick = () => statsScreen();
+    $("goBoard").onclick = () => boardScreen();
+    $("btnRename").onclick = (e) => {
+      e.preventDefault();
+      nameScreen(lobbyScreen);
+    };
+    void allMatches().then((rows) => {
+      const mine = rows.filter((m) => m.playerId === player?.id);
+      const a = aggregate(mine);
+      const el = document.getElementById("lobbySum");
+      if (!el) return;
+      el.innerHTML = a.matches === 0 ? "No games yet. Everything you play is recorded so we can see how the bots hold up." : `<b>${a.matches}</b> games \xB7 <b>${a.hands}</b> hands \xB7 <b>${a.won}</b> hands won \xB7
+         lifetime <b>${fmtChips(a.chips)}</b> chips \xB7
+         engine agreement <b>${fmtPct(a.graded ? a.matched / a.graded : null)}</b>`;
+    });
+  }
+  function backRow(to) {
+    return `<button id="btnLobby" style="margin-top:16px">\u25C2 back to lobby</button>`;
+  }
+  var wireBack = (to) => {
+    const b = document.getElementById("btnLobby");
+    if (b) b.onclick = () => to();
+  };
+  function statsScreen() {
+    $("veil").style.display = "flex";
+    $("panel").innerHTML = `<h1>Your games</h1><p class="mut">reading\u2026</p>`;
+    void Promise.all([allMatches(), usage()]).then(([rows, use]) => {
+      const mine = rows.filter((m) => m.playerId === player?.id).sort((x, y) => (y.finishedAt ?? y.startedAt) - (x.finishedAt ?? x.startedAt));
+      const a = aggregate(mine);
+      const rate = a.graded ? a.matched / a.graded : null;
+      const gap = a.graded ? a.gapSum / a.graded : null;
+      $("panel").innerHTML = `
+      <h1>Your games</h1>
+      ${mine.length === 0 ? "<p>Nothing recorded yet.</p>" : `
+      <div class="statgrid">
+        <div><span>${a.matches}</span>games</div>
+        <div><span>${a.hands}</span>hands</div>
+        <div><span>${a.won}</span>hands won</div>
+        <div><span>${fmtChips(a.chips)}</span>chips</div>
+        <div><span>${fmtPct(rate)}</span>engine agreement</div>
+        <div><span>${gap === null ? "\u2014" : gap.toFixed(2)}</span>mean gap</div>
+      </div>
+      <p class="mut" style="margin-top:8px">
+        <b>Engine agreement</b> is how often you played the champion's own top choice \u2014
+        ${a.graded} decisions graded. It measures closeness to the bot, not correctness:
+        the bot is the strongest one the training programme produced, not a solved game.
+        <b>Mean gap</b> is what your choices cost in its scoring units; lower is closer.</p>
+      <p class="mut">You fed ${a.fed} winning discards \xB7 self-drew ${a.selfDrawn} \xB7
+        ${a.drawnHands} hands ended \u6D41\u5C40 \xB7 ${a.abandoned} game(s) abandoned.</p>
+      <h2 style="margin-top:14px">Match by match</h2>
+      <div class="rows">${mine.slice(0, 40).map((m) => `
+        <div class="row">
+          <span class="c1">${new Date(m.finishedAt ?? m.startedAt).toLocaleDateString()} \xB7
+            ${m.rounds}-wind \xB7 ${m.tableId}${m.abandoned ? ' \xB7 <b style="color:var(--danger)">forfeit</b>' : ""}</span>
+          <span class="c2">${m.hands}h</span>
+          <span class="c2 ${(m.chips[0] ?? 0) > 0 ? "up" : (m.chips[0] ?? 0) < 0 ? "down" : ""}">${fmtChips(m.chips[0] ?? 0)}</span>
+          <span class="c2">${fmtPct(m.matchRate)}</span>
+        </div>`).join("")}</div>
+      <p class="mut" style="margin-top:10px">${use.matches} matches stored,
+        about ${Math.round(use.approxBytes / 1024)} KB. Kept on this device only.</p>`}
+      ${backRow(lobbyScreen)}`;
+      wireBack(lobbyScreen);
+    });
+  }
+  function boardScreen() {
+    $("veil").style.display = "flex";
+    $("panel").innerHTML = `<h1>Leaderboard</h1><p class="mut">reading\u2026</p>`;
+    void allMatches().then((rows) => {
+      const counted = rows.filter((m) => m.recorded && !m.abandoned && m.finishedAt !== null);
+      const byPlayer = /* @__PURE__ */ new Map();
+      for (const m of counted) {
+        const e = byPlayer.get(m.playerId) ?? { name: m.playerName, rows: [] };
+        e.name = m.playerName;
+        e.rows.push(m);
+        byPlayer.set(m.playerId, e);
+      }
+      const table2 = [...byPlayer.values()].map((e) => {
+        const a = aggregate(e.rows);
+        return {
+          name: e.name,
+          games: a.matches,
+          chips: a.chips,
+          rate: a.graded ? a.matched / a.graded : null,
+          graded: a.graded
+        };
+      }).sort((x, y) => (y.rate ?? -1) - (x.rate ?? -1));
+      $("panel").innerHTML = `
+      <h1>Leaderboard</h1>
+      <p class="mut">Ranked by <b>engine agreement</b>, not chips. Chips over a handful of
+        hands are mostly wall luck \u2014 the training work measured \xB116 chips of noise in a
+        single block, which is larger than most real differences in skill. Agreement is
+        far steadier. Chips are shown because they are what you feel.</p>
+      ${table2.length === 0 ? "<p>No completed recorded games yet.</p>" : `
+      <div class="rows head"><span class="c1">player</span><span class="c2">games</span>
+        <span class="c2">chips</span><span class="c2">agreement</span></div>
+      <div class="rows">${table2.map((r, i) => `
+        <div class="row ${r.name === player?.name ? "me" : ""}">
+          <span class="c1">${i + 1}. ${r.name}</span>
+          <span class="c2">${r.games}</span>
+          <span class="c2 ${r.chips > 0 ? "up" : r.chips < 0 ? "down" : ""}">${fmtChips(r.chips)}</span>
+          <span class="c2"><b>${fmtPct(r.rate)}</b></span>
+        </div>`).join("")}</div>`}
+      <p class="mut" style="margin-top:10px">Forfeits and casual games are excluded.
+        Everyone here plays on this device \u2014 there is no server yet.</p>
+      ${backRow(lobbyScreen)}`;
+      wireBack(lobbyScreen);
+    });
+  }
   function nameScreen(then) {
     $("veil").style.display = "flex";
     $("panel").innerHTML = `
@@ -3127,7 +3293,8 @@
       lifetime <b>${rec.chips > 0 ? "+" : ""}${rec.chips}</b> chips</p>` : ""}
     <p class="mut">Playing as <b>${player?.name ?? "\u2014"}</b> \xB7 <a href="#" id="btnRename"
       style="color:var(--gold)">change name</a></p>
-    <button id="btnStart">sit down \u25B8</button>`;
+    <button id="btnStart">sit down \u25B8</button>
+    <button id="btnLobby" style="margin-left:8px;background:rgba(255,255,255,.08)">\u25C2 lobby</button>`;
     for (const el of Array.from($("panel").querySelectorAll(".choice"))) {
       el.onclick = () => {
         if (el.dataset.len) {
@@ -3147,6 +3314,7 @@
       e.preventDefault();
       nameScreen(startScreen);
     };
+    wireBack(lobbyScreen);
     $("btnStart").onclick = () => newMatch();
   }
   function newMatch() {
@@ -3326,7 +3494,7 @@
           <div class="pay">${order.map((i, r) => `<div>${r + 1}. ${i === HUMAN ? "You" : who(i)}<br>
             <span class="d ${st[i] > 0 ? "up" : st[i] < 0 ? "down" : ""}">${st[i] > 0 ? "+" : ""}${st[i]}</span></div>`).join("")}</div>
           <p>Record: ${rec.won} wins in ${rec.played} \xB7 lifetime ${rec.chips > 0 ? "+" : ""}${rec.chips} chips</p>
-          <button id="btnAgain">play again \u25B8</button>`;
+          <button id="btnAgain">\u25C2 back to lobby</button>`;
           break;
         }
       }
@@ -3672,8 +3840,9 @@
     };
     const again = document.getElementById("btnAgain");
     if (again) again.onclick = () => {
+      rc = null;
       overlay = null;
-      startScreen();
+      lobbyScreen();
     };
   }
   var buildAnim = false;
@@ -3994,12 +4163,12 @@
     }
     rc = null;
     overlay = null;
-    startScreen();
+    lobbyScreen();
   };
   saveSettings();
   void getPlayer().then((p) => {
     player = p;
-    if (p) startScreen();
-    else nameScreen(startScreen);
+    if (p) lobbyScreen();
+    else nameScreen(lobbyScreen);
   });
 })();
