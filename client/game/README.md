@@ -129,10 +129,18 @@ show the affordance immediately, animate underneath it):
   side and position, so it reads as shuffling-then-stacking.
 - **Draw off the wall — 0.9s.** The drawn tile arcs from the wall into the gap at
   the right of your hand. Bots' face-down tiles pop in the same way.
-- **Toss — 1.3s.** A discard flies in *from the thrower's seat* — its `--fx/--fy`
-  vector is the direction that player sits — straight to its slot, arriving at
-  its final rotation. One flight: the keyframes carry only a start and an end,
-  and the easing only decelerates, so a throw never reads as two moves.
+- **Toss — 1.3s.** A discard flies in *from the thrower's seat*, lands short of
+  its slot at 52%, lies there for a beat, then skids the last stretch —
+  accelerating and stopping dead against the pile. The final easing is an
+  ease-IN, because a curve still gaining speed when it ends reads as a hard
+  stop; a decelerating one reads as a glide.
+
+**Two motions never run at once.** The reducer emits a discard and the next
+player's draw in one batch, so they used to start in the same frame. Motions now
+queue by delay — a draw begins 832ms into the toss, once the tile has landed and
+settled — while announcements (碰, 花, 食糊) ride alongside the motion that caused
+them. Queueing is delay plus `animation-fill-mode: backwards`, never a gate: the
+affordance is always live. The full audit is in `ANIMATION-SEQUENCE.md`.
 
 - **The hold after a call — 0.75s (0.5s for a flower).** A pung, chow, kong or
   flower stops the table: nothing else animates until the call has been made

@@ -3004,6 +3004,10 @@
   var HUMAN = 0;
   var TOSS_MS = 1300;
   var DRAW_MS = 900;
+  var TOSS_SETTLED = 0.64;
+  var AFTER_TOSS_MS = TOSS_MS * TOSS_SETTLED;
+  var lastTossAt = -1e9;
+  var queueBehindToss = () => Math.max(0, Math.round(lastTossAt + AFTER_TOSS_MS - performance.now()));
   var $ = (id) => document.getElementById(id);
   var state;
   var cfgs;
@@ -3014,6 +3018,7 @@
   var feed = [];
   var pileTiles = [];
   var pileSeq = 0;
+  var handSig = "";
   function rectCorners(p, w, h) {
     const c = Math.cos(p.rot * Math.PI / 180), s2 = Math.sin(p.rot * Math.PI / 180);
     return [[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, h / 2], [-w / 2, h / 2]].map(([x, y]) => ({ x: p.x + x * c - y * s2, y: p.y + x * s2 + y * c }));
@@ -3153,6 +3158,7 @@
     }));
     feed.length = 0;
     pileTiles = [];
+    handSig = "";
     devBotLines = [];
     coachLog.length = 0;
     $("veil").style.display = "none";
@@ -3654,7 +3660,8 @@
     const nm = BOT_NAMES[table.seats[seat - 1]] ?? "Bot";
     const hidden = s.hand.length + (s.drawn !== null ? 1 : 0);
     return plate(seat, nm, nm[0]) + `
-    <div class="backrow">${Array.from({ length: Math.min(hidden, 14) }, (_, i) => `<span class="back ${i === hidden - 1 && s.drawn !== null ? "wtnew" : ""}"></span>`).join("")}</div>
+    <div class="backrow">${Array.from({ length: Math.min(hidden, 14) }, (_, i) => `<span class="back ${i === hidden - 1 && s.drawn !== null ? "wtnew" : ""}"
+         style="--drawdelay:${queueBehindToss()}ms"></span>`).join("")}</div>
     <div class="meldrow">${s.melds.map((m) => m.tiles.map((t) => tileHtml(t, "sm")).join("")).join('<span style="width:6px"></span>')}
       ${s.flowers.map((t) => tileHtml(t, "fl")).join("")}</div>`;
   }
@@ -3731,22 +3738,30 @@
     for (const d of pileTiles) {
       if (have.has(d.id)) continue;
       const from = [[0, 190], [230, 0], [0, -190], [-230, 0]][d.seat] ?? [0, 190];
+      const lx = from[0] * 0.3, ly = from[1] * 0.3;
+      const lr = d.pos.rot + (d.pos.spin - d.pos.rot) * 0.22;
+      lastTossAt = performance.now();
       for (const el of Array.from(pileEl.children)) el.classList.remove("hot");
       pileEl.insertAdjacentHTML("beforeend", tileHtml(
         d.tile,
         "pt fresh hot",
-        `data-pid="${d.id}" style="left:${d.pos.x.toFixed(1)}px;top:${d.pos.y.toFixed(1)}px;--fx:${from[0]}px;--fy:${from[1]}px;--fr:${d.pos.spin.toFixed(0)}deg;--rot:${d.pos.rot.toFixed(1)}deg;--tossms:${TOSS_MS}ms;transform:translate(-50%,-50%) rotate(${d.pos.rot.toFixed(1)}deg)"`
+        `data-pid="${d.id}" style="left:${d.pos.x.toFixed(1)}px;top:${d.pos.y.toFixed(1)}px;--fx:${from[0]}px;--fy:${from[1]}px;--fr:${d.pos.spin.toFixed(0)}deg;--lx:${lx.toFixed(0)}px;--ly:${ly.toFixed(0)}px;--lr:${lr.toFixed(1)}deg;--rot:${d.pos.rot.toFixed(1)}deg;--tossms:${TOSS_MS}ms;transform:translate(-50%,-50%) rotate(${d.pos.rot.toFixed(1)}deg)"`
       ));
     }
     $("mymelds").innerHTML = me.melds.map((m) => m.tiles.map((t) => tileHtml(t)).join("")).join('<span style="width:10px"></span>') + me.flowers.map((t) => tileHtml(t, "fl")).join("");
     const canDiscard = !!pending?.some((a) => a.type === "discard");
     const hand = [...me.hand].sort((a, b) => a - b);
     $("myhand").className = canDiscard ? "" : "locked";
-    $("myhand").innerHTML = hand.map((t) => tileHtml(t, "", `data-t="${t}"`)).join("") + (me.drawn !== null ? tileHtml(
-      me.drawn,
-      "drawn",
-      `data-t="${me.drawn}" style="--drawms:${DRAW_MS}ms;--wx:${(120 - hand.length * 9).toFixed(0)}px;--wy:-190px"`
-    ) : "");
+    const sig = `${hand.join(",")}|${me.drawn ?? "-"}|${canDiscard}`;
+    if (sig !== handSig) {
+      handSig = sig;
+      const delay = queueBehindToss();
+      $("myhand").innerHTML = hand.map((t) => tileHtml(t, "", `data-t="${t}"`)).join("") + (me.drawn !== null ? tileHtml(
+        me.drawn,
+        "drawn",
+        `data-t="${me.drawn}" style="--drawms:${DRAW_MS}ms;--drawdelay:${delay}ms;--wx:${(120 - hand.length * 9).toFixed(0)}px;--wy:-190px"`
+      ) : "");
+    }
     if (canDiscard) {
       for (const el of Array.from($("myhand").querySelectorAll(".tile"))) {
         el.onclick = () => {

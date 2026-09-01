@@ -109,6 +109,7 @@ proper portrait layout before the game is playable on a phone. Not yet done.
 | a call on screen | 2200 (3200 for a win) | `callIn` keyframes AND the timer in `announce()` — **change both** |
 | hold after a claim | 750 | `CLAIM_HOLD_MS` — nothing else moves while a meld goes down |
 | hold after a flower | 500 | `FLOWER_HOLD_MS` |
+| draw queued behind a toss | 832 | `TOSS_MS × TOSS_SETTLED` — see `ANIMATION-SEQUENCE.md` |
 
 The call's entrance stays quick in absolute terms because the keyframe
 percentages were moved with the duration; what got longer is the hold.
@@ -223,6 +224,8 @@ Dated entries are easiest to act on later._
 | 2026-08-31 | **Move grading always runs.** It cost 0.07 ms and was gated on dev mode and thrown away. Dev mode now controls only whether the reasoning is shown. |
 | 2026-08-31 | **A quit is a forfeit, and is recorded.** Otherwise abandoning losing games flatters the record. |
 | 2026-08-31 | **Feedback carries game state** — match id, hand, last 8 log lines, seed — and attaches to the last match once you have quit. |
+| 2026-08-31 | **Motions queue, announcements ride alongside** — the sequencing model, after a discard and the next player's draw were animating in the same frame. Queue by delay + `backwards`, never by gating. See `ANIMATION-SEQUENCE.md`. |
+| 2026-08-31 | **The toss is a thrown tile**: flight → contact short of the slot → pause → skid that accelerates and stops dead. The final easing is an ease-IN ending at (1,1); a decelerating curve read as a glide. |
 
 
 

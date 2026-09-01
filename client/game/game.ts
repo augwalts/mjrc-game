@@ -120,6 +120,37 @@ const HUMAN: SeatIndex = 0;
 // paces the wall build and the calls was moved with them.
 const TOSS_MS = 1300;   // the throw
 const DRAW_MS = 900;    // drawing off the wall
+
+/* ── one motion at a time ───────────────────────────────────────────────
+ * THE PROBLEM: the reducer batches. `doDiscard` emits the discard and then
+ * calls `advanceTurn`, which draws for the next seat — both inside a single
+ * `applyAction` (reducer.ts:1143). The client consumes that batch and renders
+ * once, so the tile flying across the table and the tile flying into your hand
+ * started in the SAME FRAME. Two motions competing for one pair of eyes
+ * (owner, 2026-08-31).
+ *
+ * THE RULE, and it is the whole model: **motions queue, announcements do not.**
+ * A motion is something physically moving — a toss, a draw, the wall building.
+ * An announcement is a label appearing over the top of it, and it is free to
+ * ride alongside the motion that caused it.
+ *
+ * Motions queue by DELAY, never by gating. Every element is created the moment
+ * its event arrives and the affordance is live immediately; only the animation
+ * waits, held at frame 0 by `animation-fill-mode: backwards`. MatchScene.ts
+ * rule 1 — an affordance is never taken away by an animation — is intact.
+ *
+ * A draw follows a toss from the moment the tile has LANDED AND SETTLED (64 %
+ * of the toss, the end of the pause), not from the end of the skid. By then
+ * nothing is flying: the skid is a small settling motion and the next player
+ * reaching for the wall over it is exactly what a real table looks like.
+ */
+const TOSS_LAND = 0.52;    // keyframe where the tile meets the felt
+const TOSS_SETTLED = 0.64; // keyframe where the pause ends and the skid begins
+const AFTER_TOSS_MS = TOSS_MS * TOSS_SETTLED;
+/** When the most recent toss started. The draw queues behind it. */
+let lastTossAt = -1e9;
+const queueBehindToss = (): number =>
+  Math.max(0, Math.round(lastTossAt + AFTER_TOSS_MS - performance.now()));
 const $ = (id: string): HTMLElement => document.getElementById(id)!;
 let state: MatchState;
 let cfgs: BotConfig[];
@@ -131,6 +162,7 @@ const feed: string[] = [];
 interface Placed { x: number; y: number; rot: number; spin: number; }
 let pileTiles: { id: number; tile: TileId; seat: number; pos?: Placed }[] = [];
 let pileSeq = 0;     // every discard gets an id its DOM node is keyed to
+let handSig = "";   // rebuild your hand only when it changes, so a draw animates once
 /**
  * ORGANIC HEAP (owner photo, 2026-08-29). Tiles land where they land: many
  * orientations, irregular gaps, a roughly circular pile that grows outward —
@@ -287,7 +319,7 @@ function newMatch(): void {
     profile: i === HUMAN ? DEFAULT_PROFILE : profileOf(table.seats[i - 1]!),
     rnd: prng((seed ^ ((i + 1) * 0x9e3779b1)) >>> 0),
   }));
-  feed.length = 0; pileTiles = []; devBotLines = []; coachLog.length = 0;
+  feed.length = 0; pileTiles = []; handSig = ""; devBotLines = []; coachLog.length = 0;
   $("veil").style.display = "none";
   $("hudTable").textContent = table.label + " — " + table.seats.map((s) => BOT_NAMES[s] ?? s).join(", ");
   consume(r.events);
@@ -814,7 +846,8 @@ function seatBox(seat: SeatIndex): string {
   const hidden = s.hand.length + (s.drawn !== null ? 1 : 0);
   return plate(seat, nm, nm[0]!) + `
     <div class="backrow">${Array.from({ length: Math.min(hidden, 14) }, (_, i) =>
-      `<span class="back ${i === hidden - 1 && s.drawn !== null ? "wtnew" : ""}"></span>`).join("")}</div>
+      `<span class="back ${i === hidden - 1 && s.drawn !== null ? "wtnew" : ""}"
+         style="--drawdelay:${queueBehindToss()}ms"></span>`).join("")}</div>
     <div class="meldrow">${s.melds.map((m) => m.tiles.map((t) => tileHtml(t, "sm")).join("")).join('<span style="width:6px"></span>')}
       ${s.flowers.map((t) => tileHtml(t, "fl")).join("")}</div>`;
 }
@@ -937,12 +970,20 @@ function render(): void {
   for (const d of pileTiles) {
     if (have.has(d.id)) continue;
     const from = [[0, 190], [230, 0], [0, -190], [-230, 0]][d.seat] ?? [0, 190];
+    // Where it first hits the felt: 30% of the way back from the thrower, so
+    // the skid covers the last stretch — about two tile widths, which is what
+    // a thrown tile actually slides.
+    const lx = from[0]! * 0.3, ly = from[1]! * 0.3;
+    // and it lands crooked, straightening as it skids
+    const lr = d.pos!.rot + (d.pos!.spin - d.pos!.rot) * 0.22;
+    lastTossAt = performance.now();
     // the gold ring marks the tile in play; it leaves with the tile when
     // somebody claims it, rather than drifting back onto an older discard
     for (const el of Array.from(pileEl.children)) el.classList.remove("hot");
     pileEl.insertAdjacentHTML("beforeend", tileHtml(d.tile, "pt fresh hot",
       `data-pid="${d.id}" style="left:${d.pos!.x.toFixed(1)}px;top:${d.pos!.y.toFixed(1)}px;`
       + `--fx:${from[0]}px;--fy:${from[1]}px;--fr:${d.pos!.spin.toFixed(0)}deg;`
+      + `--lx:${lx.toFixed(0)}px;--ly:${ly.toFixed(0)}px;--lr:${lr.toFixed(1)}deg;`
       + `--rot:${d.pos!.rot.toFixed(1)}deg;--tossms:${TOSS_MS}ms;`
       + `transform:translate(-50%,-50%) rotate(${d.pos!.rot.toFixed(1)}deg)"`));
   }
@@ -953,11 +994,22 @@ function render(): void {
   const canDiscard = !!pending?.some((a) => a.type === "discard");
   const hand = [...me.hand].sort((a, b) => a - b);
   $("myhand").className = canDiscard ? "" : "locked";
-  $("myhand").innerHTML = hand.map((t) => tileHtml(t, "", `data-t="${t}"`)).join("")
-    + (me.drawn !== null
-        ? tileHtml(me.drawn, "drawn",
-            `data-t="${me.drawn}" style="--drawms:${DRAW_MS}ms;--wx:${(120 - hand.length * 9).toFixed(0)}px;--wy:-190px"`)
-        : "");
+  // Rebuild ONLY when the hand actually changed. render() runs two or three
+  // times a turn, and re-writing innerHTML re-created the drawn tile each time
+  // and restarted its flight — the same defect the pile had before its nodes
+  // were keyed to an id. The click handlers read `pending` at click time, so
+  // they never go stale between rebuilds.
+  const sig = `${hand.join(",")}|${me.drawn ?? "-"}|${canDiscard}`;
+  if (sig !== handSig) {
+    handSig = sig;
+    const delay = queueBehindToss();
+    $("myhand").innerHTML = hand.map((t) => tileHtml(t, "", `data-t="${t}"`)).join("")
+      + (me.drawn !== null
+          ? tileHtml(me.drawn, "drawn",
+              `data-t="${me.drawn}" style="--drawms:${DRAW_MS}ms;--drawdelay:${delay}ms;`
+              + `--wx:${(120 - hand.length * 9).toFixed(0)}px;--wy:-190px"`)
+          : "");
+  }
   if (canDiscard) {
     for (const el of Array.from($("myhand").querySelectorAll<HTMLElement>(".tile"))) {
       el.onclick = () => {
