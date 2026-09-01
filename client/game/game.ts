@@ -548,10 +548,13 @@ function aboutScreen(back: () => void): void {
   $("veil").style.display = "flex";
   $("panel").classList.add("about");          // prose reads left-aligned
   $("panel").innerHTML = `
-    <h1>A demo, not a game yet</h1>
+    <h1>Solo — a demo, not a game yet</h1>
     <p>A playable Hong Kong Old Style table against three bots. It exists so we
     can find out what breaks before any of it is finished — so play a hand or
     two and tell us what felt wrong.</p>
+    <p class="mut">This build is called <b>Solo</b>. It is frozen: the same rules,
+    the same bots and the same scoring every time you open it, so everything it
+    records stays comparable.</p>
 
     <h2>What we are testing</h2>
     <ul class="about">
@@ -574,7 +577,8 @@ function aboutScreen(back: () => void): void {
     of it to be redrawn.</p>
 
     <h2>Later</h2>
-    <p>Playing against each other rather than against bots.</p>
+    <p>Playing against each other rather than against bots. That is a separate
+    build, and it will not change this one.</p>
 
     <h2>Your games are recorded</h2>
     <p>Every match, every decision we grade, and every note you send goes to our
