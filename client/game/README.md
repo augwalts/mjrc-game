@@ -56,6 +56,19 @@ buttons are measured, not guessed — 25 matches per length on the mixed ladder:
 A wind round is nowhere near four hands: the dealer repeats on a dealer win
 **and on 流局**, and the 3-faan floor sends about a third of hands to 流局.
 
+## The scoreboard
+
+A finished match opens its own scoreboard — final standings, hands won,
+self-draws, who fed whom, the best hand each player made, discards and claims
+and kongs and flowers per seat, then the match hand by hand with your chip
+delta on each. The same screen is reachable later from **Your games**: tap any
+match.
+
+All of it is **derived by walking the stored event log**, which is the payoff
+for keeping the log rather than a summary row — none of these numbers had to be
+decided on in advance, and adding another is a re-read rather than a schema
+change.
+
 ## Handicaps
 
 Training wheels, each switchable on its own in settings. They tell you only what

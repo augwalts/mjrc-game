@@ -231,6 +231,7 @@ Dated entries are easiest to act on later._
 | 2026-08-31 | **Home is a lobby**; a finished match returns there, not into another game. Stats and leaderboard hang off it. |
 | 2026-08-31 | **Leaderboard sorts on five columns** — wins (default), hands, chips, net/hand, engine agreement. No single one is the truth and the page says so. |
 | 2026-08-31 | **Three handicaps**: count tiles, calling read, what-if. All derived from `visibleCounts`, so none reveals hidden information. |
+| 2026-08-31 | **A finished match opens a scoreboard**, not a four-line overlay — standings, per-seat table play, hand by hand, and how you played it. Same screen from Your games. All derived from the stored event log. |
 | 2026-08-31 | **Bots never throw a tile they could kong.** The rob-window guard was right but was governing kong-vs-hold, after which the ranker cut the dead tile anyway. |
 
 

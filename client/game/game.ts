@@ -353,6 +353,122 @@ function wireHover(): void {
   });
 }
 
+/* ── what happened in one match ────────────────────────────────────────
+ * Derived by walking the stored event log. This is the payoff for keeping the
+ * full log rather than a summary row: none of the numbers below were decided
+ * on in advance, and a new one is a re-read rather than a schema change.
+ */
+interface SeatStat {
+  discards: number; claims: number; kongs: number; flowers: number;
+  wins: number; selfDraws: number; fed: number; faan: number; best: number;
+}
+interface HandLine { n: number; winner: number | null; selfDraw: boolean; from: number | null; faan: number; deltas: number[]; }
+interface MatchStats { seats: SeatStat[]; hands: HandLine[]; discards: number; draws: number; }
+
+function deriveMatchStats(m: MatchRec): MatchStats {
+  const blank = (): SeatStat =>
+    ({ discards: 0, claims: 0, kongs: 0, flowers: 0, wins: 0, selfDraws: 0, fed: 0, faan: 0, best: 0 });
+  const st: MatchStats = { seats: [blank(), blank(), blank(), blank()], hands: [], discards: 0, draws: 0 };
+  let pending: Omit<HandLine, "n" | "deltas"> = { winner: null, selfDraw: false, from: null, faan: 0 };
+  for (const raw of m.events as { type: string; payload: Record<string, unknown> }[]) {
+    const p = raw?.payload ?? {};
+    switch (raw?.type) {
+      case "discard": { const s2 = p.seat as number; st.seats[s2]!.discards++; st.discards++; break; }
+      case "claimed": {
+        const s2 = p.seat as number; st.seats[s2]!.claims++;
+        if (p.kind === "kong") st.seats[s2]!.kongs++;
+        break;
+      }
+      case "concealedKong": case "addedKong": st.seats[p.seat as number]!.kongs++; break;
+      case "flowerReplacement": st.seats[p.seat as number]!.flowers++; break;
+      case "winOnDiscard": case "selfDraw": {
+        const ctx = p.context as { seat: number; selfDraw: boolean; from: number | null };
+        const sc = p.score as { faan: number };
+        const w = st.seats[ctx.seat]!;
+        w.wins++; w.faan += sc.faan; w.best = Math.max(w.best, sc.faan);
+        if (ctx.selfDraw) w.selfDraws++;
+        else if (ctx.from !== null && ctx.from !== undefined) st.seats[ctx.from]!.fed++;
+        pending = { winner: ctx.seat, selfDraw: ctx.selfDraw, from: ctx.from ?? null, faan: sc.faan };
+        break;
+      }
+      case "exhaustiveDraw": st.draws++; break;
+      case "handEnd":
+        st.hands.push({ n: st.hands.length + 1, ...pending, deltas: (p.chipDeltas as number[]) ?? [0, 0, 0, 0] });
+        pending = { winner: null, selfDraw: false, from: null, faan: 0 };
+        break;
+    }
+  }
+  return st;
+}
+
+const seatNamesOf = (m: MatchRec): string[] =>
+  ["You", ...m.seats.map((k) => BOT_NAMES[k] ?? k)];
+
+/**
+ * The scoreboard for one match — shown the moment a game ends, and again from
+ * Your games. The owner's complaint was that a finished game simply stopped
+ * and the score was nowhere: "I actually don't even know what the score was."
+ */
+function matchScreen(m: MatchRec, back: () => void): void {
+  $("veil").style.display = "flex";
+  const s2 = deriveMatchStats(m);
+  const names = seatNamesOf(m);
+  const chips = m.chips ?? [0, 0, 0, 0];
+  const order = [0, 1, 2, 3].sort((a, b) => (chips[b] ?? 0) - (chips[a] ?? 0));
+  const place = order.indexOf(HUMAN) + 1;
+  const mins = m.finishedAt ? Math.round((m.finishedAt - m.startedAt) / 60000) : null;
+  $("panel").innerHTML = `
+    <h1>${m.abandoned ? "Forfeited"
+      : place === 1 ? "🏆 You win" : `You finish ${place}${["st", "nd", "rd", "th"][place - 1]}`}</h1>
+    <p class="mut">${m.rounds}-wind · ${m.tableId} table · ${m.rulesetId} ·
+      ${m.hands} hands${mins !== null ? ` · ${mins} min` : ""} ·
+      ${new Date(m.finishedAt ?? m.startedAt).toLocaleString()}</p>
+
+    <h2 style="margin-top:14px">Final score</h2>
+    <div class="rows head"><span class="c1">player</span><span class="c2">chips</span>
+      <span class="c2">hands won</span><span class="c2">self-draw</span>
+      <span class="c2">fed</span><span class="c2">best</span></div>
+    <div class="rows">${order.map((i, r) => {
+      const q = s2.seats[i]!;
+      return `<div class="row ${i === HUMAN ? "me" : ""}">
+        <span class="c1">${r + 1}. ${names[i]}</span>
+        <span class="c2 ${(chips[i] ?? 0) > 0 ? "up" : (chips[i] ?? 0) < 0 ? "down" : ""}">${fmtChips(chips[i] ?? 0)}</span>
+        <span class="c2">${q.wins}</span><span class="c2">${q.selfDraws}</span>
+        <span class="c2">${q.fed}</span><span class="c2">${q.best || "—"}</span></div>`;
+    }).join("")}</div>
+
+    <h2 style="margin-top:14px">At the table</h2>
+    <div class="rows head"><span class="c1">player</span><span class="c2">discards</span>
+      <span class="c2">claims</span><span class="c2">kongs</span><span class="c2">flowers</span></div>
+    <div class="rows">${[0, 1, 2, 3].map((i) => {
+      const q = s2.seats[i]!;
+      return `<div class="row ${i === HUMAN ? "me" : ""}"><span class="c1">${names[i]}</span>
+        <span class="c2">${q.discards}</span><span class="c2">${q.claims}</span>
+        <span class="c2">${q.kongs}</span><span class="c2">${q.flowers}</span></div>`;
+    }).join("")}</div>
+    <p class="mut">${s2.discards} tiles thrown in all · ${s2.draws} hand${s2.draws === 1 ? "" : "s"} ended 流局.</p>
+
+    ${s2.hands.length === 0 ? "" : `
+    <h2 style="margin-top:14px">Hand by hand</h2>
+    <div class="rows">${s2.hands.map((h) => `
+      <div class="row"><span class="c1">${h.n}. ${
+        h.winner === null ? "<span class=\"mut\">流局 — nobody wins</span>"
+        : `${names[h.winner]} ${h.selfDraw ? "自摸" : h.from === HUMAN ? "on YOUR discard"
+            : h.from !== null ? `off ${names[h.from]}` : "食糊"} · <b>${h.faan} faan</b>`}</span>
+        <span class="c2 ${(h.deltas[0] ?? 0) > 0 ? "up" : (h.deltas[0] ?? 0) < 0 ? "down" : ""}">${
+          h.deltas[0] ? fmtChips(h.deltas[0]) : "—"}</span></div>`).join("")}</div>`}
+
+    ${m.movesGraded === 0 ? "" : `
+    <h2 style="margin-top:14px">How you played it</h2>
+    <div class="statgrid">
+      <div><span>${fmtPct(m.matchRate)}</span>engine agreement</div>
+      <div><span>${m.meanGap === null ? "—" : m.meanGap.toFixed(2)}</span>mean gap</div>
+      <div><span>${m.movesGraded}</span>decisions graded</div>
+    </div>`}
+    ${backRow(back)}`;
+  wireBack(back);
+}
+
 /* ── the lobby ─────────────────────────────────────────────────────────
  * Home. Everything that is not a game in progress hangs off here: start a
  * match, look at what you have played, see how everyone compares.
@@ -456,17 +572,21 @@ function statsScreen(): void {
       <p class="mut">You fed ${a.fed} winning discards · self-drew ${a.selfDrawn} ·
         ${a.drawnHands} hands ended 流局 · ${a.abandoned} game(s) abandoned.</p>
       <h2 style="margin-top:14px">Match by match</h2>
-      <div class="rows">${mine.slice(0, 40).map((m) => `
-        <div class="row">
+      <div class="rows">${mine.slice(0, 40).map((m, k) => `
+        <div class="row click" data-k="${k}">
           <span class="c1">${new Date(m.finishedAt ?? m.startedAt).toLocaleDateString()} ·
             ${m.rounds}-wind · ${m.tableId}${m.abandoned ? " · <b style=\"color:var(--danger)\">forfeit</b>" : ""}</span>
           <span class="c2">${m.hands}h</span>
           <span class="c2 ${(m.chips[0] ?? 0) > 0 ? "up" : (m.chips[0] ?? 0) < 0 ? "down" : ""}">${fmtChips(m.chips[0] ?? 0)}</span>
           <span class="c2">${fmtPct(m.matchRate)}</span>
         </div>`).join("")}</div>
-      <p class="mut" style="margin-top:10px">${use.matches} matches stored,
-        about ${Math.round(use.approxBytes / 1024)} KB. Kept on this device only.</p>`}
+      <p class="mut" style="margin-top:10px">Tap a match to see how it went.
+        ${use.matches} matches stored, about ${Math.round(use.approxBytes / 1024)} KB.
+        Kept on this device only.</p>`}
       ${backRow(lobbyScreen)}`;
+    for (const el of Array.from($("panel").querySelectorAll<HTMLElement>(".row.click"))) {
+      el.onclick = () => { const m = mine[Number(el.dataset.k)]; if (m) matchScreen(m, statsScreen); };
+    }
     wireBack(lobbyScreen);
   });
 }
@@ -797,12 +917,12 @@ function consume(events: readonly unknown[]): void {
         const place = order.indexOf(HUMAN) + 1;
         rec.played++; if (place === 1) rec.won++; rec.chips += st[HUMAN]!;
         localStorage.setItem("mjrc.record", JSON.stringify(rec));
-        if (rc) { rc.finishedAt = Date.now(); flushRecord(); }
-        overlay = `<h1>${place === 1 ? "🏆 You win the round" : `You finish ${place}${["st","nd","rd","th"][place - 1]}`}</h1>
-          <div class="pay">${order.map((i, r) => `<div>${r + 1}. ${i === HUMAN ? "You" : who(i)}<br>
-            <span class="d ${st[i]! > 0 ? "up" : st[i]! < 0 ? "down" : ""}">${st[i]! > 0 ? "+" : ""}${st[i]}</span></div>`).join("")}</div>
-          <p>Record: ${rec.won} wins in ${rec.played} · lifetime ${rec.chips > 0 ? "+" : ""}${rec.chips} chips</p>
-          <button id="btnAgain">◂ back to lobby</button>`;
+        if (rc) {
+          rc.finishedAt = Date.now();
+          flushRecord();
+          // hand the finished record to advance(), which shows the scoreboard
+          endedMatch = { ...rc, chips: [...rc.chips], events: [...rc.events] };
+        }
         break;
       }
     }
@@ -1076,6 +1196,12 @@ interface Grab { tile: TileId; seat: SeatIndex; cx: number; cy: number; w: numbe
 let pendingGrab: Grab | null = null;
 /** Marks the meld that is being flown into, so it stays hidden until it lands. */
 let landingMeld: { seat: SeatIndex; index: number } | null = null;
+/**
+ * Set when a match finishes, so `advance` shows the full scoreboard instead of
+ * the four-line overlay that used to stand in for it. The owner's complaint:
+ * a finished game just stopped and the score was nowhere.
+ */
+let endedMatch: MatchRec | null = null;
 
 /**
  * Measure CENTRE and LAYOUT SIZE, never the bounding rect's size.
@@ -1159,6 +1285,13 @@ function startTurnClock(): void {
 /* ── turn loop ─────────────────────────────────────────────────────────── */
 function advance(): void {
   render();
+  // the match scoreboard outranks the hand-end overlay: both are set in the
+  // same batch when the last hand ends, and the match is the bigger news
+  if (endedMatch) {
+    const m = endedMatch;
+    matchScreen(m, () => { endedMatch = null; rc = null; overlay = null; lobbyScreen(); });
+    return;
+  }
   if (overlay) { showOverlay(); return; }
   if (state.phase === "matchEnd" || state.phase === "handEnd") return;
   const mine = legalActions(state, HUMAN);
@@ -1195,7 +1328,10 @@ function showOverlay(): void {
   const next = document.getElementById("btnNext");
   if (next) next.onclick = () => {
     overlay = null; $("veil").style.display = "none";
-    const r = startNextHand(state); state = r.state; pileTiles = []; devBotLines = [];
+    const r = startNextHand(state); state = r.state;
+    // every per-hand cache, or the new hand inherits the old one's state
+    pileTiles = []; handSig = ""; landingMeld = null; devBotLines = [];
+    $("say").className = "";
     consume(r.events); advance(); buildWall();
   };
   const again = document.getElementById("btnAgain");
@@ -1593,6 +1729,7 @@ function feedbackScreen(back: () => void): void {
   // abandons every losing match would otherwise look like a strong player.
   if (rc && rc.finishedAt === null) { rc.abandoned = true; rc.finishedAt = Date.now(); flushRecord(); }
   rc = null;
+  endedMatch = null;
   overlay = null;
   lobbyScreen();
 };

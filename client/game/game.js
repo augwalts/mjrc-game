@@ -3157,6 +3157,111 @@
       }
     });
   }
+  function deriveMatchStats(m) {
+    const blank = () => ({ discards: 0, claims: 0, kongs: 0, flowers: 0, wins: 0, selfDraws: 0, fed: 0, faan: 0, best: 0 });
+    const st = { seats: [blank(), blank(), blank(), blank()], hands: [], discards: 0, draws: 0 };
+    let pending2 = { winner: null, selfDraw: false, from: null, faan: 0 };
+    for (const raw of m.events) {
+      const p = raw?.payload ?? {};
+      switch (raw?.type) {
+        case "discard": {
+          const s2 = p.seat;
+          st.seats[s2].discards++;
+          st.discards++;
+          break;
+        }
+        case "claimed": {
+          const s2 = p.seat;
+          st.seats[s2].claims++;
+          if (p.kind === "kong") st.seats[s2].kongs++;
+          break;
+        }
+        case "concealedKong":
+        case "addedKong":
+          st.seats[p.seat].kongs++;
+          break;
+        case "flowerReplacement":
+          st.seats[p.seat].flowers++;
+          break;
+        case "winOnDiscard":
+        case "selfDraw": {
+          const ctx = p.context;
+          const sc = p.score;
+          const w = st.seats[ctx.seat];
+          w.wins++;
+          w.faan += sc.faan;
+          w.best = Math.max(w.best, sc.faan);
+          if (ctx.selfDraw) w.selfDraws++;
+          else if (ctx.from !== null && ctx.from !== void 0) st.seats[ctx.from].fed++;
+          pending2 = { winner: ctx.seat, selfDraw: ctx.selfDraw, from: ctx.from ?? null, faan: sc.faan };
+          break;
+        }
+        case "exhaustiveDraw":
+          st.draws++;
+          break;
+        case "handEnd":
+          st.hands.push({ n: st.hands.length + 1, ...pending2, deltas: p.chipDeltas ?? [0, 0, 0, 0] });
+          pending2 = { winner: null, selfDraw: false, from: null, faan: 0 };
+          break;
+      }
+    }
+    return st;
+  }
+  var seatNamesOf = (m) => ["You", ...m.seats.map((k) => BOT_NAMES[k] ?? k)];
+  function matchScreen(m, back) {
+    $("veil").style.display = "flex";
+    const s2 = deriveMatchStats(m);
+    const names2 = seatNamesOf(m);
+    const chips = m.chips ?? [0, 0, 0, 0];
+    const order = [0, 1, 2, 3].sort((a, b) => (chips[b] ?? 0) - (chips[a] ?? 0));
+    const place = order.indexOf(HUMAN) + 1;
+    const mins = m.finishedAt ? Math.round((m.finishedAt - m.startedAt) / 6e4) : null;
+    $("panel").innerHTML = `
+    <h1>${m.abandoned ? "Forfeited" : place === 1 ? "\u{1F3C6} You win" : `You finish ${place}${["st", "nd", "rd", "th"][place - 1]}`}</h1>
+    <p class="mut">${m.rounds}-wind \xB7 ${m.tableId} table \xB7 ${m.rulesetId} \xB7
+      ${m.hands} hands${mins !== null ? ` \xB7 ${mins} min` : ""} \xB7
+      ${new Date(m.finishedAt ?? m.startedAt).toLocaleString()}</p>
+
+    <h2 style="margin-top:14px">Final score</h2>
+    <div class="rows head"><span class="c1">player</span><span class="c2">chips</span>
+      <span class="c2">hands won</span><span class="c2">self-draw</span>
+      <span class="c2">fed</span><span class="c2">best</span></div>
+    <div class="rows">${order.map((i, r) => {
+      const q = s2.seats[i];
+      return `<div class="row ${i === HUMAN ? "me" : ""}">
+        <span class="c1">${r + 1}. ${names2[i]}</span>
+        <span class="c2 ${(chips[i] ?? 0) > 0 ? "up" : (chips[i] ?? 0) < 0 ? "down" : ""}">${fmtChips(chips[i] ?? 0)}</span>
+        <span class="c2">${q.wins}</span><span class="c2">${q.selfDraws}</span>
+        <span class="c2">${q.fed}</span><span class="c2">${q.best || "\u2014"}</span></div>`;
+    }).join("")}</div>
+
+    <h2 style="margin-top:14px">At the table</h2>
+    <div class="rows head"><span class="c1">player</span><span class="c2">discards</span>
+      <span class="c2">claims</span><span class="c2">kongs</span><span class="c2">flowers</span></div>
+    <div class="rows">${[0, 1, 2, 3].map((i) => {
+      const q = s2.seats[i];
+      return `<div class="row ${i === HUMAN ? "me" : ""}"><span class="c1">${names2[i]}</span>
+        <span class="c2">${q.discards}</span><span class="c2">${q.claims}</span>
+        <span class="c2">${q.kongs}</span><span class="c2">${q.flowers}</span></div>`;
+    }).join("")}</div>
+    <p class="mut">${s2.discards} tiles thrown in all \xB7 ${s2.draws} hand${s2.draws === 1 ? "" : "s"} ended \u6D41\u5C40.</p>
+
+    ${s2.hands.length === 0 ? "" : `
+    <h2 style="margin-top:14px">Hand by hand</h2>
+    <div class="rows">${s2.hands.map((h) => `
+      <div class="row"><span class="c1">${h.n}. ${h.winner === null ? '<span class="mut">\u6D41\u5C40 \u2014 nobody wins</span>' : `${names2[h.winner]} ${h.selfDraw ? "\u81EA\u6478" : h.from === HUMAN ? "on YOUR discard" : h.from !== null ? `off ${names2[h.from]}` : "\u98DF\u7CCA"} \xB7 <b>${h.faan} faan</b>`}</span>
+        <span class="c2 ${(h.deltas[0] ?? 0) > 0 ? "up" : (h.deltas[0] ?? 0) < 0 ? "down" : ""}">${h.deltas[0] ? fmtChips(h.deltas[0]) : "\u2014"}</span></div>`).join("")}</div>`}
+
+    ${m.movesGraded === 0 ? "" : `
+    <h2 style="margin-top:14px">How you played it</h2>
+    <div class="statgrid">
+      <div><span>${fmtPct(m.matchRate)}</span>engine agreement</div>
+      <div><span>${m.meanGap === null ? "\u2014" : m.meanGap.toFixed(2)}</span>mean gap</div>
+      <div><span>${m.movesGraded}</span>decisions graded</div>
+    </div>`}
+    ${backRow(back)}`;
+    wireBack(back);
+  }
   var fmtPct = (x) => x === null ? "\u2014" : `${Math.round(x * 100)}%`;
   var fmtChips = (n) => `${n > 0 ? "+" : ""}${n}`;
   function aggregate(rows) {
@@ -3258,17 +3363,24 @@
       <p class="mut">You fed ${a.fed} winning discards \xB7 self-drew ${a.selfDrawn} \xB7
         ${a.drawnHands} hands ended \u6D41\u5C40 \xB7 ${a.abandoned} game(s) abandoned.</p>
       <h2 style="margin-top:14px">Match by match</h2>
-      <div class="rows">${mine.slice(0, 40).map((m) => `
-        <div class="row">
+      <div class="rows">${mine.slice(0, 40).map((m, k) => `
+        <div class="row click" data-k="${k}">
           <span class="c1">${new Date(m.finishedAt ?? m.startedAt).toLocaleDateString()} \xB7
             ${m.rounds}-wind \xB7 ${m.tableId}${m.abandoned ? ' \xB7 <b style="color:var(--danger)">forfeit</b>' : ""}</span>
           <span class="c2">${m.hands}h</span>
           <span class="c2 ${(m.chips[0] ?? 0) > 0 ? "up" : (m.chips[0] ?? 0) < 0 ? "down" : ""}">${fmtChips(m.chips[0] ?? 0)}</span>
           <span class="c2">${fmtPct(m.matchRate)}</span>
         </div>`).join("")}</div>
-      <p class="mut" style="margin-top:10px">${use.matches} matches stored,
-        about ${Math.round(use.approxBytes / 1024)} KB. Kept on this device only.</p>`}
+      <p class="mut" style="margin-top:10px">Tap a match to see how it went.
+        ${use.matches} matches stored, about ${Math.round(use.approxBytes / 1024)} KB.
+        Kept on this device only.</p>`}
       ${backRow(lobbyScreen)}`;
+      for (const el of Array.from($("panel").querySelectorAll(".row.click"))) {
+        el.onclick = () => {
+          const m = mine[Number(el.dataset.k)];
+          if (m) matchScreen(m, statsScreen);
+        };
+      }
       wireBack(lobbyScreen);
     });
   }
@@ -3598,12 +3710,8 @@
           if (rc) {
             rc.finishedAt = Date.now();
             flushRecord();
+            endedMatch = { ...rc, chips: [...rc.chips], events: [...rc.events] };
           }
-          overlay = `<h1>${place === 1 ? "\u{1F3C6} You win the round" : `You finish ${place}${["st", "nd", "rd", "th"][place - 1]}`}</h1>
-          <div class="pay">${order.map((i, r) => `<div>${r + 1}. ${i === HUMAN ? "You" : who(i)}<br>
-            <span class="d ${st[i] > 0 ? "up" : st[i] < 0 ? "down" : ""}">${st[i] > 0 ? "+" : ""}${st[i]}</span></div>`).join("")}</div>
-          <p>Record: ${rec.won} wins in ${rec.played} \xB7 lifetime ${rec.chips > 0 ? "+" : ""}${rec.chips} chips</p>
-          <button id="btnAgain">\u25C2 back to lobby</button>`;
           break;
         }
       }
@@ -3812,6 +3920,7 @@
   var GRAB_MS = 760;
   var pendingGrab = null;
   var landingMeld = null;
+  var endedMatch = null;
   function centreOf(el) {
     const r = el.getBoundingClientRect();
     return { cx: r.left + r.width / 2, cy: r.top + r.height / 2, w: el.offsetWidth, h: el.offsetHeight };
@@ -3883,6 +3992,16 @@
   }
   function advance() {
     render();
+    if (endedMatch) {
+      const m = endedMatch;
+      matchScreen(m, () => {
+        endedMatch = null;
+        rc = null;
+        overlay = null;
+        lobbyScreen();
+      });
+      return;
+    }
     if (overlay) {
       showOverlay();
       return;
@@ -3942,7 +4061,10 @@
       const r = startNextHand(state);
       state = r.state;
       pileTiles = [];
+      handSig = "";
+      landingMeld = null;
       devBotLines = [];
+      $("say").className = "";
       consume(r.events);
       advance();
       buildWall2();
@@ -4294,6 +4416,7 @@
       flushRecord();
     }
     rc = null;
+    endedMatch = null;
     overlay = null;
     lobbyScreen();
   };
