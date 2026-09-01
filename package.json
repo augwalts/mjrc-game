@@ -9,7 +9,7 @@
   ],
   "scripts": {
     "test": "vitest run",
-    "typecheck": "tsc --noEmit -p engine && tsc --noEmit -p protocol && tsc --noEmit -p rulesets && tsc --noEmit -p worker && tsc --noEmit -p client"
+    "typecheck": "tsc --noEmit -p engine && tsc --noEmit -p protocol && tsc --noEmit -p rulesets && tsc --noEmit -p worker && tsc --noEmit -p client && tsc --noEmit -p gamepvp"
   },
   "devDependencies": {
     "typescript": "^5.6.0",
