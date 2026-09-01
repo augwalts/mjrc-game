@@ -217,6 +217,23 @@ export const MJRC_STANDARD: Ruleset = {
      * to be small; measure it rather than assume it.
      */
     fullFlush: 7,
+    /**
+     * 么九 — **10, ratified by the owner 2026-08-31**, alongside 清一色.
+     *
+     * The same transcription error as the flush, from the same audit: the column
+     * labelled "Wikipedia" in hk-scoring.ts carries 7 where Wikipedia prices it a
+     * LIMIT hand at 10. Under this house's 10-cap that makes 么九 a limit hand,
+     * which is what it is — every set built from terminals only, no honours to
+     * fall back on.
+     *
+     * Kept out of HKOS_STANDARD for the same reason as the flush: that preset's
+     * job is a faithful reading of one column, and the golden suite mirrors it.
+     *
+     * Behaviourally this is close to inert — 么九 did not occur once in a 500-hand
+     * sample. It is corrected because leaving it would mean mjrc-standard still
+     * carried an unratified slip, not because it changes play.
+     */
+    allTerminals: 10,
   },
 };
 

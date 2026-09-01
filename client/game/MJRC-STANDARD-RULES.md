@@ -9,11 +9,11 @@ Everything below is read out of the shipping code (`rulesets/src/presets.ts`,
 ## 1. The one-line answer
 
 > **`mjrc-standard` is canonical Hong Kong Old Style with the limit lowered from
-> 13 faan to 10, the faan table clamped to 10 to match, and one ratified
-> correction: 清一色 full flush pays 7.**
+> 13 faan to 10, the faan table clamped to 10 to match, and two ratified
+> corrections: 清一色 full flush pays 7 and 么九 all terminals pays 10.**
 
 `MJRC_STANDARD` is `{ ...HKOS_STANDARD, limitFaan: 10, faanTable: <every value
-min'd with 10, plus fullFlush: 7> }`.
+min'd with 10, plus fullFlush: 7, allTerminals: 10> }`.
 
 Clamping the table rather than only the score matters: under a 10-cap house,
 "十三么 pays 10" **is the price**. Scoring output is identical either way — any
@@ -55,7 +55,7 @@ never imported** — the game does not depend on that team's file.
 | flowers | yes, with replacement draws |
 | winds | seat wind 門風 and round wind 圈風 each score |
 | kongs | all three forms — 明槓 exposed, 暗槓 concealed, 加槓 added |
-| dealer | repeats on a dealer win **and on 流局** (see §5) |
+| dealer | repeats on a dealer win **and on 流局** — ratified, see §5 |
 | payment | HK doubling ladder, per-player self-draw settlement |
 | 包 liability | 大三元包, 大四喜包, 清一色包 |
 
@@ -85,12 +85,12 @@ of the three losers **1×**. Discard total 2×, self-draw total 3×.
 | 3 | 對對糊 allPungs · 混一色 halfFlush |
 | 5 | 小三元 smallThreeDragons |
 | 6 | 小四喜 smallFourWinds |
-| 7 | **清一色 fullFlush** ← owner ruling · **么九 allTerminals** |
+| 7 | **清一色 fullFlush** ← owner ruling |
 | 8 | 大三元 bigThreeDragons · winByDoubleKong |
-| 10 | 字一色 allHonours · allKongs · 大四喜 bigFourWinds · 地糊 earthlyHand* · 四暗刻 fourConcealedPungs* · 天糊 heavenlyHand* · 九蓮寶燈 nineGates* · 十三么 thirteenOrphans* |
+| 10 | 字一色 allHonours · allKongs · **么九 allTerminals** ← owner ruling · 大四喜 bigFourWinds · 地糊 earthlyHand* · 四暗刻 fourConcealedPungs* · 天糊 heavenlyHand* · 九蓮寶燈 nineGates* · 十三么 thirteenOrphans* |
 
-`*` = 13 in `hkos-standard`, clamped to 10 here. Those five are the entire
-difference between the two rulesets.
+`*` = 13 in `hkos-standard`, clamped to 10 here. Those five plus the two
+ratified corrections are the entire difference between the two rulesets.
 
 **One deliberate, documented departure from the column:** 四暗刻 is priced 13 in
 `hkos-standard` rather than the column's value, because four of the six surveyed
@@ -112,7 +112,7 @@ row, exactly two survived into `mjrc-standard`:
 | pattern | was | Wikipedia | status |
 | --- | ---: | ---: | --- |
 | **清一色 Full Flush** | 6 | **7** | ✅ **corrected to 7 — owner ruling 2026-08-31** |
-| **么九 All Terminals** | 7 | **10** | ⬜ **still open** |
+| **么九 All Terminals** | 7 | **10** | ✅ **corrected to 10 — owner ruling 2026-08-31** |
 | 大四喜 Big Four Winds | 10 | 13 | n/a — both cap to 10 |
 | allKongs | 10 | 13 | n/a — both cap to 10 |
 | 九蓮寶燈 Nine Gates | 13 | 10 | n/a — clamps to 10, agrees |
@@ -145,26 +145,44 @@ measurement canon: this is a **single block**, and single blocks carry noise.
 Full test suite after the change: **1,980 passed, 1 skipped.** The golden suite
 mirrors `hkos-standard` and `LIU`, so nothing there moved.
 
-### 4.2 么九 All Terminals — still open
+### 4.2 么九 — settled at 10
 
-Ships at **7**; Wikipedia says **10**. Rare enough to be nearly academic — it did
-not appear once in the 500-hand sample above — but it is 3 faan out, and leaving
-it means `mjrc-standard` still carries one unratified transcription slip.
+Shipped at 7; Wikipedia prices it a **limit hand at 10**. Under this house's
+10-cap that makes 么九 a limit hand, which is what it is: every set built from
+terminals alone, with no honours to fall back on.
 
-Say the word and it becomes 10 alongside the flush.
+Corrected in `MJRC_STANDARD` only, for the same reason as the flush —
+`hkos-standard` is a faithful reading of one column and the golden suite mirrors
+it.
 
-## 5. Also worth your ruling: the dealer repeat
+**Behaviourally this is close to inert.** 么九 did not occur once in the 500-hand
+sample used to test the flush change. It is corrected because leaving it would
+mean `mjrc-standard` still carried an unratified transcription slip, not because
+it changes how anything plays. Suite after the change: **1,980 passed, 1
+skipped.**
 
-Not a scoring rule, but it is the single biggest determinant of how long a game
-takes, and it is a house rule rather than a law.
+**With both corrections in, §1 is now literally true**: `mjrc-standard` is HK Old
+Style capped at 10, and every departure from the published table is a decision
+somebody made on the record.
 
-`reducer.ts:631` repeats the dealer on a dealer win **and on every 流局**.
-Combined with the 3-faan minimum pushing many hands into 流局, measured:
+## 5. The dealer repeat — ratified
+
+**Owner ruling 2026-08-31: under `mjrc-standard`, the dealer repeats.** No change
+to `reducer.ts:631`; the existing behaviour is now a decision rather than an
+inherited default.
+
+The dealer holds the seat on a dealer win **and on every 流局**. Combined with
+the 3-faan minimum pushing many hands into 流局, that is what makes a match long:
 
 | table | draws | dealer repeats | hands per 4-wind match |
 | --- | ---: | ---: | ---: |
 | mixed (the default) | 33 % | 52 % | **33.0** |
 | sharks (v4 × 3) | 45 % | 59 % | **38.6** |
 
-The floor is 16. Passing the deal on a draw would put a 4-wind match at ~19
-hands. This can be a ruleset flag rather than a change, if you want both.
+The no-repeat floor is 16. Passing the deal on a draw would have put a 4-wind
+match at ~19 hands; keeping the repeat roughly doubles it. That is the cost of
+the ruling and it was made with these numbers in hand.
+
+**Consequence for the picker**: the estimates on the length buttons — ~8 / ~16 /
+~25 / ~35 hands — already assume repeats, so they stand. Four winds is an
+evening, deliberately.
