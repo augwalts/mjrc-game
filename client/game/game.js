@@ -1,5 +1,11 @@
 "use strict";
 (() => {
+  var __defProp = Object.defineProperty;
+  var __export = (target, all2) => {
+    for (var name4 in all2)
+      __defProp(target, name4, { get: all2[name4], enumerable: true });
+  };
+
   // engine/src/types.ts
   var BAMBOO_START = 9;
   var CIRCLES_START = 18;
@@ -2884,6 +2890,20 @@
   }
 
   // client/game/store.ts
+  var store_exports = {};
+  __export(store_exports, {
+    allFeedback: () => allFeedback,
+    allMatches: () => allMatches,
+    available: () => available,
+    exportAll: () => exportAll,
+    getPlayer: () => getPlayer,
+    movesFor: () => movesFor,
+    putFeedback: () => putFeedback,
+    putMatch: () => putMatch,
+    putMoves: () => putMoves,
+    setPlayerName: () => setPlayerName,
+    usage: () => usage
+  });
   var DB_NAME = "mjrc-game";
   var DB_VERSION = 1;
   var dbPromise = null;
@@ -2931,13 +2951,13 @@
     const db = await open();
     return { ok: db !== null, why: unavailableReason };
   }
-  async function tx(store, mode, run) {
+  async function tx(store, mode, run2) {
     const db = await open();
     if (!db) return null;
     return new Promise((resolve) => {
       try {
         const t = db.transaction(store, mode);
-        const req = run(t.objectStore(store));
+        const req = run2(t.objectStore(store));
         req.onsuccess = () => resolve(req.result);
         req.onerror = () => resolve(null);
         t.onabort = () => resolve(null);
@@ -2976,14 +2996,171 @@
     }
   }
   var allMatches = () => all("match");
+  async function movesFor(matchId) {
+    const db = await open();
+    if (!db) return [];
+    return new Promise((resolve) => {
+      try {
+        const req = db.transaction("move", "readonly").objectStore("move").index("matchId").getAll(matchId);
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => resolve([]);
+      } catch {
+        resolve([]);
+      }
+    });
+  }
   async function putFeedback(f) {
     await tx("feedback", "readwrite", (s) => s.put(f));
+  }
+  var allFeedback = () => all("feedback");
+  async function exportAll() {
+    const [player2, matches, feedback] = await Promise.all([
+      getPlayer(),
+      allMatches(),
+      allFeedback()
+    ]);
+    const moves = await all("move");
+    return JSON.stringify({
+      exportedAt: Date.now(),
+      schema: DB_VERSION,
+      player: player2,
+      matches,
+      moves,
+      feedback
+    });
   }
   async function usage() {
     const matches = await allMatches();
     let bytes = 0;
     for (const m of matches) bytes += JSON.stringify(m).length;
     return { matches: matches.length, approxBytes: bytes };
+  }
+
+  // client/game/sync.ts
+  var BASE = new URL("api/", new URL(".", location.href)).toString();
+  var POST_TIMEOUT_MS = 12e3;
+  async function gzipB64(value) {
+    const bytes = new TextEncoder().encode(JSON.stringify(value));
+    const cs = new CompressionStream("gzip");
+    const stream = new Blob([bytes]).stream().pipeThrough(cs);
+    const buf = new Uint8Array(await new Response(stream).arrayBuffer());
+    let s = "";
+    for (let i = 0; i < buf.length; i += 32768) {
+      s += String.fromCharCode(...buf.subarray(i, i + 32768));
+    }
+    return btoa(s);
+  }
+  async function post(path, body) {
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), POST_TIMEOUT_MS);
+    try {
+      return await fetch(BASE + path, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+        // the page is behind Basic Auth; send what the browser already holds
+        credentials: "same-origin",
+        signal: ctl.signal
+      });
+    } finally {
+      clearTimeout(t);
+    }
+  }
+  async function matchPayload(m, moves) {
+    return {
+      id: m.id,
+      playerId: m.playerId,
+      playerName: m.playerName,
+      rounds: m.rounds,
+      rulesetId: m.rulesetId,
+      tableId: m.tableId,
+      seats: m.seats,
+      seed: m.seed,
+      recorded: m.recorded,
+      abandoned: m.abandoned,
+      startedAt: m.startedAt,
+      finishedAt: m.finishedAt,
+      chips: m.chips,
+      hands: m.hands,
+      won: m.won,
+      selfDrawn: m.selfDrawn,
+      fed: m.fed,
+      drawnHands: m.drawnHands,
+      seatWins: m.seatWins,
+      matchRate: m.matchRate,
+      meanGap: m.meanGap,
+      movesGraded: m.movesGraded,
+      client: { ua: navigator.userAgent, tz: Intl.DateTimeFormat().resolvedOptions().timeZone },
+      // the replay, gzipped — see the header for why it is actions and not events
+      actionsGz: await gzipB64({ seed: m.seed, rulesetId: m.rulesetId, rounds: m.rounds, actions: m.actions }),
+      moves: moves.map((v) => ({
+        hand: v.hand,
+        turn: v.turn,
+        kind: v.kind,
+        played: v.played,
+        enginePick: v.enginePick,
+        gap: v.gap,
+        top1MinusTop2: v.top1MinusTop2,
+        reason: v.reason
+      }))
+    };
+  }
+  var inflight = null;
+  function drain(store) {
+    inflight ??= run(store).finally(() => {
+      inflight = null;
+    });
+    return inflight;
+  }
+  async function run(store) {
+    const out = { matches: 0, feedback: 0, failed: 0, why: null };
+    {
+      const matches = (await store.allMatches()).filter((m) => !m.uploadedAt && m.finishedAt !== null);
+      for (const m of matches) {
+        try {
+          const moves = await store.movesFor(m.id);
+          const r = await post("match", await matchPayload(m, moves));
+          if (!r.ok) {
+            out.failed++;
+            out.why ??= `match ${r.status}`;
+            continue;
+          }
+          await store.putMatch({ ...m, uploadedAt: Date.now() });
+          out.matches++;
+        } catch (e) {
+          out.failed++;
+          out.why ??= String(e).slice(0, 80);
+        }
+      }
+      const fb = (await store.allFeedback()).filter((f) => !f.uploadedAt);
+      for (const f of fb) {
+        try {
+          const r = await post("feedback", {
+            id: f.id,
+            matchId: f.matchId,
+            hand: f.hand,
+            text: f.text,
+            createdAt: f.createdAt,
+            context: f.context
+          });
+          if (!r.ok) {
+            out.failed++;
+            out.why ??= `feedback ${r.status}`;
+            continue;
+          }
+          await store.putFeedback({ ...f, uploadedAt: Date.now() });
+          out.feedback++;
+        } catch (e) {
+          out.failed++;
+          out.why ??= String(e).slice(0, 80);
+        }
+      }
+    }
+    return out;
+  }
+  async function pending(store) {
+    const [m, f] = await Promise.all([store.allMatches(), store.allFeedback()]);
+    return m.filter((x) => !x.uploadedAt && x.finishedAt !== null).length + f.filter((x) => !x.uploadedAt).length;
   }
 
   // client/game/game.ts
@@ -3106,7 +3283,7 @@
   var cfgs;
   var table = TABLES[1];
   var seed = 0;
-  var pending = null;
+  var pending2 = null;
   var busy = false;
   var feed = [];
   var pileTiles = [];
@@ -3244,7 +3421,7 @@
   function deriveMatchStats(m) {
     const blank = () => ({ discards: 0, claims: 0, kongs: 0, flowers: 0, wins: 0, selfDraws: 0, fed: 0, faan: 0, best: 0 });
     const st = { seats: [blank(), blank(), blank(), blank()], hands: [], discards: 0, draws: 0 };
-    let pending2 = { winner: null, selfDraw: false, from: null, faan: 0 };
+    let pending3 = { winner: null, selfDraw: false, from: null, faan: 0 };
     for (const raw of m.events) {
       const p = raw?.payload ?? {};
       switch (raw?.type) {
@@ -3277,15 +3454,15 @@
           w.best = Math.max(w.best, sc.faan);
           if (ctx.selfDraw) w.selfDraws++;
           else if (ctx.from !== null && ctx.from !== void 0) st.seats[ctx.from].fed++;
-          pending2 = { winner: ctx.seat, selfDraw: ctx.selfDraw, from: ctx.from ?? null, faan: sc.faan };
+          pending3 = { winner: ctx.seat, selfDraw: ctx.selfDraw, from: ctx.from ?? null, faan: sc.faan };
           break;
         }
         case "exhaustiveDraw":
           st.draws++;
           break;
         case "handEnd":
-          st.hands.push({ n: st.hands.length + 1, ...pending2, deltas: p.chipDeltas ?? [0, 0, 0, 0] });
-          pending2 = { winner: null, selfDraw: false, from: null, faan: 0 };
+          st.hands.push({ n: st.hands.length + 1, ...pending3, deltas: p.chipDeltas ?? [0, 0, 0, 0] });
+          pending3 = { winner: null, selfDraw: false, from: null, faan: 0 };
           break;
       }
     }
@@ -3346,6 +3523,16 @@
     ${backRow(back)}`;
     wireBack(back);
   }
+  async function showSync() {
+    const el = document.getElementById("syncLine");
+    if (!el) return;
+    const left = await pending(store_exports);
+    el.textContent = left === 0 ? "all games sent" : `${left} waiting to send\u2026`;
+    if (left === 0) return;
+    const r = await drain(store_exports);
+    const now = await pending(store_exports);
+    el.textContent = now === 0 ? `sent ${r.matches + r.feedback}` : `${now} still to send${r.why ? ` (${r.why})` : ""} \u2014 they will go next time`;
+  }
   var fmtPct = (x) => x === null ? "\u2014" : `${Math.round(x * 100)}%`;
   var fmtChips = (n) => `${n > 0 ? "+" : ""}${n}`;
   function aggregate(rows) {
@@ -3383,6 +3570,56 @@
     }
     return a;
   }
+  function aboutScreen(back) {
+    $("veil").style.display = "flex";
+    $("panel").classList.add("about");
+    $("panel").innerHTML = `
+    <h1>A demo, not a game yet</h1>
+    <p>A playable Hong Kong Old Style table against three bots. It exists so we
+    can find out what breaks before any of it is finished \u2014 so play a hand or
+    two and tell us what felt wrong.</p>
+
+    <h2>What we are testing</h2>
+    <ul class="about">
+      <li><b>The bots</b> \u2014 do they play like people, and can you beat them?</li>
+      <li><b>The rules</b> \u2014 legality, scoring, the 3-faan floor, the calls.</li>
+      <li><b>The feel</b> \u2014 pacing, animation, whether a turn reads clearly.</li>
+    </ul>
+
+    <h2>The bots are the part we have spent the most time on</h2>
+    <p>They came out of a long training programme: five eras of evolution, each
+    era's champion frozen and made the next era's opponent, so the difficulty on
+    the table picker is a <b>measured</b> quantity rather than a guess. Sifu is
+    the strongest one that programme produced.</p>
+    <p class="mut">They still have gaps we know about \u2014 they will not chase
+    \u4E03\u5C0D\u5B50, for one. If one plays a hand that looks foolish, that is worth
+    telling us about.</p>
+
+    <h2>The look will change</h2>
+    <p>Treat the interface as a sketch. Notes on it are welcome, but expect most
+    of it to be redrawn.</p>
+
+    <h2>Later</h2>
+    <p>Playing against each other rather than against bots.</p>
+
+    <h2>Your games are recorded</h2>
+    <p>Every match, every decision we grade, and every note you send goes to our
+    server. That is the point of the demo: we want to know how the bots hold up
+    against real people, and the whole training programme was bots against bots
+    \u2014 the comparison has never been made.</p>
+    <p class="mut">No account and no email. Just the name you typed, which you
+    can change whenever you like.</p>
+
+    <p>The <b>\u270E feedback</b> button is on every screen, and it attaches whatever
+    you were looking at \u2014 the hand, the seed, the last few plays \u2014 so a report
+    can be replayed rather than guessed at.</p>
+    <button id="btnAbout">got it \u25B8</button>`;
+    $("btnAbout").onclick = () => {
+      $("panel").classList.remove("about");
+      $("veil").style.display = "none";
+      back();
+    };
+  }
   function lobbyScreen() {
     overlay = null;
     $("veil").style.display = "flex";
@@ -3393,9 +3630,11 @@
     <div class="choices lobby" style="margin-top:16px">
       <div class="choice" id="goPlay"><b>Play \u25B8</b><span>Pick a length and a table, then sit down.</span></div>
       <div class="choice" id="goStats"><b>Your games</b><span>Every match you have played, and how close to the engine you played it.</span></div>
-      <div class="choice" id="goBoard"><b>Leaderboard</b><span>How everyone on this device compares.</span></div>
+      <div class="choice" id="goBoard"><b>Leaderboard</b><span>How your games compare.</span></div>
     </div>
-    <div id="lobbySum" class="mut" style="margin-top:14px">\u2026</div>`;
+    <div id="lobbySum" class="mut" style="margin-top:14px">\u2026</div>
+    <p class="mut"><a href="#" id="btnAbout2" style="color:var(--gold)">what is this?</a>
+      \xB7 <span id="syncLine">\u2026</span></p>`;
     $("goPlay").onclick = () => startScreen();
     $("goStats").onclick = () => statsScreen();
     $("goBoard").onclick = () => boardScreen();
@@ -3403,6 +3642,11 @@
       e.preventDefault();
       nameScreen(lobbyScreen);
     };
+    $("btnAbout2").onclick = (e) => {
+      e.preventDefault();
+      aboutScreen(lobbyScreen);
+    };
+    void showSync();
     void allMatches().then((rows) => {
       const mine = rows.filter((m) => m.playerId === player?.id);
       const a = aggregate(mine);
@@ -3457,7 +3701,7 @@
         </div>`).join("")}</div>
       <p class="mut" style="margin-top:10px">Tap a match to see how it went.
         ${use.matches} matches stored, about ${Math.round(use.approxBytes / 1024)} KB.
-        Kept on this device only.</p>`}
+        Sent to us as you play, so we can see how the bots do against real people.</p>`}
       ${backRow(lobbyScreen)}`;
       for (const el of Array.from($("panel").querySelectorAll(".row.click"))) {
         el.onclick = () => {
@@ -3526,7 +3770,8 @@
           <span class="c2">${fmtPct(r.rate)}</span>
         </div>`).join("")}</div>`}
       <p class="mut" style="margin-top:10px">Forfeits and casual games are excluded.
-        Everyone here plays on this device \u2014 there is no server yet.</p>
+        This board is what THIS device has played; everyone\u2019s games are sent to us,
+        but a shared board across testers is not built yet.</p>
       ${backRow(lobbyScreen)}`;
       for (const h of Array.from($("panel").querySelectorAll(".sortable"))) {
         h.onclick = () => {
@@ -3541,16 +3786,18 @@
     $("veil").style.display = "flex";
     $("panel").innerHTML = `
     <h1>\u9999\u6E2F\u9EBB\u96C0 \xB7 MJRC</h1>
-    <p>What should we call you? This is a beta \u2014 your games are recorded so we
-    can see how the bots hold up against real players, and so you can look back
-    at what you played.</p>
+    <p>What should we call you? This is a private beta \u2014 every game you play is
+    recorded and sent to us, so we can see how the bots hold up against real
+    people. That comparison has never been made: the bots were trained entirely
+    against each other.</p>
     <div class="setrow" style="margin-top:14px">
       <input id="nameIn" type="text" maxlength="24" placeholder="your name"
         value="${(player?.name ?? "").replace(/"/g, "&quot;")}"
         style="flex:1;padding:9px 12px;font-size:16px;border-radius:9px;
                background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.18);color:var(--ink)">
     </div>
-    <p class="mut" id="nameNote">Kept on this device only. Clearing site data clears your history.</p>
+    <p class="mut" id="nameNote">Your games are sent to us so we can see how the bots hold up
+      against real people. No account, no email \u2014 just this name.</p>
     <button id="btnName">continue \u25B8</button>`;
     const input = document.getElementById("nameIn");
     const go = async () => {
@@ -3805,6 +4052,7 @@
             rc.finishedAt = Date.now();
             flushRecord();
             endedMatch = { ...rc, chips: [...rc.chips], events: [...rc.events] };
+            void drain(store_exports);
           }
           break;
         }
@@ -3874,7 +4122,7 @@
     tooSlow: "it buys too little speed for what it exposes"
   };
   var sameClaim = (a, b) => a.kind === b.kind && (a.with ?? []).join() === (b.with ?? []).join();
-  var myClaims = () => (pending ?? []).flatMap((a) => a.type === "claim" && a.option.kind !== "win" ? [a.option] : []);
+  var myClaims = () => (pending2 ?? []).flatMap((a) => a.type === "claim" && a.option.kind !== "win" ? [a.option] : []);
   function claimAdvice() {
     const options = myClaims();
     if (options.length === 0) return "";
@@ -3973,7 +4221,7 @@
   function devPanel() {
     if (!SETTINGS.dev) return "";
     let upcoming = claimAdvice();
-    if (pending?.some((a) => a.type === "discard")) {
+    if (pending2?.some((a) => a.type === "discard")) {
       const v = viewFor(state, HUMAN);
       const ranked = [...rankDiscards(v, coachCfg(v))].sort((a, b) => b.score - a.score).slice(0, 4);
       upcoming += `<div class="sug">champion would cut ${ranked.map((d, i) => `<span class="${i === 0 ? "best" : ""}">${name3(d.tile)}</span>`).join(" \u203A ")}</div>`;
@@ -4072,7 +4320,7 @@
     turnStart = performance.now();
     cancelAnimationFrame(turnRaf);
     const tick = () => {
-      if (!pending) {
+      if (!pending2) {
         $("clock").style.width = "0%";
         return;
       }
@@ -4103,7 +4351,7 @@
     const mine = legalActions(state, HUMAN);
     if (mine.length > 0) {
       holdMs = 0;
-      pending = mine;
+      pending2 = mine;
       startTurnClock();
       render();
       return;
@@ -4135,7 +4383,7 @@
     }
   }
   function act(a) {
-    pending = null;
+    pending2 = null;
     cancelAnimationFrame(turnRaf);
     $("clock").style.width = "0%";
     if (rc) rc.actions.push(a);
@@ -4309,7 +4557,7 @@
     }
     const mine = (i) => landingMeld && landingMeld.seat === HUMAN && landingMeld.index === i ? "claimed" : "";
     $("mymelds").innerHTML = me.melds.map((m, i) => m.tiles.map((t) => tileHtml(t, mine(i))).join("")).join('<span style="width:10px"></span>') + me.flowers.map((t) => tileHtml(t, "fl")).join("");
-    const canDiscard = !!pending?.some((a) => a.type === "discard");
+    const canDiscard = !!pending2?.some((a) => a.type === "discard");
     const hand = [...me.hand].sort((a, b) => a - b);
     $("myhand").className = canDiscard ? "" : "locked";
     const sig = `${hand.join(",")}|${me.drawn ?? "-"}|${canDiscard}`;
@@ -4326,7 +4574,7 @@
       for (const el of Array.from($("myhand").querySelectorAll(".tile"))) {
         el.onclick = () => {
           const t = Number(el.dataset.t);
-          const a = pending?.find((x) => x.type === "discard" && x.tile === t);
+          const a = pending2?.find((x) => x.type === "discard" && x.tile === t);
           if (a) {
             gradeMyDiscard(t);
             act(a);
@@ -4335,9 +4583,9 @@
       }
     }
     let bar = "";
-    if (pending) {
+    if (pending2) {
       const btns = [];
-      pending.forEach((a, i) => {
+      pending2.forEach((a, i) => {
         if (a.type === "discard") return;
         const mk = (label, cls = "") => btns.push(`<button class="${cls}" data-i="${i}">${label}</button>`);
         if (a.type === "declareWin") mk("WIN \u98DF\u7CCA", "win");
@@ -4356,7 +4604,7 @@
     $("actions").innerHTML = bar;
     for (const el of Array.from($("actions").querySelectorAll("button"))) {
       el.onclick = () => {
-        const a = pending?.[Number(el.dataset.i)];
+        const a = pending2?.[Number(el.dataset.i)];
         if (a) {
           gradeMyClaim(a);
           act(a);
@@ -4472,9 +4720,10 @@
           viewport: [innerWidth, innerHeight]
         }
       });
+      void drain(store_exports);
       $("panel").innerHTML = `<h1>Thank you</h1>
-      <p>Filed against ${where}. It is stored on this device with the game it
-      came from, so we get the whole picture.</p>
+      <p>Filed against ${where} and sent to us with the game it came from \u2014 the
+      seed, the hand, the last few plays \u2014 so we can replay exactly what you saw.</p>
       <button id="btnFbBack2">back to the game \u25B8</button>`;
       $("btnFbBack2").onclick = () => {
         $("veil").style.display = "none";
@@ -4499,6 +4748,7 @@
       rc.abandoned = true;
       rc.finishedAt = Date.now();
       flushRecord();
+      void drain(store_exports);
     }
     rc = null;
     endedMatch = null;
@@ -4510,6 +4760,6 @@
   void getPlayer().then((p) => {
     player = p;
     if (p) lobbyScreen();
-    else nameScreen(lobbyScreen);
+    else nameScreen(() => aboutScreen(lobbyScreen));
   });
 })();

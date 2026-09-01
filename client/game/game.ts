@@ -25,6 +25,7 @@ import { liveTiles } from "../../engine/src/ready.js";
 import type { Action, ClaimOption, SeatIndex, TileId } from "../../engine/src/types.js";
 import { viewFor } from "../../tools/sim/driver.js";
 import * as store from "./store.js";
+import * as sync from "./sync.js";
 import type { MatchRec, MoveRec, PlayerRec } from "./store.js";
 
 declare global {
@@ -481,6 +482,23 @@ function matchScreen(m: MatchRec, back: () => void): void {
   wireBack(back);
 }
 
+/* ── getting the data off the device ───────────────────────────────────
+ * The store is a queue; sync.ts drains it. Drained on boot and again whenever a
+ * match finishes, so a tester who plays and closes the tab has still sent it.
+ * Never awaited by anything the player is waiting on.                       */
+async function showSync(): Promise<void> {
+  const el = document.getElementById("syncLine");
+  if (!el) return;
+  const left = await sync.pending(store);
+  el.textContent = left === 0 ? "all games sent" : `${left} waiting to send…`;
+  if (left === 0) return;
+  const r = await sync.drain(store);
+  const now = await sync.pending(store);
+  el.textContent = now === 0
+    ? `sent ${r.matches + r.feedback}`
+    : `${now} still to send${r.why ? ` (${r.why})` : ""} — they will go next time`;
+}
+
 /* ── the lobby ─────────────────────────────────────────────────────────
  * Home. Everything that is not a game in progress hangs off here: start a
  * match, look at what you have played, see how everyone compares.
@@ -518,6 +536,65 @@ function aggregate(rows: MatchRec[]): Agg {
   return a;
 }
 
+/**
+ * What this is, for somebody opening it for the first time. Shown once after
+ * the name screen, and always reachable from the lobby.
+ *
+ * It is deliberately blunt about the state of things. A tester who thinks they
+ * are looking at a finished product files the wrong bugs, and a tester who does
+ * not know their play is recorded has not been asked.
+ */
+function aboutScreen(back: () => void): void {
+  $("veil").style.display = "flex";
+  $("panel").classList.add("about");          // prose reads left-aligned
+  $("panel").innerHTML = `
+    <h1>A demo, not a game yet</h1>
+    <p>A playable Hong Kong Old Style table against three bots. It exists so we
+    can find out what breaks before any of it is finished — so play a hand or
+    two and tell us what felt wrong.</p>
+
+    <h2>What we are testing</h2>
+    <ul class="about">
+      <li><b>The bots</b> — do they play like people, and can you beat them?</li>
+      <li><b>The rules</b> — legality, scoring, the 3-faan floor, the calls.</li>
+      <li><b>The feel</b> — pacing, animation, whether a turn reads clearly.</li>
+    </ul>
+
+    <h2>The bots are the part we have spent the most time on</h2>
+    <p>They came out of a long training programme: five eras of evolution, each
+    era's champion frozen and made the next era's opponent, so the difficulty on
+    the table picker is a <b>measured</b> quantity rather than a guess. Sifu is
+    the strongest one that programme produced.</p>
+    <p class="mut">They still have gaps we know about — they will not chase
+    七對子, for one. If one plays a hand that looks foolish, that is worth
+    telling us about.</p>
+
+    <h2>The look will change</h2>
+    <p>Treat the interface as a sketch. Notes on it are welcome, but expect most
+    of it to be redrawn.</p>
+
+    <h2>Later</h2>
+    <p>Playing against each other rather than against bots.</p>
+
+    <h2>Your games are recorded</h2>
+    <p>Every match, every decision we grade, and every note you send goes to our
+    server. That is the point of the demo: we want to know how the bots hold up
+    against real people, and the whole training programme was bots against bots
+    — the comparison has never been made.</p>
+    <p class="mut">No account and no email. Just the name you typed, which you
+    can change whenever you like.</p>
+
+    <p>The <b>✎ feedback</b> button is on every screen, and it attaches whatever
+    you were looking at — the hand, the seed, the last few plays — so a report
+    can be replayed rather than guessed at.</p>
+    <button id="btnAbout">got it ▸</button>`;
+  ($("btnAbout") as HTMLButtonElement).onclick = () => {
+    $("panel").classList.remove("about");
+    $("veil").style.display = "none";
+    back();
+  };
+}
+
 function lobbyScreen(): void {
   overlay = null;
   $("veil").style.display = "flex";
@@ -528,13 +605,17 @@ function lobbyScreen(): void {
     <div class="choices lobby" style="margin-top:16px">
       <div class="choice" id="goPlay"><b>Play ▸</b><span>Pick a length and a table, then sit down.</span></div>
       <div class="choice" id="goStats"><b>Your games</b><span>Every match you have played, and how close to the engine you played it.</span></div>
-      <div class="choice" id="goBoard"><b>Leaderboard</b><span>How everyone on this device compares.</span></div>
+      <div class="choice" id="goBoard"><b>Leaderboard</b><span>How your games compare.</span></div>
     </div>
-    <div id="lobbySum" class="mut" style="margin-top:14px">…</div>`;
+    <div id="lobbySum" class="mut" style="margin-top:14px">…</div>
+    <p class="mut"><a href="#" id="btnAbout2" style="color:var(--gold)">what is this?</a>
+      · <span id="syncLine">…</span></p>`;
   ($("goPlay") as HTMLElement).onclick = () => startScreen();
   ($("goStats") as HTMLElement).onclick = () => statsScreen();
   ($("goBoard") as HTMLElement).onclick = () => boardScreen();
   ($("btnRename") as HTMLElement).onclick = (e) => { e.preventDefault(); nameScreen(lobbyScreen); };
+  ($("btnAbout2") as HTMLElement).onclick = (e) => { e.preventDefault(); aboutScreen(lobbyScreen); };
+  void showSync();
   void store.allMatches().then((rows) => {
     const mine = rows.filter((m) => m.playerId === player?.id);
     const a = aggregate(mine);
@@ -594,7 +675,7 @@ function statsScreen(): void {
         </div>`).join("")}</div>
       <p class="mut" style="margin-top:10px">Tap a match to see how it went.
         ${use.matches} matches stored, about ${Math.round(use.approxBytes / 1024)} KB.
-        Kept on this device only.</p>`}
+        Sent to us as you play, so we can see how the bots do against real people.</p>`}
       ${backRow(lobbyScreen)}`;
     for (const el of Array.from($("panel").querySelectorAll<HTMLElement>(".row.click"))) {
       el.onclick = () => { const m = mine[Number(el.dataset.k)]; if (m) matchScreen(m, statsScreen); };
@@ -674,7 +755,8 @@ function boardScreen(): void {
           <span class="c2">${fmtPct(r.rate)}</span>
         </div>`).join("")}</div>`}
       <p class="mut" style="margin-top:10px">Forfeits and casual games are excluded.
-        Everyone here plays on this device — there is no server yet.</p>
+        This board is what THIS device has played; everyone\u2019s games are sent to us,
+        but a shared board across testers is not built yet.</p>
       ${backRow(lobbyScreen)}`;
     for (const h of Array.from($("panel").querySelectorAll<HTMLElement>(".sortable"))) {
       h.onclick = () => { boardSort = h.dataset.k as BoardKey; boardScreen(); };
@@ -696,16 +778,18 @@ function nameScreen(then: () => void): void {
   $("veil").style.display = "flex";
   $("panel").innerHTML = `
     <h1>香港麻雀 · MJRC</h1>
-    <p>What should we call you? This is a beta — your games are recorded so we
-    can see how the bots hold up against real players, and so you can look back
-    at what you played.</p>
+    <p>What should we call you? This is a private beta — every game you play is
+    recorded and sent to us, so we can see how the bots hold up against real
+    people. That comparison has never been made: the bots were trained entirely
+    against each other.</p>
     <div class="setrow" style="margin-top:14px">
       <input id="nameIn" type="text" maxlength="24" placeholder="your name"
         value="${(player?.name ?? "").replace(/"/g, "&quot;")}"
         style="flex:1;padding:9px 12px;font-size:16px;border-radius:9px;
                background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.18);color:var(--ink)">
     </div>
-    <p class="mut" id="nameNote">Kept on this device only. Clearing site data clears your history.</p>
+    <p class="mut" id="nameNote">Your games are sent to us so we can see how the bots hold up
+      against real people. No account, no email \u2014 just this name.</p>
     <button id="btnName">continue ▸</button>`;
   const input = document.getElementById("nameIn") as HTMLInputElement;
   const go = async (): Promise<void> => {
@@ -942,6 +1026,8 @@ function consume(events: readonly unknown[]): void {
           flushRecord();
           // hand the finished record to advance(), which shows the scoreboard
           endedMatch = { ...rc, chips: [...rc.chips], events: [...rc.events] };
+          // send it now; a tester who closes the tab has still reported
+          void sync.drain(store);
         }
         break;
       }
@@ -1764,9 +1850,10 @@ function feedbackScreen(back: () => void): void {
         ua: navigator.userAgent, viewport: [innerWidth, innerHeight],
       },
     });
+    void sync.drain(store);
     $("panel").innerHTML = `<h1>Thank you</h1>
-      <p>Filed against ${where}. It is stored on this device with the game it
-      came from, so we get the whole picture.</p>
+      <p>Filed against ${where} and sent to us with the game it came from \u2014 the
+      seed, the hand, the last few plays \u2014 so we can replay exactly what you saw.</p>
       <button id="btnFbBack2">back to the game ▸</button>`;
     ($("btnFbBack2") as HTMLButtonElement).onclick = () => { $("veil").style.display = "none"; back(); };
   };
@@ -1778,7 +1865,10 @@ function feedbackScreen(back: () => void): void {
 ($("btnQuit") as HTMLButtonElement).onclick = () => {
   // A forfeit is a result. Recording it keeps the stats honest — a player who
   // abandons every losing match would otherwise look like a strong player.
-  if (rc && rc.finishedAt === null) { rc.abandoned = true; rc.finishedAt = Date.now(); flushRecord(); }
+  if (rc && rc.finishedAt === null) {
+    rc.abandoned = true; rc.finishedAt = Date.now(); flushRecord();
+    void sync.drain(store);       // a forfeit is data too
+  }
   rc = null;
   endedMatch = null;
   overlay = null;
@@ -1790,5 +1880,5 @@ wireHover();
 // never blocks on the store beyond this one read.
 void store.getPlayer().then((p) => {
   player = p;
-  if (p) lobbyScreen(); else nameScreen(lobbyScreen);
+  if (p) lobbyScreen(); else nameScreen(() => aboutScreen(lobbyScreen));
 });

@@ -1,6 +1,7 @@
 # Putting the game on the website, behind a password
 
-Status: **proposal — the branch is pushed, nothing is deployed.**
+Status: **BUILT and verified locally. Not deployed — the secret is not set and
+nothing is merged.** Kept as the record of why it is shaped this way.
 Written 2026-08-31.
 
 ---
@@ -111,7 +112,54 @@ Right now the game is a closed loop with no link out.
    fails, an unset secret 503s.
 6. PR into `mjrc-app`, per the deploy flow.
 
-## 6. Two things to decide before I start
+## 6. What was actually built
+
+Owner ruled: a sub URL, password protected, with intro copy, and **the data must
+reach the server rather than sit on the device.**
+
+| | |
+| --- | --- |
+| `mjrc-app/web/public/game/` | the four static files, 271 KB, via `tools/publish-demo.sh` |
+| `functions/game/_middleware.ts` | the gate — a copy of the directory one, `GAME_PASSWORD` |
+| `functions/game/api/match.ts` | one finished match, idempotent on the client's id |
+| `functions/game/api/feedback.ts` | one note, with the game state attached |
+| `migrations/0012_game.sql` | `game_match`, `game_move`, `game_feedback` |
+| `client/game/sync.ts` | drains the local store to the server |
+| the About panel | what this is, what we are testing, and that games are recorded |
+
+**One reversal from §1.** I said the game should stop shipping its own
+`tile-engine.js` and use the app's. It should not: they are byte-identical
+today, but pointing at `/tiles/` couples the game to this one site's URL layout
+and breaks both the standalone server and the labs. 57 KB is cheaper than that
+coupling — and `publish-demo.sh` now fails loudly if the two ever diverge, which
+was the risk that actually mattered.
+
+**Why the API sits at `/game/api/` and not `/api/game/`**: one middleware then
+covers the page, its assets and its uploads, and the browser attaches the
+credentials it already holds for that path.
+
+**Why the event log is not uploaded**: D1's maximum SQL statement is **100 KB**;
+an event log is 187 KB for one wind and 754 KB for four. The action log goes up
+gzipped instead — 28 KB of actions stored in 664 bytes, verified to decompress —
+and replaying it through the pure reducer regenerates the events exactly.
+
+### Verified against `wrangler pages dev` with real D1
+
+- `/game` unauthenticated → **401** with the right realm; wrong password → 401
+- assets and the API are behind it too (`game.js` and `POST match` both 401)
+- correct password → 200, the game runs
+- a game played in the browser **uploaded itself** — match row, 3 graded moves
+  with real tile names and gaps, gzipped replay
+- feedback landed linked to its match, context blob intact
+- a re-send produced **one** row and **three** moves, not two and six
+
+### Still to do before friends see it
+
+1. `wrangler pages secret put GAME_PASSWORD --project-name mjrc`
+2. Merge `game-demo` in `mjrc-app` through the usual PR flow
+3. Decide whether the lobby needs a link back to the rest of the site
+
+## 7. Two things still open
 
 1. **A, B, C or D** — I recommend B.
 2. **The path**: `/game`, or something else?

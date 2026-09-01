@@ -19,6 +19,12 @@
  * be silently rewritten by a later model. §5.5 of the protocol makes the same
  * argument for `engineVersion`.
  *
+ * The store is also the UPLOAD QUEUE. The owner wants the data on the server,
+ * not on the device (2026-08-31), so every record carries `uploadedAt` and
+ * `sync.ts` drains whatever lacks it. Local-first rather than post-directly is
+ * deliberate: a friend on a flaky connection must not lose the match they just
+ * played, and the server being down must not stop the game.
+ *
  * TWO HARD RULES for callers:
  *   1. Never await a store call inside the turn loop. Every write here is
  *      fire-and-forget; a slow disk must not stall a discard.
@@ -57,6 +63,8 @@ export interface MoveRec {
 
 export interface MatchRec {
   id: string;
+  /** When the server took it. Undefined until then — sync.ts drains on that. */
+  uploadedAt?: number;
   playerId: string;
   playerName: string;
   rounds: number;
@@ -89,6 +97,7 @@ export interface MatchRec {
 
 export interface FeedbackRec {
   id: string;
+  uploadedAt?: number;
   matchId: string | null;
   hand: number | null;
   text: string;

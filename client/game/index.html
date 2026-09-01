@@ -271,6 +271,18 @@ body.counting #wall .wt{opacity:.85}
 #callbar .faan{width:100%;font-size:11px}
 #callbar .ok{color:#7fe0a4}#callbar .warn{color:#ffa39b}
 
+/* ── the about panel ── */
+/* Prose, so it reads left-aligned. The panel centres by default, which is right
+   for a result screen and wrong for three paragraphs and a bullet list. */
+#panel.about{text-align:left}
+#panel.about h1,#panel.about button{text-align:center}
+#panel.about button{display:block;margin:18px auto 0}
+#panel.about h2{margin-top:16px}
+#panel.about p{margin:5px 0 0}
+.panel ul.about{margin:6px 0 0;padding-left:20px;color:var(--dim);font-size:13px;line-height:1.6}
+.panel ul.about b{color:var(--ink)}
+.panel h2+p{margin-top:4px}
+
 /* ── the setup screen ── */
 /* Length is a segmented control rather than four cards: it is one number, and
    four blurb-carrying tiles wrapped to two rows for a choice that reads as a
