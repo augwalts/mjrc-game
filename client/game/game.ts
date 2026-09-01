@@ -897,6 +897,8 @@ let rc: MatchRec | null = null;         // the match being recorded
  */
 let lastMatch: { id: string; hand: number; label: string } | null = null;
 let rcMoves: MoveRec[] = [];
+/** Totals that survive a flush emptying rcMoves. See summariseMoves. */
+let rcGraded = 0, rcMatched = 0, rcGapSum = 0;
 let humanTurns = 0;
 
 const RECORD_VERSION = 1;
@@ -904,6 +906,7 @@ const RECORD_VERSION = 1;
 function beginRecord(): void {
   humanTurns = 0;
   rcMoves = [];
+  rcGraded = 0; rcMatched = 0; rcGapSum = 0;
   const id = crypto.randomUUID();
   rc = {
     id,
@@ -928,13 +931,29 @@ function beginRecord(): void {
 }
 
 /** Roll the move grades up into the two headline numbers. */
+/**
+ * RUNNING totals, not a count of the buffer.
+ *
+ * `flushRecord` hands `rcMoves` to the store and empties it, so summarising
+ * from that array only ever described the moves since the last flush — and the
+ * final flush at match end runs immediately after the last hand-end flush, when
+ * the buffer is empty. Completed matches were therefore stored with
+ * movesGraded 0 and matchRate null while their moves uploaded fine. Caught on
+ * the first real tester's game: 124 rows in game_move, 0 on the match.
+ */
+function recordMove(m: MoveRec): void {
+  rcMoves.push(m);
+  rcGraded++;
+  if (m.gap <= 0.0001) rcMatched++;
+  rcGapSum += m.gap;
+}
+
 function summariseMoves(): void {
   if (!rc) return;
-  rc.movesGraded = rcMoves.length;
-  if (rcMoves.length === 0) { rc.matchRate = null; rc.meanGap = null; return; }
-  const matched = rcMoves.filter((m) => m.gap <= 0.0001).length;
-  rc.matchRate = matched / rcMoves.length;
-  rc.meanGap = rcMoves.reduce((a, m) => a + m.gap, 0) / rcMoves.length;
+  rc.movesGraded = rcGraded;
+  if (rcGraded === 0) { rc.matchRate = null; rc.meanGap = null; return; }
+  rc.matchRate = rcMatched / rcGraded;
+  rc.meanGap = rcGapSum / rcGraded;
 }
 
 /** Upsert what we have. Called at hand end, match end, and on quitting. */
@@ -1101,7 +1120,7 @@ function gradeMyDiscard(tile: TileId): void {
   // The record keeps the NUMBERS; the log keeps the prose. top1MinusTop2 is
   // stored so an "obvious" turn can be filtered out later: agreeing with the
   // engine on a forced move says nothing about the player.
-  rcMoves.push({
+  recordMove({
     matchId: rc?.id ?? "", hand: state.handIndex, turn: humanTurns++,
     kind: "discard", played: name(tile), enginePick: name(best.tile),
     gap, top1MinusTop2: ranked.length > 1 ? best.score - ranked[1]!.score : 0,
@@ -1161,7 +1180,7 @@ function gradeMyClaim(action: Action): void {
   if (action.type === "concealedKong" || action.type === "addedKong") {
     const form = action.type === "concealedKong" ? "concealed" : "added";
     const yes = shouldKong(v, action.tile, form, coachCfg(v));
-    rcMoves.push({
+    recordMove({
       matchId: rc?.id ?? "", hand: state.handIndex, turn: humanTurns++, kind: "kong",
       played: `kong ${name(action.tile)}`, enginePick: yes ? `kong ${name(action.tile)}` : "hold",
       gap: yes ? 0 : 1, top1MinusTop2: 0, reason: yes ? "" : "the champion holds it",
@@ -1202,7 +1221,7 @@ function gradeMyClaim(action: Action): void {
   // it does not rank every alternative on one scale — so it records as 0 when
   // you did what the champion does and 1 when you did not. Good enough to
   // measure agreement; do not read it as a magnitude.
-  rcMoves.push({
+  recordMove({
     matchId: rc?.id ?? "", hand: state.handIndex, turn: humanTurns++,
     kind: took === null ? "pass" : "claim",
     played: took === null ? "pass" : CLAIM_LABEL(took),

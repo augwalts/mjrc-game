@@ -3906,10 +3906,16 @@
   var rc = null;
   var lastMatch = null;
   var rcMoves = [];
+  var rcGraded = 0;
+  var rcMatched = 0;
+  var rcGapSum = 0;
   var humanTurns = 0;
   function beginRecord() {
     humanTurns = 0;
     rcMoves = [];
+    rcGraded = 0;
+    rcMatched = 0;
+    rcGapSum = 0;
     const id = crypto.randomUUID();
     rc = {
       id,
@@ -3939,17 +3945,22 @@
     };
     lastMatch = { id, hand: 0, label: `${SETTINGS.rounds}-wind game vs ${table.label}` };
   }
+  function recordMove(m) {
+    rcMoves.push(m);
+    rcGraded++;
+    if (m.gap <= 1e-4) rcMatched++;
+    rcGapSum += m.gap;
+  }
   function summariseMoves() {
     if (!rc) return;
-    rc.movesGraded = rcMoves.length;
-    if (rcMoves.length === 0) {
+    rc.movesGraded = rcGraded;
+    if (rcGraded === 0) {
       rc.matchRate = null;
       rc.meanGap = null;
       return;
     }
-    const matched = rcMoves.filter((m) => m.gap <= 1e-4).length;
-    rc.matchRate = matched / rcMoves.length;
-    rc.meanGap = rcMoves.reduce((a, m) => a + m.gap, 0) / rcMoves.length;
+    rc.matchRate = rcMatched / rcGraded;
+    rc.meanGap = rcGapSum / rcGraded;
   }
   function flushRecord() {
     if (!rc) return;
@@ -4094,7 +4105,7 @@
     const cls = tile === best.tile || gap < 0.6 ? "good" : gap < 2.2 ? "ok" : "bad";
     const verdict = tile === best.tile ? "best discard" : gap < 0.6 ? "fine \u2014 within a hair of the best" : gap < 2.2 ? `#${rank} of ${ranked.length} \u2014 champion cuts ${name3(best.tile)}` : `costly \u2014 champion cuts ${name3(best.tile)}`;
     const why = mine.distance > best.distance ? `slower: ${mine.distance} away vs ${best.distance}` : mine.danger - best.danger > 0.8 ? `riskier: danger ${mine.danger.toFixed(1)} vs ${best.danger.toFixed(1)}` : !mine.onRoute && best.onRoute ? "off your best route" : "";
-    rcMoves.push({
+    recordMove({
       matchId: rc?.id ?? "",
       hand: state.handIndex,
       turn: humanTurns++,
@@ -4149,7 +4160,7 @@
     if (action.type === "concealedKong" || action.type === "addedKong") {
       const form = action.type === "concealedKong" ? "concealed" : "added";
       const yes = shouldKong(v, action.tile, form, coachCfg(v));
-      rcMoves.push({
+      recordMove({
         matchId: rc?.id ?? "",
         hand: state.handIndex,
         turn: humanTurns++,
@@ -4203,7 +4214,7 @@
     } else {
       head = `<b>${CLAIM_LABEL(took)}</b> \u2014 playable, but the champion prefers ${CLAIM_LABEL(want)}`;
     }
-    rcMoves.push({
+    recordMove({
       matchId: rc?.id ?? "",
       hand: state.handIndex,
       turn: humanTurns++,
