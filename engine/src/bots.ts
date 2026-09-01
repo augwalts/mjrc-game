@@ -1581,6 +1581,31 @@ export function decideAction(
   );
   if (discards.length > 0) {
     const tile = chooseDiscard(v, cfg);
+    /**
+     * NEVER THROW A TILE YOU COULD HAVE KONGED (owner spotted this in play,
+     * 2026-08-31: a bot punged 1筒 and later discarded the fourth 1筒).
+     *
+     * The fourth copy of your own melded pung is dead weight — all four are
+     * accounted for, so it can never make a set and never make a pair. The
+     * real choice is kong or throw, and throwing is strictly dominated:
+     *
+     *   - anyone waiting on that tile wins off the discard just as they would
+     *     rob the kong 搶槓, so the exposure is the SAME;
+     *   - a discard can additionally be chowed, a kong cannot;
+     *   - and the throw forfeits the replacement draw and the kong itself.
+     *
+     * `shouldKong` refuses added kongs while an opponent shows two melds and
+     * the wall is short, which is a sound instinct about the rob window — but
+     * it was being applied to a choice between konging and HOLDING, then the
+     * discard ranker cut the dead tile anyway. Measured before this fix: of
+     * 945 chances, 253 (27%) ended with the bot throwing the very tile it
+     * could have konged. The guard still stands when the bot means to hold.
+     */
+    const kongInstead = legal.find(
+      (a): a is Extract<Action, { type: "addedKong" }> =>
+        a.type === "addedKong" && a.tile === tile,
+    );
+    if (kongInstead) return kongInstead;
     const match = discards.find((a) => a.tile === tile);
     if (match) return match;
     return discards[0]!;
