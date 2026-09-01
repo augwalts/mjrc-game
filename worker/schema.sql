@@ -315,6 +315,11 @@ CREATE TABLE match_players (
   -- and to reading the seat's stats honestly. Not inferable from the D1 rows.
   bot_takeover_hands INTEGER NOT NULL DEFAULT 0,
 
+  -- "kind/version" as the seat's client presented itself on join (protocol
+  -- ClientInfo): web/abc1234, ios/1.0.3, headless/smoke. NULL = unknown or a
+  -- bot. So web and app behaviour stay comparable later.
+  client        TEXT,
+
   -- Provisional Elo (DESIGN.md §3). Null on an unrated match. Stored on the
   -- match, not only in rating_history, because the results screen renders the
   -- delta and that must be one read.

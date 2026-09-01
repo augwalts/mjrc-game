@@ -154,7 +154,7 @@ function openSeatSocket(human, matchUuid) {
     };
 
     ws.addEventListener("open", () => {
-      send("join", { matchId: matchUuid, seatToken: human.seatToken });
+      send("join", { matchId: matchUuid, seatToken: human.seatToken, client: { kind: "headless", version: "smoke" } });
     });
 
     ws.addEventListener("message", (ev) => {

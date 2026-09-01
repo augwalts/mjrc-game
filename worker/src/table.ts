@@ -268,6 +268,8 @@ export interface MatchSummaryRow {
   botTakeoverHands: FourSeats<number>;
   /** The per-hand blob parts, in order, for the consolidated match log. */
   handLogKeys: string[];
+  /** "kind/version" per seat as presented on join; null for bots and unknowns. */
+  clients: FourSeats<string | null>;
   endedAt: number;
 }
 
@@ -438,6 +440,8 @@ interface BookKeeping {
   /** Seats a bot has played in the CURRENT hand; folded into the totals at end. */
   botTookOverThisHand: FourSeats<boolean>;
   handLogKeys: string[];
+  /** "kind/version" per seat from the join payload; null until a client says. */
+  clients: FourSeats<string | null>;
 }
 
 /* ── 4. small helpers ──────────────────────────────────────────────────── */
@@ -468,6 +472,18 @@ const handLogKey = (matchId: string, handIndex: number): string =>
 const four = <T>(f: (seat: SeatIndex) => T): FourSeats<T> => [f(0), f(1), f(2), f(3)];
 
 const clamp = (n: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, n));
+
+const CLIENT_KINDS = new Set(["web", "ios", "android", "desktop", "headless"]);
+
+/** "kind/version" from a join's ClientInfo, or null when absent or malformed.
+ *  Bounded and character-restricted: it lands in a column and in logs. */
+function clientLabel(raw: unknown): string | null {
+  if (!raw || typeof raw !== "object") return null;
+  const { kind, version } = raw as { kind?: unknown; version?: unknown };
+  if (typeof kind !== "string" || !CLIENT_KINDS.has(kind)) return null;
+  const v = typeof version === "string" ? version.replace(/[^A-Za-z0-9._-]/g, "").slice(0, 40) : "";
+  return `${kind}/${v || "unknown"}`;
+}
 
 /** 192 bits from the platform's CSPRNG, as hex. Coordination, never game state. */
 function mintSeatToken(): string {
@@ -572,6 +588,7 @@ function emptyBook(): BookKeeping {
     botTakeoverHands: [0, 0, 0, 0],
     botTookOverThisHand: [false, false, false, false],
     handLogKeys: [],
+    clients: [null, null, null, null],
   };
 }
 
@@ -641,6 +658,8 @@ export class TableCore {
       (await st.get<FourSeats<PresenceRecord>>(K_PRESENCE)) ??
       four(() => ({ connected: false, botActing: false }));
     this.book = (await st.get<BookKeeping>(K_BOOK)) ?? emptyBook();
+    // Books persisted before the field existed.
+    if (!Array.isArray(this.book.clients)) this.book.clients = [null, null, null, null];
 
     const records = await st.list<OutboxRecord>({ prefix: P_OUTBOX });
     this.outbox = new Map();
@@ -956,6 +975,8 @@ export class TableCore {
     } satisfies SocketAttachment);
     this.presence[seat] = { connected: true, botActing: player.bot };
     this.clearDeadline(`disconnectGrace:${seat}`);
+    const client = clientLabel(p.client);
+    if (client !== null) this.book.clients[seat] = client;
     await this.persistCore();
 
     this.send(ws, {
@@ -1902,6 +1923,7 @@ export class TableCore {
           placements: this.placements(),
           botTakeoverHands: [...this.book.botTakeoverHands] as FourSeats<number>,
           handLogKeys: [...this.book.handLogKeys],
+          clients: [...this.book.clients] as FourSeats<string | null>,
           endedAt: now,
         });
         this.book.matchSummaryPending = false;
@@ -2053,13 +2075,14 @@ export function bindingArchive(env: TableEnv): Archive {
       for (const seat of SEATS) {
         await env.DB.prepare(
           `UPDATE match_players
-              SET final_chips = ?, place = ?, bot_takeover_hands = ?
+              SET final_chips = ?, place = ?, bot_takeover_hands = ?, client = ?
             WHERE match_id = ? AND seat = ?`,
         )
           .bind(
             summary.standings[seat],
             summary.placements[seat],
             summary.botTakeoverHands[seat],
+            summary.clients[seat],
             summary.matchId,
             seat,
           )

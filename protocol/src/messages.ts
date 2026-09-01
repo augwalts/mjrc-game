@@ -53,6 +53,18 @@ export interface JoinPayload {
    * what lets a reconnecting player reclaim their seat from a bot.
    */
   seatToken: string;
+  /**
+   * What kind of client this seat is playing from, recorded on the match so
+   * web and app behaviour stay comparable in the data later. Optional; a
+   * client that omits it is recorded as unknown.
+   */
+  client?: ClientInfo;
+}
+
+export interface ClientInfo {
+  kind: "web" | "ios" | "android" | "desktop" | "headless";
+  /** A build id, e.g. a short commit hash. Free text, ≤ 40 chars. */
+  version: string;
 }
 
 /** Reconnect, the snapshot + actions-since shape (§5.3). */
