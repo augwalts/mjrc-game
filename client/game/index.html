@@ -226,12 +226,23 @@ body{background:radial-gradient(ellipse at 50% 30%, #1e1b17 0%, #131110 55%, #0a
    their rotation, so a scale in a class would be silently overridden. */
 body.counting .tile:not(.samet){opacity:.9;filter:saturate(.85)}
 body.counting #wall .wt{opacity:.85}
+/* LIFTED, not glowing. A glow diffuses into the neighbours a tile is buried
+   among, which is exactly where the pile needs it to work — so the match gets a
+   hard yellow edge and a directional DROP SHADOW instead, which reads as the
+   tile sitting above the table rather than being lit up. Elevation survives
+   crowding in a way a halo does not, and it stays quiet on an undimmed table.
+
+   `filter: drop-shadow` rather than `box-shadow`: it follows the tile's actual
+   shape, and it composites over neighbours instead of under them. The tile
+   cannot simply be moved up — pile tiles carry an inline transform for their
+   rotation, so a translate here would be silently overridden. */
 .tile.samet{
-  outline:2px solid #ffd76a;
-  box-shadow:0 0 0 1px rgba(0,0,0,.45), 0 0 11px 2px rgba(255,215,106,.5);
+  outline:3px solid #ffd23f;
+  outline-offset:-1px;
+  filter:drop-shadow(0 6px 7px rgba(0,0,0,.8)) drop-shadow(0 1px 2px rgba(0,0,0,.6));
   z-index:20}
 .tile.samet::after{content:"";position:absolute;inset:0;border-radius:5px;
-  background:rgba(255,215,106,.09);pointer-events:none}
+  background:rgba(255,210,63,.1);pointer-events:none}
 .tile{position:relative}
 #callwrap{flex:0 0 auto;padding:0 10px}
 #callbar{max-width:1040px;margin:0 auto 4px;background:rgba(255,255,255,.05);

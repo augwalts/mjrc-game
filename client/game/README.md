@@ -99,15 +99,17 @@ what your seat sees, and nothing hidden is revealed.
   the pile, the melds, your hand. Counting the discards is a core skill; this
   does the counting for you, it does not show you anything new.
 
-  It works by **contrast, not by stacking**. A highlighted pile tile cannot be
-  lifted above its neighbours — `#surface` is `preserve-3d`, so its children
-  paint by depth and a `z-index` is ignored. So everything that does *not* match
-  drops 10 % in opacity and desaturates slightly, and the matches get a thin
-  gold ring and a soft glow.
+  A match reads as **lifted off the table**: a hard yellow edge plus a
+  directional `drop-shadow`. Everything else dims only 10 %.
 
-  Both halves are deliberately **gentle**. The first cut dimmed the table to
-  26 % and put a hard glow on the matches; it was unmissable and far too loud to
-  sit behind for a whole hand. This is a reading aid, not an alarm.
+  Three attempts got here, and the reasoning is worth keeping. A pile tile
+  cannot be raised by `z-index` — `#surface` is `preserve-3d`, so its children
+  paint by depth. Dimming the rest to 26 % worked but was an alarm you had to
+  sit behind for a whole hand. Softening that to a faint glow made it vanish
+  again, because **a glow diffuses into the very neighbours a buried tile is
+  crowded by**. Elevation is what survives crowding: `filter: drop-shadow`
+  follows the tile's shape and composites over its neighbours rather than under
+  them, so the match looks picked up off the heap while the table stays lit.
 - **Calling read** — a standing bar above your hand: whether you are 聽牌, what
   you are waiting on, **how many of each are still live**, and whether the hand
   can actually pay. A hand that cannot reach the 3-faan minimum says so, because
