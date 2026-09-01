@@ -228,18 +228,24 @@ const rules = (): Ruleset => rulesetById(SETTINGS.rulesetId) ?? MJRC_STANDARD;
  * Stating the cost on the button is deliberate: a player who picks 全莊 without
  * being told it is an evening is a player who abandons halfway.
  */
-const LENGTHS: [MatchRounds, string, string][] = [
-  [1, "東圈 · one wind", "~8 hands, 10–15 min. The default."],
-  [2, "東南 · two winds", "~16 hands, 20–30 min."],
-  [3, "東南西 · three winds", "~25 hands, 35–50 min."],
-  [4, "全莊 · four winds", "~35 hands, 50–70 min. A full sitting."],
-];
-const RULE_CHOICES = [
-  ["mjrc-standard", "MJRC standard", "3–10 faan · the house ruleset · flowers"],
-  ["hkos-standard", "HK Old Style (published)", "3–13 faan · the full limit ladder"],
-  ["tvb-2026", "TVB Championship 2026", "1 faan minimum · linear payments · no flowers"],
+const LENGTHS: [MatchRounds, string, string, string][] = [
+  [1, "東圈", "one wind", "~8 hands · 10–15 min"],
+  [2, "東南", "two winds", "~16 hands · 20–30 min"],
+  [3, "東南西", "three winds", "~25 hands · 35–50 min"],
+  [4, "全莊", "four winds", "~35 hands · 50–70 min · a full sitting"],
 ];
 
+/**
+ * Rulesets offered for a game. Only the two that have actually been played
+ * through the client are here: the owner wants testers on TVB specifically, and
+ * offering an untested table invites feedback about something we already know
+ * is unvalidated. `hkos-standard` stays registered in @mjrc/rulesets and is one
+ * line from being listed again.
+ */
+const RULE_PICKS: [string, string, string][] = [
+  ["mjrc-standard", "MJRC standard", "3–10 faan · flowers · doubling payments. The house game."],
+  ["tvb-2026", "TVB Championship 2026", "1 faan minimum · no flowers · linear payments. Every hand is payable, and big hands barely out-earn small ones."],
+];
 /* ── handicaps ─────────────────────────────────────────────────────────
  * Training wheels, each switchable on its own. They tell the player only what
  * a careful player could work out from the table themselves — which tiles are
@@ -719,35 +725,43 @@ function nameScreen(then: () => void): void {
 function startScreen(): void {
   $("veil").style.display = "flex";
   $("panel").innerHTML = `
-    <h1>香港麻雀 · MJRC</h1>
-    <p>Hong Kong Old Style · 3 faan minimum.
-    Your opponents are bots from the training programme — each one measurably stronger than the last.</p>
-    <h2 style="margin-top:12px">How long</h2>
-    <div class="choices lens">${LENGTHS.map(([n, label, blurb]) => `
-      <div class="choice ${SETTINGS.rounds === n ? "sel" : ""}" data-len="${n}">
-        <b>${label}</b><span>${blurb}</span>
-      </div>`).join("")}</div>
-    <h2 style="margin-top:12px">Who you play</h2>
-    <div class="choices">${TABLES.map((t) => `
+    <h1>Sit down</h1>
+
+    <h2>Length</h2>
+    <div class="seg">${LENGTHS.map(([n, ch, en]) => `
+      <button class="${SETTINGS.rounds === n ? "on" : ""}" data-len="${n}">
+        <b>${ch}</b><span>${en}</span></button>`).join("")}</div>
+    <p class="segcap">${LENGTHS.find(([n]) => n === SETTINGS.rounds)?.[3] ?? ""}</p>
+
+    <h2>Rules</h2>
+    <div class="choices two">${RULE_PICKS.map(([id, label, blurb]) => `
+      <div class="choice ${SETTINGS.rulesetId === id ? "sel" : ""}" data-r="${id}">
+        <b>${label}</b><span>${blurb}</span></div>`).join("")}</div>
+
+    <h2>Table</h2>
+    <div class="choices two">${TABLES.map((t) => `
       <div class="choice ${t.id === table.id ? "sel" : ""}" data-t="${t.id}">
         <b>${t.label}</b><span>${t.blurb}</span>
-        <span style="margin-top:5px;color:var(--gold)">${t.seats.map((s) => BOT_NAMES[s] ?? s).join(" · ")}</span>
+        <span class="seats">${t.seats.map((x) => BOT_NAMES[x] ?? x).join(" · ")}</span>
       </div>`).join("")}</div>
-    <div class="setrow" style="margin-top:14px">
+
+    <div class="setrow" style="margin-top:12px">
       <label>Record this game</label>
       <input type="checkbox" id="setRec" ${SETTINGS.recorded ? "checked" : ""}>
-      <span class="mut">counts for your stats · a game you quit is recorded as a forfeit</span>
+      <span class="mut">counts for your stats · quitting is recorded as a forfeit</span>
     </div>
-    ${rec.played ? `<p>Your record: <b>${rec.won}</b> wins in <b>${rec.played}</b> matches ·
-      lifetime <b>${rec.chips > 0 ? "+" : ""}${rec.chips}</b> chips</p>` : ""}
-    <p class="mut">Playing as <b>${player?.name ?? "—"}</b> · <a href="#" id="btnRename"
-      style="color:var(--gold)">change name</a></p>
+    <p class="mut">Playing as <b>${player?.name ?? "—"}</b> ·
+      <a href="#" id="btnRename" style="color:var(--gold)">change name</a></p>
     <button id="btnStart">sit down ▸</button>
     <button id="btnLobby" style="margin-left:8px;background:rgba(255,255,255,.08)">◂ lobby</button>`;
+  for (const el of Array.from($("panel").querySelectorAll<HTMLElement>(".seg button"))) {
+    el.onclick = () => { SETTINGS.rounds = Number(el.dataset.len) as MatchRounds; saveSettings(); startScreen(); };
+  }
   for (const el of Array.from($("panel").querySelectorAll<HTMLElement>(".choice"))) {
     el.onclick = () => {
-      if (el.dataset.len) { SETTINGS.rounds = Number(el.dataset.len) as MatchRounds; saveSettings(); }
+      if (el.dataset.r) SETTINGS.rulesetId = el.dataset.r;
       else table = TABLES.find((t) => t.id === el.dataset.t)!;
+      saveSettings();
       startScreen();
     };
   }
@@ -1347,7 +1361,6 @@ function showOverlay(): void {
  * a real wall: how much game is left, and where the live end is. Tiles are
  * removed from the live end as the count falls, so the wall visibly erodes.  */
 let buildAnim = false;
-let wallBuilt = 0;          // tiles the wall was built with, this hand
 /**
  * The wall is BUILT ONCE and then only erodes. Consumed tiles are hidden in
  * place, never removed, so nothing reflows — the owner's note: "the wall should
@@ -1357,19 +1370,36 @@ let wallBuilt = 0;          // tiles the wall was built with, this hand
  */
 function renderWall(): void {
   const left = Math.max(0, state.wallEnd - state.wallIndex);
-  if (!wallBuilt) wallBuilt = 144;              // a real wall is built whole...
-  const used = Math.max(0, wallBuilt - left);   // ...then eaten from the live end
-  // Two tiles high, eighteen stacks a side — the real thing. One rendered
-  // element IS a stack, so it vanishes only when both its tiles are gone.
-  const STACKS = 18;
-  const stacksUsed = Math.floor(used / 2);
+  /**
+   * The wall is as long as the ruleset makes it: 144 with flowers, 136 without.
+   * This was hardcoded to 144, so a TVB table — flowerless — ate four stacks
+   * that were never there and the square came apart early.
+   */
+  const total = rules().useFlowers ? 144 : 136;
+  const stacks = total / 2;                       // two tiles high
+  const perSide = Math.ceil(stacks / 4);
+  const liveStacks = Math.ceil(left / 2);
+  /**
+   * Erosion is spread ACROSS the four sides rather than run through them in
+   * order. A real wall is eaten from one break point, and rendering that
+   * literally is what produced the lopsided table the owner saw at the start of
+   * a TVB hand: after the deal one whole side and half of another are simply
+   * gone, which reads as broken rather than as authentic.
+   *
+   * The wall's job here is the one thing a player actually reads off it — how
+   * much game is left — and a square that thins evenly says that more clearly
+   * than a square with a bite out of it. Legibility over literalism, and the
+   * only information lost is where the break happened, which this client never
+   * modelled anyway.
+   */
   const jr = prng((seed ^ 0xbeef) >>> 0);
   $("wall").className = buildAnim ? "building" : "";
   $("wall").innerHTML = ["top", "right", "bottom", "left"].map((side, si) => {
-    return `<div class="side ${side}">${Array.from({ length: STACKS }, (_, i) => {
-      const idx = si * STACKS + i;
-      const gone = idx < stacksUsed;
-      const dead = idx >= STACKS * 4 - 7;       // the dead wall — kongs and flowers
+    const share = Math.floor(liveStacks / 4) + (si < liveStacks % 4 ? 1 : 0);
+    return `<div class="side ${side}">${Array.from({ length: perSide }, (_, i) => {
+      const gone = i >= share;
+      // the dead wall 尾 — where kong and flower replacements come from
+      const dead = !gone && si === 3 && i >= share - 4;
       const d = buildAnim
         ? ` style="--ax:${(jr() * 150 - 75).toFixed(0)}px;--ay:${(jr() * -130 - 30).toFixed(0)}px;--ar:${(jr() * 70 - 35).toFixed(0)}deg;animation-delay:${(si * 70 + i * 12)}ms"`
         : "";
@@ -1379,7 +1409,6 @@ function renderWall(): void {
 }
 /** Shuffle-and-build: run once when a hand starts. */
 function buildWall(): void {
-  wallBuilt = 0;
   buildAnim = true;
   renderWall();
   setTimeout(() => { buildAnim = false; renderWall(); }, 1450);
@@ -1628,10 +1657,6 @@ function settingsScreen(back: () => void): void {
   $("veil").style.display = "flex";
   $("panel").innerHTML = `
     <h1>Settings</h1>
-    <h2 style="margin-top:12px">Rules</h2>
-    <div class="choices">${RULE_CHOICES.map(([id, label, blurb]) => `
-      <div class="choice ${SETTINGS.rulesetId === id ? "sel" : ""}" data-r="${id}"><b>${label}</b><span>${blurb}</span></div>`).join("")}</div>
-    <p class="mut">Changing the ruleset applies to the next match.</p>
     <h2 style="margin-top:14px">Table</h2>
     <div class="setrow"><label>Tile size</label>
       <input type="range" id="setScale" min="0.8" max="2" step="0.05" value="${SETTINGS.tileScale}">
@@ -1657,9 +1682,6 @@ function settingsScreen(back: () => void): void {
       <input type="checkbox" id="setDev" ${SETTINGS.dev ? "checked" : ""}>
       <span class="mut">show what each bot is planning, and how the champion would rank your discards</span></div>
     <button id="btnBack">done ▸</button>`;
-  for (const el of Array.from($("panel").querySelectorAll<HTMLElement>(".choice"))) {
-    el.onclick = () => { SETTINGS.rulesetId = el.dataset.r!; saveSettings(); settingsScreen(back); };
-  }
   const sc = document.getElementById("setScale") as HTMLInputElement;
   sc.oninput = () => { SETTINGS.tileScale = Number(sc.value); $("setScaleV").textContent = Math.round(SETTINGS.tileScale * 100) + "%"; saveSettings(); render(); };
   const sp = document.getElementById("setSpeed") as HTMLInputElement;

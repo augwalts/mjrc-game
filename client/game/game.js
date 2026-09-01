@@ -991,7 +991,9 @@
       heavenlyHand: 13,
       earthlyHand: 13
       // Absent on purpose:
-      //   sevenPairs 七對子 — not classic HK Old Style.
+      //   sevenPairs 七對子 — not classic HK Old Style, and the column has no
+      //     value for it. mjrc-standard DOES play it (owner ruling 2026-08-31);
+      //     that is a house addition made there, not a correction made here.
       //   jadeDragon / rubyDragon / pearlDragon — the column reads "—". MJ Time
       //     and MJB pay them as limit hands, so a house that plays them should
       //     add them rather than have a value invented here.
@@ -3146,15 +3148,14 @@
   };
   var rules = () => ruleset(SETTINGS.rulesetId) ?? MJRC_STANDARD;
   var LENGTHS = [
-    [1, "\u6771\u5708 \xB7 one wind", "~8 hands, 10\u201315 min. The default."],
-    [2, "\u6771\u5357 \xB7 two winds", "~16 hands, 20\u201330 min."],
-    [3, "\u6771\u5357\u897F \xB7 three winds", "~25 hands, 35\u201350 min."],
-    [4, "\u5168\u838A \xB7 four winds", "~35 hands, 50\u201370 min. A full sitting."]
+    [1, "\u6771\u5708", "one wind", "~8 hands \xB7 10\u201315 min"],
+    [2, "\u6771\u5357", "two winds", "~16 hands \xB7 20\u201330 min"],
+    [3, "\u6771\u5357\u897F", "three winds", "~25 hands \xB7 35\u201350 min"],
+    [4, "\u5168\u838A", "four winds", "~35 hands \xB7 50\u201370 min \xB7 a full sitting"]
   ];
-  var RULE_CHOICES = [
-    ["mjrc-standard", "MJRC standard", "3\u201310 faan \xB7 the house ruleset \xB7 flowers"],
-    ["hkos-standard", "HK Old Style (published)", "3\u201313 faan \xB7 the full limit ladder"],
-    ["tvb-2026", "TVB Championship 2026", "1 faan minimum \xB7 linear payments \xB7 no flowers"]
+  var RULE_PICKS = [
+    ["mjrc-standard", "MJRC standard", "3\u201310 faan \xB7 flowers \xB7 doubling payments. The house game."],
+    ["tvb-2026", "TVB Championship 2026", "1 faan minimum \xB7 no flowers \xB7 linear payments. Every hand is payable, and big hands barely out-earn small ones."]
   ];
   function readHand(without) {
     if (!state) return null;
@@ -3572,37 +3573,47 @@
   function startScreen() {
     $("veil").style.display = "flex";
     $("panel").innerHTML = `
-    <h1>\u9999\u6E2F\u9EBB\u96C0 \xB7 MJRC</h1>
-    <p>Hong Kong Old Style \xB7 3 faan minimum.
-    Your opponents are bots from the training programme \u2014 each one measurably stronger than the last.</p>
-    <h2 style="margin-top:12px">How long</h2>
-    <div class="choices lens">${LENGTHS.map(([n, label, blurb]) => `
-      <div class="choice ${SETTINGS.rounds === n ? "sel" : ""}" data-len="${n}">
-        <b>${label}</b><span>${blurb}</span>
-      </div>`).join("")}</div>
-    <h2 style="margin-top:12px">Who you play</h2>
-    <div class="choices">${TABLES.map((t) => `
+    <h1>Sit down</h1>
+
+    <h2>Length</h2>
+    <div class="seg">${LENGTHS.map(([n, ch, en]) => `
+      <button class="${SETTINGS.rounds === n ? "on" : ""}" data-len="${n}">
+        <b>${ch}</b><span>${en}</span></button>`).join("")}</div>
+    <p class="segcap">${LENGTHS.find(([n]) => n === SETTINGS.rounds)?.[3] ?? ""}</p>
+
+    <h2>Rules</h2>
+    <div class="choices two">${RULE_PICKS.map(([id, label, blurb]) => `
+      <div class="choice ${SETTINGS.rulesetId === id ? "sel" : ""}" data-r="${id}">
+        <b>${label}</b><span>${blurb}</span></div>`).join("")}</div>
+
+    <h2>Table</h2>
+    <div class="choices two">${TABLES.map((t) => `
       <div class="choice ${t.id === table.id ? "sel" : ""}" data-t="${t.id}">
         <b>${t.label}</b><span>${t.blurb}</span>
-        <span style="margin-top:5px;color:var(--gold)">${t.seats.map((s) => BOT_NAMES[s] ?? s).join(" \xB7 ")}</span>
+        <span class="seats">${t.seats.map((x) => BOT_NAMES[x] ?? x).join(" \xB7 ")}</span>
       </div>`).join("")}</div>
-    <div class="setrow" style="margin-top:14px">
+
+    <div class="setrow" style="margin-top:12px">
       <label>Record this game</label>
       <input type="checkbox" id="setRec" ${SETTINGS.recorded ? "checked" : ""}>
-      <span class="mut">counts for your stats \xB7 a game you quit is recorded as a forfeit</span>
+      <span class="mut">counts for your stats \xB7 quitting is recorded as a forfeit</span>
     </div>
-    ${rec.played ? `<p>Your record: <b>${rec.won}</b> wins in <b>${rec.played}</b> matches \xB7
-      lifetime <b>${rec.chips > 0 ? "+" : ""}${rec.chips}</b> chips</p>` : ""}
-    <p class="mut">Playing as <b>${player?.name ?? "\u2014"}</b> \xB7 <a href="#" id="btnRename"
-      style="color:var(--gold)">change name</a></p>
+    <p class="mut">Playing as <b>${player?.name ?? "\u2014"}</b> \xB7
+      <a href="#" id="btnRename" style="color:var(--gold)">change name</a></p>
     <button id="btnStart">sit down \u25B8</button>
     <button id="btnLobby" style="margin-left:8px;background:rgba(255,255,255,.08)">\u25C2 lobby</button>`;
+    for (const el of Array.from($("panel").querySelectorAll(".seg button"))) {
+      el.onclick = () => {
+        SETTINGS.rounds = Number(el.dataset.len);
+        saveSettings();
+        startScreen();
+      };
+    }
     for (const el of Array.from($("panel").querySelectorAll(".choice"))) {
       el.onclick = () => {
-        if (el.dataset.len) {
-          SETTINGS.rounds = Number(el.dataset.len);
-          saveSettings();
-        } else table = TABLES.find((t) => t.id === el.dataset.t);
+        if (el.dataset.r) SETTINGS.rulesetId = el.dataset.r;
+        else table = TABLES.find((t) => t.id === el.dataset.t);
+        saveSettings();
         startScreen();
       };
     }
@@ -4158,27 +4169,25 @@
     };
   }
   var buildAnim = false;
-  var wallBuilt = 0;
   function renderWall() {
     const left = Math.max(0, state.wallEnd - state.wallIndex);
-    if (!wallBuilt) wallBuilt = 144;
-    const used = Math.max(0, wallBuilt - left);
-    const STACKS = 18;
-    const stacksUsed = Math.floor(used / 2);
+    const total = rules().useFlowers ? 144 : 136;
+    const stacks = total / 2;
+    const perSide = Math.ceil(stacks / 4);
+    const liveStacks = Math.ceil(left / 2);
     const jr = prng((seed ^ 48879) >>> 0);
     $("wall").className = buildAnim ? "building" : "";
     $("wall").innerHTML = ["top", "right", "bottom", "left"].map((side, si) => {
-      return `<div class="side ${side}">${Array.from({ length: STACKS }, (_, i) => {
-        const idx = si * STACKS + i;
-        const gone = idx < stacksUsed;
-        const dead = idx >= STACKS * 4 - 7;
+      const share = Math.floor(liveStacks / 4) + (si < liveStacks % 4 ? 1 : 0);
+      return `<div class="side ${side}">${Array.from({ length: perSide }, (_, i) => {
+        const gone = i >= share;
+        const dead = !gone && si === 3 && i >= share - 4;
         const d = buildAnim ? ` style="--ax:${(jr() * 150 - 75).toFixed(0)}px;--ay:${(jr() * -130 - 30).toFixed(0)}px;--ar:${(jr() * 70 - 35).toFixed(0)}deg;animation-delay:${si * 70 + i * 12}ms"` : "";
         return `<span class="wt${gone ? " gone" : ""}${dead ? " dead" : ""}"${d}></span>`;
       }).join("")}</div>`;
     }).join("");
   }
   function buildWall2() {
-    wallBuilt = 0;
     buildAnim = true;
     renderWall();
     setTimeout(() => {
@@ -4358,10 +4367,6 @@
     $("veil").style.display = "flex";
     $("panel").innerHTML = `
     <h1>Settings</h1>
-    <h2 style="margin-top:12px">Rules</h2>
-    <div class="choices">${RULE_CHOICES.map(([id, label, blurb]) => `
-      <div class="choice ${SETTINGS.rulesetId === id ? "sel" : ""}" data-r="${id}"><b>${label}</b><span>${blurb}</span></div>`).join("")}</div>
-    <p class="mut">Changing the ruleset applies to the next match.</p>
     <h2 style="margin-top:14px">Table</h2>
     <div class="setrow"><label>Tile size</label>
       <input type="range" id="setScale" min="0.8" max="2" step="0.05" value="${SETTINGS.tileScale}">
@@ -4387,13 +4392,6 @@
       <input type="checkbox" id="setDev" ${SETTINGS.dev ? "checked" : ""}>
       <span class="mut">show what each bot is planning, and how the champion would rank your discards</span></div>
     <button id="btnBack">done \u25B8</button>`;
-    for (const el of Array.from($("panel").querySelectorAll(".choice"))) {
-      el.onclick = () => {
-        SETTINGS.rulesetId = el.dataset.r;
-        saveSettings();
-        settingsScreen(back);
-      };
-    }
     const sc = document.getElementById("setScale");
     sc.oninput = () => {
       SETTINGS.tileScale = Number(sc.value);

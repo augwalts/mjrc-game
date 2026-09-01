@@ -235,6 +235,9 @@ Dated entries are easiest to act on later._
 | 2026-08-31 | **`mjrc-standard` 么九 = 10 faan**, ratified — a limit hand under the 10-cap. The second and last correction from audit §10; the ruleset now carries no unratified transcription slips. |
 | 2026-08-31 | **The dealer repeats under `mjrc-standard`** — on a dealer win and on 流局. Ratified with the length cost known: it roughly doubles a match, 16 hands to ~33-39. |
 | 2026-08-31 | **`mjrc-standard` plays 七對子 at 4 faan** — a house ADDITION, absent from the source column. Needed engine branches in decompose/ready/scoring, because seven pairs is a shape that never reads as four sets and a pair. |
+| 2026-08-31 | **Setup screen streamlined**: length as a segmented control with its cost as a caption, rules and table as paired cards. Ruleset moved out of settings — one place to set one thing. |
+| 2026-08-31 | **TVB offered for demo**, alongside MJRC standard. Only rulesets actually played through the client are listed. |
+| 2026-08-31 | **Wall size comes from the ruleset**, not a hardcoded 144 — a flowerless table ate four stacks that were never there. Erosion now spreads across the four sides: legibility over literalism. |
 | 2026-08-31 | **Bots never throw a tile they could kong.** The rob-window guard was right but was governing kong-vs-hold, after which the ranker cut the dead tile anyway. |
 
 

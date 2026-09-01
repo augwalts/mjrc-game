@@ -41,20 +41,40 @@ hand, the last eight log lines, the seed — so a "something looked wrong" can b
 replayed rather than guessed at. It attaches to your last match too, since
 people file feedback about the game they just left.
 
-## Match length
+## Sitting down
 
-One to four wind rounds, chosen on the start screen. The hand counts on the
-buttons are measured, not guessed — 25 matches per length on the mixed ladder:
+One screen: **length**, **rules**, **table**. Length is a segmented control with
+its cost as a caption underneath — four blurb-carrying cards for what is really
+one number wrapped to two rows and made a dial look like a menu.
 
-| | hands | range | est. time |
-| --- | ---: | --- | --- |
-| 東圈 one wind | 7.5 | 4–16 | 10–15 min |
-| 東南 two winds | 15.6 | 8–23 | 20–30 min |
-| 東南西 three winds | 24.8 | 17–32 | 35–50 min |
-| 全莊 four winds | 34.6 | 25–51 | 50–70 min |
+Two rulesets are offered:
 
-A wind round is nowhere near four hands: the dealer repeats on a dealer win
-**and on 流局**, and the 3-faan floor sends about a third of hands to 流局.
+| | |
+| --- | --- |
+| **MJRC standard** | 3–10 faan · flowers · doubling payments. The house game. |
+| **TVB Championship 2026** | 1 faan minimum · no flowers · linear payments. |
+
+Only these two have actually been played through the client, and offering an
+untested table invites feedback about something already known to be unvalidated.
+`hkos-standard` stays registered in `@mjrc/rulesets` and is one line from being
+listed again.
+
+The ruleset is set **here and nowhere else** — it used to also live in settings,
+which is two places to change one thing.
+
+### What TVB actually changes
+
+| | TVB | MJRC standard |
+| --- | ---: | ---: |
+| minimum faan | **1** | 3 |
+| flowers | **none** | yes, with replacements |
+| wall | **136 tiles** | 144 |
+| 1 faan pays (discard) | **10** | 4 |
+| 10 faan pays (discard) | **100** | 256 |
+
+The linear curve is the whole character of it: every hand is payable, and a
+limit hand barely out-earns a cheap one. Worth playing precisely because it
+makes the 3-faan floor visible by its absence.
 
 ## The scoreboard
 
