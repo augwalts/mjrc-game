@@ -10,6 +10,14 @@
 #
 # NOT shipped: pile-lab.html and call-lab.html (development tools) and the .md
 # documents. They stay in client/game.
+#
+# deal-lab.html IS shipped, which reverses that rule for one file. The rule was
+# written when the demo was copied into the WEBSITE's repo, where anything in
+# public/ is world-readable; a development tool had no business there. This is
+# now its own project behind a password gate that covers every path from the
+# root, so the lab is a private review surface rather than published content —
+# and being able to look at the opening animation from a phone is most of what
+# it is for. The other two labs are one line away if they are wanted too.
 set -euo pipefail
 
 here="$(cd "$(dirname "$0")/.." && pwd)"
@@ -33,7 +41,7 @@ fi
 
 rm -rf "$dst"
 mkdir -p "$dst"
-for f in index.html game.js tile-engine.js bots.js; do
+for f in index.html game.js tile-engine.js bots.js deal-lab.html; do
   cp "$src/$f" "$dst/$f"
   printf '  %-18s %6s KB\n' "$f" "$(( $(wc -c < "$dst/$f") / 1024 ))"
 done
