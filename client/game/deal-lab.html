@@ -198,11 +198,12 @@ button:disabled{opacity:.4;cursor:default}
     <label class="opt" data-s="A" data-v="2"><input type="radio" name="A" value="2"><b>A3 · Sweep and settle</b>
       <span class="why">Starts as last hand's tidy walls, gets swept inward, churns, then settles into the field. The right opener for hands 2..n, where the tiles were already in rows — the other three have to invent a field out of nothing.</span></label>
     <label class="opt" data-s="A" data-v="4"><input type="radio" name="A" value="4" checked><b>A5 · Tip out and gather</b>
-      <span class="why">Starts spread over the whole table, the way a set looks when it has just been tipped out, then hands reach in and push one group at a time toward the middle. Sixteen overlapping strokes, each moving only the patch under it — not the whole table turning at once. The net inward flow <i>is</i> the animation, so unlike the others it cannot hollow out: that is the direction it came from.</span></label>
+      <span class="why">Tipped out across the whole table, then shoved in a handful of tiles at a time: take the furthest clump, drive it into the middle, reach for the next furthest, drive that in. The clumps are found in the tiles by proximity, not scheduled, so each shove moves a group that genuinely was sitting together. The net inward flow <i>is</i> the animation, so unlike the others it cannot hollow out — that is the direction it came from.</span></label>
     <label class="opt" data-s="A" data-v="3"><input type="radio" name="A" value="3"><b>A4 · Slow orbit</b>
       <span class="why">The whole field turns as one body while tiles jitter in place. Calmest, least distracting, fewest moving parts — and being a rigid rotation it cannot introduce an overlap at all.</span></label>
     <div class="sl"><label>duration</label><input type="range" id="aDur" min="600" max="4000" step="100" value="1600"><span class="v" id="aDurV">1600</span></div>
     <div class="sl"><label>churn amount</label><input type="range" id="aAmp" min="2" max="40" step="1" value="16"><span class="v" id="aAmpV">16</span></div>
+    <div class="sl"><label>shoves (A5)</label><input type="range" id="aClumps" min="3" max="9" step="1" value="6"><span class="v" id="aClumpsV">6</span></div>
     <div class="lay" id="lay">one clean layer</div>
   </div>
 
@@ -718,6 +719,13 @@ function contain(P, cx, cy, rx, ry, k = 0.5){
  *
  *  In TABLE space, so the cluster is round on the table and foreshortened on
  *  screen like everything else, rather than round on screen and wrong. */
+function pullOne(q, cx, cy, step){
+  const dx = cx - q.x, dy = (cy - q.y) / DEPTH;
+  const d = Math.hypot(dx, dy);
+  if (d < 0.01) return;
+  q.x += dx / d * step;
+  q.y += dy / d * step * DEPTH;
+}
 function pullIn(P, cx, cy, step, jitter = 0){
   for (const q of P){
     const dx = cx - q.x, dy = (cy - q.y) / DEPTH;
@@ -762,21 +770,29 @@ function fieldRadii(){
  *  fast as separation resolves — and then the loop should CHECK rather than
  *  count, because how long a jammed pile takes to relax depends on how badly it
  *  was jammed. Audited from pass 60 so the check itself costs nothing early. */
-function settlePile(P, cx, cy){
+/** Is this arrangement already a clean layer? Stops at the first offender. */
+function pileClean(P){
   const b = box("flat"), hw = b.w / 2, hh = (b.toph + b.edgeh) / 2;
   const lim = (HALFDIAG() * 2) ** 2;
+  for (let i = 0; i < P.length; i++) for (let j = i + 1; j < P.length; j++){
+    const dx = P[i].x - P[j].x, dy = P[i].y - P[j].y;
+    if (dx * dx + dy * dy <= lim && mtv(P[i], P[j], hw, hh) > 0.5) return false;
+  }
+  return true;
+}
+
+function settlePile(P, cx, cy){
+  /* CHECK BEFORE TOUCHING ANYTHING. When the caller has already relaxed the
+     pile over its own frames, this used to charge in with gravity back at full
+     strength and re-compress it — measured, 134 of 144 tiles jumped on that one
+     frame, which put back exactly the snap the progressive settle removed. A
+     settle that is not needed must be free. */
+  if (pileClean(P)) return 0;
   for (let k = 0; k < 220; k++){
     separate(P);
     const e = Math.max(0, 1 - k / 50);
     if (e > 0) pullIn(P, cx, cy, PACK_PULL * e);
-    if (k >= 60 && k % 8 === 0){
-      let bad = 0;
-      for (let i = 0; i < P.length && !bad; i++) for (let j = i + 1; j < P.length; j++){
-        const dx = P[i].x - P[j].x, dy = P[i].y - P[j].y;
-        if (dx * dx + dy * dy <= lim && mtv(P[i], P[j], hw, hh) > 0.5){ bad = 1; break; }
-      }
-      if (!bad) return k;
-    }
+    if (k >= 40 && k % 8 === 0 && pileClean(P)) return k;
   }
   return -1;
 }
@@ -945,6 +961,7 @@ function shufSweeps(dur, amp, tok){
     const P = tiles.map((t) => ({ t, x: t.pose.x, y: t.pose.y, r: t.pose.r,
                                   vx: 0, vy: 0, vr: 0 }));
     const HANDS = 4;
+    let settling = 0;
 
     /* THE FIELD IS A SWIRL, NOT FOUR SHOVES.
      *
@@ -1008,10 +1025,23 @@ function shufSweeps(dur, amp, tok){
         q.t.el.style.transform = css(q.t.pose);
       }
       if (p < 1){ requestAnimationFrame(frame); return; }
-      /* SETTLE BEFORE STOPPING. Two passes a frame keeps the layer honest while
-         forces are still being applied, but the last frame stops mid-shove and
-         leaves a handful of pairs resolved only part way — enough for the audit
-         to fail on a sweep that looked perfect. */
+      /* SETTLE BEFORE STOPPING, and over several frames — a sweep stops
+         mid-shove, so the pile has real slack to take up, and doing it between
+         two paints reads as a snap. */
+      if (settling < 18){
+        settling++;
+        for (let k = 0; k < 8; k++){
+          separate(P);
+          const e = Math.max(0, 1 - settling / 13);
+          if (e > 0) pullIn(P, cx, cy, PACK_PULL * e);
+          contain(P, cx, cy, rx, ry, 0.5);
+        }
+        for (const q of P){
+          q.t.pose = { x: q.x, y: q.y, r: q.r, s: 1 };
+          q.t.el.style.transform = css(q.t.pose);
+        }
+        requestAnimationFrame(frame); return;
+      }
       settlePile(P, cx, cy);
       for (const q of P){
         q.t.pose = { x: q.x, y: q.y, r: q.r, s: 1 };
@@ -1048,7 +1078,7 @@ function shufGather(dur, amp, tok){
   return new Promise((res) => {
     let done = false;
     const finish = () => { if (!done){ done = true; reportOverlap(); res(); } };
-    setTimeout(finish, ms(dur) + 1500);
+    setTimeout(finish, ms(dur) + 2000);
     const cx = CW / 2, cy = CH / 2;
     const bigRx = CW / 2 - TL, bigRy = CH / 2 - TL;
     const start = scatterField(9001);
@@ -1059,78 +1089,108 @@ function shufGather(dur, amp, tok){
       t.el.style.zIndex = "1";
       t.pose = { x: start[i].x, y: start[i].y, r: start[i].r, s: 1 };
       t.el.style.transform = css(t.pose);
-      return { t, x: start[i].x, y: start[i].y, r: start[i].r, vx: 0, vy: 0, vr: 0 };
+      return { t, x: start[i].x, y: start[i].y, r: start[i].r, vx: 0, vy: 0, vr: 0, c: -1 };
     });
 
-    /* STROKES, NOT A SWIRL.
+    /* CLUMPS, FURTHEST FIRST — and the clumps are found in the tiles, not
+     * scheduled in advance.
      *
-     * Owner: "they would not rotate all at once like that. typically you would
-     * push a group towards the middle." A global angular field turns every tile
-     * on the table in step, which reads as the TABLE rotating — one motion, not
-     * a hundred and forty-four. What a hand actually does is local: it lands on
-     * a patch, drives that patch inward, lifts, and the next hand lands
-     * somewhere else. Only the tiles under a stroke move; their neighbours are
-     * shoved aside by contact, and everything else waits its turn.
+     * Owner: "there'll be small clumps of them, groups that are near each
+     * other, and gravity rapidly moves them into the middle. Then you grab the
+     * next furthest clump and shove it into the middle." The previous version
+     * ran strokes on a fixed golden-angle rota and a slow gravity underneath,
+     * so everything crept in at once and no single group ever read as being
+     * *moved*. Nothing about it depended on where a tile actually was.
      *
-     * Each stroke is a hand travelling from the rim toward the middle over its
-     * own slice of the timeline. They overlap two or three at a time, from
-     * different directions, which is four people reaching in — and it is the
-     * overlapping that keeps the pile from looking swept by a single hand. */
-    const STROKES = 16;
-    reseed(5150);
-    const strokes = Array.from({ length: STROKES }, (_, i) => ({
-      a: (i * 2.39996 + RR(-0.35, 0.35)),          // golden angle: spread, not cyclic
-      t0: (i / STROKES) * 0.88 + RR(-0.03, 0.03),
-      len: RR(0.16, 0.26),
-      reach: RR(0.30, 0.46),                        // how far in this one drives
-      spin: RR(-1, 1),
-    }));
+     * Greedy furthest-first is the same sentence as an algorithm: take the tile
+     * furthest from the middle, take the handful nearest IT, and that is the
+     * clump you reach for. Remove it and repeat. The groups come out spatially
+     * coherent because they are built from proximity, and they come out in
+     * outside-in order because the seed is always the furthest thing left.
+     */
+    const K = num("aClumps");
+    const d2 = (a, b) => (a.x - b.x) ** 2 + ((a.y - b.y) / DEPTH) ** 2;
+    const mid = { x: cx, y: cy };
+    const left = new Set(P.map((_, i) => i));
+    const clumps = [];
+    const size = Math.ceil(TOTAL / K);
+    while (left.size){
+      let seed = -1, far = -1;
+      for (const i of left){ const d = d2(P[i], mid); if (d > far){ far = d; seed = i; } }
+      const near = [...left].sort((a, b) => d2(P[a], P[seed]) - d2(P[b], P[seed]))
+                            .slice(0, Math.min(size, left.size));
+      for (const i of near){ left.delete(i); P[i].c = clumps.length; }
+      clumps.push(near);
+    }
+    /* One shove each, near enough back to back — a beat of overlap so the next
+       hand is already reaching as the last one lands. */
+    const span = 1 / K;
+    const win = clumps.map((_, i) => ({ t0: i * span * 0.92, t1: i * span * 0.92 + span * 0.86 }));
 
     const t0 = performance.now(), D = ms(dur);
+    let settling = 0;
     function frame(now){
       if (done) return;
       if (stale(tok)) return finish();
       const p = Math.min(1, (now - t0) / D);
-      const R = Math.min(bigRx, bigRy / DEPTH);
-      for (const st of strokes){
-        const u = (p - st.t0) / st.len;
-        if (u < 0 || u > 1) continue;
-        /* the hand comes in from the rim and slows as it reaches its depth */
-        const ease = 1 - (1 - u) * (1 - u);
-        const hr = R * (1.05 - (1.05 - st.reach) * ease);
-        const hx = cx + Math.cos(st.a) * hr;
-        const hy = cy + Math.sin(st.a) * hr * DEPTH;
-        const grip = R * 0.34;                       // the patch a hand covers
-        /* strongest mid-stroke, so a push arrives and leaves rather than
-           switching on and off */
-        const power = Math.sin(Math.PI * u) * 0.55 * amp / 16;
-        for (const q of P){
-          const dx = q.x - hx, dy = (q.y - hy) / DEPTH;
-          const d = Math.hypot(dx, dy);
-          if (d > grip) continue;
-          const f = (1 - d / grip) * power;
-          /* inward, with a little sideways drag — a hand sweeps as well as
-             pushes, and a purely radial shove looks like a piston */
-          q.vx += (Math.cos(st.a) * -f) + (-Math.sin(st.a) * f * 0.35 * st.spin);
-          q.vy += (Math.sin(st.a) * -f + Math.cos(st.a) * f * 0.35 * st.spin) * DEPTH;
-          q.vr += f * 1.8 * st.spin;
+      for (let c = 0; c < clumps.length; c++){
+        const w = win[c], u = (w.t1 > w.t0) ? (p - w.t0) / (w.t1 - w.t0) : 2;
+        if (u < 0) continue;                       // this clump has not been reached yet
+        if (u > 1){
+          /* landed — it is part of the pile now, and holds its place while the
+             next clump slams into it */
+          for (const i of clumps[c]) pullOne(P[i], cx, cy, PACK_PULL * 0.6);
+          continue;
+        }
+        /* THE WHOLE CLUMP GETS ONE DIRECTION — its own centroid's line to the
+           middle, not each tile's own. Pushing every tile toward the centre
+           individually makes the group converge on itself and arrive as a
+           point; one shared direction translates it, which is what a hand
+           sweeping a group across the felt actually does. */
+        let gx = 0, gy = 0;
+        for (const i of clumps[c]){ gx += P[i].x; gy += P[i].y; }
+        gx /= clumps[c].length; gy /= clumps[c].length;
+        let dx = cx - gx, dy = (cy - gy) / DEPTH;
+        const dl = Math.hypot(dx, dy) || 1;
+        dx /= dl; dy /= dl;
+        /* hard at the start and falling away — a shove, not a tow */
+        const power = Math.pow(1 - u, 1.4) * 2.6 * amp / 16;
+        for (const i of clumps[c]){
+          P[i].vx += dx * power;
+          P[i].vy += dy * power * DEPTH;
+          P[i].vr += (i % 2 ? 1 : -1) * power * 0.7;
         }
       }
-      for (const q of P){ q.vx *= 0.80; q.vy *= 0.80; q.vr *= 0.86;
+      for (const q of P){ q.vx *= 0.86; q.vy *= 0.86; q.vr *= 0.88;
                           q.x += q.vx; q.y += q.vy; q.r += q.vr; }
-      /* Gravity eases in behind the strokes so the pile is finished even where
-         no hand reached, and lands on exactly the arrangement packField would
-         have produced. Collisions push out, gravity pulls in, and the two are
-         quoted at the same strength — otherwise it is not the same pile. */
-      const g = PACK_PULL * (0.2 + 1.4 * p);
-      separate(P); pullIn(P, cx, cy, g, 0.35);
-      separate(P); pullIn(P, cx, cy, g, 0.35);
+      separate(P);
+      separate(P);
       contain(P, cx, cy, bigRx, bigRy, 0.5);
       for (const q of P){
         q.t.pose = { x: q.x, y: q.y, r: q.r, s: 1 };
         q.t.el.style.transform = css(q.t.pose);
       }
       if (p < 1){ requestAnimationFrame(frame); return; }
+      /* THE SETTLE IS A PHASE, NOT A FRAME.
+         Calling settlePile() the instant p hits 1 does two hundred relaxation
+         passes between two paints, so the whole pile jumps at once — measured,
+         141 of 144 tiles moved more than 1.5 px on that single frame, which is
+         a visible snap at the end of every shuffle. Spreading the same work
+         over a few frames turns it into what it physically is: the pile
+         subsiding after the last shove. */
+      if (settling < 18){
+        settling++;
+        for (let k = 0; k < 8; k++){
+          separate(P);
+          const e = Math.max(0, 1 - settling / 13);
+          if (e > 0) pullIn(P, cx, cy, PACK_PULL * e);
+        }
+        for (const q of P){
+          q.t.pose = { x: q.x, y: q.y, r: q.r, s: 1 };
+          q.t.el.style.transform = css(q.t.pose);
+        }
+        requestAnimationFrame(frame); return;
+      }
       settlePile(P, cx, cy);
       for (const q of P){
         q.t.pose = { x: q.x, y: q.y, r: q.r, s: 1 };
@@ -1720,7 +1780,7 @@ for (const el of document.querySelectorAll("input[type=range]")){
   const show = () => { out.textContent = el.id === "gSpeed" ? (+el.value).toFixed(2) + "×" : el.value; };
   el.addEventListener("input", () => {
     show();
-    if (["aAmp","bScale","bPin","bTheta","bRot"].includes(el.id)){
+    if (["aAmp","aClumps","bScale","bPin","bTheta","bRot"].includes(el.id)){
       readGlobals(); RUN++; geom(num("bScale"), num("bPin"), num("bTheta"), num("bRot"));
       makePool(); layHeap(); resetHands();
     }
