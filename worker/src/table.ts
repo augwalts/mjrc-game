@@ -1998,12 +1998,23 @@ export function bindingArchive(env: TableEnv): Archive {
     },
     async finishMatch(summary) {
       if (!env.DB) throw new Error("DB is not bound");
+      if (!env.LOGS) throw new Error("LOGS is not bound");
+      // The match-level object is a MANIFEST over the per-hand blobs, not a
+      // copy of them: the hands' events left this object's storage as each
+      // hand was confirmed, and the manifest is what `matches.log_key` points
+      // at so the API can stitch the whole log back together on read.
+      const manifestKey = `matches/${summary.matchId}/log.json`;
+      await env.LOGS.put(
+        manifestKey,
+        JSON.stringify({ matchId: summary.matchId, hands: summary.handLogKeys }),
+        { httpMetadata: { contentType: "application/json" } },
+      );
       await env.DB.prepare(
         `UPDATE matches
-            SET status = 'complete', hand_count = ?, ended_at = ?
+            SET status = 'complete', hand_count = ?, ended_at = ?, log_key = ?
           WHERE id = ?`,
       )
-        .bind(summary.handsPlayed, iso(summary.endedAt), summary.matchId)
+        .bind(summary.handsPlayed, iso(summary.endedAt), manifestKey, summary.matchId)
         .run();
       for (const seat of SEATS) {
         await env.DB.prepare(

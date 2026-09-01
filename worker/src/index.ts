@@ -431,6 +431,33 @@ async function serveLog(
 ): Promise<Response> {
   const object = await p.logs.get(logKey);
   if (object === null || object.body === null) return fail("log_not_found", 404);
+  /* A match-level key is a MANIFEST over per-hand blobs (the table archives one
+   * blob per hand and lists them at match end). Stitch those into one log: the
+   * header from the last hand, every hand's events in order. Buffered, because
+   * it is assembled; a whole four-wind match is under a megabyte. */
+  if (logKey.endsWith("/log.json")) {
+    const manifest = (await new Response(object.body).json()) as { hands?: unknown };
+    const keys = Array.isArray(manifest.hands) ? (manifest.hands as string[]) : [];
+    let header: unknown = null;
+    const events: unknown[] = [];
+    for (const key of keys) {
+      const part = await p.logs.get(key);
+      if (part === null || part.body === null) return fail("log_not_found", 404);
+      const hand = (await new Response(part.body).json()) as { header: unknown; events: unknown[] };
+      header = hand.header;
+      events.push(...hand.events);
+    }
+    if (header === null) return fail("log_not_found", 404);
+    return new Response(JSON.stringify({ header, events }), {
+      status: 200,
+      headers: {
+        ...BASE_HEADERS,
+        "content-type": "application/json; charset=utf-8",
+        "content-disposition": "inline",
+        "cache-control": cacheControl,
+      },
+    });
+  }
   /* Streamed, not buffered: a long match's log is megabytes and there is no
    * reason for it to pass through this Worker's heap on the way out. */
   return new Response(object.body, {

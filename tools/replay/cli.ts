@@ -455,7 +455,11 @@ export function verifyLog(
     return { ok: false, problems, matchSeed, events: events.length, hands: folded.hands.length };
   }
 
-  problems.push(...compareStates(replayed, folded));
+  // A sim's log carries the reducer's logical clock; a live table's carries the
+  // wall clock the DO stamped after the reducer ran (§5.5: ts is a coordination
+  // fact). Only the former can agree with re-execution tick for tick.
+  const logicalClock = events.every((e, i) => e.ts === events[0].ts + i * TICK_MS);
+  problems.push(...compareStates(replayed, folded, { logicalClock }));
 
   return {
     ok: problems.length === 0,
@@ -469,7 +473,11 @@ export function verifyLog(
 const sameTiles = (a: readonly TileId[], b: readonly TileId[]): boolean =>
   a.length === b.length && a.every((t, i) => t === b[i]);
 
-function compareStates(r: MatchState, f: FoldedState): string[] {
+function compareStates(
+  r: MatchState,
+  f: FoldedState,
+  opts: { logicalClock: boolean } = { logicalClock: true },
+): string[] {
   const bad: string[] = [];
   const eq = (what: string, a: unknown, b: unknown): void => {
     if (a !== b) bad.push(`${what}: re-execution ${String(a)}, log ${String(b)}`);
@@ -478,7 +486,7 @@ function compareStates(r: MatchState, f: FoldedState): string[] {
   // `seq` on a MatchState is the NEXT number to stamp; on a FoldedState it is
   // the last one stamped. One event of divergence moves both.
   eq("event count (seq)", r.seq, f.seq + 1);
-  eq("logical clock (ts)", r.ts, f.ts);
+  if (opts.logicalClock) eq("logical clock (ts)", r.ts, f.ts);
   eq("phase", r.phase, f.phase);
   eq("hand index", r.handIndex, f.handIndex);
   eq("hands played", r.handsPlayed, f.hands.length);
