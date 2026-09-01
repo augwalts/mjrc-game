@@ -323,7 +323,17 @@ export interface TableDeps {
    */
   clock: () => number;
   config?: Partial<TableConfig>;
+  /**
+   * The out-of-band seam for an ABSENT player: a push notification service
+   * plugs in here (plan §3 W10 item 3) and nothing in the game flow changes.
+   * Fire-and-forget by contract; a notifier must never throw into the table.
+   * Absent by default — the seam exists before the service does.
+   */
+  notify?: SeatNotifier;
 }
+
+export type SeatNotice = "tableFull" | "yourTurn" | "matchEnd";
+export type SeatNotifier = (matchId: string, seat: SeatIndex, playerId: string, notice: SeatNotice) => void;
 
 /* ── 3. persisted shapes ───────────────────────────────────────────────── */
 
@@ -1320,6 +1330,7 @@ export class TableCore {
     this.armDerived(this.deps.clock());
     await this.persistCore();
     await this.rearm();
+    for (const seat of SEATS) this.notifySeat(seat, "tableFull");
   }
 
   /** Hand over to the reducer, which deals the next hand or ends the match. */
@@ -1401,6 +1412,29 @@ export class TableCore {
         type: "prompt",
         payload: { legal, deadlineTs: win ? win.closesAt : (this.deadlines["turnClock"]?.at ?? 0) },
       });
+    }
+    // A human whose turn it is and who has no socket gets the out-of-band
+    // notice instead of a prompt. Sockets were prompted above; this reaches
+    // the phone in a pocket.
+    if (this.deps.notify && !win && this.state.phase === "awaitDiscard") {
+      const seat = this.state.turn;
+      const player = this.requireMeta().header.players[seat];
+      if (!player.bot && !this.presence[seat].connected) {
+        this.notifySeat(seat, "yourTurn");
+      }
+    }
+  }
+
+  private notifySeat(seat: SeatIndex, notice: SeatNotice): void {
+    const notify = this.deps.notify;
+    if (!notify) return;
+    const meta = this.requireMeta();
+    const player = meta.header.players[seat];
+    if (player.bot || player.playerId === "") return;
+    try {
+      notify(meta.matchId, seat, player.playerId, notice);
+    } catch (err) {
+      console.error("seat notifier threw", meta.matchId, seat, notice, err);
     }
   }
 
