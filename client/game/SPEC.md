@@ -226,6 +226,7 @@ Dated entries are easiest to act on later._
 | 2026-08-31 | **Feedback carries game state** — match id, hand, last 8 log lines, seed — and attaches to the last match once you have quit. |
 | 2026-08-31 | **Motions queue, announcements ride alongside** — the sequencing model, after a discard and the next player's draw were animating in the same frame. Queue by delay + `backwards`, never by gating. See `ANIMATION-SEQUENCE.md`. |
 | 2026-08-31 | **The toss is a thrown tile**: flight → contact short of the slot → pause → skid that accelerates and stops dead. The final easing is an ease-IN ending at (1,1); a decelerating curve read as a glide. |
+| 2026-08-31 | **Every discard is declared** — the tile's name beside the thrower, 640 ms, in the announcement lane so it costs the turn nothing. Its own element at call weight ÷ 4, because it fires eighty times a hand where a call fires seven. |
 
 
 

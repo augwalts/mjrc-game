@@ -319,7 +319,8 @@ function newMatch(): void {
     profile: i === HUMAN ? DEFAULT_PROFILE : profileOf(table.seats[i - 1]!),
     rnd: prng((seed ^ ((i + 1) * 0x9e3779b1)) >>> 0),
   }));
-  feed.length = 0; pileTiles = []; handSig = ""; devBotLines = []; coachLog.length = 0;
+  feed.length = 0; pileTiles = []; handSig = ""; devBotLines = [];
+  $("say").className = ""; coachLog.length = 0;
   $("veil").style.display = "none";
   $("hudTable").textContent = table.label + " — " + table.seats.map((s) => BOT_NAMES[s] ?? s).join(", ");
   consume(r.events);
@@ -405,6 +406,7 @@ function consume(events: readonly unknown[]): void {
       case "discard":
         pileTiles.push({ id: ++pileSeq, tile: p.tile as TileId, seat: p.seat as number });
         feed.push(`${who(p.seat)} discards ${name(p.tile as TileId)}`);
+        sayDiscard(p.tile as TileId, p.seat as SeatIndex);
         break;
       case "claimed": {
         pileTiles.pop();
@@ -681,6 +683,34 @@ const CALLS: Record<string, [string, string]> = {
   win: ["食糊", "win"], selfDraw: ["自摸", "self-draw"],
   robbingKong: ["搶槓", "robbed the kong"], flower: ["花", "flower"],
 };
+/**
+ * DECLARING THE THROW. At a table you say what you throw, and the owner asked
+ * for it (2026-08-31). This is the ANNOUNCEMENT lane, so it runs alongside the
+ * toss and deliberately does NOT touch `lastTossAt`, `holdMs` or anything else
+ * the motion queue reads — see ANIMATION-SEQUENCE.md §1.
+ *
+ * Its life fits inside the toss's flight: up at 14%, gone by 100%, all within
+ * SAY_MS < the 676 ms the tile spends in the air. A label still on screen when
+ * the next tile is thrown would stack eighty times a hand.
+ *
+ * Restarting a CSS animation on a reused element needs the class removed, a
+ * reflow forced, and the class put back. Without the reflow the browser
+ * coalesces both style changes and the animation never re-runs — so a fast
+ * exchange would silently show only the first player's call.
+ */
+const SAY_MS = 640;
+let sayTimer = 0;
+function sayDiscard(tile: TileId, seat: SeatIndex): void {
+  const el = $("say");
+  el.innerHTML = `<div class="inner">${name(tile)}</div>`;
+  el.className = "";
+  void el.offsetWidth;                       // reflow — see above
+  el.style.setProperty("--sayms", `${SAY_MS}ms`);
+  el.className = `show s${seat}`;
+  clearTimeout(sayTimer);
+  sayTimer = window.setTimeout(() => { el.className = ""; }, SAY_MS);
+}
+
 let callTimer = 0;
 /**
  * THE TABLE STOPS FOR A CALL. At a real table nobody moves while someone is

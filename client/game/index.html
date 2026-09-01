@@ -267,6 +267,38 @@ body.devmode #mine{padding-top:2px}
 #call .cw{text-shadow:0 1px 5px rgba(0,0,0,.9)}
 #call .inner{background:rgba(8,20,15,.55);border:1px solid rgba(216,181,106,.4);border-radius:14px;
   padding:8px 18px;backdrop-filter:blur(3px)}
+/* ── declaring the throw ────────────────────────────────────────────────
+ * At a table you say what you throw. This is the ANNOUNCEMENT lane (see
+ * ANIMATION-SEQUENCE.md): it runs alongside the toss, never before or after it,
+ * and it does not touch the motion queue.
+ *
+ * It is deliberately much quieter than #call. A call happens six or seven times
+ * a hand; this happens eighty. Same idea at call weight would be unreadable
+ * noise, so it is small, low-contrast, and gone before the tile lands — the
+ * label's whole life is inside the toss's flight.
+ *
+ * Its own element, not #call: a claim fires on the very next event after the
+ * discard it claims, so sharing one banner would have 碰 stomping the
+ * declaration that caused it. They sit at different offsets so both can show.
+ */
+#say{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);opacity:0;
+  pointer-events:none;z-index:8;white-space:nowrap}
+#say.s0{left:50%;top:80%}
+#say.s1{left:78%;top:62%}
+#say.s2{left:50%;top:22%}
+#say.s3{left:22%;top:62%}
+#say .inner{background:rgba(8,20,15,.5);border:1px solid rgba(255,255,255,.14);
+  border-radius:9px;padding:3px 9px;font-size:15px;font-weight:600;color:#e8e2d4;
+  text-shadow:0 1px 4px rgba(0,0,0,.8)}
+#say.show{animation:sayIn var(--sayms,900ms) cubic-bezier(.2,.85,.35,1) forwards}
+@keyframes sayIn{
+  0%{opacity:0;transform:translate(-50%,-50%) scale(.7)}
+  14%{opacity:1;transform:translate(-50%,-50%) scale(1.04)}
+  26%{transform:translate(-50%,-50%) scale(1)}
+  62%{opacity:1}
+  100%{opacity:0;transform:translate(-50%,-58%) scale(.98)}
+}
+
 @keyframes callIn{
   0%{opacity:0;transform:translate(-50%,-50%) scale(.55) rotate(-7deg)}
   9%{opacity:1;transform:translate(-50%,-50%) scale(1.12) rotate(2deg)}
@@ -306,6 +338,7 @@ body.devmode #mine{padding-top:2px}
   <div id="centre"><div id="surface"><div id="wall"></div><div id="pile"></div></div></div>
   <div class="seat s" id="seatS"></div>
   <div id="log"></div>
+  <div id="say"></div>
   <div id="call"></div>
 </div></div>
 <div id="devwrap"></div>

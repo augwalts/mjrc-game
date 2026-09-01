@@ -132,18 +132,37 @@ to. `TOSS_SETTLED` in `game.ts` is the knob if that judgement turns out wrong.
 
 ---
 
-## 6. Not built — the discard announcement
+## 6. Declaring the throw
 
-The owner's example of a legitimate parallel animation was declaring the tile as
-it is thrown, the way a call is announced. It is **not implemented**; `callIn`
-currently fires only for claims, flowers and wins.
+At a table you say what you throw, so every discard now puts the tile's name up
+beside the player who threw it. Built 2026-08-31 on the owner's instruction,
+after I flagged the noise risk below and was overruled.
 
-If it ships it belongs in the announcement lane: it runs *with* the toss, never
-before or after it, and it must not extend `AFTER_TOSS_MS`. Worth weighing
-against noise — a label on all 80-odd discards in a hand is very different from
-one on the six or seven calls.
+It is the **announcement lane**, so it runs alongside the toss and touches
+nothing the motion queue reads — not `lastTossAt`, not `holdMs`. Adding it did
+not lengthen a turn by a millisecond.
 
----
+| | |
+| --- | --- |
+| element | `#say` — **its own**, not `#call` |
+| duration | **640 ms**, entirely inside the toss's 676 ms flight |
+| position | `s0`–`s3`, offset from `#call`'s so both can be up at once |
+| weight | small, low-contrast, no gold. A whisper next to `#call`'s shout |
+
+**Why a separate element.** A claim fires on the very next event after the
+discard it claims, so sharing one banner would have 碰 stomping the declaration
+that caused it. Verified: with both showing, their rects do not intersect.
+
+**Why so quiet.** A call happens six or seven times a hand; this happens eighty.
+The same treatment at call weight would be unreadable noise. Its life is over
+before the tile lands, so labels never stack.
+
+**One implementation trap.** Restarting a CSS animation on a reused element
+needs the class removed, **a reflow forced**, then the class put back. Without
+`void el.offsetWidth` between them the browser coalesces both style changes and
+the animation never re-runs — a fast exchange would silently show only the first
+player's call. Verified across a live game: nine declarations, all four seats in
+turn order, none dropped.
 
 ## 7. Rules for adding an animation
 

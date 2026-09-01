@@ -3160,6 +3160,7 @@
     pileTiles = [];
     handSig = "";
     devBotLines = [];
+    $("say").className = "";
     coachLog.length = 0;
     $("veil").style.display = "none";
     $("hudTable").textContent = table.label + " \u2014 " + table.seats.map((s) => BOT_NAMES[s] ?? s).join(", ");
@@ -3233,6 +3234,7 @@
         case "discard":
           pileTiles.push({ id: ++pileSeq, tile: p.tile, seat: p.seat });
           feed.push(`${who(p.seat)} discards ${name3(p.tile)}`);
+          sayDiscard(p.tile, p.seat);
           break;
         case "claimed": {
           pileTiles.pop();
@@ -3505,6 +3507,20 @@
     robbingKong: ["\u6436\u69D3", "robbed the kong"],
     flower: ["\u82B1", "flower"]
   };
+  var SAY_MS = 640;
+  var sayTimer = 0;
+  function sayDiscard(tile, seat) {
+    const el = $("say");
+    el.innerHTML = `<div class="inner">${name3(tile)}</div>`;
+    el.className = "";
+    void el.offsetWidth;
+    el.style.setProperty("--sayms", `${SAY_MS}ms`);
+    el.className = `show s${seat}`;
+    clearTimeout(sayTimer);
+    sayTimer = window.setTimeout(() => {
+      el.className = "";
+    }, SAY_MS);
+  }
   var callTimer = 0;
   var CLAIM_HOLD_MS = 750;
   var FLOWER_HOLD_MS = 500;
