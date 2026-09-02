@@ -943,7 +943,7 @@ describe("claim windows", () => {
 
   it.each([
     ["pung", 6_000] as const,
-    ["chow", 9_000] as const,
+    ["chow", 12_000] as const,
     ["win", 15_000] as const,
   ])("scales a human window's duration by the option offered — %s", async (kind, ms) => {
     expect(DEFAULT_TABLE_CONFIG.claimWindowMs[kind]).toBe(ms); // pins the default this test exercises

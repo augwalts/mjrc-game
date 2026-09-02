@@ -369,7 +369,7 @@ export interface TableConfig {
 
 export const DEFAULT_TABLE_CONFIG: TableConfig = {
   turnMs: 20_000,
-  claimWindowMs: { pung: 6_000, chow: 9_000, win: 15_000 },
+  claimWindowMs: { pung: 6_000, chow: 12_000, win: 15_000 },
   disconnectGraceMs: 30_000,
   botMinPaceMs: 250,
   botMaxPaceMs: 900,
