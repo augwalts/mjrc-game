@@ -48,7 +48,41 @@ figcaption{font-size:10px;color:#8d8a84;padding:5px 8px 3px;line-height:1.35;
 .err{color:#c88;font-size:11px;padding:6px 8px}
 </style>
 </head>
-<body><div class="wrap">
+<body>
+<!-- ── PROVENANCE STAMP ──────────────────────────────────────────────
+  Inline on purpose: these pages live in two repos and are served from three
+  roots, so a shared include would silently vanish from some of them — and a
+  provenance banner that sometimes fails to appear is worse than none, since
+  its absence reads as approval. Duplicated, and kept in step by hand.
+-->
+<style>
+.prov-stamp{font:12px/1.55 ui-monospace,"SF Mono",Menlo,monospace;
+  background:#f4f1ea;border-bottom:2px solid #cfc7b0;color:#4a463f;
+  padding:11px 18px;display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap}
+.prov-stamp .pill{font-family:"Helvetica Neue",Helvetica,sans-serif;font-weight:700;
+  font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;padding:4px 9px;
+  background:#777770;color:#fff;flex:0 0 auto;white-space:nowrap}
+.prov-stamp .body{flex:1;min-width:280px}
+.prov-stamp b{font-weight:700}
+.prov-stamp a{color:inherit}
+.prov-stamp .ln{display:block;margin-top:3px}
+.prov-stamp .ln i{font-style:normal;font-weight:700;text-transform:uppercase;
+  font-size:9.5px;letter-spacing:.07em;opacity:.75;margin-right:6px}
+</style>
+<div class="prov-stamp">
+  <span class="pill">AI exercise</span>
+  <div class="body">
+    <b>Research surface. Method was corrected by the designer; findings are measured.</b>
+    <span class="ln"><i>directed</i>Take inspiration from Hong Kong photographs; photos first, then concepts, then UX. And that the first extractor was wrong — it averaged, and the images are defined by minority colours.</span>
+    <span class="ln"><i>measured</i>The rebuilt OKLab extractor and its results.</span>
+    <span class="ln"><i>ai</i>The three-room framing and the choice of searches.</span>
+
+    <span class="ln" style="opacity:.7;margin-top:6px">2026-09-01/02 · full record and every
+      other exercise in the
+      <a href="/mjrc-admin/design/index.html">design index</a></span>
+  </div>
+</div>
+<div class="wrap">
 <h1>MJRC — reference wall</h1>
 <p class="lede">Photographs first. Three rooms the game could be set in, each with a palette read
   off the pictures rather than invented. Neutrals (the room) and accents (the signs, the felt,
