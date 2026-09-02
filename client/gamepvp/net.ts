@@ -26,6 +26,7 @@ import type {
   PromptPayload,
   RejectCode,
   RejectedPayload,
+  RestorePayload,
   SeatDirectoryEntry,
   ServerToSeat,
   WelcomePayload,
@@ -123,6 +124,47 @@ export type MatchFormat = "east" | "full";
 export type TableMode = "casual" | "ranked";
 export type TableAccess = "open" | "private";
 
+/**
+ * PVP-LOBBY-PROPOSAL-2026-09-02.md §8a-2: a table's turn/claim pace. Declared
+ * here rather than imported from protocol/src/messages.ts because the wire
+ * contract for it (`POST /api/tables`'s `speed`, `LobbyTable.speed`, the
+ * `starting` push) is still landing server-side (another agent's work, in
+ * parallel with this client, per the task brief) — this is coded to the
+ * DOCUMENTED contract and degrades gracefully wherever the server doesn't
+ * send the field yet (every reader below treats a missing value as
+ * "unknown", never as a crash). Replace with a `protocol/` import once that
+ * lands there with the same shape.
+ */
+export const TABLE_SPEEDS = ["untimed", "very-slow", "normal", "faster", "insane"] as const;
+export type TableSpeed = (typeof TABLE_SPEEDS)[number];
+export const isTableSpeed = (v: unknown): v is TableSpeed =>
+  typeof v === "string" && (TABLE_SPEEDS as readonly string[]).includes(v);
+
+/**
+ * `starting { startsAt, settings }` (§8a-2) — broadcast once before the first
+ * turn, and echoed on `welcome`/`restore` as `starting: {...} | null` while
+ * the hold is still up. Not yet in `protocol/src/messages.ts`'s
+ * `ServerToSeat`/`WelcomePayload`/`RestorePayload` union (see the doc comment
+ * above `TableSpeed`) — `TableSocket` reads it off the raw JSON before
+ * narrowing to the typed union, see `handleMessage` below.
+ */
+export interface StartingSettings {
+  style: string;
+  rulesetId: string;
+  rulesetLabel: string;
+  minimumFaan: number;
+  limitFaan: number;
+  useFlowers: boolean;
+  paymentId: string;
+  matchFormat: MatchFormat;
+  speed: TableSpeed;
+  seats: FourSeats<SeatDirectoryEntry>;
+}
+export interface StartingPayload {
+  startsAt: number;
+  settings: StartingSettings;
+}
+
 export interface CreateTableResult {
   tableId: string;
   matchUuid: string;
@@ -146,6 +188,9 @@ export async function createTable(
   opts: {
     rulesetId: string; matchFormat: MatchFormat; mode: TableMode; access: TableAccess;
     randomizeSeats: boolean; seats: [SeatSpec, SeatSpec, SeatSpec, SeatSpec];
+    /** §8a-2. Optional here only so an older caller of this module still
+     *  compiles; `game.ts`'s `doCreateTable()` always sends one now. */
+    speed?: TableSpeed;
   },
 ): Promise<CreateTableResult> {
   return apiFetch("tables", { method: "POST", token, body: opts });
@@ -230,6 +275,9 @@ export interface LobbyTable {
   rulesetId: string;
   matchFormat: MatchFormat;
   lobbyStatus: LobbyStatus;
+  /** §8a-2. Absent on a server that hasn't landed the field yet — every
+   *  reader treats that the same as "unknown", never a crash. */
+  speed?: TableSpeed;
   hand?: number;
   handsBase?: number;
   seats: LobbyTableSeat[];
@@ -495,18 +543,22 @@ export class RequestRejected extends Error {
 }
 
 export interface TableSocketCallbacks {
-  onWelcome(payload: WelcomePayload): void;
+  /** `starting`: `null` unless the table is currently in the pre-deal hold
+   *  (§8a-2) — carried on `welcome` the same way `paused` already is, so a
+   *  join/reload mid-hold shows the start card instead of missing it. */
+  onWelcome(payload: WelcomePayload, starting: StartingPayload | null): void;
   /** `restore` carries the SAME contract as `events`: a batch to animate, plus
    *  the snapshot to snap to afterward — see the top of game.ts's consume().
    *  It also re-sends `directory`: who sits where may have changed (seats
    *  filled or shuffled) since this seat's own `welcome`. `paused` is the
    *  same field `welcome` carries — `null` means nobody has the table paused
-   *  right now. */
+   *  right now. `starting` mirrors `onWelcome`'s. */
   onRestore(
     events: SeatVisible<RedactedGameEvent>[],
     snapshot: SeatVisible<SeatSnapshot>,
     directory: FourSeats<SeatDirectoryEntry>,
     paused: PausedState | null,
+    starting: StartingPayload | null,
   ): void;
   onEvents(events: SeatVisible<RedactedGameEvent>[], snapshot: SeatVisible<SeatSnapshot> | null): void;
   onPrompt(payload: PromptPayload): void;
@@ -525,6 +577,11 @@ export interface TableSocketCallbacks {
    *  `presence`/`chat`, sent to every seat whenever the table's pause state
    *  changes (worker/src/table.ts `handlePause`/`resumeNow`). */
   onPaused(payload: PausedPayload): void;
+  /** The `starting` push (§8a-2) — live, on an already-open socket, once
+   *  before the first turn. `onWelcome`/`onRestore` cover the "already
+   *  holding when this socket connects" case; this covers "starts holding
+   *  while connected" (every human seat just filled). */
+  onStarting(payload: StartingPayload): void;
   onFault(payload: ProtocolFaultPayload): void;
   /** The `join` itself was refused — a dead seat token, most likely. The
    *  caller's job is to fetch a fresh one (joinTable) and call setSeatToken. */
@@ -715,23 +772,37 @@ export class TableSocket {
 
   private handleMessage(ev: MessageEvent): void {
     this.lastMessageAt = Date.now();
-    let msg: ServerToSeat;
+    let raw: unknown;
     try {
-      msg = JSON.parse(ev.data as string) as ServerToSeat;
+      raw = JSON.parse(ev.data as string);
     } catch {
       return;
     }
+    if (!raw || typeof raw !== "object" || !("type" in raw)) return;
+    // `starting` (§8a-2) is not yet in protocol/src/messages.ts's
+    // `ServerToSeat` union — see `StartingPayload`'s doc comment above.
+    // Handled here, off the raw parse, before narrowing to the typed union
+    // below, so a server that already sends it works without waiting on
+    // that type to land, and a server that never sends it just never hits
+    // this branch (graceful degrade, per the task brief).
+    if ((raw as { type: unknown }).type === "starting") {
+      this.cb.onStarting((raw as unknown as { payload: StartingPayload }).payload);
+      return;
+    }
+    const msg = raw as ServerToSeat;
     switch (msg.type) {
-      case "welcome":
+      case "welcome": {
         this.pendingJoinId = null;
         this.backoffMs = BASE_BACKOFF_MS;
         this.cb.onOpen?.();
-        this.cb.onWelcome(msg.payload);
+        const starting = (msg.payload as WelcomePayload & { starting?: StartingPayload | null }).starting ?? null;
+        this.cb.onWelcome(msg.payload, starting);
         this.cb.onChatHistory(msg.payload.chat);
         break;
+      }
       case "restore": {
-        const p = msg.payload;
-        this.cb.onRestore(p.events, p.snapshot, p.directory, p.paused);
+        const p = msg.payload as RestorePayload & { starting?: StartingPayload | null };
+        this.cb.onRestore(p.events, p.snapshot, p.directory, p.paused, p.starting ?? null);
         this.cb.onChatHistory(p.chat);
         break;
       }

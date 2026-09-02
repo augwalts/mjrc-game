@@ -329,6 +329,94 @@ for *this seat only*; it is replaced whole, never patched.
     the DESKTOP breakpoint listener's already-correct pattern: re-render the
     table under whatever is showing, THEN `syncVeil()` — never the reverse,
     and never a bare "hide the veil".
+22. **Speed picker** (PVP-LOBBY-PROPOSAL-2026-09-02.md §8a-2, added
+    2026-09-02) — New table gets a fifth section, five pills
+    (`TABLE_SPEEDS`/`SPEED_INFO`, game.ts), one line of turn/claim seconds
+    each from the proposal's own table. `newTableDraft.speed` follows
+    `defaultSpeedFor(humanSeatCount())` (untimed for one human, normal for
+    two or more — matches `worker/src/index.ts`'s now-landed
+    `resolveSpeed` server default, verified live) on every re-render of the
+    screen, which already fires on every seat toggle, until the creator
+    taps a pill (`speedManual`), same "live default, sticky override" shape
+    nothing else on this screen needed before. `POST /api/tables` always
+    carries `speed` now; the fields it already sent are unaffected. The
+    badge (`.badge.speed`) shows on lobby table rows (`tableRowHtml`, off
+    `LobbyTable.speed`) and in the waiting room (off `currentSpeed`, seeded
+    from the create/join request or the lobby's cached row for the table
+    being joined, overwritten by the start card's own `settings.speed` the
+    moment it arrives — same "seed then authoritative" shape `seatPlan`
+    already used). A room's fixed speed (§8b, "show it as fixed") has no
+    client surface yet — no room-scoped New table flow exists in this
+    client at all (the Rooms tab is membership only, see item 2 above), so
+    there is nowhere in the UI for "fixed" to apply until that lands.
+23. **The start card** (§8a-2, added 2026-09-02) — a `starting {
+    startsAt, settings }` push (live, `TableSocket.onStarting`) or an
+    already-holding `welcome.starting`/`restore.starting` (both non-null)
+    opens a veil state above the waiting room (`syncVeil()`,
+    `showStartCard()`, game.ts): the ruleset label and its key numbers,
+    length, the speed in words, all four seats from `settings.seats`, a
+    live countdown to `startsAt`, and a ready button that sends
+    `requestNextHand` — literally the same message the hand-end
+    intermission's own "next hand" button sends, reused verbatim per the
+    contract ("the hold ends early the same way"). Closes the instant a
+    real `deal` (consume()'s own case) or `prompt` (`onPrompt`) arrives —
+    either one is only ever sent once the server's hold is genuinely over,
+    the same "arrival is proof" reasoning `applyBatch()` already uses to
+    close the hand-end reveal — with a `setTimeout` at `startsAt`
+    (+250ms slack) as the fallback in case neither ever does. `net.ts`
+    declares `Speed`/`StartingPayload`/`StartingSettings` itself rather
+    than importing them from `protocol/src/messages.ts`, even though that
+    file has since landed the identical shape (`Speed`, `MatchStartSettings`,
+    `StartingPayload`, verified field-for-field against the live
+    worker/protocol code) — kept independent on purpose, per the task
+    brief's "degrade gracefully where the server is not there yet":
+    `TableSocket.handleMessage` reads `starting` off the raw parsed JSON
+    before narrowing to the typed `ServerToSeat` union, so this client
+    never hard-depends on a concurrently-changing file it was told not to
+    edit.
+24. **Optimistic discard** (§8a-2, added 2026-09-02) — the ONE place
+    this client predicts anything, and even here only the ANIMATION runs
+    ahead, never game state (§ top of this file's doctrine is otherwise
+    untouched). Tapping a legal tile pushes a `pileTiles` entry for it
+    immediately (`mySeat`, a fresh `pileSeq` id) and sets
+    `pendingOptimisticDiscard` before calling `act()` — `act()`'s own
+    synchronous `render()` right after is what actually runs the toss,
+    through the EXACT SAME pile-placement loop every other discard's
+    `.pos` is assigned by (the loop only ever assigns `.pos` once per
+    entry, never recomputes it), so the slot chosen on tap is never moved
+    once the real event lands. The tile is pulled out of the rendered hand
+    the same render pass (`render()` checks `pendingOptimisticDiscard`
+    against both `me.hand` and `me.drawn` — 摸切 discards the drawn
+    tile, a different slot in the markup). When the server's own `discard`
+    event for this seat and tile arrives (consume()'s "discard" case), it
+    reconciles instead of pushing a second `pileTiles` entry — pushing a
+    second one is what would make the pile loop's own "is this id already
+    a DOM node" check treat it as new and re-toss it, exactly the bug this
+    exists to avoid. A `rejected` (or a request timeout, or the socket
+    closing mid-flight — `act()`'s catch already runs for all three)
+    drops the pile entry and clears the flag, which is enough on its own:
+    the pile loop's stale-node cleanup removes the DOM node and the hand
+    filter stops excluding the tile, both on the very next `render()` the
+    catch already calls. Guarded to one pending discard at a time
+    (`pendingOptimisticDiscard` gates the tile `onclick`), though `act()`
+    clearing `pending` synchronously already makes a second tap have no
+    legal action to find regardless.
+25. **The clock bar's empty states** (§8a-2, added 2026-09-02) —
+    `#clockNote` sits where `#clockbar`'s own 3px track would be, for the
+    two states with nothing running there. "no clock" (`noClock`, set
+    purely by `startClock(0)`'s own sentinel — see item 20 — so this
+    needs no separate knowledge of the table's `speed` and is correct even
+    on a server that never sends one) is the plain case. When this seat's
+    own `presence.auto` flips on WITHOUT this client having just asked for
+    it (`myAutoRequestedOn`, set the instant the HUD's Auto button sends
+    `requestAuto(true)` and cleared the moment `presence` confirms any auto
+    state) it reads as the untimed idle timeout instead (`myAutoIdle`) —
+    the wire has no separate "why" for the transition, so this is
+    inferred, not authoritative, and documented as such in `myAutoIdle`'s
+    own comment. The idle banner ("tap any tile to take back") is also the
+    one case a `.locked` hand still answers a tap: it sends
+    `requestAuto(false)` rather than a discard, handing the seat back
+    without acting on whatever tile happened to be under the finger.
 
 ## What was removed from Solo, and why
 

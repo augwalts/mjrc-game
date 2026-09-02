@@ -36,7 +36,7 @@ import type {
 } from "../../protocol/src/messages.js";
 import { CHAT_PHRASES, CHAT_TEXT_MAX_LENGTH } from "../../protocol/src/messages.js";
 import {
-  ApiError, RequestRejected, TableSocket,
+  ApiError, RequestRejected, TableSocket, TABLE_SPEEDS,
   createRoom, createTable, getLeaderboard, getLobby, getMyRooms, getMyStats, getPlayerStats,
   identify, joinRoom, joinTable,
   leaveTable as apiLeaveTable, listBots, listMatches,
@@ -45,7 +45,8 @@ import {
   type LeaderboardMode, type LobbyChatEntry, type LobbyHereEntry, type LobbyPayload,
   type LobbyTable, type LobbyTableSeat, type MatchFormat, type MatchListItem,
   type PlayerStats, type PlayerStatsRecentMatch, type PlayerStatsTotals,
-  type RankedLeaderboardEntry, type RoomSummary, type SeatSpec, type TableAccess, type TableMode,
+  type RankedLeaderboardEntry, type RoomSummary, type SeatSpec, type StartingPayload,
+  type TableAccess, type TableMode, type TableSpeed,
 } from "./net.js";
 
 declare global {
@@ -131,6 +132,51 @@ const RULE_PICKS: [string, string, string][] = [
   ["mjrc-standard", "MJRC standard", "3–10 faan · flowers · doubling payments. The house game."],
   ["tvb-2026", "TVB Championship 2026", "1 faan minimum · no flowers · linear payments. Every hand is payable, and big hands barely out-earn small ones."],
 ];
+
+/* ── speed (New table picker, lobby/waiting-room badges, the start card) ──
+ * PVP-LOBBY-PROPOSAL-2026-09-02.md §8a-2's table, verbatim. `caption` is the
+ * picker's one-line-per-pill text; `wordy` is the same numbers read out as
+ * prose for the start card. `untimed`'s own caption is the task brief's own
+ * wording, not derived from the numbers (there are none to show). */
+const SPEED_INFO: Record<TableSpeed, { label: string; caption: string; wordy: string }> = {
+  untimed: {
+    label: "Untimed",
+    caption: "no clocks; a 10-minute idle timeout switches you to auto",
+    wordy: "no clock — a 10-minute idle timeout switches an inactive seat to auto",
+  },
+  "very-slow": {
+    label: "Very slow",
+    caption: "60s turns · pung 15s · chow 20s · win 30s",
+    wordy: "60s turns, pung 15s, chow 20s, win 30s",
+  },
+  normal: {
+    label: "Normal",
+    caption: "40s turns · pung 10s · chow 15s · win 20s",
+    wordy: "40s turns, pung 10s, chow 15s, win 20s",
+  },
+  faster: {
+    label: "Faster",
+    caption: "20s turns · pung 6s · chow 12s · win 15s",
+    wordy: "20s turns, pung 6s, chow 12s, win 15s",
+  },
+  insane: {
+    label: "Insane",
+    caption: "8s turns · pung 3s · chow 4s · win 6s",
+    wordy: "8s turns, pung 3s, chow 4s, win 6s",
+  },
+};
+/** "Bot-only tables default to untimed; tables with two or more humans
+ *  default to normal" (§8a-2) — read literally: the ONE-human case (a lone
+ *  human against bots) is grouped with bot-only under "untimed" here, since
+ *  a solo human has nobody else's clock to keep fair either. */
+const defaultSpeedFor = (humanCount: number): TableSpeed => (humanCount <= 1 ? "untimed" : "normal");
+/** `hkos-doubling`/`liu-brackets`/`tvb-linear` — `rulesets/src/payment.ts`'s
+ *  own `PaymentTable.id`s, which is the most likely shape of the wire's
+ *  `paymentId` (§8a-2's `settings`) though it is not yet confirmed live —
+ *  falls back to the raw id for anything unrecognised. */
+const PAYMENT_LABELS: Record<string, string> = {
+  "hkos-doubling": "doubling", "liu-brackets": "bracket", "tvb-linear": "linear",
+};
 
 /* ── bot picker (New table screen) ────────────────────────────────────────
  * The catalogue is server data (GET /api/bots — gamepvp/src/bots.ts
@@ -269,6 +315,14 @@ let currentMatchUuid: string | null = null;
 let currentJoinCode: string | null = null;
 let currentRulesetId = "mjrc-standard";
 let currentMatchFormat: MatchFormat = "east";
+/** Best current knowledge of this table's speed (§8a-2) — seeded from
+ *  whatever this client itself sent/read at connect time (`doCreateTable`'s
+ *  own request, or the joined table's row in `lobbyData`, same "seed, then
+ *  authoritative data overwrites it" pattern `seatPlan` already uses), then
+ *  overwritten the moment a `starting` push/`welcome.starting`/`restore.
+ *  starting` supplies the server's own value. `null` only when neither has
+ *  happened yet — every reader shows "…" rather than guessing. */
+let currentSpeed: TableSpeed | null = null;
 
 /* ── pause + auto-play ─────────────────────────────────────────────────
  * `paused` mirrors the server's `paused` broadcast (and `welcome`/`restore`'s
@@ -280,6 +334,22 @@ let currentMatchFormat: MatchFormat = "east";
  * no-optimism doctrine, not a game-state prediction). */
 let paused: PausedState | null = null;
 let myAuto = false;
+/** §8a-2's untimed idle timeout switches a seat to auto the SAME way
+ *  `requestAuto`/`presence.auto` already does — the wire gives no separate
+ *  "why" for the transition, so this client infers it: `myAutoRequestedOn`
+ *  is set right when THIS client asks for auto itself (`#btnAuto`), and
+ *  cleared the moment a `presence` confirms it; if `presence` instead turns
+ *  this seat's `auto` on WITHOUT that flag having been set, nobody at this
+ *  keyboard asked for it, so it reads as the idle timeout (`myAutoIdle`) —
+ *  see `onPresence`. Both are always false again once `auto` goes back off,
+ *  from any cause. */
+let myAutoIdle = false;
+let myAutoRequestedOn = false;
+/** Drives the "no clock" marker (task item 4) — set by `startClock()`
+ *  itself on the `deadlineTs === 0` sentinel, so it needs no separate
+ *  tracking of which speed the table is on (works even when `currentSpeed`
+ *  is still unknown, e.g. an older server that never sends `starting`). */
+let noClock = false;
 
 /* ── table chat state (§8) ─────────────────────────────────────────────
  * `tableChat` mirrors the table's own last-50 ring (server-side, table.ts) —
@@ -313,6 +383,34 @@ let handSig = "";
 let overlay: string | null = null;
 interface MatchEndInfo { standings: number[]; placements: number[]; reason: string; handsPlayed: number; }
 let matchEndInfo: MatchEndInfo | null = null;
+
+/* ── the start card (task brief item 2, §8a-2) ─────────────────────────────
+ * `starting { startsAt, settings }` — a full-table hold before the first
+ * turn. `startingInfo` non-null is its own veil state, above the waiting
+ * room but below the pause veil/hand-end reveal/matchEnd in `syncVeil()`'s
+ * priority (a `starting` push only ever fires once every human seat is
+ * already connected, so it can never race the waiting room in practice, but
+ * the ordering documents which one wins if it somehow did). */
+let startingInfo: StartingPayload | null = null;
+/** Fallback close at `startsAt` (+ slack) in case no `deal`/`prompt` ever
+ *  arrives to close it the "proof" way (`onPrompt`, consume()'s "deal"
+ *  case) — mirrors `startReveal()`'s own fixed-hold fallback. */
+let startingCloseTimer = 0;
+/** 1Hz repaint while the card is up, same "bounded, not continuous" rAF
+ *  exception `startReveal()`'s own countdown already documents. */
+let startingTickTimer = 0;
+/** This seat already sent `requestNextHand` to end the hold early. */
+let startCardReady = false;
+
+/* ── optimistic discard (task brief item 3, §8a-2) ─────────────────────────
+ * The one place this client predicts anything: the toss animation runs the
+ * instant a legal tile is tapped, ahead of the server's own `discard` event
+ * — everything else about the doctrine (§ top of this file) is unchanged,
+ * this is animation running ahead of state, never state running ahead of
+ * the server. `pileId` is the optimistic `pileTiles` entry's own `id`, so a
+ * `rejected` can find and drop exactly that one pile tile (see `act()`). */
+interface PendingOptimisticDiscard { tile: TileId; pileId: number; }
+let pendingOptimisticDiscard: PendingOptimisticDiscard | null = null;
 
 /* ── hand-end reveal (task brief item 1) ──────────────────────────────────
  * `overlay` above IS the reveal's content once a hand ends — this block is
@@ -811,7 +909,8 @@ function clockTick(): void {
  *  same as `stopClock()`'s "not your turn" case already leaves it (unfilled
  *  but visible) — a real deadline always un-hides it via `startClock`. */
 function startClock(deadlineTs: number): void {
-  if (deadlineTs === 0) { stopClock(); $("clockbar").style.display = "none"; return; }
+  if (deadlineTs === 0) { noClock = true; stopClock(); $("clockbar").style.display = "none"; return; }
+  noClock = false;
   $("clockbar").style.display = "";
   clockDeadline = deadlineTs;
   clockTotalMs = Math.max(1, deadlineTs - Date.now());
@@ -903,7 +1002,11 @@ function consume(events: readonly RedactedGameEvent[]): void {
         window.clearTimeout(revealTimer);
         revealTimer = 0; revealDeadlineTs = null; revealRequested = false;
         overlay = null;
+        // The start card (task brief item 2) closes the same way — a `deal`
+        // could only land if the server's own hold is genuinely over.
+        closeStartCardOnPlay();
         pileTiles = []; handSig = ""; landingMeld = null;
+        pendingOptimisticDiscard = null;
         $("say").className = "";
         buildWall();
         // "this hand"'s chat filter (§8 task item 2) anchors here — a fresh
@@ -917,7 +1020,17 @@ function consume(events: readonly RedactedGameEvent[]): void {
         break;
       case "discard": {
         const seat = p.seat as SeatIndex, tile = p.tile as TileId;
-        pileTiles.push({ id: ++pileSeq, tile, seat });
+        // Task item 3: this seat's own discard already tossed on tap — the
+        // pile entry (and its `.pos`, fixed once by the very placement loop
+        // the toss reused, `render()` below) already exists. Reconcile
+        // instead of pushing a second one, or the pile loop's own
+        // "have.has(d.id)" new-node check creates a fresh DOM node and
+        // re-tosses it (exactly what this feature exists to avoid).
+        if (seat === mySeat && pendingOptimisticDiscard?.tile === tile) {
+          pendingOptimisticDiscard = null;
+        } else {
+          pileTiles.push({ id: ++pileSeq, tile, seat });
+        }
         feed.push(`${seatName(seat)} discards ${name(tile)}`);
         sayDiscard(tile, rel(seat));
         break;
@@ -1132,6 +1245,12 @@ function syncVeil(): void {
   // and skipped the last hand's reveal entirely.
   if (overlay) { showOverlay(); return; }
   if (matchEndInfo) { showMatchEndScreen(); return; }
+  // The start card (task brief item 2, §8a-2) — above the waiting room: a
+  // `starting` push only ever fires once every human seat is connected, so
+  // by the time it lands `humansConnected()` is already true and the
+  // waiting room would show nothing here anyway; this ordering is belt and
+  // braces, same spirit as the reveal-before-matchEnd rule just above.
+  if (startingInfo) { showStartCard(); return; }
   if (snap && directory && !humansConnected() && !(pending && pending.length > 0)) { waitingRoomScreen(); return; }
   $("veil").style.display = "none";
 }
@@ -1159,6 +1278,71 @@ function showOverlay(): void {
   }
   const cb = document.getElementById("btnCont");
   if (cb) (cb as HTMLButtonElement).onclick = () => { closeReveal(); render(); syncVeil(); };
+}
+
+/** Sets/clears the start card's state (task brief item 2, §8a-2) — called
+ *  from `onWelcome`/`onRestore` (already holding when this socket connects)
+ *  and `onStarting` (starts holding while connected). `null` tears the
+ *  whole thing down; a fresh payload arms both of its own timers. Does NOT
+ *  call `render()`/`syncVeil()` itself — every caller does that right after,
+ *  same convention `closeReveal()` already follows. */
+function applyStarting(payload: StartingPayload | null): void {
+  window.clearTimeout(startingCloseTimer); startingCloseTimer = 0;
+  window.clearInterval(startingTickTimer); startingTickTimer = 0;
+  startingInfo = payload;
+  startCardReady = false;
+  if (!payload) return;
+  currentSpeed = payload.settings.speed;
+  startingCloseTimer = window.setTimeout(() => {
+    startingInfo = null;
+    render(); syncVeil();
+  }, Math.max(0, payload.startsAt - Date.now()) + 250);
+  // 1Hz repaint of the countdown text only, while the card is actually up —
+  // same "bounded, not continuous" exception to the zero-idle-rAF rule
+  // `startReveal()`'s own countdown already uses.
+  startingTickTimer = window.setInterval(() => { if (startingInfo) showStartCard(); }, 1000);
+}
+/** Closes the card the moment real play proves the hold is over — called
+ *  from `onPrompt` and consume()'s "deal" case. The server only ever sends
+ *  either while `starting`'s own hold has genuinely ended, so arrival alone
+ *  is the proof (same pattern `applyBatch()` already uses for the hand-end
+ *  reveal — see its own doc comment on why a fresh `deal` closes it). */
+function closeStartCardOnPlay(): void {
+  if (startingInfo) applyStarting(null);
+}
+/** The start card itself (task brief item 2). Reuses the reveal overlay's
+ *  own `#veil`/`#panel` styling and `.rows`/`.row` list — the same "full
+ *  table takeover" surface, just a different moment. */
+function showStartCard(): void {
+  const info = startingInfo;
+  if (!info) return;
+  $("veil").style.display = "flex";
+  const s = info.settings;
+  const remain = Math.max(0, Math.ceil((info.startsAt - Date.now()) / 1000));
+  const humanCount = s.seats.filter((seat) => !seat.bot).length;
+  const seatRows = s.seats.map((seat, i) => `
+    <div class="row"><span class="c1">${WIND_CH[i]}
+      <b>${esc(seat.displayName || (seat.bot ? "bot" : "empty seat"))}</b></span>
+      <span class="c2 mut" style="width:auto">${seat.bot ? "bot" : ""}</span></div>`).join("");
+  const readyBtn = startCardReady
+    ? `<button id="btnStartReady" disabled style="opacity:.55">waiting for others…</button>`
+    : `<button id="btnStartReady">${humanCount <= 1 ? "start now ▸" : "ready ▸"}</button>`;
+  $("panel").innerHTML = `
+    <h1>Hong Kong Old Style · ${esc(s.rulesetLabel)}</h1>
+    <p class="mut">${s.minimumFaan}–${s.limitFaan} faan · ${s.useFlowers ? "flowers" : "no flowers"}
+      · ${esc(PAYMENT_LABELS[s.paymentId] ?? s.paymentId)} payments · ${matchFormatLabel(s.matchFormat)}</p>
+    <p class="mut">${esc(SPEED_INFO[s.speed]?.wordy ?? s.speed)}</p>
+    <div class="rows" style="margin-top:10px">${seatRows}</div>
+    <p class="mut" style="margin-top:10px">starting in ${remain}s</p>
+    <div style="margin-top:10px">${readyBtn}</div>`;
+  const b = document.getElementById("btnStartReady") as HTMLButtonElement | null;
+  if (b && !startCardReady) {
+    b.onclick = () => {
+      startCardReady = true;
+      void ts?.requestNextHand().catch(() => { /* best effort — the countdown/close-on-play still ends it */ });
+      showStartCard();
+    };
+  }
 }
 function showPausedScreen(): void {
   $("veil").style.display = "flex";
@@ -1297,6 +1481,9 @@ function waitingRoomScreen(): void {
     ${currentJoinCode ? `
       <p class="mut">join code</p><h1 style="letter-spacing:.14em;color:var(--gold)">${currentJoinCode}</h1>
       <button id="btnCopyInvite" style="background:rgba(255,255,255,.08)">copy invite link</button>` : ""}
+    <p class="mut">speed: ${currentSpeed
+      ? `<span class="badge speed">${esc(SPEED_INFO[currentSpeed]?.label ?? currentSpeed)}</span>`
+      : "…"}</p>
     <div class="rows">${[0, 1, 2, 3].map((s) => {
       const info = seatWaitInfo(s as SeatIndex);
       return `<div class="row ${info.isMe ? "me" : ""}"><span class="c1">${esc(info.label)}</span>
@@ -1354,7 +1541,8 @@ function showMatchEndScreen(): void {
     matchEndInfo = null; ts?.close(); ts = null; snap = null; directory = null;
     sessionHands.length = 0; coachTally.graded = 0; coachTally.matched = 0; matchAgreement = undefined;
     currentMatchUuid = null; currentJoinCode = null; isCreatorOfCurrentTable = false;
-    paused = null; myAuto = false;
+    paused = null; myAuto = false; myAutoIdle = false; myAutoRequestedOn = false; noClock = false;
+    currentSpeed = null; applyStarting(null); pendingOptimisticDiscard = null;
     closeReveal(); pendingWinDetail = null; pendingDrawDistance = null;
     updateChatVisibility();
     updateHudButtons();
@@ -1379,7 +1567,8 @@ function leaveTable(): void {
   snap = null; directory = null; seatPlan = null; matchEndInfo = null; overlay = null; curLegal = null; pending = null;
   matchAgreement = undefined;
   currentMatchUuid = null; currentJoinCode = null; isCreatorOfCurrentTable = false;
-  paused = null; myAuto = false;
+  paused = null; myAuto = false; myAutoIdle = false; myAutoRequestedOn = false; noClock = false;
+  currentSpeed = null; applyStarting(null); pendingOptimisticDiscard = null;
   closeReveal(); pendingWinDetail = null; pendingDrawDistance = null;
   stopClock();
   updateChatVisibility();
@@ -1400,7 +1589,7 @@ function act(a: Action): void {
   // server does this too; mirror it locally on send)" — a UI-responsiveness
   // exception, not a game-state prediction: the label updates immediately
   // and `presence` confirms it a beat later either way.
-  if (myAuto) { myAuto = false; updateHudButtons(); }
+  if (myAuto) { myAuto = false; myAutoIdle = false; myAutoRequestedOn = false; updateHudButtons(); }
   pending = null;
   stopClock();
   render();
@@ -1429,6 +1618,18 @@ function act(a: Action): void {
   req.then(
     () => {},
     (e: unknown) => {
+      // Task item 3: any failure of a discard this client tossed
+      // optimistically (a real `rejected`, a timeout, or the socket closing
+      // mid-flight — `TableSocket.request`'s promise rejects the same way
+      // for all three) puts the tile back. Dropping the pile entry is
+      // enough: the pile loop's own "remove whatever isn't in `pileTiles`
+      // any more" cleanup (`render()`, below) takes the DOM node with it,
+      // and the hand filter (also `render()`) stops excluding the tile the
+      // instant `pendingOptimisticDiscard` is cleared.
+      if (a.type === "discard" && pendingOptimisticDiscard?.tile === a.tile) {
+        pileTiles = pileTiles.filter((d) => d.id !== pendingOptimisticDiscard!.pileId);
+        pendingOptimisticDiscard = null;
+      }
       flashHudNote(e instanceof RequestRejected ? (REJECT_NOTES[e.code] ?? e.code) : "that didn't go through — try again");
       if (curLegal) pending = actionsOf(mySeat, curLegal);
       render();
@@ -1614,8 +1815,21 @@ function render(): void {
   // Task brief item 3: auto-play disables this seat's own controls entirely.
   const canDiscard = !!pending?.some((a) => a.type === "discard") && !myAuto;
   const hand = [...me.hand].sort((a, b) => a - b);
+  // Task item 3 (§8a-2 optimistic discard): the tile already tossed on tap
+  // is pulled OUT of the rendered hand — drawn-tile and hand-tile are two
+  // different slots in this markup (摸切 discards the drawn tile itself),
+  // so both are checked; only ever one of the two ever matches.
+  let drawnTile = me.drawn;
+  if (pendingOptimisticDiscard) {
+    if (drawnTile === pendingOptimisticDiscard.tile) {
+      drawnTile = null;
+    } else {
+      const k = hand.indexOf(pendingOptimisticDiscard.tile);
+      if (k >= 0) hand.splice(k, 1);
+    }
+  }
   $("myhand").className = canDiscard ? "" : "locked";
-  const sig = `${hand.join(",")}|${me.drawn ?? "-"}|${canDiscard}`;
+  const sig = `${hand.join(",")}|${drawnTile ?? "-"}|${canDiscard}`;
   if (sig !== handSig) {
     handSig = sig;
     // Motion queue (task item 4): if a discard's toss just landed in THIS
@@ -1624,18 +1838,47 @@ function render(): void {
     // `queueBehindToss` doc comment above.
     const drawDelay = queueBehindToss();
     $("myhand").innerHTML = hand.map((t) => tileHtml(t, "", `data-t="${t}"`)).join("")
-      + (me.drawn !== null
-          ? tileHtml(me.drawn, "drawn",
-              `data-t="${me.drawn}" style="--drawms:${DRAW_MS}ms;--drawdelay:${drawDelay}ms;`
+      + (drawnTile !== null
+          ? tileHtml(drawnTile, "drawn",
+              `data-t="${drawnTile}" style="--drawms:${DRAW_MS}ms;--drawdelay:${drawDelay}ms;`
               + `--wx:${(120 - hand.length * 9).toFixed(0)}px;--wy:-190px"`)
           : "");
   }
   if (canDiscard) {
     for (const el of Array.from($("myhand").querySelectorAll<HTMLElement>(".tile"))) {
       el.onclick = () => {
+        if (pendingOptimisticDiscard) return; // one pending discard at a time
         const t = Number(el.dataset.t) as TileId;
         const a = pending?.find((x) => x.type === "discard" && x.tile === t);
-        if (a) { if (isDesktop()) gradeMyDiscard(t); act(a); }
+        if (!a) return;
+        if (isDesktop()) gradeMyDiscard(t);
+        // Optimistic discard (task item 3): toss the tile NOW, off the same
+        // pile-placement function the real event will read too — the loop
+        // below only assigns `.pos` once per `pileTiles` entry, so the slot
+        // chosen here is never recomputed once the server's own `discard`
+        // reconciles it (consume()'s "discard" case). `act()` clears
+        // `pending` synchronously, so a second tap before this round-trips
+        // has no legal action to find anyway — the guard above is belt and
+        // braces on top of that.
+        const pid = ++pileSeq;
+        pileTiles.push({ id: pid, tile: t, seat: mySeat });
+        pendingOptimisticDiscard = { tile: t, pileId: pid };
+        sayDiscard(t, rel(mySeat));
+        act(a);
+      };
+    }
+  } else if (myAuto && myAutoIdle) {
+    // Task item 4: "tap any tile to take back" — this seat's own idle-timeout
+    // auto (not a voluntary one, see `myAutoIdle`'s doc comment) is the one
+    // case where the — otherwise fully inert, `.locked` — hand still answers
+    // a tap, and what it does is relinquish auto rather than discard
+    // whatever was tapped; the player gets a normal turn back on the next
+    // real prompt, same as `requestAuto(false)` from the HUD button already
+    // does.
+    for (const el of Array.from($("myhand").querySelectorAll<HTMLElement>(".tile"))) {
+      el.onclick = () => {
+        void ts?.requestAuto(false).catch((e) =>
+          flashHudNote(e instanceof RequestRejected ? (REJECT_NOTES[e.code] ?? e.code) : "that didn't go through"));
       };
     }
   }
@@ -1687,6 +1930,7 @@ function render(): void {
   $("callwrap").innerHTML = isDesktop() ? callingBar() : "";
   $("devwrap").innerHTML = isDesktop() ? devPanel() : "";
   updateHudButtons();
+  updateClockNote();
   recenterGlyphs(document);
   launchGrab();
 }
@@ -1870,6 +2114,29 @@ function updateHudButtons(): void {
     a.textContent = myAuto ? "🤖 auto: on" : "🤖 auto";
   }
 }
+/** `#clockNote` — task brief item 4: sits where the clock bar's own 3px
+ *  track would be, for the two states with no running clock to show there.
+ *  `noClock` is set purely off `startClock(0)`'s own sentinel (see its doc
+ *  comment), so this needs no separate knowledge of the table's `speed` and
+ *  degrades correctly even when that field never arrives. The idle-auto
+ *  line takes priority — it is actionable ("tap any tile"), not just a
+ *  status line, and (§8a-2) it only ever happens in untimed play anyway. */
+function updateClockNote(): void {
+  const el = document.getElementById("clockNote");
+  if (!el) return;
+  if (currentMatchUuid === null) { el.style.display = "none"; return; }
+  if (myAuto && myAutoIdle) {
+    el.textContent = "auto on: idle for 10 min · tap any tile to take back";
+    el.className = "idle";
+    el.style.display = "";
+  } else if (noClock) {
+    el.textContent = "no clock";
+    el.className = "";
+    el.style.display = "";
+  } else {
+    el.style.display = "none";
+  }
+}
 async function sendTableChatText(): Promise<void> {
   const input = document.getElementById("chatInput") as HTMLInputElement | null;
   if (!input || !ts) return;
@@ -1954,6 +2221,8 @@ function connectToMatch(r: {
   rulesetId: string; matchFormat: MatchFormat; creator?: boolean;
   /** Best-effort seed for the waiting room — see `seatPlan`'s doc comment. */
   seatPlan?: FourSeats<SeatPlanEntry> | null;
+  /** Best-effort seed for `currentSpeed` — see its own doc comment. */
+  speed?: TableSpeed | null;
 }): void {
   currentMatchUuid = r.matchUuid; currentJoinCode = r.joinCode;
   currentRulesetId = r.rulesetId; currentMatchFormat = r.matchFormat;
@@ -1964,17 +2233,20 @@ function connectToMatch(r: {
   }));
   snap = null; directory = null; seatPlan = r.seatPlan ?? null; lastSeq = -1; curLegal = null; pending = null;
   overlay = null; matchEndInfo = null; matchAgreement = undefined;
-  paused = null; myAuto = false;
+  paused = null; myAuto = false; myAutoIdle = false; myAutoRequestedOn = false; noClock = false;
+  currentSpeed = r.speed ?? null;
+  applyStarting(null);
   window.clearTimeout(revealTimer); revealTimer = 0; revealDeadlineTs = null; revealRequested = false;
   pendingWinDetail = null; pendingDrawDistance = null;
   pileTiles = []; handSig = ""; landingMeld = null; feed.length = 0;
+  pendingOptimisticDiscard = null;
   sessionHands.length = 0; coachTally.graded = 0; coachTally.matched = 0;
   tableChat = []; handStartTs = 0; chatShowAll = false; chatUnread = 0; chatOpen = false;
   renderTableChat();
   for (const k of Object.keys(presence)) delete presence[Number(k) as SeatIndex];
   ts?.close();
   ts = new TableSocket(r.matchUuid, r.seatToken, {
-    onWelcome(payload: WelcomePayload) {
+    onWelcome(payload: WelcomePayload, starting) {
       directory = payload.directory;
       mySeat = payload.seat;
       currentRulesetId = payload.rulesetId;
@@ -1982,6 +2254,11 @@ function connectToMatch(r: {
       lastSeq = payload.snapshot.seq;
       paused = payload.paused;
       myAuto = payload.directory[mySeat]?.auto ?? false;
+      // A fresh join has no history to tell "I asked for this" from "the
+      // idle timeout did" — read as plain auto, never the idle banner, same
+      // as a reconnect landing mid-idle-auto would.
+      myAutoIdle = false; myAutoRequestedOn = false;
+      applyStarting(starting);
       seedPileFromSnapshot();
       buildWall();
       setConnBadge("");
@@ -1991,7 +2268,7 @@ function connectToMatch(r: {
       updateHudButtons();
       ts?.resync(lastSeq);
     },
-    onRestore(events, snapshot, dir, pausedInfo) {
+    onRestore(events, snapshot, dir, pausedInfo, starting) {
       // Who sits where may have changed (seats filled or shuffled) since this
       // seat's own `welcome` — `restore`'s directory is the fresh truth,
       // wholesale, same as `welcome`'s (never patched field-by-field).
@@ -2001,10 +2278,16 @@ function connectToMatch(r: {
       if (!wasPaused && paused) freezeClock();
       else if (wasPaused && !paused) thawClock();
       myAuto = dir[mySeat]?.auto ?? false;
+      applyStarting(starting);
       applyBatch(events, snapshot);
     },
     onEvents(events, snapshot) { applyBatch(events, snapshot); },
+    onStarting(payload) { applyStarting(payload); render(); syncVeil(); },
     onPrompt(payload: PromptPayload) {
+      // The start card (task brief item 2) closes the same way `deal` does
+      // above — a real prompt could only be sent once the server's own hold
+      // is over.
+      closeStartCardOnPlay();
       curLegal = payload.legal;
       pending = actionsOf(mySeat, payload.legal);
       if (pending.length > 0) startClock(payload.deadlineTs); else stopClock();
@@ -2029,7 +2312,14 @@ function connectToMatch(r: {
           auto: payload.auto,
         };
       }
-      if (payload.seat === mySeat) myAuto = payload.auto;
+      if (payload.seat === mySeat) {
+        // Task item 4: tell "the idle timeout did this" from "I asked for
+        // this" — see `myAutoIdle`'s own doc comment for the heuristic.
+        if (payload.auto && !myAuto && !myAutoRequestedOn) myAutoIdle = true;
+        if (!payload.auto) myAutoIdle = false;
+        myAutoRequestedOn = false;
+        myAuto = payload.auto;
+      }
       render();
       syncVeil();
     },
@@ -2255,6 +2545,7 @@ function tableRowHtml(t: LobbyTable): string {
     <div class="tr-head">
       <b>${esc(creatorName(t))}</b>
       <span class="badge ${t.mode}">${t.mode}</span>
+      ${t.speed ? `<span class="badge speed">${esc(SPEED_INFO[t.speed]?.label ?? t.speed)}</span>` : ""}
       ${t.access === "private" ? `<span class="lock" title="private — needs the code">🔒</span>` : ""}
       <span class="mut">${esc(ruleLabel(t.rulesetId))} · ${matchFormatLabel(t.matchFormat)}</span>
     </div>
@@ -2290,6 +2581,14 @@ function seatPlanFromLobby(matchUuid: string): FourSeats<SeatPlanEntry> | null {
     return seat ? { bot: seat.kind === "bot", displayName: seat.displayName } : { bot: false };
   }) as FourSeats<SeatPlanEntry>;
 }
+/** Same best-effort seed as `seatPlanFromLobby`, for `currentSpeed` (§8a-2) —
+ *  `joinTable`'s response doesn't carry `speed` either, so this reads the
+ *  cached lobby row until `starting`/`welcome.starting` supplies the
+ *  server's own value. `undefined` on an older server that hasn't landed
+ *  `LobbyTable.speed` yet reads the same as "missing" here. */
+function speedFromLobby(matchUuid: string): TableSpeed | null {
+  return lobbyData?.tables.find((x) => x.matchId === matchUuid)?.speed ?? null;
+}
 
 async function sitDownByCode(code: string): Promise<void> {
   if (!identity) return;
@@ -2298,6 +2597,7 @@ async function sitDownByCode(code: string): Promise<void> {
     connectToMatch({
       matchUuid: r.matchUuid, joinCode: code, seat: r.seat, seatToken: r.seatToken,
       rulesetId: r.rulesetId, matchFormat: r.matchFormat, seatPlan: seatPlanFromLobby(r.matchUuid),
+      speed: speedFromLobby(r.matchUuid),
     });
   } catch (e) {
     flashHudNote(describeError(e));
@@ -2780,8 +3080,15 @@ interface SeatDraft { kind: "human" | "bot"; bot: string; }
 const newTableDraft: {
   rulesetId: string; matchFormat: MatchFormat; mode: TableMode; access: TableAccess;
   randomizeSeats: boolean; seats: [SeatDraft, SeatDraft, SeatDraft, SeatDraft];
+  /** §8a-2. `speedManual` false means `newTableScreen()` keeps overwriting
+   *  `speed` from `defaultSpeedFor(humanSeatCount())` on every render — the
+   *  "follows the seat plan, live" rule — until the creator taps a pill
+   *  themselves, which sets it true and the auto-follow stops for good
+   *  (mirrors no other field here, since nothing else has a live default). */
+  speed: TableSpeed; speedManual: boolean;
 } = {
   rulesetId: "mjrc-standard", matchFormat: "east", mode: "casual", access: "open", randomizeSeats: false,
+  speed: "untimed", speedManual: false,
   seats: [
     { kind: "human", bot: DEFAULT_BOT_LINEUP[0]! },
     { kind: "bot", bot: DEFAULT_BOT_LINEUP[1]! },
@@ -2824,6 +3131,12 @@ function newTableScreen(): void {
   const gen = ++newTableGen;
   $("veil").style.display = "flex";
   const ranked = newTableDraft.mode === "ranked";
+  // §8a-2: "default follows the seat plan; updates live as seats change" —
+  // this runs on every entry to this screen, which includes every re-render
+  // a seat toggle already causes, so it stays current without its own event
+  // wiring. Stops the moment the creator picks a pill themselves
+  // (`speedManual`, set by that pill's own click handler below).
+  if (!newTableDraft.speedManual) newTableDraft.speed = defaultSpeedFor(humanSeatCount());
   $("panel").innerHTML = `
     <h1>New table</h1>
     <h2>Length</h2>
@@ -2850,6 +3163,12 @@ function newTableScreen(): void {
       : "Private — visible in the lobby like any table; the code is needed to sit down."}</p>
     <div class="setrow"><label style="width:auto;flex:1">Randomize seats at start</label>
       <input type="checkbox" id="setRandomize" ${newTableDraft.randomizeSeats ? "checked" : ""}></div>
+    <h2>Speed</h2>
+    <div class="seg wrap">${TABLE_SPEEDS.map((sp) => `
+      <button class="${newTableDraft.speed === sp ? "on" : ""}" data-speed="${sp}">
+        <b>${SPEED_INFO[sp].label}</b><span>${SPEED_INFO[sp].caption}</span></button>`).join("")}</div>
+    <p class="segcap">${newTableDraft.speedManual ? "" : `follows the seat plan — ${
+      humanSeatCount() <= 1 ? "just you" : `${humanSeatCount()} humans`} → <b>${SPEED_INFO[newTableDraft.speed].label}</b>`}</p>
     <h2>Seats</h2>
     <p class="segcap">${ranked ? "Ranked needs four human seats — bots are off."
       : "Tap a seat to swap human/bot; tap a bot's name below it to pick which one."}</p>
@@ -2871,6 +3190,13 @@ function newTableScreen(): void {
   }
   for (const el of Array.from($("panel").querySelectorAll<HTMLElement>(".seg button[data-access]"))) {
     el.onclick = () => { newTableDraft.access = el.dataset.access as TableAccess; newTableScreen(); };
+  }
+  for (const el of Array.from($("panel").querySelectorAll<HTMLElement>(".seg button[data-speed]"))) {
+    el.onclick = () => {
+      newTableDraft.speed = el.dataset.speed as TableSpeed;
+      newTableDraft.speedManual = true;
+      newTableScreen();
+    };
   }
   for (const el of Array.from($("panel").querySelectorAll<HTMLElement>(".choice[data-r]"))) {
     el.onclick = () => { newTableDraft.rulesetId = el.dataset.r!; newTableScreen(); };
@@ -2924,6 +3250,7 @@ async function doCreateTable(): Promise<void> {
     const r: CreateTableResult = await createTable(identity.deviceToken, {
       rulesetId: newTableDraft.rulesetId, matchFormat: newTableDraft.matchFormat,
       mode: newTableDraft.mode, access: newTableDraft.access, randomizeSeats: newTableDraft.randomizeSeats,
+      speed: newTableDraft.speed,
       seats,
     });
     // The server's CreateTableResult doesn't echo the seat layout back, but
@@ -2936,6 +3263,7 @@ async function doCreateTable(): Promise<void> {
     connectToMatch({
       matchUuid: r.matchUuid, joinCode: r.joinCode, seat: r.seat, seatToken: r.seatToken,
       rulesetId: r.rulesetId, matchFormat: r.matchFormat, creator: true, seatPlan: plan,
+      speed: newTableDraft.speed,
     });
   } catch (e) {
     if (btn) { btn.disabled = false; btn.textContent = "create table ▸"; }
@@ -3271,8 +3599,15 @@ async function copyDiagnostic(): Promise<void> {
 (document.getElementById("btnAuto") as HTMLButtonElement).onclick = () => {
   if (!ts) return;
   const target = !myAuto;
-  void ts.requestAuto(target).catch((e) =>
-    flashHudNote(e instanceof RequestRejected ? (REJECT_NOTES[e.code] ?? e.code) : "that didn't go through"));
+  // Task item 4: mark an ON request as "I asked for this" BEFORE it round
+  // trips, so the `presence` that confirms it never reads as the idle
+  // timeout (`onPresence`'s heuristic) — same "optimistic on send" spirit as
+  // `act()`'s own auto-off mirror, just for a flag instead of `myAuto` itself.
+  if (target) myAutoRequestedOn = true;
+  void ts.requestAuto(target).catch((e) => {
+    if (target) myAutoRequestedOn = false;
+    flashHudNote(e instanceof RequestRejected ? (REJECT_NOTES[e.code] ?? e.code) : "that didn't go through");
+  });
 };
 (document.getElementById("btnSettings") as HTMLButtonElement).onclick = () => settingsScreen(() => syncVeil());
 /** "Leave table" (task item 5): only a live seat needs the confirm and the
