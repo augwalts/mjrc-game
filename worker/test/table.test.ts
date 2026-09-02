@@ -37,9 +37,10 @@ import type {
   SeatSnapshot,
   SeatVisible,
   ServerToSeat,
+  Speed,
 } from "@mjrc/protocol";
 import * as engine from "../../engine/src/reducer.js";
-import { DEFAULT_TABLE_CONFIG, TableCore, bindingArchive, configOverride } from "../src/table.js";
+import { DEFAULT_TABLE_CONFIG, SPEED_PRESETS, TableCore, bindingArchive, configOverride } from "../src/table.js";
 import type {
   Applied,
   Archive,
@@ -612,6 +613,8 @@ async function makeTable(opts: {
   rand?: () => number;
   defaultBotFor?: (seat: SeatIndex) => { key: string; displayName: string };
   randomizeSeats?: boolean;
+  speed?: Speed;
+  matchSettings?: TableInit["matchSettings"];
 } = {}): Promise<Harness> {
   const ctx = new StubCtx();
   const rules = new StubRules();
@@ -625,7 +628,11 @@ async function makeTable(opts: {
     bots,
     archive,
     clock: () => clock.now,
-    config: opts.config,
+    // `startDelayMs: 0` by default — every existing test in this file was
+    // written before the start card (§8a-2) existed and expects the clocks
+    // to start the instant the table fills, same as `.dev.vars`' fast config
+    // does for local dev. The start-card tests below override it back on.
+    config: { startDelayMs: 0, ...opts.config },
     rand: opts.rand,
     defaultBotFor: opts.defaultBotFor,
   });
@@ -635,6 +642,8 @@ async function makeTable(opts: {
     seed: 20260826,
     seatTokens: TOKENS,
     randomizeSeats: opts.randomizeSeats,
+    speed: opts.speed,
+    matchSettings: opts.matchSettings,
   };
   const res = await core.fetch(
     new Request("https://table.invalid/table/init", {
@@ -1303,6 +1312,179 @@ describe("auto-play", () => {
   });
 });
 
+/* ── 3e. speed presets (§8a-2) ────────────────────────────────────────────
+ * `SPEED_PRESETS` is data, so the strongest test of it is "the table actually
+ * layers it in" — `TableInit.speed` reaching `armDerived`'s timers, not a
+ * restatement of the table in PVP-LOBBY-PROPOSAL-2026-09-02.md §8a-2. */
+
+describe("speed presets (§8a-2)", () => {
+  it.each(Object.keys(SPEED_PRESETS) as Speed[])(
+    "applies the %s preset's turnMs to the turn clock",
+    async (speed) => {
+      const preset = SPEED_PRESETS[speed];
+      const t = await seated({ speed });
+      const start = t.clock.now;
+      const turnClock = t.core.deadlineSnapshot().find((d) => d.name === "turnClock");
+      if ((preset.turnMs ?? DEFAULT_TABLE_CONFIG.turnMs) === 0) {
+        // untimed: no deadline at all, even with four human seats connected —
+        // §8a-2's "extend the existing single-human rule" (armDerived).
+        expect(turnClock).toBeUndefined();
+      } else {
+        expect(turnClock?.at).toBe(start + (preset.turnMs ?? DEFAULT_TABLE_CONFIG.turnMs));
+      }
+    },
+  );
+
+  it.each(Object.keys(SPEED_PRESETS) as Speed[])(
+    "applies the %s preset's claimWindowMs.pung to a human claim window",
+    async (speed) => {
+      const preset = SPEED_PRESETS[speed];
+      const t = await seated({ speed });
+      const start = t.clock.now;
+      await request(t, 0, "requestDiscard", { tile: 0 });
+      const closesAt = t.core.deadlineSnapshot().find((d) => d.name === "claimWindow")?.at;
+      const pung = preset.claimWindowMs?.pung ?? DEFAULT_TABLE_CONFIG.claimWindowMs.pung;
+      if (pung === 0) {
+        expect(closesAt).toBeUndefined();
+      } else {
+        expect(closesAt).toBe(start + pung);
+      }
+    },
+  );
+
+  it("untimed arms no turn clock and a human claim window waits for its humans, never a fixed deadline", async () => {
+    const t = await seated({ speed: "untimed" });
+    // Four human seats, `awaitDiscard` — a timed preset would have armed
+    // `turnClock` here; `untimed` never does, regardless of human count.
+    expect(t.core.deadlineSnapshot().map((d) => d.name)).not.toContain("turnClock");
+
+    await request(t, 0, "requestDiscard", { tile: 0 });
+    expect(t.core.deadlineSnapshot().map((d) => d.name)).not.toContain("claimWindow");
+    // Bots still pace themselves — irrelevant here (both offered seats are
+    // human) but proves the window is not simply frozen.
+    expect(t.core.deadlineSnapshot().map((d) => d.name)).not.toContain("botPace:1");
+
+    await request(t, 1, "requestPass", { offerSeq: offerSeqFor(t.sockets[1] as StubSocket) });
+    // Seat 2 has not answered — nothing resolved yet, exactly as a timed
+    // window would also wait, just with no clock backing the wait up.
+    expect(t.rules.calls.map((a) => a.type)).toEqual(["discard"]);
+
+    await request(t, 2, "requestPass", { offerSeq: offerSeqFor(t.sockets[2] as StubSocket) });
+    // The last human answered — the window closes exactly like a timed one
+    // does once every human has answered (§8a rule 3), just with nothing
+    // that would ALSO have closed it on its own.
+    expect(t.rules.calls.slice(1).map((a) => `${a.type}:${a.seat}`)).toEqual(["pass:1", "pass:2"]);
+  });
+});
+
+/* ── 3f. inactivity timeout (§8a-2) ───────────────────────────────────────
+ * `inactivityMs` is a plain `TableConfig` field, tested directly rather than
+ * through the `untimed` preset that turns it on in production — the two are
+ * independent (`armDerived` gates on the number, not on `speed`). */
+
+describe("inactivity timeout (§8a-2)", () => {
+  it("switches an idle human seat to auto-play, and the seat's own next request switches it back off", async () => {
+    const t = await seated({ config: { turnMs: 10_000_000, inactivityMs: 5_000 } });
+    const start = t.clock.now;
+    expect(t.core.deadlineSnapshot()).toContainEqual({ name: "idle:0", at: start + 5_000 });
+
+    t.clock.now = start + 5_000 + 1;
+    await t.core.alarm();
+
+    const presence = (t.sockets[1] as StubSocket).msgs("presence");
+    expect(presence.some((m) => m.payload.seat === 0 && m.payload.auto === true)).toBe(true);
+    expect(t.core.deadlineSnapshot().map((d) => d.name)).toContain("botPace:0");
+    expect(t.core.deadlineSnapshot().map((d) => d.name)).not.toContain("idle:0");
+
+    // The existing `requestAuto`-off rule (`submit`) does not care HOW auto
+    // got turned on — a genuine move from the seat turns it off exactly the
+    // same way it would after an explicit `requestAuto { on: true }`.
+    await request(t, 0, "requestDiscard", { tile: 0 });
+    const presence2 = (t.sockets[1] as StubSocket).msgs("presence");
+    expect(presence2.some((m) => m.payload.seat === 0 && m.payload.auto === false)).toBe(true);
+  });
+
+  it("clears and re-arms on any request from the seat, without switching auto on", async () => {
+    const t = await seated({ config: { turnMs: 10_000_000, inactivityMs: 5_000 } });
+    const start = t.clock.now;
+    t.clock.now = start + 3_000;
+    await request(t, 0, "chat", { text: "still here" });
+
+    // A fresh 5s window from THIS request, not from the original arm time —
+    // the seat is still on turn, so `armDerived` re-arms it at once.
+    expect(t.core.deadlineSnapshot()).toContainEqual({ name: "idle:0", at: t.clock.now + 5_000 });
+    const presence = (t.sockets[1] as StubSocket).msgs("presence");
+    expect(presence.some((m) => m.payload.seat === 0 && m.payload.auto === true)).toBe(false);
+  });
+
+  it("does nothing when disabled (the default)", async () => {
+    const t = await seated({ config: { turnMs: 10_000_000 } });
+    expect(t.core.deadlineSnapshot().map((d) => d.name)).not.toContain("idle:0");
+  });
+});
+
+/* ── 3g. the start card (§8a-2) ────────────────────────────────────────── */
+
+describe("start card (§8a-2)", () => {
+  it("holds startDelayMs before starting the clocks, broadcasting starting once the table fills", async () => {
+    const t = await makeTable({ config: { startDelayMs: 8_000 } });
+    const start = t.clock.now;
+    for (const seat of [0, 1, 2] as SeatIndex[]) await join(t, seat);
+    expect(t.core.deadlineSnapshot().map((d) => d.name)).not.toContain("matchStart");
+
+    const three = await join(t, 3);
+    expect(t.core.deadlineSnapshot()).toContainEqual({ name: "matchStart", at: start + 8_000 });
+    expect(t.core.deadlineSnapshot().map((d) => d.name)).not.toContain("turnClock");
+    const starting = three.msgs("starting").at(-1);
+    expect(starting?.payload.startsAt).toBe(start + 8_000);
+    expect(starting?.payload.settings.style).toBe("hkos");
+    expect(starting?.payload.settings.seats).toHaveLength(4);
+
+    t.clock.now = start + 8_000 + 1;
+    await t.core.alarm();
+    expect(t.core.deadlineSnapshot().map((d) => d.name)).not.toContain("matchStart");
+    expect(t.core.deadlineSnapshot().map((d) => d.name)).toContain("turnClock");
+  });
+
+  it("carries the pending card on welcome and restore while it holds", async () => {
+    const t = await makeTable({ config: { startDelayMs: 8_000 } });
+    const start = t.clock.now;
+    for (const seat of [0, 1, 2] as SeatIndex[]) await join(t, seat);
+    const three = await join(t, 3);
+    expect(three.msgs("welcome").at(-1)?.payload.starting?.startsAt).toBe(start + 8_000);
+
+    await request(t, 0, "resync", { sinceSeq: -1 });
+    const restore = (t.sockets[0] as StubSocket).msgs("restore").at(-1);
+    expect(restore?.payload.starting?.startsAt).toBe(start + 8_000);
+  });
+
+  it("ends the hold early once every connected human sends requestNextHand", async () => {
+    const t = await makeTable({ config: { startDelayMs: 60_000 } });
+    for (const seat of [0, 1, 2, 3] as SeatIndex[]) await join(t, seat);
+    expect(t.core.deadlineSnapshot().map((d) => d.name)).toContain("matchStart");
+
+    for (const seat of [0, 1, 2] as SeatIndex[]) {
+      await request(t, seat, "requestNextHand", {});
+      expect(t.core.deadlineSnapshot().map((d) => d.name)).toContain("matchStart"); // still waiting on 3
+    }
+    await request(t, 3, "requestNextHand", {});
+    expect(t.core.deadlineSnapshot().map((d) => d.name)).not.toContain("matchStart");
+    expect(t.core.deadlineSnapshot().map((d) => d.name)).toContain("turnClock");
+  });
+
+  it("skips the hold entirely for a bot-only table", async () => {
+    const t = await makeTable({ botSeats: [0, 1, 2, 3], config: { startDelayMs: 8_000 } });
+    expect(t.core.deadlineSnapshot().map((d) => d.name)).not.toContain("matchStart");
+    expect(t.core.deadlineSnapshot().map((d) => d.name)).toContain("botPace:0");
+  });
+
+  it("starts at once when startDelayMs is disabled, same as before the start card existed", async () => {
+    const t = await seated({ config: { turnMs: 10_000_000 } }); // seated()'s own startDelayMs: 0 default
+    expect(t.core.deadlineSnapshot().map((d) => d.name)).not.toContain("matchStart");
+    expect(t.core.deadlineSnapshot().map((d) => d.name)).toContain("turnClock");
+  });
+});
+
 /* ── 4. the outbox ─────────────────────────────────────────────────────── */
 
 describe("outbox", () => {
@@ -1596,6 +1778,9 @@ async function makeFillableTable(opts: {
     bots,
     archive,
     clock: () => clock.now,
+    // Same reason `makeTable` above sets this: these tests predate the start
+    // card (§8a-2) and expect `/fill` to start the clocks at once.
+    config: { startDelayMs: 0 },
     rand: opts.rand,
     defaultBotFor: opts.defaultBotFor,
   });

@@ -74,6 +74,60 @@ connection) never arms the turn clock — that seat's own turn waits
 indefinitely; the disconnect grace and auto-play still cover an absent
 player. A table with more than one human seat keeps `turnMs` as before.
 
+### Speed presets (§8a-2)
+
+"Beginners will really struggle with speed." A table has a `speed` —
+`untimed | very-slow | normal | faster | insane` — fixed at creation and
+applied as a `Partial<TableConfig>` layer, `worker/src/table.ts`
+`SPEED_PRESETS`. The table's effective config resolves as **DEFAULT ← env
+`TABLE_CONFIG` ← the speed preset ← `TableInit.config`** (`recomputeConfig`,
+called on every hydration so a speed picked before hibernation survives it),
+which is why `wrangler.jsonc`'s `TABLE_CONFIG` no longer sets `turnMs` or
+`claimWindowMs` — a preset always wins over it now, so leaving them there
+would only ever be silently overridden. `disconnectGraceMs` is the one field
+no preset touches and stays the deployment's own call.
+
+`POST /api/tables` accepts `speed`; when absent, `untimed` for a seat plan
+with exactly one human, `normal` otherwise (`resolveSpeed`, `worker/src/
+index.ts`). A room may fix it in `settings.game.speed`
+(`POST /api/rooms`/`POST /api/rooms/:code/settings`'s own `speed` field) —
+that wins over both the request and the human-count default for every table
+created in the room, same as `rulesetId`/`matchFormat` already do. `matches.speed`
+records it; the lobby's `tables[]` entries and `GET /api/matches/:id` both
+include it.
+
+`untimed` sets `turnMs: 0` and every `claimWindowMs` kind to `0`, meaning **no
+deadline while a human is unanswered** — bots still pace themselves at
+`botMinPaceMs`-`botMaxPaceMs` regardless, and a window/turn resolves only once
+every human involved has actually answered (`windowReadyToClose`, unchanged;
+`armDerived` simply arms no timeout at all when the duration is 0). `untimed`
+also turns on `inactivityMs` (10 minutes): a human seat that has been
+prompted — its turn, or an open window it has not answered — with no request
+from it for that long is switched to auto-play (`book.auto`, the same
+mechanism `requestAuto { on: true }` uses, with a `presence` broadcast); the
+seat's own next request switches it off again, unchanged from how
+`requestAuto` already worked. `inactivityMs` is a plain `TableConfig` field,
+not `speed`-gated in code — every other preset simply leaves it at `0`
+(disabled), because a table with a real clock already times a silent human
+out through that instead.
+
+**The start card.** When the table would start its clocks, it instead
+persists `book.startingAt = now + startDelayMs` (default 8s; `0` skips the
+hold — the fast dev config sets it to `0`, and a bot-only table always skips
+it, there being nobody to show a card to), broadcasts `starting { startsAt,
+settings }` to every open socket, and arms a `matchStart` deadline that
+actually starts the clocks once it elapses. `welcome`/`restore` also carry
+`starting: {...} | null` so a client that joins (or reconnects) while the
+card is up sees it without a race. `settings` is `{ style: "hkos", rulesetId,
+rulesetLabel, minimumFaan, limitFaan, useFlowers, paymentId, matchFormat,
+speed, seats }` — the ruleset facts are resolved once in `gamepvp/src/
+index.ts` (`tableInitOf`'s `matchSettingsOf`, via `@mjrc/rulesets`) and
+carried through `TableInit.matchSettings`, so `worker/src/table.ts` stays
+free of that import, same as it was before this feature. `requestNextHand`
+from every connected human ends the hold early — the exact same message and
+mechanism the hand-end intermission already reuses, since the two holds never
+overlap in time.
+
 ## Prove a match end to end
 
 ```sh
@@ -96,6 +150,11 @@ MJRC_MODE=ranked MJRC_HUMANS=4 node gamepvp/test/smoke.mjs
 # pause/resume: seat 0 pauses for 3s during hand 0, then resumes; the match
 # still runs to completion
 MJRC_PAUSE=1 node gamepvp/test/smoke.mjs
+
+# speed presets (§8a-2): explicit speed overrides the human-count default;
+# each seat answers `starting`/`handEnd` with requestNextHand, so the start
+# card and the hand-end intermission never actually hold up the run
+MJRC_SPEED=insane MJRC_HUMANS=2 node gamepvp/test/smoke.mjs
 
 # gate 2: the archived log re-executes to itself
 node gamepvp/test/assemble-log.mjs gamepvp/.wrangler/logs <matchId>
@@ -285,4 +344,17 @@ room-scoped chat reaches production. Migration file:
 
 ```sh
 npx wrangler d1 execute mjrc-scoring --remote --file migrations/remote-2026-09-02-rooms.sql
+```
+
+## Speed presets — schema change not yet applied remotely (§8a-2, 2026-09-02)
+
+`matches.speed` (`TEXT NOT NULL DEFAULT 'normal'`) is new — folded into
+`../worker/schema.sql` and applied to local D1 already; someone with remote
+access needs to run the same against remote before a build that reads/writes
+it reaches production — `postTable`'s insert, `GET /api/lobby`'s `tables[]`,
+and `GET /api/matches/:id` all depend on it. Migration file:
+`migrations/remote-2026-09-02-speed.sql`.
+
+```sh
+npx wrangler d1 execute mjrc-scoring --remote --file migrations/remote-2026-09-02-speed.sql
 ```

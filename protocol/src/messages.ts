@@ -31,6 +31,27 @@ export const SUPPORTED_PROTOCOL_VERSIONS: readonly number[] = [1];
 export const acceptsProtocolVersion = (v: number): boolean =>
   SUPPORTED_PROTOCOL_VERSIONS.includes(v);
 
+/**
+ * A table's clock speed (PVP-LOBBY-PROPOSAL-2026-09-02.md §8a-2): the preset
+ * behind `worker/src/table.ts`'s `SPEED_PRESETS`, chosen at creation (the
+ * creator on New Table, or a room's `settings.game.speed`) and fixed for the
+ * match — the "one wire vocabulary" every reader of a speed string (the
+ * table, the lobby, `matches.speed`, the room's game settings) shares, same
+ * discipline as `ChatPhrase` above.
+ */
+export type Speed = "untimed" | "very-slow" | "normal" | "faster" | "insane";
+
+export const SPEEDS = [
+  "untimed",
+  "very-slow",
+  "normal",
+  "faster",
+  "insane",
+] as const satisfies readonly Speed[];
+
+export const isSpeed = (v: unknown): v is Speed =>
+  typeof v === "string" && (SPEEDS as readonly string[]).includes(v);
+
 /* ── client → server ───────────────────────────────────────────────────── */
 
 export interface RequestEnvelope<T extends string, P> {
@@ -264,6 +285,39 @@ export interface PausedState {
   since: number;
 }
 
+/**
+ * The start card's ruleset facts (§8a-2): everything a client needs to show
+ * "starting in 8s" without a second round trip. `style` is fixed at `"hkos"`
+ * — the only style this engine plays — carried anyway so the shape has room
+ * for a second one without a breaking change. `seats` is the same directory
+ * `welcome`/`presence` already carry, repeated here so the card is
+ * self-contained and does not require the client to have kept one around.
+ */
+export interface MatchStartSettings {
+  style: "hkos";
+  rulesetId: string;
+  rulesetLabel: string;
+  minimumFaan: number;
+  limitFaan: number;
+  useFlowers: boolean;
+  paymentId: string;
+  /** east | full (DESIGN.md §4). */
+  matchFormat: string;
+  speed: Speed;
+  seats: FourSeats<SeatDirectoryEntry>;
+}
+
+/**
+ * The hold before the first hand's clocks start (§8a-2's start card):
+ * `startsAt` is when the table starts on its own; `requestNextHand` from
+ * every connected human seat (the same message the hand-end intermission
+ * reuses) ends the hold early.
+ */
+export interface StartingPayload {
+  startsAt: number;
+  settings: MatchStartSettings;
+}
+
 export interface WelcomePayload {
   matchId: string;
   /** The seat this socket is bound to. Every redaction is relative to it. */
@@ -278,6 +332,8 @@ export interface WelcomePayload {
   chat: ChatMessagePayload[];
   /** `null` unless the table is currently paused. */
   paused: PausedState | null;
+  /** `null` unless the start card (§8a-2) is currently holding. */
+  starting: StartingPayload | null;
 }
 
 /** The reply to `resync`: snapshot + everything after it (§5.3). */
@@ -291,6 +347,8 @@ export interface RestorePayload {
   chat: ChatMessagePayload[];
   /** `null` unless the table is currently paused. */
   paused: PausedState | null;
+  /** `null` unless the start card (§8a-2) is currently holding. */
+  starting: StartingPayload | null;
 }
 
 export interface EventsPayload {
@@ -449,6 +507,9 @@ export type ServerToSeat =
   | ServerEnvelope<"rejected", RejectedPayload>
   | ServerEnvelope<"presence", PresencePayload>
   | ServerEnvelope<"paused", PausedPayload>
+  /** The start card (§8a-2): broadcast once, when the table would otherwise
+   *  have started its clocks. */
+  | ServerEnvelope<"starting", StartingPayload>
   | ServerEnvelope<"heartbeat", Record<string, never>>
   | ServerEnvelope<"protocolFault", ProtocolFaultPayload>;
 

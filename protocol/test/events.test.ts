@@ -672,6 +672,7 @@ describe("omniscient data cannot reach a seat socket", () => {
       snapshot: stripped,
       chat: [],
       paused: null,
+      starting: null,
     };
     expect(bad.seat).toBe(0);
 
@@ -684,6 +685,7 @@ describe("omniscient data cannot reach a seat socket", () => {
       snapshot: snapshotFor(0, STATE, { matchId: MATCH, seq: 0 }),
       chat: [],
       paused: null,
+      starting: null,
     };
     expect(good.snapshot.seat).toBe(0);
   });

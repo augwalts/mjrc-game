@@ -28,6 +28,7 @@
  *     documented at `SQL.matchByJoinCode`.
  */
 import type { Ruleset, SeatIndex, SelfDrawSettlement } from "@mjrc/engine";
+import { isSpeed, type Speed } from "@mjrc/protocol";
 
 /* ── the D1 surface actually used ──────────────────────────────────────────
  * Declared structurally rather than imported: the repo takes no dependencies
@@ -315,6 +316,9 @@ export interface MatchRow {
   seat_plan: string;
   randomize_seats: number;
   created_by: string | null;
+  /** §8a-2's clock speed, fixed at creation (`postTable`'s default rule, or a
+   *  room's `settings.game.speed`) and carried into the table's `TableInit`. */
+  speed: string;
 }
 
 /** Just enough of a match to decide whether its log may be served, and where
@@ -423,15 +427,15 @@ export const SQL = Object.freeze({
     INSERT INTO matches
       (id, status, match_format, ruleset_hash, ruleset_id, engine_version,
        log_schema_version, room_code, join_code, rated, bot_seats, started_at,
-       access, mode, lobby_status, hands_base, seat_plan, randomize_seats, created_by)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       access, mode, lobby_status, hands_base, seat_plan, randomize_seats, created_by, speed)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 
   matchById: `
     SELECT id, status, match_format, ruleset_hash, ruleset_id, engine_version,
            log_schema_version, room_code, join_code, rated, bot_seats,
            hand_count, log_key, log_bytes, log_sha256, started_at, ended_at,
            access, mode, lobby_status, current_hand, hands_base, seat_plan,
-           randomize_seats, created_by
+           randomize_seats, created_by, speed
       FROM matches
      WHERE id = ?`,
 
@@ -454,7 +458,7 @@ export const SQL = Object.freeze({
            log_schema_version, room_code, join_code, rated, bot_seats,
            hand_count, log_key, log_bytes, log_sha256, started_at, ended_at,
            access, mode, lobby_status, current_hand, hands_base, seat_plan,
-           randomize_seats, created_by
+           randomize_seats, created_by, speed
       FROM matches
      WHERE status = 'running' AND join_code = ?`,
 
@@ -569,7 +573,7 @@ export const SQL = Object.freeze({
   matchesWaitingOrPlaying: `
     SELECT id, match_format, ruleset_id, access, mode, lobby_status,
            current_hand, hands_base, seat_plan, bot_seats, created_by,
-           started_at, join_code, room_code
+           started_at, join_code, room_code, speed
       FROM matches
      WHERE lobby_status IN ('waiting', 'playing')
      ORDER BY started_at DESC
@@ -581,7 +585,7 @@ export const SQL = Object.freeze({
   matchesWaitingOrPlayingInRoom: `
     SELECT id, match_format, ruleset_id, access, mode, lobby_status,
            current_hand, hands_base, seat_plan, bot_seats, created_by,
-           started_at, join_code, room_code
+           started_at, join_code, room_code, speed
       FROM matches
      WHERE lobby_status IN ('waiting', 'playing') AND room_code = ?
      ORDER BY started_at DESC
@@ -953,6 +957,8 @@ export interface NewMatch {
   seatPlan: string;
   randomizeSeats: boolean;
   createdBy: string;
+  /** §8a-2's clock speed, resolved by `postTable` before the row is written. */
+  speed: Speed;
 }
 
 export async function insertMatch(db: D1Like, m: NewMatch): Promise<void> {
@@ -980,6 +986,7 @@ export async function insertMatch(db: D1Like, m: NewMatch): Promise<void> {
       m.seatPlan,
       m.randomizeSeats ? 1 : 0,
       m.createdBy,
+      m.speed,
     )
     .run();
 }
@@ -1072,12 +1079,15 @@ export interface RoomRow {
   updated_at: string;
 }
 
-/** The game's own corner of `rooms.settings`, exactly `{ rulesetId,
- *  matchFormat, access }` per §8b. */
+/** The game's own corner of `rooms.settings`, `{ rulesetId, matchFormat,
+ *  access }` per §8b, plus an optional `speed` (§8a-2): when a room sets it,
+ *  every table created in that room is fixed to it — `postTable` never falls
+ *  back to its own default for a room that has one. */
 export interface RoomGameSettings {
   rulesetId: string;
   matchFormat: string; // east | full
   access: string; // open | private
+  speed?: Speed;
 }
 
 /** `rooms.settings` round-trips through this, never through a bare
@@ -1108,6 +1118,7 @@ export function roomGameSettingsOf(settings: Record<string, unknown>): RoomGameS
     rulesetId: g.rulesetId,
     matchFormat: g.matchFormat,
     access: typeof g.access === "string" ? g.access : "open",
+    speed: isSpeed(g.speed) ? g.speed : undefined,
   };
 }
 
@@ -1177,6 +1188,8 @@ export interface LobbyMatchRow {
   started_at: string;
   join_code: string | null;
   room_code: string | null;
+  /** §8a-2's clock speed — the lobby's table entries show it directly. */
+  speed: string;
 }
 
 /** Every table still looking for humans or still playing, newest first,

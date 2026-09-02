@@ -97,6 +97,14 @@ const START = process.env.MJRC_START === "1";
  * the match still completes afterwards.
  */
 const PAUSE_TEST = process.env.MJRC_PAUSE === "1";
+/**
+ * §8a-2's clock speed — `untimed | very-slow | normal | faster | insane`.
+ * Passed straight through as `POST /api/tables`' `speed`; unset (the
+ * default) omits it entirely and lets the server's own default rule decide
+ * (untimed for one human seat, normal otherwise) — same "absent means let
+ * the server pick" doctrine `BOTS`/`MJRC_START` already follow.
+ */
+const SPEED = process.env.MJRC_SPEED || null;
 
 const GATE_HEX = createHash("sha256").update(`mjrc-gate:${GATE_PASSWORD}`).digest("hex");
 const GATE_COOKIE = `mjrc_gate=${GATE_HEX}`;
@@ -209,6 +217,18 @@ function respondToHandEnd(events, send) {
   }
 }
 
+/**
+ * Ends the start card's hold early (§8a-2, `worker/src/table.ts`
+ * `dispatchMatchStart`) the exact same way `respondToHandEnd` ends the
+ * hand-end intermission early — `requestNextHand` is the one message that
+ * skips either hold, and the table tells them apart itself. `starting` is
+ * `null` on `welcome`/`restore` when no card is open, or the standalone
+ * `starting` broadcast's own (always-present) payload.
+ */
+function respondToStarting(starting, send) {
+  if (starting) send("requestNextHand", {});
+}
+
 /* ── one seat's socket ─────────────────────────────────────────────────── */
 
 /** Resolves with the open WebSocket once `welcome` confirms the join. */
@@ -254,6 +274,9 @@ function openSeatSocket(human, matchUuid, resume = null) {
             // without slowing the match down.
             send("chat", { phrase: "nice" });
           }
+          // §8a-2: this join may be the one that filled the table and opened
+          // the start card — `welcome.payload.starting` says so directly.
+          respondToStarting(msg.payload.starting, send);
           resolveConnected(ws);
           break;
         case "accepted":
@@ -275,11 +298,16 @@ function openSeatSocket(human, matchUuid, resume = null) {
           trackSeq(msg.payload.events);
           handleEvents(msg.payload.events);
           respondToHandEnd(msg.payload.events, send);
+          respondToStarting(msg.payload.starting, send);
           break;
         case "prompt":
           respondToPrompt(msg.payload.legal, send);
           break;
         case "presence":
+          break;
+        case "starting":
+          console.log(`${label}: start card open, starting at ${new Date(msg.payload.startsAt).toISOString()}`);
+          respondToStarting(msg.payload, send);
           break;
         case "paused":
           console.log(
@@ -340,7 +368,13 @@ async function main() {
     }
     joiningHumanCount = START ? humanSeats - 1 : humanSeats;
     if (joiningHumanCount < 1) throw new Error("MJRC_SEATS names no human seat for the creator to take");
-    tableBody = { rulesetId: RULESET_ID, matchFormat: MATCH_FORMAT, mode: MODE, seats: SEATS };
+    tableBody = {
+      rulesetId: RULESET_ID,
+      matchFormat: MATCH_FORMAT,
+      mode: MODE,
+      seats: SEATS,
+      ...(SPEED ? { speed: SPEED } : {}),
+    };
   } else {
     const botSeats = 4 - HUMANS;
     if (BOTS.length > 0 && BOTS.length !== botSeats) {
@@ -353,6 +387,7 @@ async function main() {
       mode: MODE,
       botSeats,
       ...(BOTS.length > 0 ? { bots: BOTS } : {}),
+      ...(SPEED ? { speed: SPEED } : {}),
     };
   }
 
@@ -370,7 +405,8 @@ async function main() {
     `mjrc smoke test — base=${HTTP_BASE} mode=${MODE} format=${MATCH_FORMAT} ruleset=${RULESET_ID} ` +
       (SEATS ? `seats=${process.env.MJRC_SEATS}` : `humans=${HUMANS}`) +
       (START ? " start=1" : "") +
-      (BOTS.length > 0 ? ` bots=${BOTS.join(",")}` : ""),
+      (BOTS.length > 0 ? ` bots=${BOTS.join(",")}` : "") +
+      (SPEED ? ` speed=${SPEED}` : ""),
   );
 
   const humans = [];

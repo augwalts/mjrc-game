@@ -46,7 +46,7 @@
  * duplicated in every handler. Add it there if the client ever moves origin.
  */
 import type { FaanAward, SeatIndex } from "@mjrc/engine";
-import { EVENT_SCHEMA_VERSION } from "@mjrc/protocol";
+import { EVENT_SCHEMA_VERSION, isSpeed, type Speed } from "@mjrc/protocol";
 import { DEFAULT_RULESET_ID, assertRulesetSound, ruleset } from "@mjrc/rulesets";
 import { isProvisional } from "../../engine/src/rating.js";
 import type {
@@ -166,6 +166,10 @@ export interface TableSpec {
   /** Shuffle the player↔seat mapping when `/fill` starts the clocks (§6
    *  decision 3) — carried into `TableInit.randomizeSeats` verbatim. */
   randomizeSeats: boolean;
+  /** §8a-2's clock speed, already resolved by `postTable` (the request, a
+   *  room's fixed speed, or the human-count default) — carried verbatim into
+   *  `TableInit.speed`. */
+  speed: Speed;
   startedAt: string;
 }
 
@@ -542,6 +546,7 @@ function matchView(r: MatchRow) {
     logSha256: r.log_sha256,
     startedAt: r.started_at,
     endedAt: r.ended_at,
+    speed: r.speed,
   };
 }
 
@@ -838,6 +843,27 @@ function resolveAccess(bodyAccess: unknown, roomDefault: string | undefined): st
 }
 
 /**
+ * §8a-2's speed default: a room that has fixed one (`settings.game.speed`)
+ * wins outright — same "the room owns it, the request does not" doctrine
+ * `matchFormat`/`rulesetId` already follow for a room table, stricter than
+ * `resolveAccess`'s "explicit request wins" because a speed is meant to be a
+ * house rule, not a per-table pick, once a room sets one. Absent a room
+ * default, an explicit `speed` in the request is honoured; absent that too,
+ * "Beginners will really struggle with speed" (§8a-2): a plan with exactly
+ * one human seat defaults to `untimed`, everything else to `normal`.
+ */
+function resolveSpeed(
+  bodySpeed: unknown,
+  roomDefault: Speed | undefined,
+  seatPlan: readonly SeatSpec[],
+): Speed {
+  if (roomDefault !== undefined) return roomDefault;
+  if (isSpeed(bodySpeed)) return bodySpeed;
+  const humanSeats = seatPlan.filter((s) => s.kind === "human").length;
+  return humanSeats === 1 ? "untimed" : "normal";
+}
+
+/**
  * POST /api/tables — create a table and take the creator's seat.
  *
  * The §5.3 handoff in full: D1 rows first, then the table is opened, then the
@@ -902,6 +928,8 @@ async function postTable(req: Request, p: Platform, player: PlayerRow): Promise<
     return fail("ranked_needs_humans", 400);
   }
 
+  const speed = resolveSpeed(body.speed, roomGame?.speed, seatPlan);
+
   const now = p.now();
   const hash = await rulesetHash(rules);
   await archiveRuleset(p.db, hash, rules, now);
@@ -929,6 +957,7 @@ async function postTable(req: Request, p: Platform, player: PlayerRow): Promise<
     seatPlan: serializeSeatPlan(seatPlan),
     randomizeSeats,
     createdBy: player.id,
+    speed,
   });
 
   if (!(await claimSeat(p.db, matchId, creatorSeat as SeatIndex, player.id))) return fail("conflict", 409);
@@ -942,6 +971,7 @@ async function postTable(req: Request, p: Platform, player: PlayerRow): Promise<
     matchFormat,
     seatPlan,
     randomizeSeats,
+    speed,
     startedAt: now,
   });
   if (handoff === null) return fail("table_unavailable", 503);
@@ -961,6 +991,7 @@ async function postTable(req: Request, p: Platform, player: PlayerRow): Promise<
       mode,
       access,
       roomCode: room !== null ? room.code : null,
+      speed,
     },
     201,
   );
@@ -1343,6 +1374,7 @@ async function tableViewOf(p: Platform, m: LobbyMatchRow, here: Map<string, Here
     createdBy: m.created_by,
     startedAt: m.started_at,
     roomCode: m.room_code,
+    speed: m.speed,
   };
 }
 
@@ -1552,6 +1584,9 @@ async function postRooms(req: Request, p: Platform, player: PlayerRow): Promise<
 
   const matchFormat = body.matchFormat === "full" ? "full" : "east";
   const access = body.access === "private" ? "private" : "open";
+  // §8a-2: a room may fix its tables' speed; absent, `postTable`'s own
+  // default rule decides per table, exactly as it does for a room-less one.
+  const speed = isSpeed(body.speed) ? body.speed : undefined;
 
   const adminCode = str(body.adminCode);
   if (adminCode === null) return fail("bad_admin_code", 400);
@@ -1565,7 +1600,7 @@ async function postRooms(req: Request, p: Platform, player: PlayerRow): Promise<
   }
 
   const now = p.now();
-  const game: RoomGameSettings = { rulesetId: rules.id, matchFormat, access };
+  const game: RoomGameSettings = { rulesetId: rules.id, matchFormat, access, speed };
   await insertRoom(p.db, {
     code,
     name,
@@ -1668,6 +1703,11 @@ async function postRoomSettings(req: Request, codeRaw: string, p: Platform): Pro
     rulesetId: rulesetIdRaw ?? current.rulesetId,
     matchFormat: body.matchFormat === undefined ? current.matchFormat : body.matchFormat === "full" ? "full" : "east",
     access: body.access === undefined ? current.access : body.access === "private" ? "private" : "open",
+    // §8a-2: unspecified keeps the room's current speed (including "none set"
+    // — `undefined` survives the JSON round trip as an absent key); an
+    // explicit non-speed value does not clear it, same tolerance
+    // `matchFormat`/`access` show any other unrecognised body value.
+    speed: body.speed === undefined ? current.speed : isSpeed(body.speed) ? body.speed : current.speed,
   };
 
   await updateRoomSettings(p.db, room.code, JSON.stringify(withRoomGameSettings(settings, game)), p.now());

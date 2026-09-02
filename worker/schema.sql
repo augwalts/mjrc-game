@@ -282,6 +282,12 @@ CREATE TABLE matches (
   -- The creator's player id. Authorises /start and lets the lobby list "hosted
   -- by". Nullable: rows written before this column existed have none.
   created_by          TEXT,
+  -- §8a-2's clock speed: untimed | very-slow | normal | faster | insane
+  -- (worker/src/table.ts SPEED_PRESETS). Fixed at creation — postTable's own
+  -- default rule (untimed for one human seat, normal otherwise), an explicit
+  -- request value, or a room's settings.game.speed, in that order of
+  -- precedence — and carried into the table's TableInit verbatim.
+  speed               TEXT NOT NULL DEFAULT 'normal',
 
   -- The omniscient event log blob in R2 (server-only serializer, §5.5).
   log_key             TEXT,                  -- null until the outbox confirms the write

@@ -20,6 +20,7 @@
  */
 import { ENGINE_VERSION, applyAction, legalActions, startMatch, startNextHand } from "../../engine/src/reducer.js";
 import { EVENT_SCHEMA_VERSION, type MatchLogHeader } from "../../protocol/src/index.js";
+import { ruleset } from "@mjrc/rulesets";
 import {
   TableDO as BaseTableDO,
   botPlayerId,
@@ -274,6 +275,32 @@ function playerRefFor(
   return { playerId: botPlayerId(key, used), displayName, seat, bot: true };
 }
 
+/**
+ * The start card's ruleset facts (§8a-2), resolved here — the ONE place in
+ * this build that reads `@mjrc/rulesets` for the table's benefit — rather
+ * than in `worker/src/table.ts`, which stays free of that import (this
+ * file's own header: "the reducer is installed ... and that is the last
+ * this file hears of mahjong" is the same doctrine one layer up: the table
+ * sequences and broadcasts, it does not know what a ruleset preset is).
+ * `undefined` when `rulesetId` does not resolve — `postTable`
+ * (`worker/src/index.ts`) already refused to create a match under an
+ * unknown ruleset, so this is defensive, not a path a real table takes; the
+ * table's own `startingPayload` falls back to generic values when
+ * `matchSettings` is absent.
+ */
+function matchSettingsOf(spec: TableSpec): TableInit["matchSettings"] {
+  const rules = ruleset(spec.rulesetId);
+  if (rules === undefined) return undefined;
+  return {
+    rulesetLabel: rules.label,
+    minimumFaan: rules.minimumFaan,
+    limitFaan: rules.limitFaan,
+    useFlowers: rules.useFlowers,
+    paymentId: rules.payment.id,
+    matchFormat: spec.matchFormat,
+  };
+}
+
 /** The seed and the placeholder tokens are coordination entropy, not game
  *  state — see `placeholderToken`'s doc comment. */
 function tableInitOf(spec: TableSpec): TableInit {
@@ -301,6 +328,8 @@ function tableInitOf(spec: TableSpec): TableInit {
     seatTokens: [placeholderToken(), placeholderToken(), placeholderToken(), placeholderToken()],
     rulesetHash: spec.rulesetHash,
     randomizeSeats: spec.randomizeSeats,
+    speed: spec.speed,
+    matchSettings: matchSettingsOf(spec),
   };
 }
 

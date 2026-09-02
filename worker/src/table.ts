@@ -58,6 +58,7 @@ import {
   eventsMessage,
   isChatPhrase,
   isKnownRequestType,
+  isSpeed,
   omniscientMatchLog,
   protocolFault,
   redactEventsFor,
@@ -73,6 +74,7 @@ import type {
   LegalRequests,
   MatchEndPayload,
   MatchLogHeader,
+  MatchStartSettings,
   OmniscientMatchLog,
   PlayerRef,
   RejectCode,
@@ -80,6 +82,8 @@ import type {
   SeatSnapshot,
   SeatVisible,
   ServerToSeat,
+  Speed,
+  StartingPayload,
 } from "@mjrc/protocol";
 
 /* ── 1. the runtime surface, structurally ──────────────────────────────────
@@ -365,6 +369,26 @@ export interface TableConfig {
    * at once, same as before this field existed.
    */
   handEndIntermissionMs: number;
+  /**
+   * §8a-2's `untimed` inactivity timeout: a human seat prompted (its turn, or
+   * an open window it has not answered) with no request from it for this long
+   * is switched to auto-play (`book.auto`), same as a player-toggled
+   * `requestAuto { on: true }` — the seat's next request switches it off
+   * again (§`RequestAutoPayload`). 0 disables the mechanism entirely, which is
+   * every preset but `untimed` (`SPEED_PRESETS`) unless overridden.
+   */
+  inactivityMs: number;
+  /**
+   * The start card's hold (§8a-2): `maybeStartClocks` broadcasts `starting`
+   * and waits this long before actually starting the clocks, so every seat
+   * sees the match's rules before the first tile moves. 0 skips the hold —
+   * the table starts the instant it is full, same as before this feature
+   * existed; the fast dev config (`.dev.vars`) sets it to 0 for the same
+   * reason it compresses every other clock. A bot-only table always skips
+   * the hold regardless of this value (`maybeStartClocks`) — there is nobody
+   * for the card to be shown to.
+   */
+  startDelayMs: number;
 }
 
 export const DEFAULT_TABLE_CONFIG: TableConfig = {
@@ -380,7 +404,85 @@ export const DEFAULT_TABLE_CONFIG: TableConfig = {
   outboxMaxBackoffMs: 60_000,
   pauseMaxMs: 10 * 60_000,
   handEndIntermissionMs: 10_000,
+  inactivityMs: 0,
+  startDelayMs: 8_000,
 };
+
+/**
+ * §8a-2's clock speeds, as `TableConfig` overrides layered on top of
+ * `DEFAULT_TABLE_CONFIG` (`mergeTableConfig`). Deliberately data, not code —
+ * this table IS the proposal's speed table, verbatim. Fields the proposal's
+ * table does not mention for a given speed (`botWindowMarginMs`,
+ * `disconnectGraceMs`, ...) are left for the default/env layers to decide.
+ *
+ * `untimed`'s `claimWindowMs: 0` and `turnMs: 0` are the "no deadline while a
+ * human is unanswered" rule (`computeWindowClosesAt`, `armDerived`) — bots in
+ * an `untimed` table still pace themselves at `botMinPaceMs`-`botMaxPaceMs`,
+ * which is why `untimed` still sets those two like every other preset.
+ * `untimed` is also the only preset that turns on `inactivityMs` — every
+ * other speed already has a clock, so a silent human times out through that
+ * instead.
+ */
+export const SPEED_PRESETS: Record<Speed, Partial<TableConfig>> = {
+  untimed: {
+    turnMs: 0,
+    claimWindowMs: { pung: 0, chow: 0, win: 0 },
+    botMinPaceMs: 250,
+    botMaxPaceMs: 900,
+    handEndIntermissionMs: 10_000,
+    inactivityMs: 600_000,
+  },
+  "very-slow": {
+    turnMs: 60_000,
+    claimWindowMs: { pung: 15_000, chow: 20_000, win: 30_000 },
+    botMinPaceMs: 600,
+    botMaxPaceMs: 1_500,
+    handEndIntermissionMs: 15_000,
+  },
+  normal: {
+    turnMs: 40_000,
+    claimWindowMs: { pung: 10_000, chow: 15_000, win: 20_000 },
+    botMinPaceMs: 400,
+    botMaxPaceMs: 1_200,
+    handEndIntermissionMs: 12_000,
+  },
+  faster: {
+    turnMs: 20_000,
+    claimWindowMs: { pung: 6_000, chow: 12_000, win: 15_000 },
+    botMinPaceMs: 250,
+    botMaxPaceMs: 900,
+    handEndIntermissionMs: 10_000,
+  },
+  insane: {
+    turnMs: 8_000,
+    claimWindowMs: { pung: 3_000, chow: 4_000, win: 6_000 },
+    botMinPaceMs: 150,
+    botMaxPaceMs: 400,
+    handEndIntermissionMs: 5_000,
+  },
+};
+
+const speedPresetFor = (speed: Speed | undefined): Partial<TableConfig> | undefined =>
+  speed === undefined ? undefined : SPEED_PRESETS[speed];
+
+/**
+ * Layer zero or more `Partial<TableConfig>`s onto `DEFAULT_TABLE_CONFIG`, in
+ * order — `TableCore`'s own "DEFAULT ← env `TABLE_CONFIG` ← speed preset ←
+ * `TableInit.config`" resolution (`recomputeConfig`). `claimWindowMs` merges
+ * key by key, same as `configOverride`'s env-var parsing: a later layer that
+ * sets only `pung` leaves `chow`/`win` at whatever the earlier layers left
+ * them, never resets them to `DEFAULT_TABLE_CONFIG`'s.
+ */
+function mergeTableConfig(...layers: readonly (Partial<TableConfig> | undefined)[]): TableConfig {
+  let out: TableConfig = { ...DEFAULT_TABLE_CONFIG };
+  for (const layer of layers) {
+    if (!layer) continue;
+    const { claimWindowMs, ...rest } = layer;
+    out = { ...out, ...rest };
+    if (claimWindowMs) out = { ...out, claimWindowMs: { ...out.claimWindowMs, ...claimWindowMs } };
+  }
+  return out;
+}
 
 export interface TableDeps {
   rules: TableRules;
@@ -443,6 +545,39 @@ export interface TableInit {
    * it out, it does not re-decide it.
    */
   randomizeSeats?: boolean;
+  /**
+   * §8a-2's clock speed, resolved once by the platform Worker (`postTable`'s
+   * default rule, or a room's `settings.game.speed`) — the table only ever
+   * APPLIES a speed, it never re-derives the default from seat counts itself.
+   * Absent (an older init, or a test that does not care) means no preset
+   * layer at all: `DEFAULT_TABLE_CONFIG` and the env `TABLE_CONFIG` alone
+   * decide, exactly as before this field existed.
+   */
+  speed?: Speed;
+  /**
+   * Extra `TableConfig` overrides layered on top of the speed preset
+   * (`recomputeConfig`'s "DEFAULT ← env ← speed preset ← this"). Nothing in
+   * production sets this today; the seam exists for a future per-table
+   * override and for tests that want a precise config without a preset name.
+   */
+  config?: Partial<TableConfig>;
+  /**
+   * The start card's ruleset facts (§8a-2's `MatchStartSettings`), resolved
+   * once by the platform Worker entry (`gamepvp/src/index.ts` `tableInitOf`)
+   * via `@mjrc/rulesets` — so this file, which decides nothing about the
+   * game, never has to import a ruleset preset to describe one. Absent (a
+   * test, or an init that predates the start card) falls back to generic
+   * values in `startingPayload` rather than failing the init.
+   */
+  matchSettings?: {
+    rulesetLabel: string;
+    minimumFaan: number;
+    limitFaan: number;
+    useFlowers: boolean;
+    paymentId: string;
+    /** east | full (DESIGN.md §4) — the wire spelling, not `header.matchLength`. */
+    matchFormat: string;
+  };
 }
 
 interface TableMeta extends TableInit {
@@ -478,7 +613,12 @@ export type DeadlineName =
    *  keeps ticking, and firing, while the table is paused — see `rearm`. */
   | "pauseTimeout"
   /** Fires the held next deal at the end of the hand-end intermission. */
-  | "nextHand";
+  | "nextHand"
+  /** Ends the start card's hold (§8a-2) and actually starts the clocks. */
+  | "matchStart"
+  /** §8a-2's `untimed` inactivity timeout: this seat has been prompted (its
+   *  turn, or an open window) with no request from it for `inactivityMs`. */
+  | `idle:${SeatIndex}`;
 
 interface DeadlineEntry {
   at: number;
@@ -568,9 +708,20 @@ interface BookKeeping {
     row: { dealerRepeat: number; startedAt: number };
   } | null;
   /** Which connected human seats have asked to skip the rest of the
-   *  intermission (`requestNextHand`). Reset every time a new `handEnd` is
-   *  held. */
+   *  intermission (`requestNextHand`) — OR, before the match has ever
+   *  started, to end the start card's hold early (§8a-2). One flag, two
+   *  holds, because the two never overlap in time: `pendingHandEnd` cannot
+   *  exist before `started` is true, and `startingAt` cannot exist after.
+   *  Reset every time a new hold — a `handEnd` or the start card — begins. */
   nextHandRequests: FourSeats<boolean>;
+  /**
+   * The start card's hold (§8a-2): the wall-clock time the clocks start on
+   * their own, or `null` when no hold is open — either because the table has
+   * not filled yet, has already started, or skipped the hold entirely (a
+   * bot-only table, or `startDelayMs` disabled). Mirrors `pendingHandEnd`'s
+   * shape: set once by `maybeStartClocks`, cleared by `dispatchMatchStart`.
+   */
+  startingAt: number | null;
 }
 
 interface SeatGrading {
@@ -584,6 +735,13 @@ interface SeatGrading {
 const SEATS: readonly SeatIndex[] = [0, 1, 2, 3];
 const MAX_DISPATCHES_PER_ALARM = 32;
 const STORAGE_BATCH = 100;
+
+/** The `deadlineTs`/`closesAt` sentinel for "no deadline armed" — `sendPrompts`
+ *  already falls back to this for a seat with no `turnClock` armed (§8a rule
+ *  4); `computeWindowClosesAt` returns it for the same reason under §8a-2's
+ *  `untimed` preset, so a client reads one convention for "waiting on a
+ *  human, no countdown" everywhere. */
+const NO_DEADLINE = 0;
 
 const K_META = "meta";
 const K_STATE = "state";
@@ -758,7 +916,10 @@ const hasAnyRequest = (l: LegalRequests): boolean =>
 const sortedKeys = (o: Record<string, unknown>): string[] => Object.keys(o).sort();
 
 const isDerivedDeadline = (name: string): boolean =>
-  name === "turnClock" || name === "claimWindow" || name.startsWith("botPace:");
+  name === "turnClock" ||
+  name === "claimWindow" ||
+  name.startsWith("botPace:") ||
+  name.startsWith("idle:");
 
 /** The DO owns the clock, so it fills the deadline the reducer left at 0. */
 function stampWindowDeadline(e: GameEvent, at: number): GameEvent {
@@ -807,6 +968,7 @@ function emptyBook(): BookKeeping {
     auto: [false, false, false, false],
     pendingHandEnd: null,
     nextHandRequests: [false, false, false, false],
+    startingAt: null,
   };
 }
 
@@ -820,7 +982,15 @@ function emptyBook(): BookKeeping {
  * binding target and is three lines long.
  */
 export class TableCore {
-  private readonly config: TableConfig;
+  /** The env `TABLE_CONFIG` layer alone (`TableDO`'s `configOverride`) — the
+   *  one layer that never changes for this object's lifetime. `recomputeConfig`
+   *  re-derives `config` from this plus whatever `meta.speed`/`meta.config`
+   *  currently say, on every hydration and right after `handleInit` sets meta. */
+  private readonly envConfig: Partial<TableConfig>;
+  /** DEFAULT ← `envConfig` ← speed preset ← `meta.config` (`recomputeConfig`).
+   *  NOT readonly: a speed is not known until `handleInit`, and hibernation
+   *  means every wake has to re-derive it rather than trust an in-memory copy. */
+  private config: TableConfig;
   private hydrating: Promise<void> | null = null;
 
   private meta: TableMeta | null = null;
@@ -884,7 +1054,21 @@ export class TableCore {
     private readonly env: TableEnv,
     private readonly deps: TableDeps,
   ) {
-    this.config = { ...DEFAULT_TABLE_CONFIG, ...(deps.config ?? {}) };
+    this.envConfig = deps.config ?? {};
+    this.config = mergeTableConfig(this.envConfig);
+  }
+
+  /**
+   * DEFAULT_TABLE_CONFIG ← `envConfig` ← the speed preset named by
+   * `meta.speed` ← `meta.config` (§8a-2's resolution order, and this file's
+   * header item 2: named deadlines still get this right because every deadline
+   * math reads `this.config`, never a captured value from before a wake).
+   * Meta not yet loaded (nothing initialised this table) resolves to just the
+   * env layer, same as before `speed`/`config` existed.
+   */
+  private recomputeConfig(): void {
+    const speed = this.meta && isSpeed(this.meta.speed) ? this.meta.speed : undefined;
+    this.config = mergeTableConfig(this.envConfig, speedPresetFor(speed), this.meta?.config);
   }
 
   /* ── hydration ───────────────────────────────────────────────────────── */
@@ -904,6 +1088,10 @@ export class TableCore {
     const st = this.ctx.storage;
     this.tombstone = (await st.get<unknown>(K_TOMBSTONE)) !== undefined;
     this.meta = (await st.get<TableMeta>(K_META)) ?? null;
+    // The effective config depends on `meta.speed`/`meta.config`, so it is
+    // re-derived on every wake — see `recomputeConfig`'s doc comment: this is
+    // what makes a speed picked before hibernation survive it.
+    this.recomputeConfig();
     this.state = (await st.get<GameState>(K_STATE)) ?? null;
     this.seq = (await st.get<number>(K_SEQ)) ?? 0;
     this.deadlines = (await st.get<DeadlineMap>(K_DEADLINES)) ?? {};
@@ -925,6 +1113,7 @@ export class TableCore {
     if (!Array.isArray(this.book.nextHandRequests) || this.book.nextHandRequests.length !== 4) {
       this.book.nextHandRequests = [false, false, false, false];
     }
+    if (this.book.startingAt === undefined) this.book.startingAt = null;
     this.chat = (await st.get<ChatMessagePayload[]>(K_CHAT)) ?? [];
     if (!Array.isArray(this.chat)) this.chat = [];
 
@@ -1079,11 +1268,16 @@ export class TableCore {
       !Array.isArray(init.seatTokens) ||
       init.seatTokens.length !== 4 ||
       !init.header ||
-      init.header.matchId !== init.matchId
+      init.header.matchId !== init.matchId ||
+      (init.speed !== undefined && !isSpeed(init.speed))
     ) {
       return new Response("malformed init", { status: 400 });
     }
     this.meta = { ...init, startedAt: this.deps.clock() };
+    // The speed preset (if any) is part of `meta` from this line on, so
+    // derive `config` from it now rather than leaving it at the env-only
+    // baseline the constructor set before this table was ever initialised.
+    this.recomputeConfig();
     this.book = emptyBook();
     this.seq = 0;
     await this.persistCore();
@@ -1558,6 +1752,13 @@ export class TableCore {
     await this.persistCore();
     await this.writeSeatConnected(seat, true);
 
+    // Before the welcome, not after: when THIS join is the one that fills the
+    // table, `maybeStartClocks` either starts it or opens the start card
+    // (§8a-2) right here — and `startingPayload()` below must see that
+    // outcome, not the pre-join "nothing has happened yet" state. Presence
+    // is already set (just above), which is all `maybeStartClocks` reads.
+    await this.maybeStartClocks();
+
     this.send(ws, {
       p: PROTOCOL_VERSION,
       type: "welcome",
@@ -1570,11 +1771,11 @@ export class TableCore {
         snapshot: this.viewFor(seat),
         chat: [...this.chat],
         paused: this.pausedInfo(),
+        starting: this.startingPayload(),
       },
     });
     this.send(ws, accepted(msg.requestId, this.seq));
     this.broadcastPresence(seat);
-    await this.maybeStartClocks();
     this.sendPrompts();
     await this.rearm();
   }
@@ -1651,6 +1852,20 @@ export class TableCore {
     msg: ClientRequest,
   ): Promise<void> {
     const seat = att.seat;
+    // §8a-2's inactivity timeout: ANY request from this seat (this switch's
+    // cases, not `join`/`heartbeat` — neither reaches `handleRequest` at all)
+    // counts as presence and clears its `idle:` deadline, re-arming a fresh
+    // one if it is still the seat expected to act (still its turn, or an
+    // open window it has not answered) — the same "resets, does not merely
+    // cancel" behaviour a genuine move gets for free from the `armDerived`
+    // call already inside `submit`. Guarded on the deadline actually existing
+    // so an idle table with `inactivityMs` off, or a seat that was never
+    // idle, never pays an extra write for this.
+    if (this.deadlines[`idle:${seat}`] !== undefined) {
+      this.clearDeadline(`idle:${seat}`);
+      this.armDerived(this.deps.clock());
+      await this.persistCore();
+    }
     switch (msg.type) {
       case "join":
       case "heartbeat":
@@ -1678,6 +1893,7 @@ export class TableCore {
             directory: this.directory(),
             chat: [...this.chat],
             paused: this.pausedInfo(),
+            starting: this.startingPayload(),
           },
         });
         return;
@@ -2068,6 +2284,14 @@ export class TableCore {
    *    seat in it (§8a rule 3); a window offered to no human at all — every
    *    seat in it bot-controlled — uses `botOnlyWindowCeiling` instead
    *    (§8a rule 2).
+   *  - §8a-2's `untimed` preset sets every `claimWindowMs` kind to 0, which
+   *    means "no deadline while a human in the window is unanswered" — this
+   *    returns `NO_DEADLINE` (the same sentinel `sendPrompts` already falls
+   *    back to for a seat with no armed `turnClock`) rather than `ts + 0`,
+   *    which would read as "already expired" the instant the window opens.
+   *    `armDerived` reads this sentinel and arms no `claimWindow` deadline at
+   *    all — the window then closes only via `windowReadyToClose`, once every
+   *    human offered has answered.
    */
   private computeWindowClosesAt(drafts: readonly EventDraft[], ts: number): number {
     const rob = drafts.find(
@@ -2075,7 +2299,9 @@ export class TableCore {
     );
     if (rob) {
       const humanOffered = rob.payload.offeredTo.some((s) => !this.isBotControlled(s));
-      return humanOffered ? ts + this.config.claimWindowMs.win : this.botOnlyWindowCeiling(ts);
+      if (!humanOffered) return this.botOnlyWindowCeiling(ts);
+      const dur = this.config.claimWindowMs.win;
+      return dur > 0 ? ts + dur : NO_DEADLINE;
     }
     const offers = drafts.filter(
       (e): e is Extract<EventDraft, { type: "claimOffered" }> => e.type === "claimOffered",
@@ -2088,7 +2314,8 @@ export class TableCore {
       anyHuman = true;
       for (const opt of o.payload.options) longest = Math.max(longest, this.claimDurationMs(opt.kind));
     }
-    return anyHuman ? ts + longest : this.botOnlyWindowCeiling(ts);
+    if (!anyHuman) return this.botOnlyWindowCeiling(ts);
+    return longest > 0 ? ts + longest : NO_DEADLINE;
   }
 
   /**
@@ -2217,34 +2444,126 @@ export class TableCore {
     });
   }
 
+  /**
+   * `requestNextHand` ends either of the two holds this file can have open —
+   * the hand-end intermission (`pendingHandEnd`) or the start card
+   * (`startingAt`, §8a-2) — early, once every connected human has sent it.
+   * The two never overlap (a hold-doc comment on `BookKeeping.startingAt`),
+   * so `nextHandRequests`/`allConnectedHumansRequestedNextHand` serve both
+   * without needing to know which one is open.
+   */
   private async handleRequestNextHand(seat: SeatIndex, ws: SeatSocket, requestId: string): Promise<void> {
-    if (!this.book.pendingHandEnd) {
-      this.send(ws, rejected(requestId, "notALegalMove", "no hand-end intermission is open"));
+    if (!this.book.pendingHandEnd && this.book.startingAt === null) {
+      this.send(ws, rejected(requestId, "notALegalMove", "no hold is open"));
       return;
     }
     this.book.nextHandRequests[seat] = true;
     await this.persistCore();
     this.send(ws, accepted(requestId, this.seq));
-    if (this.allConnectedHumansRequestedNextHand()) await this.dispatchNextHand();
+    if (!this.allConnectedHumansRequestedNextHand()) return;
+    if (this.book.startingAt !== null) await this.dispatchMatchStart();
+    else await this.dispatchNextHand();
   }
 
   /**
    * The clocks start when the table is full, not when the object is created. A
    * turn clock ticking while the fourth player is still opening the app would
    * time out a seat that never had a turn to take.
+   *
+   * §8a-2's start card interposes a hold here: a table with at least one
+   * human seat and a positive `startDelayMs` broadcasts `starting` and waits
+   * (`matchStart` deadline, or every connected human's `requestNextHand`)
+   * before actually starting — `startClocksNow` is what this used to do
+   * unconditionally. A bot-only table, or `startDelayMs` disabled (the fast
+   * dev config), skips the hold: there is nobody for the card to be shown to,
+   * or the deployment has already said clocks should start at once.
+   *
+   * Called from `handleJoin`/`handleFill` every time a seat fills — the
+   * `startingAt !== null` guard makes a second call while the hold is already
+   * open a no-op, same idempotence `book.started` already gave this method.
    */
   private async maybeStartClocks(): Promise<void> {
-    if (this.book.started || this.book.matchOver) return;
+    if (this.book.started || this.book.matchOver || this.book.startingAt !== null) return;
     const meta = this.requireMeta();
     for (const seat of SEATS) {
       if (!meta.header.players[seat].bot && !this.presence[seat].connected) return;
     }
+    if (this.humanSeatCount() === 0 || this.config.startDelayMs <= 0) {
+      await this.startClocksNow();
+      return;
+    }
+    const now = this.deps.clock();
+    this.book.startingAt = now + this.config.startDelayMs;
+    // Fresh hold, fresh readiness — same reset `afterCommit` gives
+    // `nextHandRequests` when it opens the hand-end intermission
+    // (`handleRequestNextHand` reuses this same flag and helper for both).
+    this.book.nextHandRequests = [false, false, false, false];
+    this.setDeadline("matchStart", this.book.startingAt, `start:${this.seq}`);
+    await this.persistCore();
+    await this.rearm();
+    this.broadcastStarting();
+  }
+
+  /** The actual clock start — `maybeStartClocks`'s whole body before the
+   *  start card (§8a-2) interposed a hold in front of it. Reached either
+   *  immediately (a bot-only table, or `startDelayMs` disabled) or once the
+   *  hold ends (`dispatchMatchStart`). */
+  private async startClocksNow(): Promise<void> {
     this.book.started = true;
     this.armDerived(this.deps.clock());
     await this.persistCore();
     await this.rearm();
     await this.writeLobbyStatus("playing");
     for (const seat of SEATS) this.notifySeat(seat, "tableFull");
+  }
+
+  /** `dispatch("matchStart")`: the start card's hold ran its full
+   *  `startDelayMs`. Also reached early from `handleRequestNextHand` once
+   *  every connected human has asked to skip it. */
+  private async dispatchMatchStart(): Promise<void> {
+    if (this.book.started || this.book.startingAt === null) return;
+    this.book.startingAt = null;
+    this.book.nextHandRequests = [false, false, false, false];
+    this.clearDeadline("matchStart");
+    await this.startClocksNow();
+  }
+
+  /** Broadcast to every open socket the instant the start card opens
+   *  (`maybeStartClocks`) — a fresh joiner during the hold gets the same
+   *  card via `welcome`'s own `starting` field, never a second broadcast. */
+  private broadcastStarting(): void {
+    const payload = this.startingPayload();
+    if (payload === null) return;
+    const msg: ServerToSeat = { p: PROTOCOL_VERSION, type: "starting", payload };
+    for (const ws of this.ctx.getWebSockets()) this.send(ws, msg);
+  }
+
+  /**
+   * `null` unless the start card is currently holding — `welcome`/`restore`'s
+   * `starting` field, and `broadcastStarting`'s payload. Ruleset facts come
+   * from `meta.matchSettings` (resolved once by the platform Worker entry,
+   * `gamepvp/src/index.ts` `tableInitOf`, via `@mjrc/rulesets` — this file
+   * stays free of that import); a `matchSettings`-less init (a test, or one
+   * that predates the start card) falls back to generic values rather than
+   * failing — the card is cosmetic, never a gate on the match itself.
+   */
+  private startingPayload(): StartingPayload | null {
+    if (this.book.startingAt === null) return null;
+    const meta = this.requireMeta();
+    const ms = meta.matchSettings;
+    const settings: MatchStartSettings = {
+      style: "hkos",
+      rulesetId: meta.header.rulesetId,
+      rulesetLabel: ms?.rulesetLabel ?? meta.header.rulesetId,
+      minimumFaan: ms?.minimumFaan ?? 0,
+      limitFaan: ms?.limitFaan ?? 0,
+      useFlowers: ms?.useFlowers ?? true,
+      paymentId: ms?.paymentId ?? "",
+      matchFormat: ms?.matchFormat ?? (meta.header.matchLength === "fourWindRounds" ? "full" : "east"),
+      speed: isSpeed(meta.speed) ? meta.speed : "normal",
+      seats: this.directory(),
+    };
+    return { startsAt: this.book.startingAt, settings };
   }
 
   /** Hand over to the reducer, which deals the next hand or ends the match. */
@@ -2521,6 +2840,7 @@ export class TableCore {
   private async dispatch(name: DeadlineName): Promise<void> {
     if (name === "outboxFlush") return this.flushOutbox();
     if (name === "pauseTimeout") return this.autoResume();
+    if (name === "matchStart") return this.dispatchMatchStart();
     if (this.book.matchOver) return;
     if (name === "claimWindow") return this.closeWindow();
     if (name === "nextHand") return this.dispatchNextHand();
@@ -2540,12 +2860,37 @@ export class TableCore {
       const seat = Number(name.slice("botPace:".length)) as SeatIndex;
       return this.actAsBot(seat);
     }
+    if (name.startsWith("idle:")) {
+      const seat = Number(name.slice("idle:".length)) as SeatIndex;
+      return this.onIdleExpired(seat);
+    }
   }
 
   private async onGraceExpired(seat: SeatIndex): Promise<void> {
     if (this.presence[seat].connected) return;
     console.log("grace expired", this.meta?.matchId ?? "?", "seat", seat, "bot takes over at hand", this.state?.handIndex);
     this.presence[seat] = { connected: false, botActing: true };
+    this.armDerived(this.deps.clock());
+    await this.persistCore();
+    this.broadcastPresence(seat);
+  }
+
+  /**
+   * §8a-2's `untimed` inactivity timeout: this seat was prompted (its turn,
+   * or an open window it had not answered — `armDerived`'s idle-arming
+   * block) and sent no request for `inactivityMs`. Switches it to auto-play,
+   * the exact mechanism `requestAuto { on: true }` uses, so the seat's own
+   * next request turns it off again (`submit`'s existing rule) with no
+   * special-casing for how it got turned on. A no-op if the seat is already
+   * bot-controlled by the time this fires (a race with a disconnect grace,
+   * an explicit `requestAuto`, or the match ending) — `armDerived` would not
+   * have kept this deadline armed past that point, but the alarm loop can
+   * still have queued it before the state changed.
+   */
+  private async onIdleExpired(seat: SeatIndex): Promise<void> {
+    if (this.book.matchOver || this.isBotControlled(seat)) return;
+    console.log("idle timeout", this.meta?.matchId ?? "?", "seat", seat, "switches to auto");
+    this.book.auto[seat] = true;
     this.armDerived(this.deps.clock());
     await this.persistCore();
     this.broadcastPresence(seat);
@@ -2698,43 +3043,74 @@ export class TableCore {
     const keep = new Set<string>();
     const state = this.state;
     const win = this.window;
+    const idleMs = this.config.inactivityMs;
     if (state && this.book.started && !this.book.matchOver) {
       if (win) {
-        keep.add("claimWindow");
-        this.setDeadlineIfNew("claimWindow", win.closesAt, `w${win.openedSeq}`);
+        // §8a-2: `NO_DEADLINE` means the strongest option offered to a human
+        // in this window was configured at 0 (`untimed`) — no timeout arms at
+        // all, and the window closes only once every human offered has
+        // answered (`windowReadyToClose`, driven from `submit`).
+        const humanOffered = win.offered.some((s) => !this.isBotControlled(s));
+        if (win.closesAt !== NO_DEADLINE) {
+          keep.add("claimWindow");
+          this.setDeadlineIfNew("claimWindow", win.closesAt, `w${win.openedSeq}`);
+        }
         // §8a rule 2: the margin exists to keep a bot's held answer strictly
         // inside a window a human might still be reading. A window with no
         // human offered has nothing to protect, so a bot there paces itself
         // all the way to its own `botMaxPaceMs` uncompressed — `closesAt` is
-        // only `botOnlyWindowCeiling`, a safety net, not a real constraint.
-        const humanOffered = win.offered.some((s) => !this.isBotControlled(s));
+        // only `botOnlyWindowCeiling`, a safety net, not a real constraint. A
+        // human-offered window with NO deadline (`untimed`) is the same
+        // "uncompressed" case for the same reason: there is no ceiling to
+        // stay inside.
         for (const seat of win.offered) {
           if (win.answers[String(seat)] !== undefined) continue;
           if (!this.isBotControlled(seat)) continue;
           const name: DeadlineName = `botPace:${seat}`;
           keep.add(name);
-          const notAfter = humanOffered
-            ? win.closesAt - this.config.botWindowMarginMs
-            : Number.POSITIVE_INFINITY;
+          const notAfter =
+            humanOffered && win.closesAt !== NO_DEADLINE
+              ? win.closesAt - this.config.botWindowMarginMs
+              : Number.POSITIVE_INFINITY;
           this.setDeadlineIfNew(name, this.paceAt(seat, now, notAfter), `w${win.openedSeq}:${seat}`);
         }
+        // §8a-2's inactivity timeout: every seat in the window still owed an
+        // answer, offered to a genuine (not already bot-controlled) human.
+        if (idleMs > 0) {
+          for (const seat of win.offered) {
+            if (win.answers[String(seat)] !== undefined) continue;
+            if (this.isBotControlled(seat)) continue;
+            const name: DeadlineName = `idle:${seat}`;
+            keep.add(name);
+            this.setDeadlineIfNew(name, now + idleMs, `w${win.openedSeq}:${seat}`);
+          }
+        }
       } else if (state.phase === "awaitDiscard") {
-        // §8a rule 4: a table with exactly one human seat never arms the turn
-        // clock — that seat's turn waits indefinitely (the disconnect grace
-        // and auto-play still cover an absent player). A bot's own turn is
-        // still paced below regardless, so this alone never stalls the table.
-        if (this.humanSeatCount() !== 1) {
+        // §8a rule 4, extended by §8a-2: a table with exactly one human seat
+        // never arms the turn clock, and `untimed` (`turnMs: 0`) never arms
+        // it regardless of human count — that seat's turn waits indefinitely
+        // either way (the disconnect grace and auto-play still cover an
+        // absent player). A bot's own turn is still paced below regardless,
+        // so neither rule alone ever stalls the table.
+        if (this.config.turnMs > 0 && this.humanSeatCount() !== 1) {
           keep.add("turnClock");
           this.setDeadlineIfNew("turnClock", now + this.config.turnMs, this.book.turnToken);
         }
         if (this.isBotControlled(state.turn)) {
           const name: DeadlineName = `botPace:${state.turn}`;
           keep.add(name);
-          this.setDeadlineIfNew(
-            name,
-            this.paceAt(state.turn, now, now + this.config.turnMs - this.config.botWindowMarginMs),
-            this.book.turnToken,
-          );
+          const notAfter =
+            this.config.turnMs > 0
+              ? now + this.config.turnMs - this.config.botWindowMarginMs
+              : Number.POSITIVE_INFINITY;
+          this.setDeadlineIfNew(name, this.paceAt(state.turn, now, notAfter), this.book.turnToken);
+        }
+        // §8a-2's inactivity timeout: the seat on turn, if it is a genuine
+        // (not already bot-controlled) human.
+        if (idleMs > 0 && !this.isBotControlled(state.turn)) {
+          const name: DeadlineName = `idle:${state.turn}`;
+          keep.add(name);
+          this.setDeadlineIfNew(name, now + idleMs, this.book.turnToken);
         }
       }
     }

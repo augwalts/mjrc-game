@@ -81,7 +81,7 @@ const MATCH_COLUMNS = [
   "log_schema_version", "room_code", "join_code", "rated", "bot_seats", "hand_count",
   "log_key", "log_bytes", "log_sha256", "started_at", "ended_at",
   "access", "mode", "lobby_status", "current_hand", "hands_base", "seat_plan",
-  "randomize_seats", "created_by",
+  "randomize_seats", "created_by", "speed",
 ] as const;
 
 const HANDLERS = new Map<string, Handler>([
@@ -151,6 +151,7 @@ const HANDLERS = new Map<string, Handler>([
       log_sha256: null, started_at: a[11], ended_at: null,
       access: a[12], mode: a[13], lobby_status: a[14], current_hand: 0,
       hands_base: a[15], seat_plan: a[16], randomize_seats: a[17], created_by: a[18],
+      speed: a[19],
     });
     return wrote(1);
   }],
@@ -265,7 +266,7 @@ const HANDLERS = new Map<string, Handler>([
         .map((m) => pick(m, [
           "id", "match_format", "ruleset_id", "access", "mode", "lobby_status",
           "current_hand", "hands_base", "seat_plan", "bot_seats", "created_by",
-          "started_at", "join_code", "room_code",
+          "started_at", "join_code", "room_code", "speed",
         ])),
     )],
 
@@ -278,7 +279,7 @@ const HANDLERS = new Map<string, Handler>([
         .map((m) => pick(m, [
           "id", "match_format", "ruleset_id", "access", "mode", "lobby_status",
           "current_hand", "hands_base", "seat_plan", "bot_seats", "created_by",
-          "started_at", "join_code", "room_code",
+          "started_at", "join_code", "room_code", "speed",
         ])),
     )],
 
@@ -757,6 +758,7 @@ function seedMatch(
     currentHand?: number;
     handsBase?: number;
     roomCode?: string | null;
+    speed?: string;
   },
 ): void {
   const status = opts.status ?? "complete";
@@ -787,6 +789,7 @@ function seedMatch(
     seat_plan: opts.seatPlan ?? JSON.stringify([{ kind: "human" }, { kind: "human" }, { kind: "human" }, { kind: "human" }]),
     randomize_seats: 0,
     created_by: opts.createdBy === undefined ? (opts.seats[0] ?? null) : opts.createdBy,
+    speed: opts.speed ?? "normal",
   });
   opts.seats.forEach((playerId, seat) => {
     h.store.match_players.push({
@@ -1325,6 +1328,103 @@ describe("POST /api/tables — the seat plan", () => {
   });
 });
 
+describe("POST /api/tables — speed default (§8a-2)", () => {
+  let h: Harness;
+
+  beforeEach(async () => {
+    h = harness();
+    await identify(h, TOKEN_A, "Ah Ming");
+  });
+
+  it("defaults to untimed for a plan with exactly one human seat", async () => {
+    const res = await handle(
+      post("/api/tables", { seats: [{ kind: "human" }, { kind: "bot" }, { kind: "bot" }, { kind: "bot" }] }, TOKEN_A),
+      h.platform,
+    );
+    expect((await res.json()) as { speed: string }).toMatchObject({ speed: "untimed" });
+    expect(h.store.matches[0].speed).toBe("untimed");
+    // The DO's TableInit got it too, not just the D1 row.
+    expect(h.tables.opened[0].speed).toBe("untimed");
+  });
+
+  it("defaults to normal for a plan with two or more human seats", async () => {
+    const res = await handle(
+      post("/api/tables", { seats: [{ kind: "human" }, { kind: "human" }, { kind: "bot" }, { kind: "bot" }] }, TOKEN_A),
+      h.platform,
+    );
+    expect((await res.json()) as { speed: string }).toMatchObject({ speed: "normal" });
+    expect(h.store.matches[0].speed).toBe("normal");
+  });
+
+  it("honours an explicit speed in the request over the human-count default", async () => {
+    const res = await handle(
+      post("/api/tables", { seats: [{ kind: "human" }, { kind: "bot" }, { kind: "bot" }, { kind: "bot" }], speed: "insane" }, TOKEN_A),
+      h.platform,
+    );
+    expect((await res.json()) as { speed: string }).toMatchObject({ speed: "insane" });
+    expect(h.store.matches[0].speed).toBe("insane");
+  });
+
+  it("ignores an unrecognised speed and falls back to the default rule", async () => {
+    const res = await handle(
+      post("/api/tables", { seats: [{ kind: "human" }, { kind: "human" }, { kind: "human" }, { kind: "human" }], speed: "ludicrous" }, TOKEN_A),
+      h.platform,
+    );
+    expect((await res.json()) as { speed: string }).toMatchObject({ speed: "normal" });
+  });
+
+  it("a room's fixed speed wins over both the request and the human-count default", async () => {
+    const created = await handle(
+      post("/api/rooms", { name: "Room", adminCode: "1234", speed: "very-slow" }, TOKEN_A),
+      h.platform,
+    );
+    const { code } = (await created.json()) as { code: string };
+
+    // One human seat would otherwise default to `untimed`, and the request
+    // explicitly asks for `insane` — the room's `very-slow` beats both.
+    const res = await handle(
+      post(
+        "/api/tables",
+        { roomCode: code, speed: "insane", seats: [{ kind: "human" }, { kind: "bot" }, { kind: "bot" }, { kind: "bot" }] },
+        TOKEN_A,
+      ),
+      h.platform,
+    );
+    expect((await res.json()) as { speed: string }).toMatchObject({ speed: "very-slow" });
+    expect(h.store.matches[0].speed).toBe("very-slow");
+  });
+
+  it("a room with no fixed speed still lets postTable's own default rule decide", async () => {
+    const created = await handle(post("/api/rooms", { name: "Room", adminCode: "1234" }, TOKEN_A), h.platform);
+    const { code } = (await created.json()) as { code: string };
+
+    const res = await handle(
+      post("/api/tables", { roomCode: code, seats: [{ kind: "human" }, { kind: "bot" }, { kind: "bot" }, { kind: "bot" }] }, TOKEN_A),
+      h.platform,
+    );
+    expect((await res.json()) as { speed: string }).toMatchObject({ speed: "untimed" });
+  });
+
+  it("POST /api/rooms/:code/settings sets, then keeps, the room's fixed speed", async () => {
+    const created = await handle(post("/api/rooms", { name: "Room", adminCode: "1234" }, TOKEN_A), h.platform);
+    const { code } = (await created.json()) as { code: string };
+
+    const set = await handle(
+      postAdmin(`/api/rooms/${code}/settings`, { speed: "faster" }, TOKEN_A, "1234"),
+      h.platform,
+    );
+    expect((await set.json()) as { game: { speed?: string } }).toMatchObject({ game: { speed: "faster" } });
+
+    // Unspecified on a later write keeps the current speed — same tolerance
+    // `matchFormat`/`access` already have.
+    const unrelated = await handle(
+      postAdmin(`/api/rooms/${code}/settings`, { matchFormat: "full" }, TOKEN_A, "1234"),
+      h.platform,
+    );
+    expect((await unrelated.json()) as { game: { speed?: string } }).toMatchObject({ game: { speed: "faster" } });
+  });
+});
+
 describe("POST /api/tables/:code/join — a bot may be at any seat", () => {
   it("skips a bot seat in the middle of the plan and seats the next human slot", async () => {
     const h = harness();
@@ -1417,6 +1517,17 @@ describe("GET /api/lobby", () => {
     expect(body.recent[0].matchId).toBe("M-DONE");
     const aliceStanding = body.recent[0].standings.find((s) => s.displayName === "Alice");
     expect(aliceStanding).toEqual({ displayName: "Alice", chips: 1200, place: 1 });
+  });
+
+  it("carries each open table's speed (§8a-2)", async () => {
+    await identify(h, TOKEN_A, "Alice");
+    seedMatch(h, { id: "M-INSANE", seats: [], status: "running", lobbyStatus: "waiting", speed: "insane" });
+    seedMatch(h, { id: "M-UNTIMED", seats: [], status: "running", lobbyStatus: "waiting", speed: "untimed" });
+
+    const res = await handle(get("/api/lobby", TOKEN_A), h.platform);
+    const body = (await res.json()) as { tables: { matchId: string; speed: string }[] };
+    expect(body.tables.find((t) => t.matchId === "M-INSANE")?.speed).toBe("insane");
+    expect(body.tables.find((t) => t.matchId === "M-UNTIMED")?.speed).toBe("untimed");
   });
 
   it("never lets a bot's own match_players row (item 1: bot standings) leak into a table's human seats", async () => {
