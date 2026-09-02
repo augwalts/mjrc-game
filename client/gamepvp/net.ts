@@ -19,12 +19,13 @@ import type {
   ChatRequestPayload,
   ClientRequest,
   ClientRequestType,
+  PausedPayload,
+  PausedState,
   PresencePayload,
   ProtocolFaultPayload,
   PromptPayload,
   RejectCode,
   RejectedPayload,
-  RestorePayload,
   SeatDirectoryEntry,
   ServerToSeat,
   WelcomePayload,
@@ -438,7 +439,7 @@ export function getLeaderboard(
 
 /* ── the table socket ─────────────────────────────────────────────────── */
 
-/** The seven requests that get an `accepted`/`rejected` reply keyed by
+/** The requests that get an `accepted`/`rejected` reply keyed by
  *  requestId. `join`, `resync` and `heartbeat` are handled separately below —
  *  none of them answer through that channel (see messages.ts / table.ts). */
 type AckRequestType = Exclude<ClientRequestType, "join" | "resync" | "heartbeat">;
@@ -450,26 +451,19 @@ export class RequestRejected extends Error {
   }
 }
 
-/** The `events`/`restore` payload as this build's server actually sends it.
- *  `messages.ts`'s `EventsPayload` does not carry `snapshot` yet — the server
- *  side of that change is landing at the same time as this client (see the
- *  task brief) — so this is coded to the documented wire shape rather than
- *  the (temporarily stale) type import. Treated as always present. */
-interface EventsPayloadWire {
-  events: SeatVisible<RedactedGameEvent>[];
-  snapshot?: SeatVisible<SeatSnapshot>;
-}
-
 export interface TableSocketCallbacks {
   onWelcome(payload: WelcomePayload): void;
   /** `restore` carries the SAME contract as `events`: a batch to animate, plus
    *  the snapshot to snap to afterward — see the top of game.ts's consume().
    *  It also re-sends `directory`: who sits where may have changed (seats
-   *  filled or shuffled) since this seat's own `welcome`. */
+   *  filled or shuffled) since this seat's own `welcome`. `paused` is the
+   *  same field `welcome` carries — `null` means nobody has the table paused
+   *  right now. */
   onRestore(
     events: SeatVisible<RedactedGameEvent>[],
     snapshot: SeatVisible<SeatSnapshot>,
     directory: FourSeats<SeatDirectoryEntry>,
+    paused: PausedState | null,
   ): void;
   onEvents(events: SeatVisible<RedactedGameEvent>[], snapshot: SeatVisible<SeatSnapshot> | null): void;
   onPrompt(payload: PromptPayload): void;
@@ -484,6 +478,10 @@ export interface TableSocketCallbacks {
    *  chat slice of the same payload, pulled out so the caller's chat state
    *  doesn't have to reach into `onWelcome`'s/`onRestore`'s arguments too. */
   onChatHistory(list: ChatMessagePayload[]): void;
+  /** The `paused` broadcast — not a reply to any request, a push like
+   *  `presence`/`chat`, sent to every seat whenever the table's pause state
+   *  changes (worker/src/table.ts `handlePause`/`resumeNow`). */
+  onPaused(payload: PausedPayload): void;
   onFault(payload: ProtocolFaultPayload): void;
   /** The `join` itself was refused — a dead seat token, most likely. The
    *  caller's job is to fetch a fresh one (joinTable) and call setSeatToken. */
@@ -593,7 +591,7 @@ export class TableSocket {
     });
   }
 
-  /** One of the seven request* types. Resolves on `accepted`, rejects with
+  /** One of the request* types. Resolves on `accepted`, rejects with
    *  `RequestRejected` on `rejected`, or on a timeout if the socket drops
    *  the exchange entirely (a retry after reconnect is the caller's job —
    *  the UI's job is only to re-enable the control). */
@@ -619,6 +617,23 @@ export class TableSocket {
       this.pending.set(requestId, { resolve, reject, timer });
       this.sendRaw({ p: PROTOCOL_VERSION, requestId, type, payload } as ClientRequest);
     });
+  }
+
+  /** `requestNextHand {}` — sent during the handEnd intermission; the server
+   *  ends it early once every connected human has sent one. */
+  requestNextHand(): Promise<AcceptedPayload> {
+    return this.request("requestNextHand", {});
+  }
+  /** Any human seat may pause or resume the table. */
+  requestPause(): Promise<AcceptedPayload> {
+    return this.request("requestPause", {});
+  }
+  requestResume(): Promise<AcceptedPayload> {
+    return this.request("requestResume", {});
+  }
+  /** Player-toggled auto-play — see `RequestAutoPayload`'s doc comment. */
+  requestAuto(on: boolean): Promise<AcceptedPayload> {
+    return this.request("requestAuto", { on });
   }
 
   private sendJoin(): void {
@@ -672,13 +687,13 @@ export class TableSocket {
         this.cb.onChatHistory(msg.payload.chat);
         break;
       case "restore": {
-        const p = msg.payload as RestorePayload;
-        this.cb.onRestore(p.events, p.snapshot, p.directory);
+        const p = msg.payload;
+        this.cb.onRestore(p.events, p.snapshot, p.directory, p.paused);
         this.cb.onChatHistory(p.chat);
         break;
       }
       case "events": {
-        const p = msg.payload as unknown as EventsPayloadWire;
+        const p = msg.payload;
         this.cb.onEvents(p.events, p.snapshot ?? null);
         break;
       }
@@ -690,6 +705,9 @@ export class TableSocket {
         break;
       case "presence":
         this.cb.onPresence(msg.payload);
+        break;
+      case "paused":
+        this.cb.onPaused(msg.payload);
         break;
       case "accepted": {
         const pend = this.pending.get(msg.payload.requestId);

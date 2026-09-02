@@ -121,6 +121,9 @@ for *this seat only*; it is replaced whole, never patched.
     `placements`, built up live from `sessionHands` (accumulated during play,
     not fetched back from the server) plus a local `coachTally` for "engine
     agreement". "Back to lobby" closes the socket and clears the session key.
+    The scoreboard never jumps the line ahead of the last hand's own reveal
+    (item 15) — `syncVeil()` checks `overlay` before `matchEndInfo`, so the
+    reveal shows first and the scoreboard follows once it closes.
 12. Reconnect: on an unexpected socket close, `TableSocket` retries with
     capped exponential backoff and re-sends `join` with the same seat token
     (the server does not invalidate it on disconnect — the token *is* the
@@ -160,6 +163,71 @@ for *this seat only*; it is replaced whole, never patched.
     `directory` at the moment a message arrives (the wire payload only
     carries a seat), lobby chat's rows already have one. Bots never chat
     (server-enforced), so there is no bot-chat affordance to build.
+15. **Hand-end reveal.** A win/exhaustive-draw no longer snaps straight into
+    the next deal. `handEnd`'s own case in `consume()` builds one overlay:
+    the winner's hand face up (concealed tiles + melds, the winning tile
+    ringed gold via `.win-tile`, captured off the preceding `winOnDiscard`/
+    `selfDraw` event into `pendingWinDetail`), the faan awards by name
+    (`AWARDS`), whether the total was capped, the chip deltas and standings
+    per seat; on 流局 each seat's tile count, plus this seat's own ready
+    state if the redacted `exhaustiveDraw` payload carried a distance (only
+    ever your own — §5.3). A **next hand** button sends `requestNextHand`
+    and then reads "waiting for others…"; when `handEnd.nextHandTs` is
+    present a live countdown (a bounded 1Hz `setInterval`, not a rAF loop)
+    closes the reveal at that deadline, otherwise a fixed 6s hold does the
+    same, with a plain **continue** tap alongside it. Either way,
+    `applyBatch()` refuses to animate or snap to a batch that opens a new
+    hand (`fresh[0].type === "deal"`) while the reveal is still up — it
+    closes the reveal first (the deal's arrival is itself proof the
+    intermission is over) and only then applies the batch, so the table
+    never shows next-hand tiles behind an open reveal.
+16. **Pause/resume.** `requestPause`/`requestResume` (a Pause/Resume button
+    in the HUD, toggling on `paused`); the server's `paused` broadcast (and
+    the same field seeded on `welcome`/`restore`) drives a full-table veil —
+    "Paused by NAME · tap Resume" — that `syncVeil()` checks before
+    everything else, including the hand-end reveal. The veil itself blocks
+    all pointer events to the table underneath, which is what "every game
+    control is disabled" comes from; `act()` also short-circuits as a second
+    line of defence. The turn clock freezes rather than resetting
+    (`freezeClock()`/`thawClock()`, `clockTick()` pulled out of `startClock()`
+    so both can drive it) — on resume it shifts `clockDeadline` forward by
+    however long the freeze lasted, a best-effort guess that a fresh
+    `prompt` (the more likely server behaviour) simply overwrites. A
+    `rejected` with code `paused` reads as "the table is paused"
+    (`REJECT_NOTES`).
+17. **Auto-play.** `requestAuto({ on })` (an Auto toggle in the HUD); `myAuto`
+    is authoritative from this seat's own `presence` row, but also flips off
+    the instant `act()` sends any request of its own — a deliberate,
+    UI-only exception to the no-optimism doctrine, mirroring what the server
+    does anyway. While on, the hand and action bar go inert (`canDiscard`
+    folds in `!myAuto`, the actions bar shows "auto is playing for you"
+    instead of buttons) and this seat's own nameplate reads "· auto"; every
+    other seat's nameplate reads the same off `directory[seat].auto`, kept
+    current by `presence` the same way `bot`/`connected`/`displayName`
+    already were.
+18. **Claim bar, ported from the demo** (`mjrc-game/client/game`): the bar
+    moved above the hand (table → buttons → tiles is the read order), each
+    button tinted by its call (chow orange, pung blue, kong violet, win gold
+    with a pulse and rays) and drawing the meld it would build —
+    `claimStrip()` renders the tiles with the one in play (`snap.lastDiscard`)
+    ringed gold, at 10px padding so four fit on one row at 375px. The WIN
+    button carries no faan preview (the demo's `previewWin` has no
+    server-authoritative equivalent here) — it is offered exactly when
+    `pending` carries it, which was already the rule. Also ported: the
+    flower index's `fidx` CSS hook and larger halo'd numeral
+    (`tile-engine.js` `fIndexNum`) with the per-surface size fix that follows
+    from it (a flower is sized like the tile beside it, `sm` in a `.meldrow`,
+    unscaled in `#mymelds` — no more `.tile.fl` override); the mobile pile/
+    hand sizing fix (`--th`, not hard-coded `width`/`height`, so `#pile`'s own
+    scaling rule is not overridden and a 流局 hand's ~84 discards still fit);
+    and opponents' melds turned to face their own seat on a phone (east/west
+    columns, rotated tile faces) so the discard heap no longer buries them.
+    Count-tiles is on by default now, with a one-time
+    `mjrc.gamepvp.hcCountDefaulted` migration so an existing device's saved
+    settings still get it once. Not ported: the demo's local
+    leaderboard/stats board, the bot-thinking panel, and anything reading
+    omniscient state — none of it has an equivalent over a redacted seat
+    socket (see "What was removed from Solo, and why" below).
 
 ## What was removed from Solo, and why
 
@@ -225,19 +293,14 @@ fire on a ~260 ms long-press, per the "touch first" client rule
 
 ## Known gaps / protocol assumptions made beyond the brief
 
-- **`events`/`restore` snapshot field.** The task brief said the server's
-  `snapshot` field on `events`/`restore` payloads was landing at the same
-  time as this client and to "code to it as always present." As of this
-  write, `protocol/src/messages.ts`'s `EventsPayload` type does not carry it
-  yet (only `worker/src/table.ts`'s *call site* does,
-  `eventsMessage(redacted, this.viewFor(att.seat))` — two arguments against a
-  one-argument constructor). `net.ts` reads the wire JSON through a local
-  `EventsPayloadWire` interface rather than the (temporarily stale) type
-  import, and treats a missing `snapshot` as "animate only, don't move
-  `snap`" — never a thrown error — so it degrades rather than breaks if the
-  server-side change lands with a different shape than expected. Once
-  `messages.ts` is updated, `EventsPayloadWire` can be deleted in favour of
-  the real type.
+- **`events`/`restore` snapshot field — resolved.** This used to be a local
+  `EventsPayloadWire` shim (`net.ts`) coded ahead of `protocol/src/
+  messages.ts`'s `EventsPayload` carrying `snapshot`. The real type has since
+  landed with the field, so the shim is gone — `net.ts` reads
+  `EventsPayload`/`WelcomePayload`/`RestorePayload`/`PresencePayload` directly
+  now. Left here as a note in case a future pass needs the same "code to the
+  documented wire shape, degrade if it's missing" posture for something else
+  still landing.
 - **Reconnect after a discard-pile gap.** A cold `welcome`/`restore` gives
   per-seat discard *lists*, not their true cross-seat chronological
   interleave (that ordering never reaches a seat socket).

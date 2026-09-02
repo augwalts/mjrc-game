@@ -31,8 +31,8 @@ import type {
 } from "../../protocol/src/events.js";
 import { actionsOf, seatViewOf } from "../../protocol/src/seatview.js";
 import type {
-  ChatMessagePayload, ChatPhrase, LegalRequests, PromptPayload, PresencePayload, ProtocolFaultPayload,
-  RejectCode, RejectedPayload, SeatDirectoryEntry, WelcomePayload,
+  ChatMessagePayload, ChatPhrase, LegalRequests, PausedPayload, PausedState, PresencePayload,
+  ProtocolFaultPayload, PromptPayload, RejectCode, RejectedPayload, SeatDirectoryEntry, WelcomePayload,
 } from "../../protocol/src/messages.js";
 import { CHAT_PHRASES, CHAT_TEXT_MAX_LENGTH } from "../../protocol/src/messages.js";
 import {
@@ -98,6 +98,17 @@ const tileHtml = (t: TileId, cls = "", attrs = ""): string =>
  *  from us (`tiles: null`) and renders as four backs, never a guess. */
 const meldHtml = (m: Meld | SeatVisibleMeld, cls = ""): string =>
   m.tiles === null ? `<span class="back"></span>`.repeat(4) : m.tiles.map((t) => tileHtml(t, cls)).join("");
+
+/** The meld a claim button would BUILD, drawn as tiles rather than decoded
+ *  from a label — ported from the demo (task item 4a). `thrown` (the tile in
+ *  play) is marked by POSITION, not value: a pung and a kong are all the same
+ *  number, so matching on value would ring every tile in the strip. */
+const claimStrip = (tiles: TileId[], thrown: TileId | null): string => {
+  const parts = tiles.map((t) => ({ t, got: false }));
+  if (thrown !== null) parts.push({ t: thrown, got: true });
+  parts.sort((a, b) => a.t - b.t); // stable: the thrown tile stays last among equals
+  return `<span class="tw">${parts.map((p) => tileHtml(p.t, p.got ? "got" : "")).join("")}</span>`;
+};
 
 const WIND_CH = ["東", "南", "西", "北"];
 const AWARDS: Record<string, string> = {
@@ -258,6 +269,17 @@ let currentJoinCode: string | null = null;
 let currentRulesetId = "mjrc-standard";
 let currentMatchFormat: MatchFormat = "east";
 
+/* ── pause + auto-play ─────────────────────────────────────────────────
+ * `paused` mirrors the server's `paused` broadcast (and `welcome`/`restore`'s
+ * own seed of it, `PausedState`) exactly: non-null means the table is frozen
+ * for everyone, by whoever is named in it. `myAuto` mirrors this SEAT's own
+ * auto-play flag — authoritative from `presence`, but also flipped off the
+ * instant this client sends any game request ("the server does this too;
+ * mirror it locally on send" — a UI-responsiveness exception to the
+ * no-optimism doctrine, not a game-state prediction). */
+let paused: PausedState | null = null;
+let myAuto = false;
+
 /* ── table chat state (§8) ─────────────────────────────────────────────
  * `tableChat` mirrors the table's own last-50 ring (server-side, table.ts) —
  * replaced whole on `welcome`/`restore` (`onChatHistory`), appended to on a
@@ -290,6 +312,31 @@ let handSig = "";
 let overlay: string | null = null;
 interface MatchEndInfo { standings: number[]; placements: number[]; reason: string; handsPlayed: number; }
 let matchEndInfo: MatchEndInfo | null = null;
+
+/* ── hand-end reveal (task brief item 1) ──────────────────────────────────
+ * `overlay` above IS the reveal's content once a hand ends — this block is
+ * just the state around it: when it may auto-close, and what this seat has
+ * captured from the hand-ending events to build it (the win/selfDraw event
+ * carries the winner's hand, `handEnd` carries the chips — they land in the
+ * same batch, so a `pending*` value never survives past one hand-end). */
+/** unix ms from `handEnd`'s `nextHandTs` (events.ts: absent when the table
+ *  advances at once — no human connected, or the intermission is disabled —
+ *  and also true of an older server that never stamps it at all). `null`
+ *  here means either: fall back to a fixed hold rather than a countdown. */
+let revealDeadlineTs: number | null = null;
+let revealTimer = 0;
+/** This seat already sent `requestNextHand` for the hand now revealing. */
+let revealRequested = false;
+interface PendingWinDetail {
+  seat: SeatIndex; selfDraw: boolean; from: SeatIndex | null; winningTile: TileId;
+  concealed: TileId[]; melds: Meld[];
+  faan: number; rawFaan: number; capped: boolean; awards: { id: string; faan: number }[];
+}
+let pendingWinDetail: PendingWinDetail | null = null;
+/** Own distance-to-ready at an exhaustive draw — the redacted payload only
+ *  ever tells a seat its OWN value (§5.3), so this is never set for anyone
+ *  else's row in the 流局 reveal. */
+let pendingDrawDistance: number | null = null;
 /** The server's move-grading record for this match, per seat — desktop only
  *  (see DESKTOP above). `undefined` until `fetchMatchAgreement` lands; a
  *  landed seat's own `agreement` is null when nothing about it was graded. */
@@ -327,9 +374,21 @@ interface Settings {
   hcCount: boolean; hcCalling: boolean; hcWhatIf: boolean;
 }
 const SETTINGS: Settings = {
-  tileScale: 1, dev: false, hcCount: false, hcCalling: false, hcWhatIf: false,
+  tileScale: 1, dev: false, hcCount: true, hcCalling: false, hcWhatIf: false,
   ...JSON.parse(localStorage.getItem("mjrc.gamepvp.settings") ?? "{}"),
 };
+/** Saved settings are spread OVER the defaults above, so changing a default
+ *  reaches new devices only — a tester who already played carries
+ *  hcCount:false forever. This turns it on once for existing devices too and
+ *  records that it has done so, so a player who then switches it back off
+ *  keeps it off. Ported from the demo (owner 2026-09-01): "it's super
+ *  helpful", and it reveals nothing hidden — every copy it lights up is
+ *  already face-up on the table. */
+if (localStorage.getItem("mjrc.gamepvp.hcCountDefaulted") === null) {
+  localStorage.setItem("mjrc.gamepvp.hcCountDefaulted", "1");
+  SETTINGS.hcCount = true;
+  localStorage.setItem("mjrc.gamepvp.settings", JSON.stringify(SETTINGS));
+}
 const saveSettings = (): void => {
   localStorage.setItem("mjrc.gamepvp.settings", JSON.stringify(SETTINGS));
   document.documentElement.style.setProperty("--tscale", String(SETTINGS.tileScale));
@@ -674,26 +733,46 @@ function announce(kind: string, who: string, extra = "", screenPos: 0 | 1 | 2 | 
  * Rule (W3/PVP plan §2.2): zero animation frames when nothing is moving. The
  * rAF loop below runs ONLY while a deadline is armed and cancels itself the
  * instant it is not — Solo's version ran continuously from boot.          */
-let clockDeadline = 0, clockTotalMs = 1, clockRaf = 0;
+let clockDeadline = 0, clockTotalMs = 1, clockRaf = 0, clockPausedAt = 0;
+function clockTick(): void {
+  const remain = clockDeadline - Date.now();
+  const frac = Math.min(1, Math.max(0, remain / clockTotalMs));
+  $("clock").style.width = `${frac * 100}%`;
+  $("clock").className = frac < 0.2 ? "low" : "";
+  if (remain <= 0) { clockRaf = 0; return; }
+  clockRaf = requestAnimationFrame(clockTick);
+}
 function startClock(deadlineTs: number): void {
   clockDeadline = deadlineTs;
   clockTotalMs = Math.max(1, deadlineTs - Date.now());
   cancelAnimationFrame(clockRaf);
-  const tick = (): void => {
-    const remain = clockDeadline - Date.now();
-    const frac = Math.min(1, Math.max(0, remain / clockTotalMs));
-    $("clock").style.width = `${frac * 100}%`;
-    $("clock").className = frac < 0.2 ? "low" : "";
-    if (remain <= 0) { clockRaf = 0; return; }
-    clockRaf = requestAnimationFrame(tick);
-  };
-  clockRaf = requestAnimationFrame(tick);
+  clockRaf = requestAnimationFrame(clockTick);
 }
 function stopClock(): void {
   cancelAnimationFrame(clockRaf);
   clockRaf = 0;
+  clockPausedAt = 0;
   $("clock").style.width = "0%";
   $("clock").className = "";
+}
+/** Pause (task brief item 2): "clocks stop ticking (freeze the countdown
+ *  display)". Cancels the rAF loop but leaves the bar painted where it was —
+ *  `thawClock()` below shifts `clockDeadline` forward by however long the
+ *  freeze lasted, so the remaining time reads the same on resume regardless
+ *  of what the server does with the underlying deadline. If a fresh `prompt`
+ *  arrives instead (the more likely server behaviour), `startClock()` just
+ *  overwrites this outright — nothing here needs to be "correct", only not
+ *  to keep ticking while the table is frozen. */
+function freezeClock(): void {
+  if (clockRaf) { clockPausedAt = Date.now(); cancelAnimationFrame(clockRaf); clockRaf = 0; }
+}
+function thawClock(): void {
+  if (clockPausedAt) {
+    clockDeadline += Date.now() - clockPausedAt;
+    clockPausedAt = 0;
+    cancelAnimationFrame(clockRaf);
+    clockRaf = requestAnimationFrame(clockTick);
+  }
 }
 
 /* ── the wall (decorative — see decorSeed above) ─────────────────────── */
@@ -740,15 +819,20 @@ function buildWall(): void {
 interface SessionHand { n: number; winner: SeatIndex | null; selfDraw: boolean; from: SeatIndex | null; faan: number; deltas: number[]; }
 const sessionHands: SessionHand[] = [];
 let pendingHandOutcome: { winner: SeatIndex | null; selfDraw: boolean; from: SeatIndex | null; faan: number } | null = null;
-let handEndTimer = 0;
 
 function consume(events: readonly RedactedGameEvent[]): void {
   for (const e of events) {
     const p = e.payload as unknown as Record<string, unknown>;
     switch (e.type) {
       case "deal":
+        // Any reveal for the hand that just ended is done its job the moment
+        // a new deal lands (applyBatch() below is what actually withholds
+        // this event from `consume()` until the reveal has closed — this is
+        // just belt-and-braces for the first hand of a match, when neither
+        // ever ran).
+        window.clearTimeout(revealTimer);
+        revealTimer = 0; revealDeadlineTs = null; revealRequested = false;
         overlay = null;
-        window.clearTimeout(handEndTimer);
         pileTiles = []; handSig = ""; landingMeld = null;
         $("say").className = "";
         buildWall();
@@ -798,41 +882,78 @@ function consume(events: readonly RedactedGameEvent[]): void {
         break;
       }
       case "winOnDiscard": case "selfDraw": {
-        const ctx = p.context as { seat: SeatIndex; selfDraw: boolean; from: SeatIndex | null };
-        const sc = p.score as { faan: number; awards: { id: string; faan: number }[] };
-        const mine = ctx.seat === mySeat;
+        const ctx = p.context as { seat: SeatIndex; selfDraw: boolean; from: SeatIndex | null; winningTile: TileId };
+        const sc = p.score as { faan: number; rawFaan: number; capped: boolean; awards: { id: string; faan: number }[] };
         announce(ctx.selfDraw ? "selfDraw" : "win", seatName(ctx.seat), `${sc.faan} faan`, rel(ctx.seat));
-        const tiles = [...((p.concealed as TileId[]) ?? [])].sort((a, b) => a - b);
-        const melds = (p.melds as Meld[] ?? []);
-        overlay = `<h1>${mine ? "You win! 食糊" : seatName(ctx.seat) + " wins"}</h1>
-          <h2>${sc.faan} faan · ${ctx.selfDraw ? "自摸 self-draw" : ctx.from === mySeat ? "off YOUR discard" : "食糊 on a discard"}</h2>
-          <div class="tiles">${tiles.map((t) => tileHtml(t, "sm")).join("")}
-            ${melds.map((m) => `<span style="width:8px"></span>` + m.tiles.map((t) => tileHtml(t, "sm")).join("")).join("")}</div>
-          <div class="awards">${sc.awards.map((a) => `${AWARDS[a.id] ?? a.id} <b>${a.faan}</b>`).join(" &nbsp;·&nbsp; ")}</div>`;
+        // The full reveal (tiles, awards, chips, standings) is built once, at
+        // `handEnd` below — this event only ever carries the winner's hand,
+        // and `handEnd` always lands in the same batch right after it.
+        pendingWinDetail = {
+          seat: ctx.seat, selfDraw: ctx.selfDraw, from: ctx.from, winningTile: ctx.winningTile,
+          concealed: [...((p.concealed as TileId[]) ?? [])], melds: (p.melds as Meld[]) ?? [],
+          faan: sc.faan, rawFaan: sc.rawFaan, capped: sc.capped, awards: sc.awards,
+        };
         pendingHandOutcome = { winner: ctx.seat, selfDraw: ctx.selfDraw, from: ctx.from, faan: sc.faan };
         break;
       }
-      case "exhaustiveDraw":
-        overlay = `<h1>流局</h1><h2>The wall ran out — nobody wins</h2>`;
+      case "exhaustiveDraw": {
+        // Own value only — RedactedExhaustiveDrawPayload nulls every other
+        // seat's (§5.3); the reveal falls back to a tile count for those.
+        const dist = (p.distanceToReady as (number | null)[] | undefined)?.[mySeat];
+        pendingDrawDistance = dist ?? null;
         pendingHandOutcome = { winner: null, selfDraw: false, from: null, faan: 0 };
         break;
+      }
       case "handEnd": {
         const st = p.standings as number[];
         const d = p.chipDeltas as number[] | undefined;
+        // `HandEndPayload.nextHandTs` (events.ts) — absent when the table
+        // advances at once (no human connected, or the intermission is
+        // disabled); an older server omitting the field entirely reads the
+        // same way. Either way `startReveal()` below falls back to a fixed
+        // hold rather than a countdown.
+        const nextHandTs = p.nextHandTs as number | undefined;
         sessionHands.push({
           n: sessionHands.length + 1,
           ...(pendingHandOutcome ?? { winner: null, selfDraw: false, from: null, faan: 0 }),
           deltas: d ?? [0, 0, 0, 0],
         });
-        pendingHandOutcome = null;
-        overlay = (overlay ?? "") + `<div class="pay">${[0, 1, 2, 3].map((i) => `
+
+        const win = pendingWinDetail;
+        let head: string;
+        if (win) {
+          const mine = win.seat === mySeat;
+          // `concealed` excludes `winningTile` on BOTH paths (events.ts
+          // WinPayload's own doc comment) — append it, marked, rather than
+          // leaving it out of the reveal entirely.
+          const tiles = win.concealed.slice().sort((a, b) => a - b).map((t) => tileHtml(t, "sm"));
+          tiles.push(tileHtml(win.winningTile, "sm win-tile"));
+          const capNote = win.capped ? ` <span class="mut">(capped from ${win.rawFaan})</span>` : "";
+          head = `<h1>${mine ? "You win! 食糊" : seatName(win.seat) + " wins"}</h1>
+            <h2>${win.faan} faan${capNote} · ${win.selfDraw ? "自摸 self-draw"
+              : win.from === mySeat ? "off YOUR discard" : "食糊 on a discard"}</h2>
+            <div class="tiles">${tiles.join("")}
+              ${win.melds.map((m) => `<span style="width:8px"></span>` + meldHtml(m, "sm")).join("")}</div>
+            <div class="awards">${win.awards.map((a) => `${AWARDS[a.id] ?? a.id} <b>${a.faan}</b>`).join(" &nbsp;·&nbsp; ")}</div>`;
+        } else {
+          const distLine = pendingDrawDistance === null ? ""
+            : pendingDrawDistance <= 0 ? `<p><span class="ok" style="color:#7fe0a4">you were 聽牌 — ready</span></p>`
+            : `<p class="mut">you were ${pendingDrawDistance} away from ready</p>`;
+          head = `<h1>流局</h1><h2>The wall ran out — nobody wins</h2>${distLine}
+            <div class="rows">${[0, 1, 2, 3].map((i) => {
+              const s = snap?.seats[i as SeatIndex];
+              const n = s ? s.handCount + (s.holdingDrawn ? 1 : 0) : 0;
+              return `<div class="row"><span class="c1">${seatName(i as SeatIndex)}</span>
+                <span class="c2">${n} tiles</span></div>`;
+            }).join("")}</div>`;
+        }
+        overlay = head + `<div class="pay">${[0, 1, 2, 3].map((i) => `
           <div>${seatName(i as SeatIndex)}<br>
             <span class="d ${d && d[i]! > 0 ? "up" : d && d[i]! < 0 ? "down" : ""}">${d ? (d[i]! > 0 ? "+" : "") + d[i] : ""}</span>
             <span style="opacity:.6"> → ${st[i]}</span></div>`).join("")}</div>`;
-        // Auto-dismisses on the next `deal`; this is a fallback in case a
-        // deal is unusually slow to arrive (a bot-heavy hand, a lagging pass).
-        window.clearTimeout(handEndTimer);
-        handEndTimer = window.setTimeout(() => { overlay = null; syncVeil(); }, 6000);
+
+        pendingHandOutcome = null; pendingWinDetail = null; pendingDrawDistance = null;
+        startReveal(typeof nextHandTs === "number" ? nextHandTs : null);
         break;
       }
       case "matchEnd": {
@@ -852,8 +973,53 @@ function consume(events: readonly RedactedGameEvent[]): void {
   if (feed.length > 8) feed.splice(0, feed.length - 8);
 }
 
+/** Arms the reveal's own close timer — a live countdown to `deadlineTs` when
+ *  the server sent one, or a fixed hold when it didn't (no `nextHandTs`: an
+ *  older server, or the table is advancing at once — either way there is
+ *  nothing to count down to). Either way this is the ONLY thing that may
+ *  close the reveal on its own; a new-hand batch arriving early closes it
+ *  too, but that path is `applyBatch()` below, not this timer. */
+function startReveal(deadlineTs: number | null): void {
+  window.clearTimeout(revealTimer);
+  revealDeadlineTs = deadlineTs;
+  revealRequested = false;
+  if (deadlineTs !== null) {
+    // A 1Hz interval while the reveal is up, not a rAF loop — the client's
+    // "zero idle animation frames" rule (see the clock above) is about
+    // continuous per-frame work, not a bounded once-a-second repaint tied to
+    // a screen that is actually showing.
+    revealTimer = window.setInterval(() => {
+      if (Date.now() >= deadlineTs) { closeReveal(); render(); syncVeil(); return; }
+      if (overlay) showOverlay();
+    }, 1000);
+  } else {
+    revealTimer = window.setTimeout(() => { closeReveal(); render(); syncVeil(); }, 6000);
+  }
+}
+/** Clears the reveal's own state. Does NOT render/sync — every caller does
+ *  that itself right after, since `applyBatch()`'s caller is about to anyway. */
+function closeReveal(): void {
+  window.clearTimeout(revealTimer);
+  revealTimer = 0;
+  overlay = null;
+  revealDeadlineTs = null;
+  revealRequested = false;
+}
+
 function applyBatch(events: readonly RedactedGameEvent[], snapshot: SeatVisible<SeatSnapshot> | null): void {
   const fresh = events.filter((e) => e.seq > lastSeq);
+  // The reveal overlay owns the table between a handEnd and the next deal
+  // (task brief item 1: "do NOT apply the next hand's deal events or
+  // snapshot to the table while the overlay is up"). A hand only ever OPENS
+  // on `deal` (the log format enforces it — see events.ts's
+  // assertEventStreamWellFormed), so a fresh batch whose first event is a
+  // `deal` is exactly "a batch that starts a new hand". Its arrival is
+  // itself one of the reveal's own close conditions — the server would not
+  // have sent it if the intermission were not genuinely over, whether by
+  // full countdown or everyone tapping early — so this closes the reveal
+  // and falls straight through to applying the batch, rather than holding it
+  // any longer once that proof has arrived.
+  if (overlay && fresh.length && fresh[0]!.type === "deal") closeReveal();
   if (fresh.length) {
     consume(fresh);
     lastSeq = fresh[fresh.length - 1]!.seq;
@@ -887,16 +1053,55 @@ function humansConnected(): boolean {
   return directory.every((d) => d.bot || (presence[d.seat]?.connected ?? d.connected));
 }
 function syncVeil(): void {
-  if (matchEndInfo) { showMatchEndScreen(); return; }
+  // Pause (task brief item 2) takes the table over completely, whatever else
+  // is showing — it can land mid-hand, mid-reveal, anywhere.
+  if (paused) { showPausedScreen(); return; }
+  // The reveal comes BEFORE matchEnd: a match's last hand still gets its own
+  // reveal, and only once that closes does the scoreboard follow (task brief
+  // item 1's closing line) — the old order here showed the scoreboard first
+  // and skipped the last hand's reveal entirely.
   if (overlay) { showOverlay(); return; }
+  if (matchEndInfo) { showMatchEndScreen(); return; }
   if (snap && directory && !humansConnected() && !(pending && pending.length > 0)) { waitingRoomScreen(); return; }
   $("veil").style.display = "none";
 }
+/** The hand-end reveal (task brief item 1). `revealDeadlineTs` present means
+ *  the server stamped `nextHandTs` — show a live countdown and no manual
+ *  dismiss; absent (an older server) falls back to a plain "continue" tap,
+ *  same as the fixed 6s hold `startReveal()` already armed for that case. */
 function showOverlay(): void {
   $("veil").style.display = "flex";
-  $("panel").innerHTML = `${overlay}<button id="btnCont" style="margin-top:14px">continue ▸</button>`;
-  const b = document.getElementById("btnCont");
-  if (b) (b as HTMLButtonElement).onclick = () => { overlay = null; syncVeil(); };
+  const countdown = revealDeadlineTs !== null
+    ? `<p class="mut">next hand in ${Math.max(0, Math.ceil((revealDeadlineTs - Date.now()) / 1000))}s</p>` : "";
+  const nextBtn = revealRequested
+    ? `<button id="btnNextHand" disabled style="opacity:.55">waiting for others…</button>`
+    : `<button id="btnNextHand">next hand ▸</button>`;
+  const contBtn = revealDeadlineTs === null
+    ? `<button id="btnCont" style="background:rgba(255,255,255,.08);margin-left:8px">continue ▸</button>` : "";
+  $("panel").innerHTML = `${overlay}${countdown}<div style="margin-top:10px">${nextBtn}${contBtn}</div>`;
+  const nb = document.getElementById("btnNextHand") as HTMLButtonElement | null;
+  if (nb && !revealRequested) {
+    nb.onclick = () => {
+      revealRequested = true;
+      void ts?.requestNextHand().catch(() => { /* best effort — the countdown/deal still closes it */ });
+      showOverlay();
+    };
+  }
+  const cb = document.getElementById("btnCont");
+  if (cb) (cb as HTMLButtonElement).onclick = () => { closeReveal(); render(); syncVeil(); };
+}
+function showPausedScreen(): void {
+  $("veil").style.display = "flex";
+  const who = paused?.displayName || "a player";
+  $("panel").innerHTML = `<h1>Paused</h1><p>Paused by <b>${esc(who)}</b></p>
+    <button id="btnResume">Resume ▸</button>`;
+  const b = document.getElementById("btnResume") as HTMLButtonElement | null;
+  if (b) {
+    b.onclick = () => {
+      void ts?.requestResume().catch((e) =>
+        flashHudNote(e instanceof RequestRejected ? (REJECT_NOTES[e.code] ?? e.code) : "that didn't go through"));
+    };
+  }
 }
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -1079,7 +1284,10 @@ function showMatchEndScreen(): void {
     matchEndInfo = null; ts?.close(); ts = null; snap = null; directory = null;
     sessionHands.length = 0; coachTally.graded = 0; coachTally.matched = 0; matchAgreement = undefined;
     currentMatchUuid = null; currentJoinCode = null; isCreatorOfCurrentTable = false;
+    paused = null; myAuto = false;
+    closeReveal(); pendingWinDetail = null; pendingDrawDistance = null;
     updateChatVisibility();
+    updateHudButtons();
     lobbyScreen();
   };
   for (const el of Array.from($("panel").querySelectorAll<HTMLElement>(".pname[data-player]"))) {
@@ -1101,14 +1309,28 @@ function leaveTable(): void {
   snap = null; directory = null; seatPlan = null; matchEndInfo = null; overlay = null; curLegal = null; pending = null;
   matchAgreement = undefined;
   currentMatchUuid = null; currentJoinCode = null; isCreatorOfCurrentTable = false;
+  paused = null; myAuto = false;
+  closeReveal(); pendingWinDetail = null; pendingDrawDistance = null;
   stopClock();
   updateChatVisibility();
+  updateHudButtons();
   lobbyScreen();
 }
 
 /* ── acting: send a request, wait, never mutate on send ────────────────── */
 function act(a: Action): void {
   if (!ts) return;
+  // Belt-and-braces: the paused veil already blocks every click that could
+  // reach a game control (it is a full-screen element on top of the table),
+  // so this should be unreachable — but a request sent anyway would just
+  // come back `rejected: "paused"` regardless (REJECT_NOTES), so refusing it
+  // here is strictly redundant, never a source of a stuck control.
+  if (paused) return;
+  // Task brief item 3: "any move you make yourself turns [auto] off (the
+  // server does this too; mirror it locally on send)" — a UI-responsiveness
+  // exception, not a game-state prediction: the label updates immediately
+  // and `presence` confirms it a beat later either way.
+  if (myAuto) { myAuto = false; updateHudButtons(); }
   pending = null;
   stopClock();
   render();
@@ -1154,6 +1376,9 @@ const REJECT_NOTES: Record<RejectCode, string> = {
   rateLimited: "slow down a moment",
   chatRefused: "that message wasn't sent",
   matchOver: "the match is over",
+  pauseRefused: "that didn't go through",
+  paused: "the table is paused",
+  autoRefused: "auto-play isn't available right now",
 };
 
 /* ── render ────────────────────────────────────────────────────────────── */
@@ -1162,7 +1387,11 @@ function plate(seat: SeatIndex, who: string, initial: string): string {
   const sign = s.chips > 0 ? "up" : s.chips < 0 ? "down" : "";
   const conn = presence[seat]?.connected ?? s.connected;
   const bot = directory?.[seat]?.bot ?? false;
-  const marker = bot ? "" : presence[seat]?.botActing ? '<span class="mut"> · bot playing</span>'
+  // Task brief item 3: auto is server truth for every OTHER seat (directory,
+  // via presence) and this seat's own optimistic-on-send mirror for itself.
+  const isAuto = seat === mySeat ? myAuto : (directory?.[seat]?.auto ?? false);
+  const marker = bot ? "" : isAuto ? '<span class="mut"> · auto</span>'
+    : presence[seat]?.botActing ? '<span class="mut"> · bot playing</span>'
     : !conn ? '<span class="mut"> · disconnected</span>' : "";
   return `<div class="nameplate ${snap!.turn === seat && !overlay ? "turn" : ""}">
       <span class="avatar">${initial}</span><span>${who}${marker}</span>
@@ -1183,7 +1412,10 @@ function seatBox(seat: SeatIndex): string {
     <div class="meldrow">${s.melds.map((m, i) => meldHtml(m,
         `sm ${landingMeld && landingMeld.seat === seat && landingMeld.index === i ? "claimed" : ""}`))
         .join('<span style="width:6px"></span>')}
-      ${s.flowers.map((t) => tileHtml(t, "fl")).join("")}</div>`;
+      ${/* `sm` so a flower matches the melds beside it — the meld tiles in
+           this row already carry it; a flower without it came out visibly
+           larger than its neighbours (demo port, task item 4c). */""}
+      ${s.flowers.map((t) => tileHtml(t, "fl sm")).join("")}</div>`;
 }
 
 function render(): void {
@@ -1286,7 +1518,8 @@ function render(): void {
     .join('<span style="width:10px"></span>')
     + me.flowers.map((t) => tileHtml(t, "fl")).join("");
 
-  const canDiscard = !!pending?.some((a) => a.type === "discard");
+  // Task brief item 3: auto-play disables this seat's own controls entirely.
+  const canDiscard = !!pending?.some((a) => a.type === "discard") && !myAuto;
   const hand = [...me.hand].sort((a, b) => a - b);
   $("myhand").className = canDiscard ? "" : "locked";
   const sig = `${hand.join(",")}|${me.drawn ?? "-"}|${canDiscard}`;
@@ -1309,21 +1542,37 @@ function render(): void {
     }
   }
 
+  // The tile currently up for claim — from the snapshot, not client-tracked
+  // state (`snap.lastDiscard` is part of `SeatSnapshot` already). Used only
+  // to ring it in a claim button's meld preview (demo port, task item 4a);
+  // never to decide what is legal — that is still `pending` alone.
+  const inPlay = snap.lastDiscard?.tile ?? null;
   let bar = "";
-  if (pending) {
+  if (myAuto) {
+    bar = `<span class="hint">auto is playing for you</span>`;
+  } else if (pending) {
     const btns: string[] = [];
     pending.forEach((a, i) => {
       if (a.type === "discard") return;
-      const mk = (label: string, cls = "") => btns.push(`<button class="${cls}" data-i="${i}">${label}</button>`);
+      const mk = (label: string, cls = "", tiles = "") =>
+        btns.push(`<button class="${cls}" data-i="${i}"><span class="lb">${label}</span>${tiles}</button>`);
+      // The WIN button offered here is exactly the win `pending` carries —
+      // the server only ever prompts it when it pays (or, on a shape-complete
+      // underfloor hand, as the deliberate 教學 refusedWin teaching moment,
+      // see events.ts) — so this is presentation only, ported from the demo
+      // (task item 4b) with no local faan preview (the client has none).
       if (a.type === "declareWin") mk("WIN 食糊", "win");
       else if (a.type === "pass") mk("pass", "pass");
-      else if (a.type === "concealedKong") mk(`kong 暗槓 ${name(a.tile)}`);
-      else if (a.type === "addedKong") mk(`kong 加槓 ${name(a.tile)}`);
+      // A concealed/added kong is built from your OWN hand — nothing is in
+      // play to ring, so all four tiles are drawn plain.
+      else if (a.type === "concealedKong") mk("kong 暗槓", "kong", claimStrip([a.tile, a.tile, a.tile, a.tile], null));
+      else if (a.type === "addedKong") mk("kong 加槓", "kong", claimStrip([a.tile, a.tile, a.tile, a.tile], null));
       else if (a.type === "claim") {
         const o = a.option;
         if (o.kind === "win") mk("WIN 食糊", "win");
-        else mk(o.kind === "pung" ? "pung 碰" : o.kind === "kong" ? "kong 槓"
-          : `chow 上 ${(o.with ?? []).map(name).join("+")}`);
+        else if (o.kind === "chow") mk("chow 上", "chow", claimStrip(o.with ?? [], inPlay));
+        else if (o.kind === "pung") mk("pung 碰", "pung", inPlay === null ? "" : claimStrip([inPlay, inPlay], inPlay));
+        else mk("kong 槓", "kong", inPlay === null ? "" : claimStrip([inPlay, inPlay, inPlay], inPlay));
       }
     });
     bar = btns.join("") || (canDiscard ? `<span class="hint">your turn — tap a tile to discard</span>` : "");
@@ -1339,6 +1588,7 @@ function render(): void {
   $("log").innerHTML = feed.map((l) => `<div>${l}</div>`).join("");
   $("callwrap").innerHTML = isDesktop() ? callingBar() : "";
   $("devwrap").innerHTML = isDesktop() ? devPanel() : "";
+  updateHudButtons();
   recenterGlyphs(document);
   launchGrab();
 }
@@ -1449,6 +1699,23 @@ function updateChatVisibility(): void {
   if (drawer) drawer.style.display = show ? "flex" : "none";
   updateChatBadge();
 }
+/** The HUD's Pause and Auto buttons (task brief items 2/3) — same "shown
+ *  only while a table exists" rule as the chat FAB above, plus their own
+ *  label/state. Cheap enough to call from every render(). */
+function updateHudButtons(): void {
+  const show = currentMatchUuid !== null;
+  const p = document.getElementById("btnPause") as HTMLButtonElement | null;
+  if (p) {
+    p.style.display = show ? "" : "none";
+    p.textContent = paused ? "▶ resume" : "⏸ pause";
+  }
+  const a = document.getElementById("btnAuto") as HTMLButtonElement | null;
+  if (a) {
+    a.style.display = show ? "" : "none";
+    a.classList.toggle("on", myAuto);
+    a.textContent = myAuto ? "🤖 auto: on" : "🤖 auto";
+  }
+}
 async function sendTableChatText(): Promise<void> {
   const input = document.getElementById("chatInput") as HTMLInputElement | null;
   if (!input || !ts) return;
@@ -1529,6 +1796,9 @@ function connectToMatch(r: {
   }));
   snap = null; directory = null; seatPlan = r.seatPlan ?? null; lastSeq = -1; curLegal = null; pending = null;
   overlay = null; matchEndInfo = null; matchAgreement = undefined;
+  paused = null; myAuto = false;
+  window.clearTimeout(revealTimer); revealTimer = 0; revealDeadlineTs = null; revealRequested = false;
+  pendingWinDetail = null; pendingDrawDistance = null;
   pileTiles = []; handSig = ""; landingMeld = null; feed.length = 0;
   sessionHands.length = 0; coachTally.graded = 0; coachTally.matched = 0;
   tableChat = []; handStartTs = 0; chatShowAll = false; chatUnread = 0;
@@ -1542,19 +1812,27 @@ function connectToMatch(r: {
       currentRulesetId = payload.rulesetId;
       snap = payload.snapshot;
       lastSeq = payload.snapshot.seq;
+      paused = payload.paused;
+      myAuto = payload.directory[mySeat]?.auto ?? false;
       seedPileFromSnapshot();
       buildWall();
       setConnBadge("");
       render();
       syncVeil();
       updateChatVisibility();
+      updateHudButtons();
       ts?.resync(lastSeq);
     },
-    onRestore(events, snapshot, dir) {
+    onRestore(events, snapshot, dir, pausedInfo) {
       // Who sits where may have changed (seats filled or shuffled) since this
       // seat's own `welcome` — `restore`'s directory is the fresh truth,
       // wholesale, same as `welcome`'s (never patched field-by-field).
       directory = dir;
+      const wasPaused = paused !== null;
+      paused = pausedInfo;
+      if (!wasPaused && paused) freezeClock();
+      else if (wasPaused && !paused) thawClock();
+      myAuto = dir[mySeat]?.auto ?? false;
       applyBatch(events, snapshot);
     },
     onEvents(events, snapshot) { applyBatch(events, snapshot); },
@@ -1569,7 +1847,7 @@ function connectToMatch(r: {
       presence[payload.seat] = { connected: payload.connected, botActing: payload.botActing };
       // A player who joins AFTER this seat's own `welcome` is otherwise
       // nameless here forever — `directory` used to ride on `welcome` only.
-      // `presence` now carries enough (playerId/displayName/bot) to keep
+      // `presence` now carries enough (playerId/displayName/bot/auto) to keep
       // this seat's directory current too; update it in place (one seat,
       // not a wholesale replace like `welcome`/`restore` do) so nameplates
       // and the waiting room pick up the name on the very next render.
@@ -1580,8 +1858,18 @@ function connectToMatch(r: {
           displayName: payload.displayName,
           bot: payload.bot,
           connected: payload.connected,
+          auto: payload.auto,
         };
       }
+      if (payload.seat === mySeat) myAuto = payload.auto;
+      render();
+      syncVeil();
+    },
+    onPaused(payload: PausedPayload) {
+      const wasPaused = paused !== null;
+      paused = payload.on ? { bySeat: payload.bySeat, displayName: payload.displayName, since: payload.ts } : null;
+      if (!wasPaused && paused) freezeClock();
+      else if (wasPaused && !paused) thawClock();
       render();
       syncVeil();
     },
@@ -2594,6 +2882,22 @@ async function copyDiagnostic(): Promise<void> {
 
 /* ── boot ──────────────────────────────────────────────────────────────── */
 (document.getElementById("btnFeedback") as HTMLButtonElement).onclick = () => void copyDiagnostic();
+/** A Pause button in the HUD, alongside Quit — while paused, `paused` (set
+ *  from the `paused` broadcast/welcome/restore) drives its own full-table
+ *  veil with the actual Resume button (`showPausedScreen`); this one only
+ *  ever toggles the request the current state calls for. */
+(document.getElementById("btnPause") as HTMLButtonElement).onclick = () => {
+  if (!ts) return;
+  const req = paused ? ts.requestResume() : ts.requestPause();
+  void req.catch((e) =>
+    flashHudNote(e instanceof RequestRejected ? (REJECT_NOTES[e.code] ?? e.code) : "that didn't go through"));
+};
+(document.getElementById("btnAuto") as HTMLButtonElement).onclick = () => {
+  if (!ts) return;
+  const target = !myAuto;
+  void ts.requestAuto(target).catch((e) =>
+    flashHudNote(e instanceof RequestRejected ? (REJECT_NOTES[e.code] ?? e.code) : "that didn't go through"));
+};
 (document.getElementById("btnSettings") as HTMLButtonElement).onclick = () => settingsScreen(() => syncVeil());
 /** "Leave table" (task item 5): only a live seat needs the confirm and the
  *  server-side `/leave` call — quitting from anywhere else (the lobby, a

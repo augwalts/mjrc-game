@@ -652,8 +652,16 @@ function tileSuo(n){
 
 // ═══════════════════ bonus tiles: flowers 花 & seasons 季 (draft) ═══════════════════
 const fglyph = (ch, cx, cy, size, color) => glyph({ ch, cx, cy, size, color });
+// The flower/season index. Was 17px top-left with no halo, which measured at
+// two pixels of ink at tile size — unreadable. The ladder selected 52, kept
+// in the TOP-LEFT corner. The halo lets it survive a branch (demo port,
+// task item 4c).
 function fIndexNum(n, color){
-  return `<text x="12" y="20" font-family="Helvetica,Arial" font-weight="bold" font-size="17" fill="${PAL[color]}">${n}</text>`;
+  // `fidx` is the OPTICAL-SIZE HOOK — a presentation attribute loses to any
+  // CSS rule, so a surface that draws tiles small can enlarge the numeral
+  // without a second copy of the art. recenterGlyphs is delta-based and
+  // re-centres correctly after a CSS resize.
+  return `<text class="fidx" x="7" y="47" font-family="Helvetica,Arial" font-weight="bold" font-size="52" fill="${PAL[color]}" stroke="${PAL.face}" stroke-width="4.2" stroke-linejoin="round" paint-order="stroke">${n}</text>`;
 }
 function fBloom(cx, cy, r, k, color, ctr){
   const parts = [];
