@@ -55,14 +55,18 @@ header p{margin:0;color:#93908a;font-size:13px;max-width:70ch}
   padding:3px 8px;border-radius:0 0 7px 0;pointer-events:none}
 
 /* ══ everything below is the MOCK, and names tokens only ══════════════ */
+/* FLAT FIELDS. A soft gradient across a large area does not read as light,
+   it reads as blur — the surface stops being a surface. Every field here is
+   one colour, and where the picture needs light it gets a HARD EDGE: a band,
+   a pool with a rim, a one-pixel highlight. Hard-stop gradients stay, because
+   a hard stop is a shape, not a fade. */
 .room{height:330px;position:relative;display:flex;flex-direction:column;
-  background:radial-gradient(ellipse at 50% 30%, var(--room-1) 0%, var(--room-2) 55%, var(--room-3) 100%);
-  color:var(--ink);font-size:12px}
+  background:var(--room-2);color:var(--ink);font-size:12px}
 
 /* ── the lobby mock ── */
 .veilx{position:absolute;inset:0;background:var(--veil);display:flex;
   align-items:center;justify-content:center;padding:14px}
-.pnl{background:linear-gradient(180deg,var(--panel-1),var(--panel-2));
+.pnl{background:var(--panel-2);
   border:1px solid rgba(var(--gold-rgb),.35);border-radius:13px;
   padding:16px 20px 15px;width:100%;max-width:330px;text-align:center;
   box-shadow:0 16px 44px rgba(var(--shade),.5)}
@@ -72,7 +76,7 @@ header p{margin:0;color:#93908a;font-size:13px;max-width:70ch}
 .pnl .sub{margin:4px 0 0;font-size:8.5px;letter-spacing:.19em;text-transform:uppercase;
   color:var(--gold)}
 .play{display:block;width:100%;margin:13px 0 0;border:0;border-radius:10px;
-  background:linear-gradient(180deg,var(--gold-hi),var(--gold));color:var(--on-gold,#2a2113);
+  background:var(--gold);color:var(--on-gold,#2a2113);
   padding:11px;font:inherit;font-size:15px;font-weight:800;letter-spacing:.02em;
   cursor:pointer;box-shadow:0 5px 16px rgba(var(--gold-rgb),.3)}
 .play span{display:block;font-size:9.5px;font-weight:600;letter-spacing:.14em;
@@ -98,11 +102,12 @@ header p{margin:0;color:#93908a;font-size:13px;max-width:70ch}
 .pnl.legacy .sum{color:var(--dim);font-size:10px;margin-top:9px}
 
 /* ── the table mock ── */
+/* the felt is ONE colour. What was a 44px inset fade is now a tight 6px
+   contact shadow where the cloth meets the rim — an edge, not a vignette. */
 .felt{position:relative;margin:12px auto 0;width:calc(100% - 22px);height:238px;
-  border-radius:16px;border:7px solid var(--rim);
-  background:radial-gradient(ellipse at 50% 42%, var(--felt) 0%, var(--felt-dk) 72%, var(--felt-edge) 100%);
-  box-shadow:inset 0 0 44px rgba(var(--shade),.45), 0 12px 32px rgba(var(--shade),.55),
-    0 0 0 2px var(--rim-line), inset 0 2px 0 rgba(var(--sheen),.06)}
+  border-radius:16px;border:7px solid var(--rim);background:var(--felt);
+  box-shadow:inset 0 0 0 1px var(--felt-edge), inset 0 3px 6px rgba(var(--shade),.4),
+    0 12px 32px rgba(var(--shade),.5), 0 0 0 2px var(--rim-line)}
 .st{position:absolute;left:7px;top:6px;z-index:4;background:rgba(var(--shade),.4);
   border:1px solid rgba(var(--sheen),.1);border-radius:8px;padding:3px 7px;line-height:1.2}
 .st .w{font-size:14px;font-weight:700;color:var(--gold)}
@@ -112,7 +117,7 @@ header p{margin:0;color:#93908a;font-size:13px;max-width:70ch}
   background:rgba(var(--shade),.32);border-radius:20px;padding:2px 8px;
   font-size:10px;white-space:nowrap;z-index:4}
 .np .av{width:15px;height:15px;border-radius:50%;font-size:8px;
-  background:linear-gradient(160deg,var(--av-1),var(--av-2));
+  background:var(--av-2);
   display:flex;align-items:center;justify-content:center}
 .np .wd{color:var(--gold);font-size:11px}
 .np.turn{outline:2px solid var(--gold);box-shadow:0 0 12px rgba(var(--gold-rgb),.45)}
@@ -134,7 +139,8 @@ header p{margin:0;color:#93908a;font-size:13px;max-width:70ch}
 .side.l .wt,.side.r .wt{width:15px;height:10px;
   background:linear-gradient(90deg,var(--wall-1) 0 42%,var(--wall-2) 42% 72%,var(--wall-3) 72% 100%)}
 .bk{width:8px;height:11px;border-radius:2px;
-  background:linear-gradient(180deg,var(--back-1),var(--back-2));border:1px solid var(--back-edge)}
+  background:var(--back-1);border:1px solid var(--back-edge);
+  box-shadow:inset 0 -2px 0 var(--back-2)}
 .bkrow{display:flex;gap:1px;position:absolute;z-index:3}
 .bkrow.n{top:22px;left:50%;transform:translateX(-50%)}
 .bkrow.e{right:8px;top:50%;transform:translateY(-50%);flex-direction:column}
@@ -144,7 +150,7 @@ header p{margin:0;color:#93908a;font-size:13px;max-width:70ch}
   width:150px;display:flex;flex-wrap:wrap;gap:2px;justify-content:center;z-index:2}
 .heap .tile{--th:21px}
 .hand{flex:0 0 auto;padding:6px 8px 9px;display:flex;gap:3px;justify-content:center;
-  align-items:flex-end;background:linear-gradient(180deg,rgba(var(--shade),0),rgba(var(--shade),.3) 40%)}
+  align-items:flex-end}
 .hand .tile{--th:40px}
 .hand .tile.drawn{margin-left:9px}
 
@@ -214,6 +220,103 @@ const THEMES = [
   note:"The shipped look. The darkness is not the problem; spending one accent where the reference spends five is.",
   vars:{} },
 
+/* ── MJ UNDERGROUND ─────────────────────────────────────────────────────
+ * From the owner's reference photograph, and the closest thing on this board
+ * to a finished art direction rather than a mood.
+ *
+ * What the picture actually contains, in the order it matters:
+ *
+ *   ONE LIGHT, IN THE MIDDLE. A small brass lamp stands on the table and
+ *   everything follows from it — a hot pool of red cloth at the centre, the
+ *   corners falling to almost black, and every tile throwing a hard shadow
+ *   directly away from the middle. This is the exception to the flat-field
+ *   rule and it earns it: a fade is only a smudge when nothing in the picture
+ *   explains it. Here the lamp is drawn, so the falloff is the lamp's.
+ *
+ *   THE TILES ARE ALREADY OURS. Cream faces, blue and red and green glyphs —
+ *   which is exactly what tile-engine.js has drawn all along. This is the one
+ *   direction on the board that needs NO tile recolouring, and it is a point
+ *   in its favour: nothing has to be reconciled with the website's copy.
+ *
+ *   GREEN IS THE BASE, NOT THE FACE. Every tile is a cream face on a jade
+ *   base, so the green is what you see on an EDGE and on anything face-down.
+ *   That falls straight onto the existing pieces: the wall's two-band tile
+ *   goes cream-over-green, the opponents' backs go green, and a tile in hand
+ *   gets a green sliver under it where the base shows. It is also why the
+ *   heap reads at a glance — every tile carries a bright edge against a dark
+ *   cloth without a single outline being drawn.
+ *
+ *   RED IS THE ROOM, BRASS IS THE ONLY METAL. No second accent. */
+{ id:"underground", name:"MJ Underground", tag:"owner reference",
+  from:"owner's photograph — red baize, brass lamp, green-based tiles",
+  note:"Lit from one point above the middle and nothing else: a hot pool of red baize, corners falling away, hard shadows thrown outward. Cream faces on jade bases, so green is what you see on every edge and on everything face-down. Brass is the only metal.",
+  vars:{ "room-1":"#22050a","room-2":"#190407","room-3":"#080102",
+    "felt":"#c1121f","felt-dk":"#6b0a13","felt-edge":"#2b040a",
+    "rim":"#170c0a","rim-line":"#000000",
+    "ink":"#f8f0e5","dim":"#ab918b",
+    /* the cream face and the jade base it stands on */
+    "tile-face":"#f8f4e8","tile-shade":"#0e9a62",
+    /* face-down is green, because the base is all you can see of it */
+    "wall-1":"#f7f3e7","wall-2":"#18bd7b","wall-3":"#0d8f59","wall-edge":"#09693f",
+    "back-1":"#16b276","back-2":"#0c8753","back-edge":"#09693f",
+    "av-1":"#1aa870","av-2":"#0a4a33",
+    "panel-1":"#1d0a0b","panel-2":"#140607","veil":"rgba(8,1,3,.58)",
+    "gold":"#d4a13a","gold-rgb":"212,161,58","gold-hi":"#f6de99","on-gold":"#211504",
+    "danger":"#e8324a" },
+  css:`/* the cloth is flat; the LAMP does the shading, and the lamp is drawn */
+       /* the cloth: flat crimson, with the weave as a hard-stop rib. Baize is
+          the one surface that genuinely has texture, and a 1px repeat is a
+          shape rather than a fade. */
+       .felt{position:relative;border-width:8px;border-radius:10px;
+         background-color:var(--felt);
+         background-image:repeating-linear-gradient(90deg,
+           rgba(0,0,0,.055) 0 1px, transparent 1px 3px);
+         box-shadow:0 14px 40px rgba(0,0,0,.75), 0 0 0 2px var(--rim-line)}
+       /* THE LAMP FALLOFF. First cut put the darkening at 62% with a hard
+          stop, which drew a visible oval on the cloth — a stage light, not a
+          table lamp — and took the corners so far down that the side seats'
+          plates could not be read. It now starts at 52%, climbs in gentler
+          steps and tops out at .58, so the corners recede without going out.
+          Wide enough that the four seats sit inside the usable light. */
+       .felt::after{content:"";position:absolute;inset:0;border-radius:4px;
+         pointer-events:none;z-index:6;
+         background:radial-gradient(ellipse 76% 84% at 50% 46%,
+           transparent 0 44%, rgba(22,3,6,.10) 58%, rgba(16,2,5,.24) 70%,
+           rgba(10,1,3,.40) 82%, rgba(6,0,2,.54) 92%, rgba(4,0,1,.62) 100%)}
+       /* No drawn lamp. It was a brass disc at dead centre, which is exactly
+          where every discard lands — the heap covered it within four turns
+          and fought it for the whole hand before that. The light is the point;
+          the fitting is not, and a light source you cannot see is still the
+          most ordinary thing in a room. */
+       /* a tile is a cream face standing on a green base: the base is the
+          shadow line under it, so the green shows on every edge for free */
+       .tile{border-radius:4px;
+         box-shadow:0 3px 0 var(--tile-shade), 0 5px 9px rgba(0,0,0,.6)}
+       .hand{padding-bottom:13px}
+       .hand .tile{box-shadow:0 4px 0 var(--tile-shade), 0 9px 14px rgba(0,0,0,.7)}
+       /* one light above the middle means the heap's shadows fall OUTWARD,
+          not straight down — the near row throws toward the viewer */
+       .heap .tile{box-shadow:0 2px 0 var(--tile-shade), 0 4px 7px rgba(0,0,0,.65)}
+       .wt{box-shadow:0 2px 3px rgba(0,0,0,.6)}
+       /* plates and chrome: dark, with one brass hairline. Nothing competes
+          with the cloth — it is the only saturated thing in the room. */
+       .np{background:rgba(26,6,8,.82);border:1px solid rgba(212,161,58,.34);
+         border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,.6);z-index:7}
+       .np.turn{outline:1px solid var(--gold);box-shadow:0 0 16px rgba(212,161,58,.45)}
+       .st{background:rgba(26,6,8,.85);border:1px solid rgba(212,161,58,.34);
+         border-radius:4px;z-index:7}
+       .st .w{color:var(--gold-hi)}
+       .pnl{border:1px solid rgba(212,161,58,.4);border-radius:6px;
+         box-shadow:0 22px 60px rgba(0,0,0,.8)}
+       .pnl h1{font-family:Baskerville,"Songti SC",Georgia,serif;font-weight:400;
+         font-size:27px;letter-spacing:.05em}
+       .pnl .sub{color:var(--gold);letter-spacing:.24em}
+       /* the door is the tiles' own green — the only place it appears big */
+       .play{background:#12a86c;border-radius:4px}
+       .card{border-radius:4px;background:rgba(255,255,255,.045);
+         border-color:rgba(212,161,58,.22)}
+       .chips b{border-radius:3px;background:rgba(255,255,255,.045)}` },
+
 /* ── THE STREET PARLOUR ─────────────────────────────────────────────────
  * Read off 廟街永鴻麻雀館, Portland Street, Temple Street, Sham Shui Po and
  * Bowrington Road at night. The measurement that decided this theme: the room
@@ -231,7 +334,10 @@ const THEMES = [
   from:"廟街永鴻麻雀館 · 砵蘭街 Portland St · Temple St · 深水埗 · 寶靈頓道",
   note:"Black room, five competing lights. The panel is a lightbox, not a card: hard edges, a hot keyline, tube-light glare across the top and a grain over everything.",
   vars:{ "room-1":"#241206","room-2":"#0d0a08","room-3":"#030202",
-    "felt":"#146b3c","felt-dk":"#0d4d2b","felt-edge":"#07321c",
+    /* ink navy, chosen on the grid below: the ground under a lit sign is wet
+       asphalt, not baize, and a cool field is what lets warm light read as
+       light rather than as a stain */
+    "felt":"#16204a","felt-dk":"#0d1533","felt-edge":"#070c22",
     "rim":"#17110c","rim-line":"#000000",
     "ink":"#f8f4e6","dim":"#948d82",
     "wall-1":"#f6efdc","wall-2":"#d8c08a","wall-3":"#b89a5e","wall-edge":"#7d6738",
@@ -306,13 +412,19 @@ const THEMES = [
        .chips b:nth-child(3) em{color:#d9e8ff;text-shadow:0 0 6px #2f7cf5,0 0 14px rgba(47,124,245,.8)}
 
        /* ── the table ── */
-       /* the signs reach the felt: a red wash from one side, green from the
-          other, and a tube reflecting off the top of it */
-       .felt{position:relative;border-radius:6px;border-width:8px;
+       /* THE SIGNS REACH THE FELT — as BANDS, not washes. Two soft radial
+          smudges is what a gradient background looks like: the table stops
+          being a surface. Light through a shutter and a window mullion has
+          hard edges, which is both what the room actually has and the only
+          version that still reads as a table underneath. */
+       .felt{position:relative;border-radius:6px;border-width:8px;background:var(--felt)}
+       .felt::after{content:"";position:absolute;inset:0;pointer-events:none;z-index:0;
+         mix-blend-mode:screen;
          background:
-           radial-gradient(ellipse at 12% 8%, rgba(245,50,28,.3) 0%, transparent 46%),
-           radial-gradient(ellipse at 88% 92%, rgba(18,217,74,.22) 0%, transparent 44%),
-           radial-gradient(ellipse at 50% 42%, var(--felt) 0%, var(--felt-dk) 72%, var(--felt-edge) 100%)}
+           linear-gradient(102deg, transparent 0 9%, rgba(245,50,28,.22) 9% 15%,
+             transparent 15% 19%, rgba(245,50,28,.13) 19% 22%, transparent 22%),
+           linear-gradient(258deg, transparent 0 7%, rgba(18,217,74,.16) 7% 12%,
+             transparent 12% 15%, rgba(18,217,74,.09) 15% 17%, transparent 17%)}
        .felt::before{content:"";position:absolute;left:8%;right:8%;top:4px;height:2px;
          border-radius:2px;z-index:5;pointer-events:none;filter:blur(1px);
          background:linear-gradient(90deg,transparent,rgba(255,247,200,.5),transparent)}
@@ -365,9 +477,9 @@ const THEMES = [
           The face is now a dark slate that stays lighter than the felt, with
           a cool rim and a top highlight, so an unlit tile reads as a solid
           before its glyph reads as light. */
-       .tile{background:linear-gradient(176deg,#1c222c,#11151c 62%,#0c1015);
+       .tile{background:#161b24;
          box-shadow:0 0 0 1px rgba(150,180,230,.26),
-           inset 0 1px 0 rgba(180,205,245,.16), 0 2px 6px rgba(0,0,0,.75)}
+           inset 0 1px 0 rgba(180,205,245,.18), 0 2px 6px rgba(0,0,0,.75)}
        .tile svg [fill="#FAFAF8"]{fill:none}
        .tile svg [stroke="#FAFAF8"]{stroke:#141922}
        .tile svg [stroke="#CCCCCC"]{stroke:none}
@@ -442,17 +554,20 @@ const THEMES = [
        .np.turn{outline:1px solid var(--gold);box-shadow:inset 0 1px 0 rgba(255,255,255,.12)}
        .st{border-radius:3px;background:rgba(20,12,8,.6);border-color:rgba(217,164,65,.25)}
        .tile{border-radius:3px;box-shadow:0 1px 0 var(--tile-shade),0 1px 3px rgba(0,0,0,.3)}
-       /* ONE LAMP, low and central. The measurement said a warm bath with no
-          points of light, which on a table means a soft warm pool in the
-          middle and the corners falling away — not an evenly lit board. */
-       .felt{background:
-           radial-gradient(ellipse at 50% 44%, rgba(255,214,140,.18) 0%, transparent 58%),
-           radial-gradient(ellipse at 50% 42%, var(--felt) 0%, var(--felt-dk) 64%, var(--felt-edge) 100%)}
-       .felt::after{content:"";position:absolute;inset:0;border-radius:9px;pointer-events:none;
-         box-shadow:inset 0 0 70px 20px rgba(10,5,2,.5)}
-       .felt{position:relative}
+       /* ONE LAMP, low and central — and a lamp has a SHADE, so its pool has
+          an edge. A soft radial fade would be the smudge again; a hard-stop
+          radial is a shape, and a circle of light with a visible boundary is
+          what a shaded lamp over a table actually throws. */
+       .felt{position:relative;background:var(--felt)}
+       .felt::after{content:"";position:absolute;inset:0;border-radius:9px;
+         pointer-events:none;mix-blend-mode:screen;
+         background:radial-gradient(ellipse 62% 74% at 50% 46%,
+           rgba(255,214,140,.16) 0 62%, rgba(255,214,140,.05) 62% 74%, transparent 74%)}
        /* the rim reads as rosewood: a warm edge highlight, not a flat block */
-       .felt{border-image:linear-gradient(160deg,#6b3a26,#3a1c12 55%,#5c2f1e) 1 stretch}` },
+       /* hard stops, so the rim reads as chamfered wood catching light on two
+          faces rather than as a soft smear along it */
+       .felt{border-image:linear-gradient(160deg,#6b3a26 0 44%,#3a1c12 44% 74%,
+         #5c2f1e 74% 100%) 1 stretch}` },
 
 /* ── THE FAMILY GAME ────────────────────────────────────────────────────
  * Read off four Taiwanese playing at home, Hangzhou, Kunming, Lhasa and a
@@ -499,10 +614,12 @@ const THEMES = [
        .st{border-radius:12px}
        .st .m,.st .m b{color:#22261f}
        .np.turn{outline:2px solid var(--gold)}
-       /* a flat, not a studio: cool daylight from one side, a warm floor
-          under it — the reference photographs are never evenly lit either */
-       .room{background:
-           linear-gradient(178deg, #e8ecE7 0%, #cdd6cf 46%, #b4a894 100%)}` },
+       /* a flat, not a studio — and a FLAT field. The floor is a separate
+          band with a real edge rather than the room fading into it, which is
+          also how a room meets its floor. */
+       .room{background:#dfe5df}
+       .room::before{content:"";position:absolute;left:0;right:0;bottom:0;height:26%;
+         background:#b9ad99;border-top:1px solid #a2957f}` },
 ];
 
 /* ── draw ───────────────────────────────────────────────────────────── */
@@ -748,7 +865,7 @@ document.getElementById("forms").innerHTML = FORMS.map((f) => {
  * halo needs somewhere dark to fall.
  * ══════════════════════════════════════════════════════════════════════ */
 const FELTS = [
-  { id:"green", name:"Deep green", note:"Today's felt. Traditional, but it sits at the same mid-luminance as the green tubes and takes the sting out of them.",
+  { id:"green", name:"Deep green", note:"The shipped felt. Traditional, but it sits at the same mid-luminance as the green tubes and takes the sting out of them.",
     c:["#146b3c","#0d4d2b","#07321c"] },
   { id:"ink",   name:"Ink navy", note:"Wet asphalt at night, which is what the reference photographs actually put under the signs. Cool ground, warm lights — every amber and red gains.",
     c:["#16204a","#0d1533","#070c22"] },
@@ -760,10 +877,10 @@ const FELTS = [
     c:["#1b1e22","#141619","#0c0e10"] },
 ];
 
-const feltCSS = (f) => `.v-${f.id} .felt{background:
-    radial-gradient(ellipse at 12% 8%, rgba(245,50,28,.3) 0%, transparent 46%),
-    radial-gradient(ellipse at 88% 92%, rgba(18,217,74,.22) 0%, transparent 44%),
-    radial-gradient(ellipse at 50% 42%, ${f.c[0]} 0%, ${f.c[1]} 72%, ${f.c[2]} 100%)}`;
+/* one flat colour; the sign-bands are inherited from .p-street's ::after */
+const feltCSS = (f) => `.v-${f.id} .felt{background:${f.c[0]}}
+  .v-${f.id} .felt{box-shadow:inset 0 0 0 1px ${f.c[2]},
+    inset 0 3px 6px rgba(0,0,0,.4), 0 12px 32px rgba(0,0,0,.5), 0 0 0 2px var(--rim-line)}`;
 
 /* the light tile has to out-specify the dark rules already in the sheet,
    which is why every selector here repeats .p-street */
