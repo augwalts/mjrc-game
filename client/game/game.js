@@ -4602,17 +4602,30 @@
     let bar = "";
     if (pending2) {
       const btns = [];
+      const strip = (tiles, thrown) => {
+        const parts = tiles.map((t) => ({ t, got: false }));
+        if (thrown !== null) parts.push({ t: thrown, got: true });
+        parts.sort((x, y) => x.t - y.t);
+        return `<span class="tw">` + parts.map((p) => tileHtml(p.t, p.got ? "got" : "")).join("") + `</span>`;
+      };
+      const inPlay = state.lastDiscard?.tile ?? null;
       pending2.forEach((a, i) => {
         if (a.type === "discard") return;
-        const mk = (label, cls = "") => btns.push(`<button class="${cls}" data-i="${i}">${label}</button>`);
+        const mk = (label, cls = "", tiles = "") => btns.push(`<button class="${cls}" data-i="${i}"><span class="lb">${label}</span>${tiles}</button>`);
         if (a.type === "declareWin") mk("WIN \u98DF\u7CCA", "win");
         else if (a.type === "pass") mk("pass", "pass");
-        else if (a.type === "concealedKong") mk(`kong \u6697\u69D3 ${name3(a.tile)}`);
-        else if (a.type === "addedKong") mk(`kong \u52A0\u69D3 ${name3(a.tile)}`);
+        else if (a.type === "concealedKong") mk("kong \u6697\u69D3", "kong", strip([a.tile, a.tile, a.tile, a.tile], null));
+        else if (a.type === "addedKong") mk("kong \u52A0\u69D3", "kong", strip([a.tile, a.tile, a.tile, a.tile], null));
         else if (a.type === "claim") {
           const o = a.option;
           if (o.kind === "win") mk("WIN \u98DF\u7CCA", "win");
-          else mk(o.kind === "pung" ? "pung \u78B0" : o.kind === "kong" ? "kong \u69D3" : `chow \u4E0A ${(o.with ?? []).map(name3).join("+")}`);
+          else if (o.kind === "chow") mk("chow \u4E0A", "chow", strip(o.with ?? [], inPlay));
+          else if (o.kind === "pung") mk(
+            "pung \u78B0",
+            "pung",
+            inPlay === null ? "" : strip([inPlay, inPlay], inPlay)
+          );
+          else mk("kong \u69D3", "kong", inPlay === null ? "" : strip([inPlay, inPlay, inPlay], inPlay));
         }
       });
       bar = btns.join("") || (canDiscard ? `<span class="hint">your turn \u2014 tap a tile to discard</span>` : "");
