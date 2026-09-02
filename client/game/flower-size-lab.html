@@ -43,78 +43,114 @@ td.lab .sel{color:#d8b56a}
   <code>gl:{size:24}</code>.
 </div>
 
-<h2>1 — the name glyph — the one thing still open</h2>
-<div id="glyphLadder"></div>
+<h2>1 — the same art at every size it is actually drawn</h2>
+<div class="controls" id="ctl"></div>
+<div id="sizes"></div>
 <div class="note">
-  A CJK glyph needs roughly <b>13–14px</b> of rendered height before its strokes separate. On a
-  140-tall canvas: 24 gives 6.9px in the studio palette and 9.6px on the board — <b>it never reaches
-  legible at any size that ships</b>. 36 gives 10.3 / 14.4; 42 gives 12.0 / 16.8.
+  A tile is one 100&times;140 drawing scaled by CSS, so a numeral of <b>N</b> renders at
+  <b>N &times; displayHeight / 140</b> real pixels. That is why one internal size cannot serve every
+  surface: at 52 the index is 20.8px on the studio board and 55.7px on a 150px review tile — the
+  same drawing, two completely different pictures. The <b>ink</b> column is what your eye gets;
+  roughly 11px for a digit and 13px for a CJK glyph is where they stop being legible.
 </div>
 
-<h2>2 — the game's flowers, upright and turned</h2>
-<div id="gameRow"></div>
-<div class="note">
-  The game draws flowers at <code>--th:56px</code> (40&times;56). Side seats are now turned to face
-  their player, so the glyph is read sideways at 56&times;40.
+<h2>2 — two tiers: small surfaces vs large</h2>
+<div class="note" style="margin-top:0">
+  <code>.fidx</code> (index) and <code>.glyph</code> (name) are now CSS hooks in both renderers — a
+  presentation attribute loses to any CSS rule, so a surface can resize either without a second copy
+  of the art, and <code>recenterGlyphs</code> is delta-based so it re-centres afterwards.
+  Set each tier below; the CSS to paste is generated underneath.
 </div>
+<div class="controls" id="ctl2"></div>
+<div id="tiers"></div>
+<pre id="out" style="background:#1a1815;border:1px solid #2c2823;border-radius:9px;padding:12px;
+  font:12px/1.55 ui-monospace,Menlo,monospace;color:#c7d3cb;overflow-x:auto;max-width:920px"></pre>
 
 <script>document.write('<scr'+'ipt src="tile-engine.js?v='+Date.now()+'"><\/scr'+'ipt>')</script>
 <script>
 const $ = (id) => document.getElementById(id);
+const GLYPH_RE = /(<g[^>]*class="glyph"[^>]*>\s*<text[^>]*font-size=")([\d.]+)(")/;
+const IDX_RE   = /(<text class="fidx"[^>]*font-size=")([\d.]+)(")/;
 
-/* The numeral and its re-layering SHIPPED on 2026-09-01, so this page now
- * renders the PRODUCTION tile and varies only the one thing still open: the
- * name glyph. An earlier version took each face apart and re-composed it; doing
- * that now would wrap a motif that tile-engine.js already wraps, and draw a
- * second numeral over the real one. */
-const $$ = (id) => document.getElementById(id);
-const GLYPH_SIZE_RE = /(<g[^>]*class="glyph"[^>]*>\s*<text[^>]*font-size=")([\d.]+)(")/;
+/* Every surface that draws a bonus tile, at the width it really uses. */
+const SURFACES = [
+  { w: 40,  name: "studio palette",   where: "the tile tray" },
+  { w: 56,  name: "studio board",     where: "the main studio view" },
+  { w: 40,  name: "game meld",        where: "a bot's flowers, upright" },
+  { w: 56,  name: "game meld TURNED", where: "east / west, read sideways", turned: true },
+  { w: 49,  name: "your flowers",     where: "#mymelds, --th:68" },
+  { w: 150, name: "review",           where: "inspection only" },
+];
 
-/* four representative faces: two flowers (red index), two seasons (blue) */
 const PICKS = [0, 3, 4, 7];
-function facesFor(gl){
+function face(i, idx, gl){
   const all = [...FLOWER_TILES, ...SEASON_TILES];
-  return PICKS.map((i) => {
-    const svg = all[i][1]();
-    return gl ? svg.replace(GLYPH_SIZE_RE, (_m, a, _o, c) => a + gl + c) : svg;
-  });
+  let svg = all[i][1]();
+  if (idx) svg = svg.replace(IDX_RE, (_m,a,_o,c) => a + idx + c);
+  if (gl)  svg = svg.replace(GLYPH_RE, (_m,a,_o,c) => a + gl + c);
+  return svg;
 }
+const tileAt = (svg, w, turned) => turned
+  ? `<span class="tile turned" style="width:${Math.round(w/0.714)}px;height:${w}px">`
+    + `<svg viewBox="0 0 100 140" preserveAspectRatio="xMidYMid meet" `
+    + `style="width:${w}px;height:${Math.round(w/0.714)}px">${svg}</svg></span>`
+  : `<span class="tile" style="width:${w}px;height:${Math.round(w/0.714)}px">`
+    + `<svg viewBox="0 0 100 140" preserveAspectRatio="xMidYMid meet">${svg}</svg></span>`;
 
-const tile = (svg, w) =>
-  `<span class="tile" style="width:${w}px;height:${Math.round(w / 0.714)}px">`
-  + `<svg viewBox="0 0 100 140" preserveAspectRatio="xMidYMid meet">${svg}</svg></span>`;
+/** What a canvas font-size of N actually renders as, in real pixels. */
+const inkOf = (n, w) => n * (w / 0.714) / 140;
 
-const cell = (gl, w) => `<td><span class="felt"><span class="strip">`
-  + facesFor(gl).map((f) => tile(f, w)).join("") + `</span></span></td>`;
-
-const W = [40, 56];
+const slider = (id, label, min, max, val) =>
+  `<label>${label} <input type="range" id="${id}" min="${min}" max="${max}" step="1" `
+  + `value="${val}"><span class="v" id="${id}v">${val}</span></label>`;
 
 function boot(){
-  $("glyphLadder").innerHTML = `<table><tr><th></th>
-      <th>40px · studio palette</th><th>56px · board &amp; game</th></tr>`
-    + [24, 30, 36, 42].map((g) =>
-        `<tr><td class="lab"><b>glyph ${g}</b>`
-        + (g === 24 ? `<span class="sel">ships today</span>` : "")
-        + `<br>${(g*40/140).toFixed(1)}px @40 · ${(g*56/140).toFixed(1)}px @56</td>`
-        + W.map((w) => cell(g, w)).join("") + `</tr>`).join("")
+  $("ctl").innerHTML  = slider("i1","index",20,80,52) + slider("g1","name glyph",16,60,24);
+  $("ctl2").innerHTML = slider("iS","SMALL index",20,80,58) + slider("gS","SMALL glyph",16,60,38)
+    + slider("iL","LARGE index",20,80,40) + slider("gL","LARGE glyph",16,60,26);
+  for (const id of ["i1","g1","iS","gS","iL","gL"]) $(id).oninput = draw;
+  draw();
+}
+
+function rows(target, pick){
+  return SURFACES.map((s) => {
+    const [i2, g2, tier] = pick(s.w);
+    const faces = PICKS.map((i) => tileAt(face(i, i2, g2), s.w, s.turned)).join("");
+    const ii = inkOf(i2, s.w), gi = inkOf(g2, s.w);
+    return `<tr><td class="lab"><b>${s.name}</b>${s.where || (s.w + "px")}</td>`
+      + `<td class="lab">${tier}</td>`
+      + `<td><span class="felt"><span class="strip">${faces}</span></span></td>`
+      + `<td class="lab" style="color:${ii < 11 ? "#ff9b93" : "#7fe0a4"}">${ii.toFixed(1)}px</td>`
+      + `<td class="lab" style="color:${gi < 13 ? "#ff9b93" : "#7fe0a4"}">${gi.toFixed(1)}px</td></tr>`;
+  }).join("");
+}
+
+function draw(){
+  for (const id of ["i1","g1","iS","gS","iL","gL"]) $(id + "v").textContent = $(id).value;
+  const idx = +$("i1").value, gl = +$("g1").value;
+  const head = `<table><tr><th>surface</th><th>drawn at</th><th>tiles</th>
+      <th>index ink</th><th>glyph ink</th></tr>`;
+
+  $("sizes").innerHTML = head + rows(null, (w) => [idx, gl, w + "px wide"]) + `</table>`;
+
+  const iS=+$("iS").value, gS=+$("gS").value, iL=+$("iL").value, gL=+$("gL").value;
+  $("tiers").innerHTML = head
+    + rows(null, (w) => w <= 60 ? [iS, gS, `small<br>idx ${iS} · gl ${gS}`]
+                                : [iL, gL, `large<br>idx ${iL} · gl ${gL}`])
     + `</table>`;
 
-  const turnedCell = (gl) => `<td><span class="felt"><span class="strip">`
-    + facesFor(gl).map((f) =>
-        `<span class="tile turned" style="width:56px;height:40px">`
-        + `<svg viewBox="0 0 100 140" preserveAspectRatio="xMidYMid meet" `
-        + `style="width:40px;height:56px">${f}</svg></span>`).join("")
-    + `</span></span></td>`;
-  $("gameRow").innerHTML = `<table><tr><th></th>
-      <th>upright — your seat &amp; north</th><th>turned — east &amp; west</th></tr>`
-    + [["glyph 24 — ships today", 24], ["glyph 36", 36]]
-      .map(([lab, gl]) => `<tr><td class="lab"><b>${lab}</b></td>`
-        + cell(gl, 40) + turnedCell(gl) + `</tr>`).join("")
-    + `</table>`;
+  $("out").textContent =
+`/* Bonus-tile optical sizes. The art is ONE drawing; these are the two sizes
+   it gets read at. Large surfaces keep the numeral in proportion; small ones
+   push it up so the digit survives being scaled down. */
+.tile svg .fidx       { font-size: ${iL}px }
+.tile svg .glyph text { font-size: ${gL}px }
+
+/* small surfaces — any tile under about 60px wide */
+.tile.osm svg .fidx       { font-size: ${iS}px }
+.tile.osm svg .glyph text { font-size: ${gS}px }`;
 
   recenterGlyphs(document);
 }
 boot();
 </script>
-</body>
-</html>
