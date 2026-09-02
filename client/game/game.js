@@ -3331,11 +3331,16 @@
     dev: false,
     rounds: 1,
     recorded: true,
-    hcCount: false,
+    hcCount: true,
     hcCalling: false,
     hcWhatIf: false,
     ...JSON.parse(localStorage.getItem("mjrc.settings") ?? "{}")
   };
+  if (localStorage.getItem("mjrc.hcCountDefaulted") === null) {
+    localStorage.setItem("mjrc.hcCountDefaulted", "1");
+    SETTINGS.hcCount = true;
+    localStorage.setItem("mjrc.settings", JSON.stringify(SETTINGS));
+  }
   var saveSettings = () => {
     localStorage.setItem("mjrc.settings", JSON.stringify(SETTINGS));
     document.documentElement.style.setProperty("--tscale", String(SETTINGS.tileScale));

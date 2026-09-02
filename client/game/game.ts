@@ -209,11 +209,30 @@ interface Settings {
   hcCalling: boolean;  // a running read of whether the hand is calling
   hcWhatIf: boolean;   // hover your own tile, see what cutting it would leave you on
 }
+/**
+ * Counting tiles is ON by default (owner 2026-09-01): "it's super helpful".
+ * It reveals nothing hidden — every copy it lights up is already face-up on
+ * the table — so it is a reading aid rather than an advantage, and the players
+ * who most need it are exactly the ones who will not go looking in Settings.
+ * The other two stay off: they read the hand FOR you, which is a different
+ * thing from helping you see what is in front of you.
+ */
 const SETTINGS: Settings = {
   rulesetId: "mjrc-standard", tileScale: 1, botMs: 420, dev: false, rounds: 1, recorded: true,
-  hcCount: false, hcCalling: false, hcWhatIf: false,
+  hcCount: true, hcCalling: false, hcWhatIf: false,
   ...JSON.parse(localStorage.getItem("mjrc.settings") ?? "{}"),
 };
+/**
+ * Saved settings are spread OVER the defaults, so changing a default reaches
+ * new devices only — every tester who has already played carries hcCount:false
+ * and would never see it. This turns it on once for them too, and records that
+ * it has done so, so a player who then switches it back off keeps it off.
+ */
+if (localStorage.getItem("mjrc.hcCountDefaulted") === null) {
+  localStorage.setItem("mjrc.hcCountDefaulted", "1");
+  SETTINGS.hcCount = true;
+  localStorage.setItem("mjrc.settings", JSON.stringify(SETTINGS));
+}
 const saveSettings = (): void => {
   localStorage.setItem("mjrc.settings", JSON.stringify(SETTINGS));
   document.documentElement.style.setProperty("--tscale", String(SETTINGS.tileScale));
