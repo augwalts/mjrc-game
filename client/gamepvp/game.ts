@@ -11,12 +11,18 @@
  * it) — see table.ts's own header comment for the dependency-direction
  * rule this keeps.
  *
+ * `?playtest=a|b` (see `playtest.ts`) replaces the identity + resume half of
+ * boot with the playtest harness's own. It is the ONE fork in this file;
+ * everything above it — theme, table chrome, host hooks, the router — is the
+ * same code path a real session takes, which is the whole point of it.
+ *
  * Build: ./gamepvp/build.sh (esbuild game.ts --bundle --platform=browser
  *        --format=iife --outfile=gamepvp/assets/game.js)
  */
 import { initTableChrome, resumeActiveSession, setHostHooks } from "./table.js";
 import { initRouter, type Router } from "./shell/router.js";
 import { applyTheme, bootIdentity, ensurePresenceHeartbeat, getThemeChoice } from "./shell/session.js";
+import { playtestRole, runPlaytest } from "./playtest.js";
 
 const tableRoot = document.getElementById("tableRoot")!;
 const shellRoot = document.getElementById("shell")!;
@@ -43,6 +49,22 @@ async function boot(): Promise<void> {
     goToPlayer: (playerId) => { showShell(); router?.navigate(`/players/${playerId}`); },
     goToSettings: () => { showShell(); router?.navigate("/me/settings"); },
   });
+
+  const role = playtestRole();
+  if (role) {
+    // The playtest pane mints its own identity (never through localStorage — two
+    // panes share one origin, and neither may clobber the real device token
+    // sitting there), THEN mounts the router: the other order flashes the
+    // name gate, which `dispatch` shows for as long as `identity` is null.
+    // No resume and no invite link — the reel owns where this pane goes.
+    await runPlaytest({
+      role,
+      mountRouter: () => (router = initRouter(shellRoot)),
+      showTable,
+      showShell,
+    });
+    return;
+  }
 
   await bootIdentity();
   ensurePresenceHeartbeat();

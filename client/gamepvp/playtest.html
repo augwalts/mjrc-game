@@ -1,0 +1,487 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MJRC gamepvp — playtest</title>
+<!--
+  THE PLAYTEST HARNESS — a playability test you can leave running.
+
+  Two panes of the REAL client (`/?playtest=a`, `/?playtest=b`), at a phone
+  size and a desktop size, joined to ONE match on your own `wrangler dev`, so
+  the same hand at the same instant can be watched at both widths. Nothing
+  here is served in production and nothing here talks to Cloudflare: wrangler
+  runs the Worker, the Table Durable Object, D1 and R2 in miniflare, on this
+  machine, out of `gamepvp/.wrangler/state/`.
+
+    ./gamepvp/build.sh
+    cd gamepvp && npx wrangler dev --port 8878
+    open http://localhost:8878/playtest
+
+  ── ADDING A SCREEN TO THE TEST ──────────────────────────────────────────
+  Edit the REEL array below and nothing else. One entry is one stop:
+
+    { name: "Rooms",  route: "/rooms",              hold: 3500 }
+    { name: "New table", route: "/", click: "#ctaPlay", hold: 6000 }
+
+    name    what the log and the status line call it
+    route   a shell path to walk both panes to
+    click   a CSS selector to press in both panes, after the page paints
+    then    a second selector, pressed shortly after `click`
+    hold    how long to sit there (ms) — a freeze suspends this
+    do      "match" — the one stop that plays a whole game
+
+  A new screen that is reachable by URL needs only `route`. One that opens
+  from a button needs `click` with that button's selector. `playtest.ts`, the
+  autopilot inside each pane, does not need to change for either.
+-->
+<style>
+:root{
+  --bg:#14161a; --panel:#1c1f25; --line:#2b3038; --ink:#e8eaee; --dim:#8d96a3;
+  --gold:#d8b56a; --green:#4ba572; --red:#d0685c; --blue:#6fa8ff;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);
+  font:13px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  display:flex;flex-direction:column;overflow:hidden}
+
+/* ── control strip ── */
+#bar{flex:0 0 auto;display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+  padding:8px 14px;background:var(--panel);border-bottom:1px solid var(--line)}
+#bar .grp{display:flex;align-items:center;gap:6px}
+#bar .grp>label{color:var(--dim);font-size:11px;letter-spacing:.06em;text-transform:uppercase}
+#bar label.chk{display:flex;align-items:center;gap:4px;text-transform:none;letter-spacing:0;font-size:12px;cursor:pointer}
+#bar label.chk input{accent-color:var(--gold);margin:0}
+button,select{background:#252a32;color:var(--ink);border:1px solid var(--line);
+  border-radius:7px;padding:5px 10px;font:inherit;font-size:12px;cursor:pointer}
+button:hover:not(:disabled){background:#2f353f}
+button:disabled{opacity:.4;cursor:default}
+button.on{background:rgba(216,181,106,.2);border-color:var(--gold);color:var(--gold)}
+button.go{background:rgba(75,165,114,.2);border-color:var(--green);color:#9fe0bd}
+button.stop{background:rgba(208,104,92,.2);border-color:var(--red);color:#f0a99f}
+#status{margin-left:auto;color:var(--dim);font-size:12px;font-variant-numeric:tabular-nums}
+#status b{color:var(--ink)}
+#status .frozen{color:var(--gold)}
+
+/* ── stage ── */
+#stage{flex:1;min-height:0;display:flex;gap:14px;padding:14px;overflow:auto;align-items:flex-start}
+#logwrap{flex:0 0 auto;border-top:1px solid var(--line);background:var(--panel);padding:8px 14px 10px}
+.pane{display:flex;flex-direction:column;gap:6px;flex:0 0 auto}
+.pane h3{margin:0;font-size:11px;color:var(--dim);letter-spacing:.08em;text-transform:uppercase;
+  display:flex;align-items:center;gap:8px}
+.pane h3 em{font-style:normal;color:var(--gold);font-variant-numeric:tabular-nums}
+.frame{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#000;
+  box-shadow:0 10px 30px rgba(0,0,0,.5);position:relative}
+.frame iframe{display:block;border:0;background:#000;transform-origin:0 0}
+
+/* ── log ── */
+#log{height:120px;overflow:auto;background:#0f1114;border:1px solid var(--line);
+  border-radius:8px;padding:6px 9px;font:11px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;
+  color:var(--dim);white-space:pre-wrap;word-break:break-word}
+#log .a{color:var(--blue)} #log .b{color:var(--green)}
+#log .sys{color:var(--gold)} #log .err{color:var(--red)}
+#log .step{color:var(--ink);border-top:1px solid var(--line);display:block;margin-top:5px;padding-top:5px}
+.note{margin:0;color:var(--dim);font-size:11px;padding:5px 14px 6px;background:var(--panel);
+  border-bottom:1px solid var(--line);flex:0 0 auto}
+.note code{color:var(--gold)}
+</style>
+</head>
+<body>
+
+<div id="bar">
+  <div class="grp">
+    <button id="btnRun" class="go">▶ run</button>
+    <button id="btnStop" class="stop" disabled>■ stop</button>
+    <button id="btnLoop" title="start the reel again as soon as it finishes">↻ loop</button>
+  </div>
+  <div class="grp">
+    <label>speed</label>
+    <select id="selSpeed">
+      <option value="very-slow">very slow</option>
+      <option value="normal">normal</option>
+      <option value="faster" selected>faster</option>
+      <option value="insane">insane</option>
+      <option value="untimed">untimed</option>
+    </select>
+  </div>
+  <div class="grp">
+    <label>length</label>
+    <select id="selFormat">
+      <option value="east" selected>東圈 one wind</option>
+      <option value="full">全莊 four winds</option>
+    </select>
+  </div>
+  <div class="grp">
+    <label>think</label>
+    <select id="selDelay">
+      <option value="300">0.3s</option>
+      <option value="900" selected>0.9s</option>
+      <option value="2000">2s</option>
+      <option value="4000">4s</option>
+    </select>
+  </div>
+  <div class="grp">
+    <label>freeze on</label>
+    <select id="selTrap">
+      <option value="">— nothing —</option>
+      <option value="claimed">a claim (chow/pung/kong)</option>
+      <option value="kong">a kong</option>
+      <option value="handEnd">a hand ending</option>
+      <option value="flowerReplacement">a flower</option>
+      <option value="matchEnd">the match ending</option>
+    </select>
+    <button id="btnThaw" disabled>thaw</button>
+    <label class="chk" title="a freeze pauses the table for real, and the pause screen covers the board — this hides that screen so you can see what you froze"><input type="checkbox" id="chkPeek" checked> peek</label>
+  </div>
+  <div class="grp">
+    <label>zoom</label>
+    <select id="selZoom">
+      <option value="fit" selected>fit</option>
+      <option value="0.5">50%</option>
+      <option value="0.6">60%</option>
+      <option value="0.75">75%</option>
+      <option value="0.9">90%</option>
+      <option value="1">100%</option>
+    </select>
+  </div>
+  <div id="status">idle</div>
+</div>
+
+<p class="note">One match, two seats: pane A is seat 0, pane B is seat 1, two bots take the rest —
+  all of it on your local <code>wrangler dev</code>. The start card shows only when
+  <code>.dev.vars</code>'s <code>startDelayMs</code> is above 0.</p>
+
+<div id="stage">
+  <div class="pane">
+    <h3>A · mobile <em id="dimA">393 × 852</em></h3>
+    <div class="frame" id="frameA"></div>
+  </div>
+  <div class="pane">
+    <h3>B · desktop <em id="dimB">1280 × 800</em></h3>
+    <div class="frame" id="frameB"></div>
+  </div>
+</div>
+
+<div id="logwrap"><div id="log"></div></div>
+
+<script>
+/* ── the two panes ──────────────────────────────────────────────────────
+ * Sized in CSS pixels and then SCALED, never resized: the client's own
+ * breakpoints (table.ts's `isDesktop()`, theme.css's media queries) read the
+ * iframe's layout width, so shrinking the box to fit the screen would change
+ * which layout you are looking at. A `transform: scale()` on the iframe
+ * leaves the layout viewport at 393 / 1280 and only shrinks the picture,
+ * which is the whole point of putting them side by side.
+ */
+const PANES = {
+  a: { w: 393,  h: 852, el: document.getElementById("frameA"), dim: document.getElementById("dimA") },
+  b: { w: 1280, h: 800, el: document.getElementById("frameB"), dim: document.getElementById("dimB") },
+};
+/** `"fit"` (the default) or a fixed number. ONE scale for both panes, never
+ *  one each: a shared scale is what makes the two boxes an honest size
+ *  comparison — a phone next to a desktop at the ratio they really are. Fit
+ *  one to the window and the other to itself and you would be looking at a
+ *  lie about how big the tiles are. */
+let zoomChoice = "fit";
+let zoom = 0.75;
+
+function computeZoom() {
+  if (zoomChoice !== "fit") return Number(zoomChoice);
+  const stage = document.getElementById("stage");
+  const availH = stage.clientHeight - 34;                 // the pane headings
+  const availW = stage.clientWidth - 28 - 14;             // padding + the gap
+  const tallest = Math.max(...Object.values(PANES).map((p) => p.h));
+  const widest = Object.values(PANES).reduce((n, p) => n + p.w, 0);
+  return Math.max(0.25, Math.min(1, availH / tallest, availW / widest));
+}
+
+function layoutPanes() {
+  zoom = computeZoom();
+  for (const p of Object.values(PANES)) {
+    if (!p.frame) continue;
+    p.frame.style.transform = `scale(${zoom})`;
+    p.el.style.width = Math.round(p.w * zoom) + "px";
+    p.el.style.height = Math.round(p.h * zoom) + "px";
+  }
+}
+
+function buildPanes() {
+  for (const [role, p] of Object.entries(PANES)) {
+    p.el.innerHTML = "";
+    const f = document.createElement("iframe");
+    f.src = `/?playtest=${role}`;
+    // Sized in CSS pixels and then scaled — never resized. See the comment
+    // above PANES: the layout viewport must stay at 393 / 1280 or you are
+    // looking at a different breakpoint than the one you meant to check.
+    f.width = p.w; f.height = p.h;
+    f.style.width = p.w + "px"; f.style.height = p.h + "px";
+    p.dim.textContent = `${p.w} × ${p.h}`;
+    p.el.appendChild(f);
+    p.frame = f;
+  }
+  layoutPanes();
+}
+window.addEventListener("resize", layoutPanes);
+
+/* ── talking to the panes ─────────────────────────────────────────────── */
+const send = (role, t, extra = {}) => {
+  const p = PANES[role];
+  if (p && p.frame && p.frame.contentWindow) {
+    p.frame.contentWindow.postMessage({ mjrcPlaytest: true, t, ...extra }, location.origin);
+  }
+};
+const both = (t, extra = {}) => { send("a", t, extra); send("b", t, extra); };
+
+const logEl = document.getElementById("log");
+function log(cls, text) {
+  const span = document.createElement("span");
+  span.className = cls;
+  span.textContent = text + "\n";
+  logEl.appendChild(span);
+  while (logEl.childNodes.length > 400) logEl.removeChild(logEl.firstChild);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+/* Promises the reel awaits: "the next time pane <role> says <t>". */
+const waiters = [];
+function waitFor(role, t, timeoutMs = 120000) {
+  return new Promise((resolve, reject) => {
+    const w = { role, t, resolve, timer: 0 };
+    w.timer = setTimeout(() => {
+      const i = waiters.indexOf(w);
+      if (i >= 0) waiters.splice(i, 1);
+      reject(new Error(`timed out waiting for ${role}:${t}`));
+    }, timeoutMs);
+    waiters.push(w);
+  });
+}
+
+let frozen = false;
+window.addEventListener("message", (e) => {
+  if (e.origin !== location.origin) return;
+  const m = e.data;
+  if (!m || typeof m !== "object" || m.mjrcPlaytest !== true || !m.role) return;
+
+  if (m.t === "ev") { if (m.types.length) log(m.role, `${m.role} ▸ ${m.types.join(" ")}`); }
+  else if (m.t === "act") log(m.role, `${m.role} ✋ ${m.what}`);
+  else if (m.t === "error") log("err", `${m.role} ✖ ${m.what}: ${m.msg}`);
+  else if (m.t === "miss") log("err", `${m.role} ✖ nothing matched ${m.selector}`);
+  else if (m.t === "trapped") {
+    // The trap fires in whichever pane sees the event first; one pause
+    // freezes the table for everyone, so only pane A ever sends it.
+    if (!frozen) {
+      frozen = true;
+      send("a", "pause", { on: true });
+      // A beat behind the pause: the veil has to exist before it can be
+      // hidden, and it only exists once the `paused` broadcast comes back.
+      setTimeout(() => { if (frozen && document.getElementById("chkPeek").checked) setPeek(true); }, 350);
+      document.getElementById("btnThaw").disabled = false;
+      setStatus();
+      log("sys", `⏸ frozen on ${m.what} — look, then thaw`);
+    }
+  }
+  else if (m.t !== "ready" && m.t !== "trapset") log("sys", `${m.role} · ${m.t}${m.code ? " " + m.code : ""}`);
+
+  for (let i = waiters.length - 1; i >= 0; i--) {
+    const w = waiters[i];
+    if (w.role === m.role && w.t === m.t) { clearTimeout(w.timer); waiters.splice(i, 1); w.resolve(m); }
+  }
+});
+
+/* ── peek ───────────────────────────────────────────────────────────────
+ * A trap freezes the table by sending the real `requestPause` — the same
+ * message the HUD's pause button sends, so the server genuinely stops and
+ * no clock runs out underneath you. The cost is that `syncVeil()` puts the
+ * pause screen above everything, which is precisely the board you froze to
+ * look at. Peek hides that one overlay, in the harness, with a stylesheet
+ * injected into each pane: purely cosmetic, nothing in the app is patched,
+ * and thawing takes it straight back out.
+ *
+ * It cannot un-hide what pause replaced. A freeze on `handEnd` or
+ * `matchEnd` lands on top of the reveal/scoreboard and `#panel`'s contents
+ * are already gone by then — for those two, watch the reel's own hold
+ * instead of arming a trap.
+ */
+const PEEK_CSS = "#veil{display:none!important}";
+function setPeek(on) {
+  for (const p of Object.values(PANES)) {
+    const doc = p.frame && p.frame.contentDocument;
+    if (!doc || !doc.head) continue;
+    let el = doc.getElementById("playtestPeek");
+    if (on && !el) {
+      el = doc.createElement("style");
+      el.id = "playtestPeek";
+      el.textContent = PEEK_CSS;
+      doc.head.appendChild(el);
+    } else if (!on && el) el.remove();
+  }
+}
+
+/* ── the reel ───────────────────────────────────────────────────────────
+ * One flat list of stops. `route` walks both panes to a shell page; `click`
+ * presses a real button in both; `hold` is how long to sit there. The match
+ * stops are the ones with `do:` — everything else is just "show me this
+ * screen at both sizes".
+ */
+const REEL = [
+  { name: "Home",           route: "/",             hold: 4000 },
+  { name: "Rooms",          route: "/rooms",        hold: 3500 },
+  { name: "Friends",        route: "/friends",      hold: 3500 },
+  { name: "Stats",          route: "/stats",        hold: 5000 },
+  { name: "Messages",       route: "/messages",     hold: 3000 },
+  { name: "Profile",        route: "/me",           hold: 3000 },
+  { name: "Account",        route: "/me/account",   hold: 3000 },
+  { name: "Game settings",  route: "/me/settings",  hold: 4000 },
+  { name: "New table modal", route: "/", click: "#ctaPlay", hold: 6000 },
+  { name: "Join by code",   click: "#mBack", then: "#ctaJoin", hold: 3500 },
+  { name: "The match",      do: "match" },
+];
+
+let running = false, looping = false, stopRequested = false;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+/** A hold that a Stop press cuts short, and that a freeze suspends — the
+ *  point of stopping on a kong is to look at it for as long as you like, not
+ *  for four seconds.
+ *
+ *  Written against a DEADLINE rather than by counting fixed sleeps: a
+ *  background tab clamps `setTimeout` to about one second, so a loop of
+ *  thirty 120ms sleeps takes half a minute there instead of four seconds
+ *  (measured). Polling toward `end` costs the same few wakeups either way
+ *  and a throttled one simply overshoots by one tick. */
+async function hold(ms) {
+  let end = Date.now() + ms;
+  while (Date.now() < end) {
+    if (stopRequested) return;
+    while (frozen && !stopRequested) { await sleep(200); end = Date.now() + ms; }
+    await sleep(Math.min(150, Math.max(10, end - Date.now())));
+  }
+}
+
+/** The reel's current stop, remembered so the freeze/thaw/loop buttons can
+ *  repaint the status line without knowing which stop we are on. */
+let currentStep = "";
+function setStatus(step) {
+  if (step !== undefined) currentStep = step;
+  const el = document.getElementById("status");
+  if (frozen) { el.innerHTML = `<span class="frozen">⏸ frozen</span> — press thaw`; return; }
+  if (!running) { el.textContent = "idle"; return; }
+  el.innerHTML = `<b>${currentStep}</b>${looping ? " · looping" : ""}`;
+}
+
+async function playMatch() {
+  const speed = document.getElementById("selSpeed").value;
+  const matchFormat = document.getElementById("selFormat").value;
+
+  // Two humans (the panes) and two bots. Seat 0 is pane A, because
+  // `POST /api/tables` gives the creator the first human seat in the plan.
+  const seats = [
+    { kind: "human" },
+    { kind: "human" },
+    { kind: "bot", bot: "v4" },
+    { kind: "bot", bot: "v2" },
+  ];
+
+  log("sys", `— creating a ${matchFormat} table at ${speed} —`);
+  both("showTable");
+  send("a", "create", { seats, speed, matchFormat, rulesetId: "mjrc-standard" });
+  const created = await waitFor("a", "created", 20000);
+  log("sys", `table ${created.code}`);
+
+  // The waiting room is a screen worth seeing: pane A sits in it alone until
+  // B's join lands.
+  await hold(2500);
+  send("b", "join", { code: created.code });
+  await waitFor("b", "joined", 20000);
+
+  applyTrap();
+  log("sys", "— playing —");
+  // Generous on purpose: a 全莊 at a slow speed with a long think time is a
+  // legitimately long match, and a reel that gave up on its own would look
+  // exactly like a bug in the thing being demonstrated.
+  await waitFor("a", "matchEnd", 90 * 60 * 1000);
+  log("sys", "— match over —");
+  // The scoreboard is the last thing the reel shows before it goes round.
+  await hold(9000);
+}
+
+function applyTrap() {
+  const kinds = document.getElementById("selTrap").value;
+  both("trap", { kinds: kinds ? [kinds] : [] });
+}
+
+async function runReel() {
+  running = true; stopRequested = false;
+  document.getElementById("btnRun").disabled = true;
+  document.getElementById("btnStop").disabled = false;
+  const delay = Number(document.getElementById("selDelay").value);
+  both("tune", { answerDelayMs: delay, claimRate: 0.65 });
+
+  // Anything that throws in here — a table the server refused, a wait that
+  // ran out — must stop the reel visibly rather than leave it wedged with
+  // the Run button greyed out and nothing in the log to say why.
+  try {
+    do {
+      for (const stop of REEL) {
+        if (stopRequested) break;
+        setStatus(stop.name);
+        log("step", `▸ ${stop.name}`);
+        if (stop.do === "match") { await playMatch(); continue; }
+        if (stop.route) both("route", { path: stop.route });
+        if (stop.route && stop.click) await sleep(700);   // let the page paint before pressing
+        if (stop.click) both("click", { selector: stop.click });
+        if (stop.then) { await sleep(600); both("click", { selector: stop.then }); }
+        await hold(stop.hold ?? 3000);
+      }
+      if (!stopRequested && looping) { both("route", { path: "/" }); await hold(1500); }
+    } while (looping && !stopRequested);
+  } catch (err) {
+    log("err", `✖ reel stopped: ${err && err.message ? err.message : err}`);
+    looping = false;
+    document.getElementById("btnLoop").classList.remove("on");
+  }
+
+  frozen = false;
+  setPeek(false);
+  running = false;
+  setStatus();
+  document.getElementById("btnRun").disabled = false;
+  document.getElementById("btnStop").disabled = true;
+  log("sys", "— playtest finished —");
+}
+
+/* ── controls ───────────────────────────────────────────────────────────── */
+document.getElementById("btnRun").onclick = () => { if (!running) void runReel(); };
+document.getElementById("btnStop").onclick = () => {
+  stopRequested = true; looping = false; frozen = false;
+  setPeek(false);
+  send("a", "pause", { on: false });
+  document.getElementById("btnLoop").classList.remove("on");
+  both("thaw");
+  log("sys", "— stopping —");
+};
+document.getElementById("btnLoop").onclick = (e) => {
+  looping = !looping;
+  e.currentTarget.classList.toggle("on", looping);
+  setStatus();
+};
+document.getElementById("btnThaw").onclick = () => {
+  frozen = false;
+  setPeek(false);
+  send("a", "pause", { on: false });
+  both("thaw");
+  applyTrap();                        // re-arm: the next one of these freezes again
+  document.getElementById("btnThaw").disabled = true;
+  setStatus();
+  log("sys", "▶ thawed");
+};
+document.getElementById("selTrap").onchange = applyTrap;
+document.getElementById("chkPeek").onchange = (e) => { if (frozen) setPeek(e.currentTarget.checked); };
+document.getElementById("selDelay").onchange = (e) =>
+  both("tune", { answerDelayMs: Number(e.currentTarget.value) });
+document.getElementById("selZoom").onchange = (e) => { zoomChoice = e.currentTarget.value; layoutPanes(); };
+
+buildPanes();
+log("sys", "panes loading — press ▶ run");
+</script>
+</body>
+</html>

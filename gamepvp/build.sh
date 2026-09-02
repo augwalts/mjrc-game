@@ -20,7 +20,12 @@ echo "building…"
 "$esbuild" "$src/game.ts" --bundle --platform=browser --format=iife \
   --outfile="$dst/game.js" --log-level=warning
 
-for f in index.html tile-engine.js bots.js; do
+# playtest.html is the local playability harness (client/gamepvp/) — two
+# panes of this same client, phone and desktop, in one match, driven
+# hands-free. A plain static file with no build step of its own; the
+# autopilot it drives, playtest.ts, is imported by game.ts and so is already
+# inside game.js above.
+for f in index.html tile-engine.js bots.js playtest.html; do
   cp "$src/$f" "$dst/$f"
 done
 rm -rf "$dst/assets"

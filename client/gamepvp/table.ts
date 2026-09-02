@@ -263,6 +263,25 @@ export const hostHooks = {
 export function setHostHooks(h: Partial<typeof hostHooks>): void {
   Object.assign(hostHooks, h);
 }
+
+/* ── the playtest seam (`playtest.ts`, `?playtest=a|b` only) ─────────────
+ * The playtest harness needs three things this module otherwise keeps to
+ * itself: the live socket (to drive pause and auto-play exactly the way the
+ * HUD's own buttons do — never a second mechanism), a signal that `welcome`
+ * has landed, and every event batch as it is applied (that is what
+ * "freeze on the next kong" and "the match ended, deal another" read).
+ *
+ * This is a READ seam, not an authority one: `playtest.ts` sends the same
+ * `request*` messages a finger would and folds nothing itself. A normal
+ * session never touches it — all three hooks stay null and `liveSocket()` is
+ * never called — so nothing below changes behaviour for a real player.
+ */
+export const playtestHooks: {
+  onWelcome: (() => void) | null;
+  onEvents: ((events: readonly RedactedGameEvent[]) => void) | null;
+  onPrompt: (() => void) | null;
+} = { onWelcome: null, onEvents: null, onPrompt: null };
+export const liveSocket = (): TableSocket | null => ts;
 /** Every screen that used to start with `beforeScreen()` still does — it
  *  used to also stop the old lobby's 5s poll, which lived in this file and
  *  is gone now (the shell owns its own polling, stopped whenever a page
@@ -1167,6 +1186,7 @@ function applyBatch(events: readonly RedactedGameEvent[], snapshot: SeatVisible<
   if (fresh.length) {
     consume(fresh);
     lastSeq = fresh[fresh.length - 1]!.seq;
+    playtestHooks.onEvents?.(fresh);
   }
   if (snapshot) {
     snap = snapshot;
@@ -2238,6 +2258,7 @@ export function connectToMatch(r: {
       updateChatVisibility();
       updateHudButtons();
       ts?.resync(lastSeq);
+      playtestHooks.onWelcome?.();
     },
     onRestore(events, snapshot, dir, pausedInfo, starting) {
       // Who sits where may have changed (seats filled or shuffled) since this
@@ -2264,6 +2285,7 @@ export function connectToMatch(r: {
       if (pending.length > 0) startClock(payload.deadlineTs); else stopClock();
       render();
       syncVeil();
+      playtestHooks.onPrompt?.();
     },
     onPresence(payload: PresencePayload) {
       presence[payload.seat] = { connected: payload.connected, botActing: payload.botActing };
