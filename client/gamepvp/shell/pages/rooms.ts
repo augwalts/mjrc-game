@@ -28,8 +28,13 @@ export const mount: PageMount = (container, _params, router) => {
   let alive = true;
   const paint = (rooms: RoomSummary[] | null, err: string | null): void => {
     if (!alive) return;
-    const starred = [OPEN_HALL_ROOM, ...(rooms ?? []).filter((r) => r.starred)];
-    const rest = (rooms ?? []).filter((r) => !r.starred);
+    // The Open hall is pinned first, once: the API's row when it has one (it carries the live counts),
+    // the local placeholder until then. It never appears again under All.
+    const fromApi = (rooms ?? []).find((r) => r.code === OPEN_HALL_CODE);
+    const openHall: RoomSummary = fromApi ? { ...fromApi, name: OPEN_HALL_ROOM.name, starred: true } : OPEN_HALL_ROOM;
+    const others = (rooms ?? []).filter((r) => r.code !== OPEN_HALL_CODE);
+    const starred = [openHall, ...others.filter((r) => r.starred)];
+    const rest = others.filter((r) => !r.starred);
     container.innerHTML = `
       ${pageTop(t(S.titleRooms), { displayName: identity?.displayName ?? "", unread: 0 })}
       <div class="row" style="margin-bottom:8px">
