@@ -2515,6 +2515,13 @@ export class TableCore {
     await this.rearm();
     await this.writeLobbyStatus("playing");
     for (const seat of SEATS) this.notifySeat(seat, "tableFull");
+    // The dealer's first prompt. Before the start card (§8a-2) the clocks
+    // started inside the join that filled the table, so `welcome` carried
+    // the prompt; now the hold ends from an alarm or a `requestNextHand`,
+    // and every socket that was welcomed during the hold has never been
+    // prompted — without this, a human dealer is never asked to discard and
+    // the table sits until the idle timeout hands the seat to a bot.
+    this.sendPrompts();
   }
 
   /** `dispatch("matchStart")`: the start card's hold ran its full

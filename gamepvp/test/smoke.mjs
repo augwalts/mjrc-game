@@ -409,11 +409,18 @@ async function main() {
       (SPEED ? ` speed=${SPEED}` : ""),
   );
 
+  /* MJRC_TOKENS / MJRC_NAMES: comma-separated fixed device tokens and display
+   * names for the human seats, so a run plays as a persistent player instead of
+   * a throwaway. MJRC_ROOM: create the table inside that room. */
+  const fixedTokens = (process.env.MJRC_TOKENS ?? "").split(",").map((x) => x.trim()).filter(Boolean);
+  const fixedNames = (process.env.MJRC_NAMES ?? "").split(",").map((x) => x.trim()).filter(Boolean);
+  if (process.env.MJRC_ROOM) tableBody.roomCode = process.env.MJRC_ROOM;
   const humans = [];
   for (let i = 0; i < joiningHumanCount; i += 1) {
-    const deviceToken = mintDeviceToken(i);
-    const displayName = `Smoke${i}`;
+    const deviceToken = fixedTokens[i] ?? mintDeviceToken(i);
+    const displayName = fixedNames[i] ?? `Smoke${i}`;
     await apiFetch("/api/identity", { method: "POST", body: { deviceToken, displayName } });
+    if (process.env.MJRC_ROOM) await apiFetch(`/api/rooms/${process.env.MJRC_ROOM}/join`, { method: "POST", token: deviceToken });
     humans.push({ deviceToken, displayName });
     // Printed so the match can be queried afterwards as this player.
     console.log(`${displayName}: device token ${deviceToken}`);
