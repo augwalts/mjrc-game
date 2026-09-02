@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MJRC — reference wall</title>
+<!--
+  REFERENCE WALL — the photographs first, the design after.
+
+  Three rooms the game could be set in: the street parlour, the private club,
+  and someone's flat. Each panel pulls real photographs from Wikimedia Commons
+  (freely licensed, hotlinked, titled) and reads a palette off each one in the
+  browser — dominant neutrals and saturated accents kept apart, because the
+  mood of a photograph is carried by the accents and the SIZE of a photograph
+  is carried by the neutrals. Averaging the two together gives mud, which is
+  what a naive palette extractor returns for every night photograph ever taken.
+-->
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#111214;color:#e7e4dc;
+  font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+.wrap{max-width:1240px;margin:0 auto;padding:26px 28px 70px}
+h1{margin:0 0 4px;font-size:22px}
+.lede{color:#93908a;font-size:13px;max-width:78ch;margin:0 0 8px}
+.concept{margin-top:34px;border-top:1px solid #2a2c33;padding-top:20px}
+.concept h2{margin:0 0 2px;font-size:18px}
+.concept .brief{color:#93908a;font-size:12.5px;margin:0 0 14px;max-width:80ch}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(228px,1fr));gap:12px}
+figure{margin:0;background:#191a1e;border-radius:10px;overflow:hidden;
+  box-shadow:0 0 0 1px #2a2c33}
+figure img{width:100%;height:150px;object-fit:cover;display:block;background:#222}
+figcaption{font-size:10px;color:#8d8a84;padding:5px 8px 3px;line-height:1.35;
+  height:38px;overflow:hidden}
+.strip{display:flex;height:20px}
+.strip i{flex:1}
+.strip.acc{height:26px}
+.strip.acc i{flex:0 0 46px;position:relative}
+.strip.acc i b{position:absolute;inset:0;display:flex;align-items:center;
+  justify-content:center;font:600 8.5px/1 -apple-system,sans-serif;
+  color:rgba(0,0,0,.62);text-shadow:0 1px 0 rgba(255,255,255,.4)}
+.mix{display:flex;align-items:center;gap:10px;margin:14px 0 0;flex-wrap:wrap}
+.mix .lbl{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#8d8a84}
+.mix .bar{display:flex;border-radius:5px;overflow:hidden;box-shadow:0 0 0 1px #2a2c33}
+.mix .bar i{width:38px;height:26px;position:relative}
+.mix .bar i b{position:absolute;left:0;right:0;bottom:-15px;font-size:7.5px;
+  text-align:center;color:#75726c;font-weight:400}
+.note{color:#c9c5bc;font-size:12.5px;margin:22px 0 0;padding:10px 12px;
+  background:#191a1e;border-left:3px solid #4a4d55;border-radius:0 7px 7px 0}
+.err{color:#c88;font-size:11px;padding:6px 8px}
+</style>
+</head>
+<body><div class="wrap">
+<h1>MJRC — reference wall</h1>
+<p class="lede">Photographs first. Three rooms the game could be set in, each with a palette read
+  off the pictures rather than invented. Neutrals (the room) and accents (the signs, the felt,
+  the food) are extracted separately.</p>
+<div id="out"></div>
+
+<script type="module">
+const CONCEPTS = [
+  { id:"grungy", name:"The street parlour", 
+    brief:"A 麻雀館 off Temple Street. Fluorescent tube light, neon through the doorway, red-and-gold signage gone slightly sour, tile floor, smoke. Night, always.",
+    q:["麻雀館 Hong Kong mahjong school neon",
+       "廟街麻雀館 Kowloon neon Temple Street",
+       "香港霓虹燈招牌 Portland Street Mong Kok neon",
+       "Temple Street night market Hong Kong",
+       "Hong Kong neon sign restaurant night",
+       "Sham Shui Po street night Hong Kong",
+       "dai pai dong Hong Kong night"] },
+  { id:"club", name:"The private club",
+    brief:"The other end of the same city: rosewood, brass, deep baize, low warm lamps, a quiet room off a corridor. Money that does not shout.",
+    q:["Peninsula Hotel Hong Kong main lobby",
+       "Police Officers' Club Hong Kong Chinese restaurant",
+       "casino gaming table interior",
+       "WLA vanda Kang table Ming dynasty rosewood",
+       "Chinese restaurant private dining room round table",
+       "mahjong tiles set case ivory"] },
+  { id:"home", name:"The family game",
+    brief:"A flat, after dinner. Warm overhead light, a plastic cloth on the table, mismatched chairs, tea and a bowl of melon seeds. Cheerful and a bit cluttered.",
+    q:["Four Taiwanese playing mahjong at home",
+       "Mahjong in Hangzhou",
+       "People playing mahjong Kunming",
+       "People playing mah-jong Lhasa",
+       "Reunion dinner Chinese new year",
+       "Mahjong game tiles table"] },
+];
+
+const hx = (r,g,b) => "#" + [r,g,b].map(v => Math.max(0,Math.min(255,Math.round(v))).toString(16).padStart(2,"0")).join("");
+function sat(r,g,b){const M=Math.max(r,g,b),m=Math.min(r,g,b);return M===0?0:(M-m)/M;}
+function lum(r,g,b){return (0.2126*r + 0.7152*g + 0.0722*b)/255;}
+
+async function commons(q, n) {
+  const u = "https://commons.wikimedia.org/w/api.php?action=query&generator=search"
+    + "&gsrsearch=" + encodeURIComponent(q) + "&gsrnamespace=6&gsrlimit=" + n
+    + "&prop=imageinfo&iiprop=url|mime&iiurlwidth=520&format=json&origin=*";
+  const r = await fetch(u).then(x => x.json()).catch(() => null);
+  return Object.values(r?.query?.pages || {})
+    .filter(x => x.imageinfo && /jpeg|png/.test(x.imageinfo[0].mime))
+    .map(x => ({ t: x.title.replace("File:", "").replace(/\.(jpe?g|png)$/i, ""),
+                 u: x.imageinfo[0].thumburl }));
+}
+
+/* ── READING A PALETTE OFF A PHOTOGRAPH ─────────────────────────────────
+ * The obvious method — bucket the pixels, rank by how many landed in each
+ * bucket, average each bucket — is wrong twice over, and a neon photograph is
+ * where it fails loudest:
+ *
+ *   Ranking by AREA buries the subject. A 麻雀館 sign is two percent of the
+ *   frame and is the entire reason the photograph is worth looking at. The
+ *   rest is wet road and shadow. Rank by area and you describe the road.
+ *
+ *   AVERAGING inside a bucket destroys chroma. An RGB bucket sixteen levels
+ *   wide spans a lot of colour, and the mean of its members sits at the
+ *   centroid, which is duller than any of them. Do that six times and every
+ *   photograph ever taken returns six browns.
+ *
+ * So: work in OKLab, where distance is roughly perceptual; weight a pixel by
+ * its CHROMA rather than by its existing; bin by HUE, so four shades of one
+ * red collapse to a single entry instead of eating the palette; and take each
+ * bin's most vivid well-lit member as its representative, never its mean.
+ * Neutrals are read separately, as luminance percentiles — the room genuinely
+ * is described by how dark it is.
+ *
+ * The share figure is printed on every accent swatch on purpose: that a colour
+ * defines the picture at 1.4% of its pixels is the whole point.
+ */
+function oklab(r, g, b) {
+  const f = (v) => { v /= 255; return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+  const R = f(r), G = f(g), B = f(b);
+  const l = Math.cbrt(0.4122214708*R + 0.5363325363*G + 0.0514459929*B);
+  const m = Math.cbrt(0.2119034982*R + 0.6806995451*G + 0.1073969566*B);
+  const s = Math.cbrt(0.0883024619*R + 0.2817188376*G + 0.6299787005*B);
+  return [0.2104542553*l + 0.7936177850*m - 0.0040720468*s,
+          1.9779984951*l - 2.4285922050*m + 0.4505937099*s,
+          0.0259040371*l + 0.7827717662*m - 0.8086757660*s];
+}
+
+async function readPalette(url) {
+  const img = new Image(); img.crossOrigin = "anonymous"; img.src = url;
+  await img.decode();
+  const w = 180, h = Math.max(1, Math.round(180 * img.naturalHeight / img.naturalWidth));
+  const c = document.createElement("canvas"); c.width = w; c.height = h;
+  const cx = c.getContext("2d", { willReadFrequently: true });
+  cx.drawImage(img, 0, 0, w, h);
+  const d = cx.getImageData(0, 0, w, h).data;
+  const total = w * h;
+
+  const BINS = 24;                       /* 15 degrees of hue each */
+  const bin = Array.from({ length: BINS }, () => ({ wt: 0, n: 0, best: -1, hex: null }));
+  const greys = [];
+
+  for (let i = 0; i < d.length; i += 4) {
+    const r = d[i], g = d[i+1], b = d[i+2];
+    const [L, A, B2] = oklab(r, g, b);
+    const C = Math.hypot(A, B2);
+    if (C < 0.035) { greys.push([L, r, g, b]); continue; }
+    /* chroma^1.6 lets a small vivid area outweigh a large dull one; the
+       luminance term throws away crushed shadow and blown highlight, where
+       hue is noise rather than colour */
+    const lit = (L > 0.16 && L < 0.97) ? 1 - Math.abs(L - 0.6) * 0.9 : 0.05;
+    let hue = Math.atan2(B2, A) * 180 / Math.PI; if (hue < 0) hue += 360;
+    const k = Math.min(BINS - 1, Math.floor(hue / (360 / BINS)));
+    bin[k].wt += Math.pow(C, 1.6) * lit; bin[k].n++;
+    const vivid = C * (1 - Math.abs(L - 0.62));
+    if (vivid > bin[k].best) { bin[k].best = vivid; bin[k].hex = hx(r, g, b); }
+  }
+
+  greys.sort((a, b) => a[0] - b[0]);
+  const at = (q) => { const e = greys[Math.floor(q * (greys.length - 1))];
+                      return e ? hx(e[1], e[2], e[3]) : "#000000"; };
+  const neutral = greys.length ? [at(0.04), at(0.28), at(0.6), at(0.93)] : [];
+
+  /* kept at least two bins apart, so a photograph full of red returns one red
+     and then something that is not red */
+  const order = bin.map((b, i) => ({ ...b, i })).filter(b => b.hex).sort((a, b) => b.wt - a.wt);
+  const accent = [];
+  for (const b of order) {
+    if (accent.length >= 4) break;
+    const near = accent.some(a => { const dd = Math.abs(a.i - b.i);
+                                    return Math.min(dd, BINS - dd) < 2; });
+    if (!near) accent.push(b);
+  }
+  return { neutral, accent: accent.map(b => ({ hex: b.hex, pct: (100 * b.n / total).toFixed(1) })) };
+}
+
+const out = document.getElementById("out");
+for (const c of CONCEPTS) {
+  const sec = document.createElement("section");
+  sec.className = "concept";
+  sec.innerHTML = `<h2>${c.name}</h2><p class="brief">${c.brief}</p>
+                   <div class="grid" id="g-${c.id}"></div>
+                   <div class="mix" id="m-${c.id}"></div>`;
+  out.appendChild(sec);
+  const grid = sec.querySelector(".grid");
+  const allNeu = [], allAcc = [];
+  for (const q of c.q) {
+    const hits = await commons(q, 3);
+    for (const hit of hits) {
+      let p;
+      try { p = await readPalette(hit.u); } catch (e) { continue; }
+      allNeu.push(...p.neutral.slice(0, 2));
+      allAcc.push(...p.accent.slice(0, 2).map(a => a.hex));
+      const fig = document.createElement("figure");
+      fig.innerHTML = `<img src="${hit.u}" alt="">
+        <div class="strip">${p.neutral.map(h => `<i style="background:${h}"></i>`).join("")}</div>
+        <div class="strip acc">${p.accent.map(a =>
+          `<i style="background:${a.hex}"><b>${a.pct}%</b></i>`).join("")}</div>
+        <figcaption>${hit.t}</figcaption>`;
+      grid.appendChild(fig);
+      break;                       /* one photograph per search, six per room */
+    }
+  }
+  sec.querySelector(".mix").innerHTML =
+    `<span class="lbl">room</span><div class="bar">${
+      allNeu.map(h => `<i style="background:${h}"><b>${h}</b></i>`).join("")}</div>
+     <span class="lbl">accents</span><div class="bar">${
+      allAcc.map(h => `<i style="background:${h}"><b>${h}</b></i>`).join("")}</div>`;
+}
+</script>
+</div></body>
+</html>

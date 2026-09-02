@@ -1,0 +1,628 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MJRC — art board</title>
+<!--
+  ART BOARD — every direction on one page, side by side.
+
+  This is a DRAWING, not the game. It reuses the real tile art (tile-engine.js)
+  and the real proportions, but the table and the lobby are mock markup, so a
+  direction can be judged before any of it is wired up.
+
+  Each plate is one theme object in THEMES below. The mock markup names tokens
+  and nothing else, exactly as index.html does, so a plate is a palette and a
+  handful of optional overrides — the same shape the shipped sheet uses.
+
+  The first plate is TODAY, unchanged, as the thing to argue against. Its lobby
+  is drawn with the current structure (three identical bars); every plate after
+  it is drawn with the proposed one, because colour alone does not fix that
+  screen and pretending otherwise would waste the comparison.
+-->
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#15161a;color:#e7e4dc;
+  font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+header{padding:26px 30px 6px;max-width:1180px;margin:0 auto}
+header h1{margin:0 0 4px;font-size:22px;letter-spacing:.01em}
+header p{margin:0;color:#93908a;font-size:13px;max-width:70ch}
+#board,#forms{max-width:1180px;margin:0 auto;padding:0 30px 20px}
+.axis{max-width:1180px;margin:38px auto 0;padding:0 30px;font-size:13px;
+  letter-spacing:.14em;text-transform:uppercase;color:#cfccc4;
+  border-top:1px solid #2a2c33;padding-top:22px}
+.axis small{display:block;margin-top:3px;font-size:11.5px;letter-spacing:0;
+  text-transform:none;color:#8d8a84}
+.axis+#board .plate:first-child,.axis+#forms .plate:first-child{border-top:0;padding-top:14px}
+
+/* ── a plate ── */
+.plate{margin:30px 0 0;border-top:1px solid #2a2c33;padding-top:18px}
+.plabel{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:12px}
+.plabel h2{margin:0;font-size:17px;letter-spacing:.01em}
+.plabel .tag{font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;
+  color:#8d8a84;border:1px solid #34363d;border-radius:20px;padding:2px 9px}
+.plabel p{margin:0;color:#93908a;font-size:12.5px;flex:1;min-width:240px}
+.plabel .from{color:#6f6c67;font-size:11px}
+.sw{display:flex;gap:0;border-radius:6px;overflow:hidden;flex:0 0 auto;
+  box-shadow:0 0 0 1px #2a2c33}
+.sw i{width:26px;height:18px;display:block}
+.panes{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media (max-width:900px){.panes{grid-template-columns:1fr}}
+.pane{border-radius:12px;overflow:hidden;position:relative;
+  box-shadow:0 0 0 1px #2a2c33, 0 10px 30px rgba(0,0,0,.4)}
+.pane .cap{position:absolute;left:0;top:0;z-index:9;font-size:9.5px;letter-spacing:.12em;
+  text-transform:uppercase;background:rgba(0,0,0,.55);color:#cfccc4;
+  padding:3px 8px;border-radius:0 0 7px 0;pointer-events:none}
+
+/* ══ everything below is the MOCK, and names tokens only ══════════════ */
+.room{height:330px;position:relative;display:flex;flex-direction:column;
+  background:radial-gradient(ellipse at 50% 30%, var(--room-1) 0%, var(--room-2) 55%, var(--room-3) 100%);
+  color:var(--ink);font-size:12px}
+
+/* ── the lobby mock ── */
+.veilx{position:absolute;inset:0;background:var(--veil);display:flex;
+  align-items:center;justify-content:center;padding:14px}
+.pnl{background:linear-gradient(180deg,var(--panel-1),var(--panel-2));
+  border:1px solid rgba(var(--gold-rgb),.35);border-radius:13px;
+  padding:16px 20px 15px;width:100%;max-width:330px;text-align:center;
+  box-shadow:0 16px 44px rgba(var(--shade),.5)}
+.motif{display:flex;gap:3px;justify-content:center;margin-bottom:9px}
+.motif .tile{--th:26px;opacity:.95}
+.pnl h1{margin:0;font-size:23px;letter-spacing:.06em;line-height:1.1;color:var(--ink)}
+.pnl .sub{margin:4px 0 0;font-size:8.5px;letter-spacing:.19em;text-transform:uppercase;
+  color:var(--gold)}
+.play{display:block;width:100%;margin:13px 0 0;border:0;border-radius:10px;
+  background:linear-gradient(180deg,var(--gold-hi),var(--gold));color:var(--on-gold,#2a2113);
+  padding:11px;font:inherit;font-size:15px;font-weight:800;letter-spacing:.02em;
+  cursor:pointer;box-shadow:0 5px 16px rgba(var(--gold-rgb),.3)}
+.play span{display:block;font-size:9.5px;font-weight:600;letter-spacing:.14em;
+  text-transform:uppercase;opacity:.72;margin-top:1px}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:8px}
+.card{background:rgba(var(--sheen),.07);border:1px solid rgba(var(--sheen),.13);
+  border-radius:9px;padding:7px 9px;text-align:left;font-size:11.5px;font-weight:700}
+.card i{display:block;font-style:normal;font-size:10px;font-weight:500;color:var(--dim);
+  margin-top:1px}
+.chips{display:flex;gap:5px;justify-content:center;margin-top:10px;flex-wrap:wrap}
+.chips b{background:rgba(var(--sheen),.07);border-radius:20px;padding:2px 9px;
+  font-size:10px;font-weight:600;color:var(--dim)}
+.chips b em{font-style:normal;color:var(--ink)}
+
+/* the CURRENT lobby, for the baseline plate only */
+.pnl.legacy{max-width:360px;text-align:center}
+.pnl.legacy h1{font-size:15px;letter-spacing:0}
+.pnl.legacy .who{color:var(--dim);font-size:10.5px;margin:3px 0 0}
+.pnl.legacy .bar{background:rgba(var(--shade),.25);border:1px solid rgba(var(--sheen),.14);
+  border-radius:9px;padding:8px 10px;text-align:left;margin-top:7px}
+.pnl.legacy .bar b{display:block;font-size:11.5px}
+.pnl.legacy .bar span{color:var(--dim);font-size:9.5px}
+.pnl.legacy .sum{color:var(--dim);font-size:10px;margin-top:9px}
+
+/* ── the table mock ── */
+.felt{position:relative;margin:12px auto 0;width:calc(100% - 22px);height:238px;
+  border-radius:16px;border:7px solid var(--rim);
+  background:radial-gradient(ellipse at 50% 42%, var(--felt) 0%, var(--felt-dk) 72%, var(--felt-edge) 100%);
+  box-shadow:inset 0 0 44px rgba(var(--shade),.45), 0 12px 32px rgba(var(--shade),.55),
+    0 0 0 2px var(--rim-line), inset 0 2px 0 rgba(var(--sheen),.06)}
+.st{position:absolute;left:7px;top:6px;z-index:4;background:rgba(var(--shade),.4);
+  border:1px solid rgba(var(--sheen),.1);border-radius:8px;padding:3px 7px;line-height:1.2}
+.st .w{font-size:14px;font-weight:700;color:var(--gold)}
+.st .m{font-size:9px;color:var(--dim)}
+.st .m b{color:var(--ink)}
+.np{position:absolute;display:flex;align-items:center;gap:5px;
+  background:rgba(var(--shade),.32);border-radius:20px;padding:2px 8px;
+  font-size:10px;white-space:nowrap;z-index:4}
+.np .av{width:15px;height:15px;border-radius:50%;font-size:8px;
+  background:linear-gradient(160deg,var(--av-1),var(--av-2));
+  display:flex;align-items:center;justify-content:center}
+.np .wd{color:var(--gold);font-size:11px}
+.np.turn{outline:2px solid var(--gold);box-shadow:0 0 12px rgba(var(--gold-rgb),.45)}
+.np.n{top:5px;left:50%;transform:translateX(-50%)}
+.np.s{bottom:5px;left:50%;transform:translateX(-50%)}
+.np.e{right:6px;top:50%;transform:translateY(-50%)}
+.np.w{left:6px;top:50%;transform:translateY(-50%)}
+.surface{position:absolute;inset:0;transform:perspective(1100px) rotateX(16deg);
+  transform-style:preserve-3d}
+.side{position:absolute;display:flex;gap:1.5px}
+.side.t{top:10%;left:50%;transform:translateX(-46%)}
+.side.b{bottom:10%;left:50%;transform:translateX(-54%)}
+.side.l{left:14%;top:50%;transform:translateY(-54%);flex-direction:column}
+.side.r{right:14%;top:50%;transform:translateY(-46%);flex-direction:column}
+.wt{width:11px;height:15px;border-radius:2px;flex:0 0 auto;
+  background:linear-gradient(180deg,var(--wall-1) 0 42%,var(--wall-2) 42% 72%,var(--wall-3) 72% 100%);
+  border:1px solid var(--wall-edge);
+  box-shadow:0 1px 0 rgba(var(--sheen),.5) inset, 0 2px 3px rgba(var(--shade),.45)}
+.side.l .wt,.side.r .wt{width:15px;height:10px;
+  background:linear-gradient(90deg,var(--wall-1) 0 42%,var(--wall-2) 42% 72%,var(--wall-3) 72% 100%)}
+.bk{width:8px;height:11px;border-radius:2px;
+  background:linear-gradient(180deg,var(--back-1),var(--back-2));border:1px solid var(--back-edge)}
+.bkrow{display:flex;gap:1px;position:absolute;z-index:3}
+.bkrow.n{top:22px;left:50%;transform:translateX(-50%)}
+.bkrow.e{right:8px;top:50%;transform:translateY(-50%);flex-direction:column}
+.bkrow.e .bk,.bkrow.w .bk{width:11px;height:8px}
+.bkrow.w{left:8px;top:50%;transform:translateY(-50%);flex-direction:column}
+.heap{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  width:150px;display:flex;flex-wrap:wrap;gap:2px;justify-content:center;z-index:2}
+.heap .tile{--th:21px}
+.hand{flex:0 0 auto;padding:6px 8px 9px;display:flex;gap:3px;justify-content:center;
+  align-items:flex-end;background:linear-gradient(180deg,rgba(var(--shade),0),rgba(var(--shade),.3) 40%)}
+.hand .tile{--th:40px}
+.hand .tile.drawn{margin-left:9px}
+
+/* the shared tile box — the art inside it is the site's own SVG */
+.tile{display:inline-block;height:var(--th,40px);width:calc(var(--th,40px) * .714);
+  border-radius:4px;background:var(--tile-face);overflow:hidden;line-height:0;flex:0 0 auto;
+  box-shadow:0 1px 0 var(--tile-shade), 0 2px 4px rgba(var(--shade),.35)}
+.tile svg{width:100%;height:100%;display:block}
+</style>
+</head>
+<body>
+<header>
+  <h1>MJRC — art board</h1>
+  <p>Three rooms the game could be set in — the street parlour, the private club, the family
+     game — each with a palette read off photographs of that room rather than invented, and the
+     shape each room implies. Drawn at the same size with the site's own tile art. The first plate
+     is what game.mahjongresearch.com serves today. Every plate after it also re-draws the lobby,
+     because colour on its own does not fix that screen.
+     <a href="art-reference.html" style="color:#8fa7c9">The photographs are here.</a></p>
+</header>
+<h2 class="axis">The three rooms <small>each palette read off photographs of that room, and the form each one implies</small></h2>
+<div id="board"></div>
+<h2 class="axis">Form on its own <small>the shipped palette, five geometries — outline, depth, corners, type — held apart from colour</small></h2>
+<div id="forms"></div>
+
+<script src="tile-engine.js"></script>
+<script>
+/* ── the tile art, straight from the engine ─────────────────────────── */
+function art(kind, n) {
+  let svg;
+  if (kind === "m") svg = tileWan(n);
+  else if (kind === "s") svg = tileSuo(n);
+  else if (kind === "p") svg = tileTong(n);
+  else if (kind === "w") svg = tileWind(n);
+  else if (kind === "d") svg = tileDragon(n);
+  else svg = FLOWER_TILES[n][1]();
+  return `<span class="tile"><svg viewBox="0 0 100 140">${svg}</svg></span>`;
+}
+const HAND  = [["m",2],["m",6],["m",8],["s",3],["s",3],["s",7],["p",1],["p",2],["p",9],["w","東"],["d","red"]];
+const HEAP  = [["p",4],["m",1],["s",9],["w","北"],["p",7],["s",2],["d","green"],["m",5],
+               ["p",3],["s",5],["w","西"],["m",9],["p",6],["s",1]];
+const MOTIF = [["d","red"],["m",1],["s",1],["p",1]];
+
+/* ── the directions ─────────────────────────────────────────────────── *
+ * Only what DIFFERS from the shipped palette is listed. `base` is today's
+ * set; a theme is spread over it, so a blank field means "unchanged".    */
+const base = {
+  "room-1":"#1e1b17","room-2":"#131110","room-3":"#0a0908",
+  "felt":"#12503f","felt-dk":"#0d3d30","felt-edge":"#0b3427",
+  "rim":"#2e2016","rim-line":"#1b120c",
+  "ink":"#f2ece0","dim":"#a9b8ae",
+  "tile-face":"#FAFAF8","tile-shade":"#b8ad93",
+  "wall-1":"#eef3f7","wall-2":"#7fb6d8","wall-3":"#5a97bd","wall-edge":"#4b7f9f",
+  "back-1":"#2f7a5f","back-2":"#1d5c46","back-edge":"#14493a",
+  "av-1":"#5b7a6a","av-2":"#2c4438",
+  "panel-1":"#1b3a30","panel-2":"#12281f",
+  "veil":"rgba(4,12,9,.82)",
+  "gold":"#d8b56a","gold-rgb":"216,181,106","gold-hi":"#f0d9a0",
+  "sheen":"255,255,255","shade":"0,0,0","on-gold":"#2a2113",
+};
+
+const THEMES = [
+{ id:"current", name:"Current", tag:"live today", legacy:true,
+  from:"—",
+  note:"The shipped look. The darkness is not the problem; spending one accent where the reference spends five is.",
+  vars:{} },
+
+/* ── THE STREET PARLOUR ─────────────────────────────────────────────────
+ * Read off 廟街永鴻麻雀館, Portland Street, Temple Street, Sham Shui Po and
+ * Bowrington Road at night. The measurement that decided this theme: the room
+ * in every one of those photographs is BLACK — rgb(1,1,1) to rgb(13,13,15),
+ * with a warm ember second step around rgb(29,15,3) — and the character is
+ * carried entirely by five saturated lights covering 1–18% of the frame.
+ *
+ * So the mistake in the shipped look is not that it is dark. It is that it
+ * spends ONE accent. A street of signs is a chorus: red, sodium, acid yellow,
+ * neon green and electric blue, all competing, none of them in charge. Here
+ * every call keeps its own light and the panel is a lightbox rather than a
+ * card — a sign in a window, hard-edged, slightly too bright.
+ */
+{ id:"street", name:"The street parlour", tag:"night · neon",
+  from:"廟街永鴻麻雀館 · 砵蘭街 Portland St · Temple St · 深水埗 · 寶靈頓道",
+  note:"Black room, five competing lights. The panel is a lightbox, not a card: hard edges, a hot keyline, tube-light glare across the top and a grain over everything.",
+  vars:{ "room-1":"#241206","room-2":"#0d0a08","room-3":"#030202",
+    "felt":"#146b3c","felt-dk":"#0d4d2b","felt-edge":"#07321c",
+    "rim":"#17110c","rim-line":"#000000",
+    "ink":"#f8f4e6","dim":"#948d82",
+    "wall-1":"#f6efdc","wall-2":"#d8c08a","wall-3":"#b89a5e","wall-edge":"#7d6738",
+    "back-1":"#1f9a54","back-2":"#106038","back-edge":"#0a4527",
+    "av-1":"#3c8f5e","av-2":"#152a1e",
+    "panel-1":"#17110d","panel-2":"#0a0806","veil":"rgba(3,2,2,.88)",
+    "gold":"#f0c414","gold-rgb":"240,196,20","gold-hi":"#ffe95c","on-gold":"#1a1400",
+    "accent":"#2f7cf5","danger":"#f5321c" },
+  css:`.pnl{border-width:2px;border-radius:4px;
+         box-shadow:0 0 0 1px rgba(0,0,0,.9), 0 0 34px -6px rgba(240,196,20,.5),
+           0 20px 50px rgba(0,0,0,.7)}
+       /* the tube over the sign */
+       .pnl::before{content:"";position:absolute;left:12%;right:12%;top:-1px;height:2px;
+         background:linear-gradient(90deg,transparent,var(--gold-hi),transparent);
+         box-shadow:0 0 14px 2px rgba(240,196,20,.7)}
+       .pnl{position:relative}
+       .pnl h1{letter-spacing:.1em;text-shadow:0 0 18px rgba(240,196,20,.55)}
+       .pnl .sub{color:#f5321c;letter-spacing:.22em}
+       .play{border-radius:3px;background:var(--gold);
+         box-shadow:0 0 22px -3px rgba(240,196,20,.75)}
+       .card{border-radius:3px;background:rgba(255,255,255,.05)}
+       .card:nth-child(1){border-color:rgba(47,124,245,.55)}
+       .card:nth-child(2){border-color:rgba(18,217,74,.5)}
+       .chips b{border-radius:2px}
+       .chips b:nth-child(1){color:#f5321c}
+       .chips b:nth-child(2){color:#12d94a}
+       .chips b:nth-child(3){color:#2f7cf5}
+       .felt{border-radius:6px;border-width:8px}
+       .np{border-radius:3px;background:rgba(0,0,0,.6);
+         border:1px solid rgba(255,255,255,.16)}
+       .np.turn{outline-color:#f0c414;box-shadow:0 0 16px rgba(240,196,20,.6)}
+       .st{border-radius:3px;background:rgba(0,0,0,.65);border-color:rgba(240,196,20,.35)}
+       .tile{border-radius:3px}
+       /* THE SIGNS REACH THE TABLE. This is the whole finding applied: the
+          room is black and lit by colours it does not own, so the felt
+          catches a red wash from one side and a green one from the other,
+          and a tube reflects off the top of it. Without this the table is
+          just a green rectangle with a neon lobby in front of it. */
+       .felt{background:
+           radial-gradient(ellipse at 12% 8%, rgba(245,50,28,.3) 0%, transparent 46%),
+           radial-gradient(ellipse at 88% 92%, rgba(18,217,74,.22) 0%, transparent 44%),
+           radial-gradient(ellipse at 50% 42%, var(--felt) 0%, var(--felt-dk) 72%, var(--felt-edge) 100%)}
+       .felt::before{content:"";position:absolute;left:8%;right:8%;top:4px;height:2px;
+         border-radius:2px;background:linear-gradient(90deg,transparent,rgba(255,247,200,.5),transparent);
+         filter:blur(1px);pointer-events:none;z-index:5}
+       .felt{position:relative}
+       /* each seat under a different sign */
+       .np.n{border-color:rgba(47,124,245,.6)}
+       .np.e{border-color:rgba(18,217,74,.55)}
+       .np.w{border-color:rgba(238,57,99,.55)}
+       .np.s{border-color:rgba(240,196,20,.6)}
+       /* the grain. A parlour is not a clean room. */
+       .room::after{content:"";position:absolute;inset:0;pointer-events:none;opacity:.5;
+         background:repeating-linear-gradient(0deg,rgba(255,255,255,.035) 0 1px,transparent 1px 3px);
+         mix-blend-mode:overlay}` },
+
+/* ── THE PRIVATE CLUB ───────────────────────────────────────────────────
+ * Read off the Peninsula lobby, the Police Officers' Club dining room, a Ming
+ * kang table and the Shang Palace private room. The opposite measurement: no
+ * points of light anywhere. The warm colours run 12–35% of the frame, so the
+ * room is a warm BATH rather than a dark hall with lamps in it, and the whole
+ * picture sits in a narrow band of contrast.
+ *
+ * Which tells you what the interface must not do: no glow, no filled accent
+ * blocks, nothing louder than its neighbour. Light comes from above, so
+ * surfaces catch a highlight on their top edge instead of casting a shadow
+ * below. Rules are brass hairlines. Type is a serif at a generous size.
+ */
+{ id:"club", name:"The private club", tag:"warm · quiet",
+  from:"Peninsula lobby · 警官俱樂部 · Shang Palace · Ming kang table",
+  note:"A warm bath, not a dark room with lamps in it. No glow anywhere, brass hairlines instead of borders, serif type, and light that falls from above rather than shadows that fall below.",
+  vars:{ "room-1":"#3d2c1f","room-2":"#221913","room-3":"#120c09",
+    "felt":"#1c5741","felt-dk":"#144130","felt-edge":"#0d2c20",
+    "rim":"#4a2519","rim-line":"#2a170f",
+    "ink":"#f4ece0","dim":"#b6a894",
+    "tile-shade":"#a8927a","tile-face":"#FBF7EC",
+    "wall-1":"#f7f0df","wall-2":"#ddc9a4","wall-3":"#c0a878","wall-edge":"#8f7647",
+    "back-1":"#7a3326","back-2":"#521f16","back-edge":"#3a140d",
+    "av-1":"#a07a52","av-2":"#3d2418",
+    "panel-1":"#2c2019","panel-2":"#1a1310","veil":"rgba(14,9,6,.85)",
+    "gold":"#d9a441","gold-rgb":"217,164,65","gold-hi":"#f0cd8a" },
+  css:`.pnl{border-radius:6px;padding:22px 26px 20px;
+         border:1px solid rgba(217,164,65,.45);
+         box-shadow:inset 0 1px 0 rgba(255,255,255,.09), 0 18px 48px rgba(0,0,0,.55)}
+       .pnl h1{font-family:Baskerville,"Songti SC",Georgia,serif;font-size:26px;
+         letter-spacing:.03em;font-weight:400}
+       .pnl .sub{letter-spacing:.26em;font-size:8px;opacity:.85}
+       .motif{opacity:.8}
+       /* brass hairline, never a filled block */
+       .play{background:none;border:1px solid var(--gold);color:var(--gold);
+         border-radius:4px;box-shadow:none;font-weight:600;letter-spacing:.08em;
+         font-family:Baskerville,Georgia,serif;font-size:16px}
+       .play span{opacity:.6}
+       .card{background:none;border:1px solid rgba(217,164,65,.28);border-radius:4px;
+         font-weight:600}
+       .chips b{background:none;border-bottom:1px solid rgba(217,164,65,.3);border-radius:0}
+       .felt{border-radius:12px;border-width:8px;
+         box-shadow:inset 0 2px 0 rgba(255,255,255,.1), inset 0 0 50px rgba(0,0,0,.4),
+           0 0 0 1px rgba(217,164,65,.35), 0 14px 36px rgba(0,0,0,.5)}
+       .np{border-radius:3px;background:rgba(20,12,8,.55);
+         border:1px solid rgba(217,164,65,.25);
+         box-shadow:inset 0 1px 0 rgba(255,255,255,.07)}
+       .np.turn{outline:1px solid var(--gold);box-shadow:inset 0 1px 0 rgba(255,255,255,.12)}
+       .st{border-radius:3px;background:rgba(20,12,8,.6);border-color:rgba(217,164,65,.25)}
+       .tile{border-radius:3px;box-shadow:0 1px 0 var(--tile-shade),0 1px 3px rgba(0,0,0,.3)}
+       /* ONE LAMP, low and central. The measurement said a warm bath with no
+          points of light, which on a table means a soft warm pool in the
+          middle and the corners falling away — not an evenly lit board. */
+       .felt{background:
+           radial-gradient(ellipse at 50% 44%, rgba(255,214,140,.18) 0%, transparent 58%),
+           radial-gradient(ellipse at 50% 42%, var(--felt) 0%, var(--felt-dk) 64%, var(--felt-edge) 100%)}
+       .felt::after{content:"";position:absolute;inset:0;border-radius:9px;pointer-events:none;
+         box-shadow:inset 0 0 70px 20px rgba(10,5,2,.5)}
+       .felt{position:relative}
+       /* the rim reads as rosewood: a warm edge highlight, not a flat block */
+       .felt{border-image:linear-gradient(160deg,#6b3a26,#3a1c12 55%,#5c2f1e) 1 stretch}` },
+
+/* ── THE FAMILY GAME ────────────────────────────────────────────────────
+ * Read off four Taiwanese playing at home, Hangzhou, Kunming, Lhasa and a
+ * reunion dinner. Cool grey-green daylight — rgb(199,207,202) and
+ * rgb(217,226,236) at the light end — and, decisively, NOTHING vivid: the
+ * strongest colours in the set are a muted red rgb(165,46,39) and the
+ * yellow-green of table mats and plastic stools rgb(143,167,37).
+ *
+ * That is greyer than a "light theme" instinctively wants to be, and getting
+ * it right means resisting the sunny cream version. The room is a flat after
+ * dinner, not a conservatory. Shapes go fat and friendly, everything is
+ * laminate and plastic, and no edge is sharp.
+ */
+{ id:"family", name:"The family game", tag:"day · domestic",
+  from:"Taiwanese home game · Hangzhou · Kunming · Lhasa · reunion dinner",
+  note:"Cool grey-green daylight, and nothing vivid in the whole set — a muted red and the yellow-green of table mats do all the work. Fat, friendly, laminate shapes; no sharp edges anywhere.",
+  vars:{ "room-1":"#e2e7e1","room-2":"#c7d0ca","room-3":"#a5b0aa",
+    "felt":"#1a8f5c","felt-dk":"#147a4d","felt-edge":"#0e5f3c",
+    "rim":"#c2a273","rim-line":"#8a6f45",
+    "ink":"#22261f","dim":"#5c635b",
+    "tile-face":"#fffdf6","tile-shade":"#c6c2b2",
+    "wall-1":"#fdfbf4","wall-2":"#dfe4e0","wall-3":"#bcc6c0","wall-edge":"#97a29b",
+    "back-1":"#2fa06a","back-2":"#1d7a50","back-edge":"#14603d",
+    "av-1":"#9dc3ab","av-2":"#3d7a5c",
+    "panel-1":"#fdfbf5","panel-2":"#eceee7","veil":"rgba(40,46,40,.45)",
+    "gold":"#b0392c","gold-rgb":"176,57,44","gold-hi":"#c9584a","on-gold":"#fff6f2",
+    "accent":"#8fa725","danger":"#b0392c",
+    "sheen":"34,38,33","shade":"60,66,58" },
+  css:`.pnl{border-radius:20px;border:1px solid rgba(34,38,33,.12);
+         box-shadow:0 14px 34px rgba(60,66,58,.28)}
+       .pnl h1{font-size:25px}
+       .pnl .sub{color:#8fa725}
+       .play{border-radius:14px;font-size:16px;
+         box-shadow:0 4px 0 rgba(140,40,30,.5), 0 8px 20px rgba(60,66,58,.25)}
+       .card{border-radius:12px;background:rgba(34,38,33,.05);
+         border-color:rgba(34,38,33,.1)}
+       .chips b{border-radius:20px;background:rgba(143,167,37,.16);color:#5f6d1a}
+       .chips b em{color:#22261f}
+       .felt{border-radius:22px;border-width:9px}
+       .tile{border-radius:6px}
+       /* cards on a bright felt go LIGHTER than it, never darker */
+       .st,.np{background:rgba(255,253,246,.93);color:#22261f;border-radius:14px;
+         border:1px solid rgba(34,38,33,.1);box-shadow:0 2px 5px rgba(60,66,58,.2)}
+       .st{border-radius:12px}
+       .st .m,.st .m b{color:#22261f}
+       .np.turn{outline:2px solid var(--gold)}
+       /* a flat, not a studio: cool daylight from one side, a warm floor
+          under it — the reference photographs are never evenly lit either */
+       .room{background:
+           linear-gradient(178deg, #e8ecE7 0%, #cdd6cf 46%, #b4a894 100%)}` },
+];
+
+/* ── draw ───────────────────────────────────────────────────────────── */
+const rep = (n, s) => Array.from({length:n}, () => s).join("");
+
+function lobbyNew() {
+  return `<div class="veilx"><div class="pnl">
+    <div class="motif">${MOTIF.map(([k,n]) => art(k,n)).join("")}</div>
+    <h1>香港麻雀</h1>
+    <div class="sub">Mahjong Research Co · Hong Kong old style</div>
+    <button class="play">開枱<span>sit down &amp; play</span></button>
+    <div class="two">
+      <div class="card">Your games<i>17 matches · 62% agreement</i></div>
+      <div class="card">Leaderboard<i>4th of 26</i></div>
+    </div>
+    <div class="chips"><b><em>17</em> games</b><b><em>134</em> hands</b><b><em>+820</em> chips</b></div>
+  </div></div>`;
+}
+function lobbyOld() {
+  return `<div class="veilx"><div class="pnl legacy">
+    <h1>香港麻雀 · MJRC</h1>
+    <p class="who">Playing as <b>Art Lab</b> · change name</p>
+    <div class="bar"><b>Play ▸</b><span>Pick a length and a table, then sit down.</span></div>
+    <div class="bar"><b>Your games</b><span>Every match you have played, and how close to the engine you played it.</span></div>
+    <div class="bar"><b>Leaderboard</b><span>How your games compare.</span></div>
+    <p class="sum"><b>17</b> games · <b>134</b> hands · lifetime <b>+820</b> chips</p>
+  </div></div>`;
+}
+/* The wall is the one piece of the table whose SHAPE is not CSS: a ring has
+   to place each tile on an arc, so it is generated. "none" is a real option —
+   a table with no wall drawn at all reads as a screen rather than a room, and
+   that is a legitimate direction rather than an omission. */
+function wallMarkup(kind) {
+  if (kind === "none") return "";   /* a table with no wall drawn is a real option */
+  return `<div class="side t">${rep(13,'<span class="wt"></span>')}</div>
+    <div class="side b">${rep(13,'<span class="wt"></span>')}</div>
+    <div class="side l">${rep(9,'<span class="wt"></span>')}</div>
+    <div class="side r">${rep(9,'<span class="wt"></span>')}</div>`;
+}
+function tableMock(wall) {
+  return `<div class="felt">
+    <div class="st"><div class="w">東</div><div class="m">hand <b>1</b></div><div class="m">wall <b>62</b></div></div>
+    <div class="np n"><span class="av">M</span>Ming <span class="wd">西</span> 0</div>
+    <div class="np w"><span class="av">L</span>Ling <span class="wd">北</span> 0</div>
+    <div class="np e"><span class="av">K</span>Kwan <span class="wd">南</span> 0</div>
+    <div class="np s turn"><span class="av">Y</span>You <span class="wd">東</span> 0</div>
+    <div class="bkrow n">${rep(13,'<span class="bk"></span>')}</div>
+    <div class="bkrow w">${rep(13,'<span class="bk"></span>')}</div>
+    <div class="bkrow e">${rep(13,'<span class="bk"></span>')}</div>
+    <div class="surface">
+      ${wallMarkup(wall || "square")}
+      <div class="heap">${HEAP.map(([k,n]) => art(k,n)).join("")}</div>
+    </div>
+  </div>
+  <div class="hand">${HAND.map(([k,n]) => art(k,n)).join("")}
+    <span class="tile drawn"><svg viewBox="0 0 100 140">${tileTong(5)}</svg></span></div>`;
+}
+
+const SWATCH = ["room-2","felt","rim","wall-2","back-1","gold"];
+
+document.getElementById("board").innerHTML = THEMES.map((t) => {
+  const v = Object.assign({}, base, t.vars);
+  const style = Object.entries(v).map(([k, val]) => `--${k}:${val}`).join(";");
+  const sw = SWATCH.map((k) => `<i style="background:${v[k]}"></i>`).join("");
+  const scoped = t.css
+    ? `<style>${t.css.replace(/(^|\})\s*([^{}]+)\{/g, (m, br, sel) =>
+        `${br}${sel.split(",").map((x) => `.p-${t.id} ${x.trim()}`).join(",")}{`)}</style>`
+    : "";
+  return `<section class="plate p-${t.id}">${scoped}
+    <div class="plabel">
+      <h2>${t.name}</h2><span class="tag">${t.tag}</span>
+      <p>${t.note}${t.from && t.from !== "\u2014"
+          ? `<br><span class="from">read off \u2014 ${t.from}</span>` : ""}</p>
+      <div class="sw">${sw}</div>
+    </div>
+    <div class="panes">
+      <div class="pane"><span class="cap">lobby</span>
+        <div class="room" style="${style}">${t.legacy ? lobbyOld() : lobbyNew()}</div></div>
+      <div class="pane"><span class="cap">table</span>
+        <div class="room" style="${style}">${tableMock("square")}</div></div>
+    </div>
+  </section>`;
+}).join("");
+
+/* ══ AXIS TWO: FORM ═══════════════════════════════════════════════════ *
+ * Colour is the cheap variable. Shape is the one that decides whether the
+ * thing reads as a spreadsheet or a toy, and it is nearly independent of
+ * palette — so every plate below is drawn in the SHIPPED palette and varies
+ * only geometry: the table's outline, the tile's edge, the depth, the
+ * corners on every box, and the type.
+ *
+ * Each is scoped CSS over the same markup, except the wall, which needs its
+ * own arrangement and is passed in.
+ * ══════════════════════════════════════════════════════════════════════ */
+const CONTROL = THEMES.find((t) => t.id === "current").vars;
+
+const FORMS = [
+{ id:"f-now", name:"Current", tag:"live today", wall:"square",
+  note:"A rounded rectangle inside a thick wooden rim, the wall tilted 16°, everything soft-edged and drop-shadowed. Skeuomorphic: it is pretending to be furniture.",
+  css:`` },
+
+{ id:"f-flat", name:"Flat Board", tag:"modern", wall:"square",
+  note:"The furniture removed. No wood, no perspective, no drop shadows — a flat field with a hairline inset, square-ish corners, and labels that sit ON the surface rather than floating above it. What a modern digital board game looks like.",
+  css:`.felt{border:0;border-radius:8px;box-shadow:inset 0 0 0 1px rgba(var(--sheen),.14);
+         background:var(--felt)}
+       .surface{transform:none}
+       .tile{border-radius:2px;box-shadow:none;outline:1px solid rgba(var(--shade),.18);
+         outline-offset:-1px}
+       .wt{border-radius:1px;box-shadow:none;background:var(--wall-2);
+         border:1px solid var(--felt-dk)}
+       .side.l .wt,.side.r .wt{background:var(--wall-2)}
+       .side{gap:0}
+       .bk{border-radius:1px;background:var(--back-1);border-color:transparent}
+       .np{border-radius:4px;background:rgba(var(--shade),.3);padding:3px 9px}
+       .np.turn{outline-width:1.5px;box-shadow:none}
+       .st{border-radius:4px}
+       .pnl{border-radius:8px;background:var(--panel-2);border-color:rgba(var(--sheen),.12);
+         box-shadow:none}
+       .play{border-radius:5px;background:var(--gold);box-shadow:none}
+       .card{border-radius:5px}
+       .chips b{border-radius:4px}
+       .hand{background:none}` },
+
+{ id:"f-chunky", name:"Chunky", tag:"toy", wall:"square",
+  note:"Everything fattened and outlined. Tiles get a visible thickness under them, corners go generous, every box wears a dark keyline, and the type gets heavy. This is the shape of 'fun' as most mobile games spell it — and the furthest from the current sketch.",
+  css:`.felt{border-radius:26px;border:9px solid var(--rim);
+         box-shadow:inset 0 0 40px rgba(var(--shade),.4), 0 14px 0 -2px rgba(var(--shade),.6),
+           0 0 0 4px var(--rim-line)}
+       .tile{border-radius:8px;position:relative;
+         box-shadow:0 4px 0 var(--tile-shade), 0 6px 10px rgba(var(--shade),.45)}
+       .hand{gap:5px;padding-bottom:13px}
+       .hand .tile{--th:42px}
+       .wt{border-radius:4px;border-width:1.5px;
+         box-shadow:0 2px 0 rgba(var(--shade),.4), 0 1px 0 rgba(var(--sheen),.55) inset}
+       .bk{border-radius:3px;border-width:1.5px}
+       .np{border-radius:22px;padding:3px 11px;font-weight:800;font-size:11px;
+         border:2px solid rgba(var(--shade),.5);background:rgba(var(--shade),.42)}
+       .np .av{width:17px;height:17px}
+       .st{border-radius:12px;border:2px solid rgba(var(--shade),.5);padding:4px 9px}
+       .pnl{border-radius:22px;border:3px solid rgba(var(--gold-rgb),.55);
+         box-shadow:0 10px 0 -2px rgba(var(--shade),.55), 0 20px 44px rgba(var(--shade),.5)}
+       .pnl h1{font-size:27px;font-weight:900}
+       .play{border-radius:16px;font-size:17px;font-weight:900;padding:13px;
+         box-shadow:0 6px 0 rgba(var(--shade),.45)}
+       .card{border-radius:14px;border-width:2px}
+       .chips b{border-radius:20px;font-weight:800}` },
+
+{ id:"f-paper", name:"Almanac", tag:"print", wall:"none",
+  note:"The 通勝 reading: a printed sheet, not a room. No shadows anywhere, hairline rules instead of borders, seats as ruled entries, and the wall not drawn at all — a wall count is a number on a page. Serif and kai type. It is the one direction that ties the game to the Almanac rather than to other games.",
+  css:`.room{background:var(--paper,#efe6d2);color:#241f18;
+         font-family:Baskerville,"Songti SC",Georgia,serif}
+       .felt{background:#e6dbc2;border:0;border-radius:0;margin-top:10px;
+         box-shadow:inset 0 0 0 1px #241f18, inset 0 0 0 4px #e6dbc2, inset 0 0 0 5px #241f18}
+       .surface{transform:none}
+       .heap{width:168px;gap:3px}
+       .heap .tile{--th:22px;border-radius:0;box-shadow:none;outline:1px solid #241f18;
+         outline-offset:-1px}
+       .np{background:none;border-radius:0;color:#241f18;font-size:10px;
+         letter-spacing:.06em;border-bottom:1px solid #241f18;padding:1px 4px}
+       .np .av{display:none}
+       .np .wd{color:#a33328}
+       .np.turn{outline:0;box-shadow:none;border-bottom-width:3px}
+       .st{background:none;border:0;border-left:3px solid #a33328;border-radius:0;padding:1px 8px}
+       .st .w{color:#a33328}.st .m,.st .m b{color:#241f18}
+       .bkrow{display:none}
+       .hand{background:none;border-top:1px solid #241f18;margin:0 11px;padding-top:8px}
+       .hand .tile{border-radius:0;box-shadow:none;outline:1px solid #241f18;outline-offset:-1px}
+       .veilx{background:rgba(36,31,24,.35)}
+       .pnl{background:#f6efdd;border:1px solid #241f18;border-radius:0;box-shadow:6px 6px 0 rgba(36,31,24,.25)}
+       .pnl h1{color:#241f18;font-size:26px}
+       .pnl .sub{color:#a33328}
+       .motif .tile{border-radius:0;box-shadow:none;outline:1px solid #241f18;outline-offset:-1px}
+       .play{background:#a33328;color:#f6efdd;border-radius:0;box-shadow:none;font-family:inherit}
+       .card{background:none;border:1px solid #241f18;border-radius:0;color:#241f18}
+       .card i{color:#6b6252}
+       .chips b{background:none;border:1px solid #241f18;border-radius:0;color:#241f18}
+       .chips b em{color:#a33328}` },
+
+{ id:"f-hud", name:"Console", tag:"arcade", wall:"square",
+  note:"The table as a readout. Chamfered corners instead of round ones, bracket rules, tabular monospace numerals, a glow ring in place of a rim. Everything is a panel in a machine.",
+  css:`.felt{border:0;border-radius:0;clip-path:polygon(14px 0,100% 0,100% calc(100% - 14px),calc(100% - 14px) 100%,0 100%,0 14px);
+         box-shadow:inset 0 0 0 1px rgba(var(--gold-rgb),.5), inset 0 0 60px rgba(var(--shade),.5),
+           0 0 44px -8px rgba(var(--gold-rgb),.4)}
+       .surface{transform:perspective(1100px) rotateX(9deg)}
+       .np{border-radius:0;clip-path:polygon(6px 0,100% 0,100% calc(100% - 6px),calc(100% - 6px) 100%,0 100%,0 6px);
+         background:rgba(var(--shade),.55);border:1px solid rgba(var(--gold-rgb),.35);
+         font:600 9.5px/1.4 ui-monospace,Menlo,monospace;letter-spacing:.08em;text-transform:uppercase}
+       .np .av{border-radius:0}
+       .st{border-radius:0;background:rgba(var(--shade),.6);
+         border:1px solid rgba(var(--gold-rgb),.35);
+         font:600 9px/1.35 ui-monospace,Menlo,monospace;letter-spacing:.1em}
+       .tile{border-radius:2px}
+       .wt{border-radius:0}
+       .bk{border-radius:0}
+       .pnl{border-radius:0;clip-path:polygon(18px 0,100% 0,100% calc(100% - 18px),calc(100% - 18px) 100%,0 100%,0 18px);
+         border:1px solid rgba(var(--gold-rgb),.5)}
+       .pnl h1{font-size:24px;letter-spacing:.14em}
+       .pnl .sub{font-family:ui-monospace,Menlo,monospace;letter-spacing:.24em}
+       .play{border-radius:0;clip-path:polygon(9px 0,100% 0,100% calc(100% - 9px),calc(100% - 9px) 100%,0 100%,0 9px);
+         font:800 14px/1 ui-monospace,Menlo,monospace;letter-spacing:.1em;padding:12px}
+       .play span{font-family:ui-monospace,Menlo,monospace;letter-spacing:.2em}
+       .card{border-radius:0;font:700 11px/1.4 ui-monospace,Menlo,monospace}
+       .card i{font-family:ui-monospace,Menlo,monospace;font-size:9px}
+       .chips b{border-radius:0;font-family:ui-monospace,Menlo,monospace;font-size:9px}` },
+];
+
+const controlStyle = Object.entries(Object.assign({}, base, CONTROL))
+  .map(([k, v]) => `--${k}:${v}`).join(";");
+
+document.getElementById("forms").innerHTML = FORMS.map((f) => {
+  const scoped = f.css.trim()
+    ? `<style>${f.css.replace(/(^|\})\s*([^{}]+)\{/g, (m, br, sel) =>
+        `${br}${sel.split(",").map((x) => `.${f.id} ${x.trim()}`).join(",")}{`)}</style>`
+    : "";
+  return `<section class="plate ${f.id}">${scoped}
+    <div class="plabel">
+      <h2>${f.name}</h2><span class="tag">${f.tag}</span>
+      <p>${f.note}</p>
+    </div>
+    <div class="panes">
+      <div class="pane"><span class="cap">lobby</span>
+        <div class="room" style="${controlStyle}">${lobbyNew()}</div></div>
+      <div class="pane"><span class="cap">table</span>
+        <div class="room" style="${controlStyle}">${tableMock(f.wall)}</div></div>
+    </div>
+  </section>`;
+}).join("");
+</script>
+</body>
+</html>
