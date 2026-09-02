@@ -250,7 +250,7 @@ const THEMES = [
 { id:"underground", name:"MJ Underground", tag:"owner reference",
   from:"owner's photograph — red baize, brass lamp, green-based tiles",
   note:"Lit from one point above the middle and nothing else: a hot pool of red baize, corners falling away, hard shadows thrown outward. Cream faces on jade bases, so green is what you see on every edge and on everything face-down. Brass is the only metal.",
-  vars:{ "room-1":"#22050a","room-2":"#190407","room-3":"#080102",
+  vars:{ "room-1":"#1a0407","room-2":"#0f0204","room-3":"#050101",
     "felt":"#c1121f","felt-dk":"#6b0a13","felt-edge":"#2b040a",
     "rim":"#170c0a","rim-line":"#000000",
     "ink":"#f8f0e5","dim":"#ab918b",
@@ -268,21 +268,45 @@ const THEMES = [
           the one surface that genuinely has texture, and a 1px repeat is a
           shape rather than a fade. */
        .felt{position:relative;border-width:8px;border-radius:10px;
+         border-color:#1d100c;border-bottom-color:#3a221a;
          background-color:var(--felt);
          background-image:repeating-linear-gradient(90deg,
            rgba(0,0,0,.055) 0 1px, transparent 1px 3px);
          box-shadow:0 14px 40px rgba(0,0,0,.75), 0 0 0 2px var(--rim-line)}
-       /* THE LAMP FALLOFF. First cut put the darkening at 62% with a hard
-          stop, which drew a visible oval on the cloth — a stage light, not a
-          table lamp — and took the corners so far down that the side seats'
-          plates could not be read. It now starts at 52%, climbs in gentler
-          steps and tops out at .58, so the corners recede without going out.
-          Wide enough that the four seats sit inside the usable light. */
+       /* ── THE LAMP, IN TWO LAYERS ──────────────────────────────────
+          One light over the middle of a dark room is not a darkening. It is
+          a HOT PLACE and a fall to nothing, and doing only the second half
+          is what made the first cut look like a filter over an evenly lit
+          table rather than a lit table.
+
+          So the light is added below and taken away above:
+
+          ::before is the pool itself, screened onto the cloth UNDERNEATH the
+          tiles. The baize at the centre goes genuinely hotter than its own
+          colour — which is what a lamp does and no amount of edge-darkening
+          can fake. It sits under the tiles on purpose: screening warm light
+          over a cream tile face blows it to paper.
+
+          ::after is the fall, and it sits ABOVE the tiles — the whole reason
+          this reads as depth. A tile in the far corner of the wall is dimmed
+          by the same curve that dims the cloth under it, so the board has a
+          near side and a far side instead of being uniformly bright objects
+          on a shaded background.
+
+          The corners now reach .9 rather than .62. That is only affordable
+          because the nameplates and the state card are lifted above the
+          overlay — the light can go as dark as it likes as long as the
+          things you must read are not in it. */
+       .felt::before{content:"";position:absolute;inset:0;border-radius:4px;
+         pointer-events:none;z-index:0;mix-blend-mode:screen;
+         background:radial-gradient(ellipse 44% 50% at 50% 44%,
+           rgba(255,158,120,.30) 0 24%, rgba(255,120,90,.17) 48%,
+           rgba(200,70,60,.06) 74%, transparent 100%)}
        .felt::after{content:"";position:absolute;inset:0;border-radius:4px;
          pointer-events:none;z-index:6;
-         background:radial-gradient(ellipse 76% 84% at 50% 46%,
-           transparent 0 44%, rgba(22,3,6,.10) 58%, rgba(16,2,5,.24) 70%,
-           rgba(10,1,3,.40) 82%, rgba(6,0,2,.54) 92%, rgba(4,0,1,.62) 100%)}
+         background:radial-gradient(ellipse 70% 78% at 50% 44%,
+           transparent 0 22%, rgba(24,3,7,.18) 38%, rgba(18,2,5,.46) 54%,
+           rgba(11,1,3,.70) 68%, rgba(5,0,2,.86) 82%, rgba(2,0,1,.95) 100%)}
        /* No drawn lamp. It was a brass disc at dead centre, which is exactly
           where every discard lands — the heap covered it within four turns
           and fought it for the whole hand before that. The light is the point;
@@ -292,7 +316,21 @@ const THEMES = [
           shadow line under it, so the green shows on every edge for free */
        .tile{border-radius:4px;
          box-shadow:0 3px 0 var(--tile-shade), 0 5px 9px rgba(0,0,0,.6)}
-       .hand{padding-bottom:13px}
+       .hand{padding-bottom:13px;position:relative}
+       /* THE FALLOFF STOPS AT YOUR OWN HAND. At .78 on the ends this looked
+          right and played badly: the two outermost tiles are as hard to read
+          as anything on the table, and they are yours, thirteen times a hand,
+          every hand. The drama is spent on the felt, where nothing has to be
+          read quickly. Here it is a hint — enough that the row is not a flat
+          lit strip, not enough to cost a tile. */
+       .hand::before{content:"";position:absolute;inset:0;pointer-events:none;
+         z-index:3;
+         background:linear-gradient(90deg, rgba(4,0,1,.34) 0%, rgba(6,0,2,.13) 12%,
+           transparent 28%, transparent 72%, rgba(6,0,2,.13) 88%, rgba(4,0,1,.34) 100%)}
+       .hand::after{content:"";position:absolute;inset:0;pointer-events:none;
+         mix-blend-mode:screen;
+         background:radial-gradient(ellipse 46% 160% at 50% 0%,
+           rgba(255,168,126,.16) 0 34%, transparent 100%)}
        .hand .tile{box-shadow:0 4px 0 var(--tile-shade), 0 9px 14px rgba(0,0,0,.7)}
        /* one light above the middle means the heap's shadows fall OUTWARD,
           not straight down — the near row throws toward the viewer */
