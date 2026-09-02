@@ -703,30 +703,68 @@ function statsScreen(): void {
 type BoardKey = "wins" | "hands" | "chips" | "net" | "rate";
 let boardSort: BoardKey = "wins";
 
+/** One player's standing, however it was arrived at. */
+interface Standing {
+  name: string; games: number; wins: number; hands: number; handsWon: number;
+  chips: number; net: number; rate: number | null;
+}
+
+/** The same aggregate the server does, over this device's own rows. */
+function localStandings(rows: MatchRec[]): Standing[] {
+  const counted = rows.filter((m) => m.recorded && !m.abandoned && m.finishedAt !== null);
+  const byPlayer = new Map<string, { name: string; rows: MatchRec[] }>();
+  for (const m of counted) {
+    const e = byPlayer.get(m.playerId) ?? { name: m.playerName, rows: [] };
+    e.name = m.playerName; e.rows.push(m); byPlayer.set(m.playerId, e);
+  }
+  return [...byPlayer.values()].map((e) => {
+    const a = aggregate(e.rows);
+    // a match is won by finishing first on chips; ties share the place
+    const wins = e.rows.filter((m) => {
+      const c = m.chips ?? [0, 0, 0, 0];
+      return (c[0] ?? 0) >= Math.max(...c.slice(1).map((x) => x ?? 0));
+    }).length;
+    return {
+      name: e.name, games: a.matches, wins, hands: a.hands, handsWon: a.won,
+      chips: a.chips, net: a.hands ? a.chips / a.hands : 0,
+      rate: a.graded ? a.matched / a.graded : null,
+    };
+  });
+}
+
+/**
+ * Everyone's standings, from the server.
+ *
+ * The board used to read this device's IndexedDB, which meant every tester
+ * opened it and saw a table with one name in it — their own. The rows the
+ * server holds are the whole point of uploading them.
+ *
+ * Falls back to the local aggregate when the fetch fails, because a friend on
+ * a bad connection should still see their own games rather than an error.
+ */
+interface BoardGame {
+  name: string; rounds: number; hands: number; won: number; chips: number;
+  casual: boolean; quit: boolean; rate: number | null; at: number | null;
+}
+
+async function fetchStandings(): Promise<{ table: Standing[]; games: BoardGame[]; shared: boolean }> {
+  try {
+    const url = new URL("api/board", new URL(".", location.href)).toString();
+    const r = await fetch(url, { credentials: "same-origin" });
+    if (!r.ok) throw new Error(String(r.status));
+    const body = await r.json() as { players?: Standing[]; games?: BoardGame[] };
+    if (!Array.isArray(body.players)) throw new Error("shape");
+    return { table: body.players, games: body.games ?? [], shared: true };
+  } catch {
+    return { table: localStandings(await store.allMatches()), games: [], shared: false };
+  }
+}
+
 function boardScreen(): void {
   $("veil").style.display = "flex";
   $("panel").innerHTML = `<h1>Leaderboard</h1><p class="mut">reading…</p>`;
-  void store.allMatches().then((rows) => {
-    const counted = rows.filter((m) => m.recorded && !m.abandoned && m.finishedAt !== null);
-    const byPlayer = new Map<string, { name: string; rows: MatchRec[] }>();
-    for (const m of counted) {
-      const e = byPlayer.get(m.playerId) ?? { name: m.playerName, rows: [] };
-      e.name = m.playerName; e.rows.push(m); byPlayer.set(m.playerId, e);
-    }
-    const table = [...byPlayer.values()].map((e) => {
-      const a = aggregate(e.rows);
-      // a match is won by finishing first on chips; ties share the place
-      const wins = e.rows.filter((m) => {
-        const c = m.chips ?? [0, 0, 0, 0];
-        return (c[0] ?? 0) >= Math.max(...c.slice(1).map((x) => x ?? 0));
-      }).length;
-      return {
-        name: e.name, games: a.matches, wins, hands: a.hands, handsWon: a.won,
-        chips: a.chips, net: a.hands ? a.chips / a.hands : 0,
-        rate: a.graded ? a.matched / a.graded : null,
-      };
-    });
-    const key = (r: typeof table[number]): number =>
+  void fetchStandings().then(({ table, games, shared }) => {
+    const key = (r: Standing): number =>
       boardSort === "wins" ? r.wins : boardSort === "hands" ? r.hands
       : boardSort === "chips" ? r.chips : boardSort === "net" ? r.net : (r.rate ?? -1);
     table.sort((x, y) => key(y) - key(x) || y.hands - x.hands);
@@ -754,9 +792,23 @@ function boardScreen(): void {
           <span class="c2 ${r.net > 0 ? "up" : r.net < 0 ? "down" : ""}">${r.net.toFixed(1)}</span>
           <span class="c2">${fmtPct(r.rate)}</span>
         </div>`).join("")}</div>`}
-      <p class="mut" style="margin-top:10px">Forfeits and casual games are excluded.
-        This board is what THIS device has played; everyone\u2019s games are sent to us,
-        but a shared board across testers is not built yet.</p>
+      <p class="mut" style="margin-top:10px">The standings exclude forfeits and casual games.
+        ${shared
+          ? "Counted on the server across every tester — your last match appears once it has uploaded."
+          : "<b>Offline</b> — showing only what this device has played. The shared board needs a connection."}</p>
+      ${games.length === 0 ? "" : `
+      <h2 style="margin-top:16px">Every game played</h2>
+      <p class="mut">All of them, including the ones the standings leave out — a
+        quit match is still data, and it is usually the most interesting kind.</p>
+      <div class="rows">${games.map((g) => `
+        <div class="row ${g.name === player?.name ? "me" : ""}">
+          <span class="c1">${g.name}
+            <span class="mut">· ${g.rounds}-wind · ${g.hands} hand${g.hands === 1 ? "" : "s"}${
+              g.quit ? " · <b>quit</b>" : ""}${g.casual ? " · casual" : ""}</span></span>
+          <span class="c2">${g.won}w</span>
+          <span class="c2 ${g.chips > 0 ? "up" : g.chips < 0 ? "down" : ""}">${fmtChips(g.chips)}</span>
+          <span class="c2">${fmtPct(g.rate)}</span>
+        </div>`).join("")}</div>`}
       ${backRow(lobbyScreen)}`;
     for (const h of Array.from($("panel").querySelectorAll<HTMLElement>(".sortable"))) {
       h.onclick = () => { boardSort = h.dataset.k as BoardKey; boardScreen(); };

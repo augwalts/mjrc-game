@@ -1528,13 +1528,21 @@
   }
   function previewWin(state2, seat, win) {
     const st = state2.seats[seat];
-    const ctx = winContext(state2, seat, win.tile, win.selfDraw, win.from, {
-      ...win.robbedKong ? { robbedKong: true } : {},
+    const ctx = win.selfDraw ? winContext(state2, seat, win.tile, true, null, {
       onKongReplacement: state2.onKongReplacement,
       onLastTile: liveTilesLeft(state2) === 0
+    }) : winContext(state2, seat, win.tile, false, win.from, {
+      ...win.robbedKong ? { robbedKong: true } : {},
+      onLastTile: false
     });
-    const concealed = win.selfDraw ? st.hand : [...st.hand];
-    return score(concealed, st.melds, st.flowers, win.tile, ctx, resolveRuleset(state2.rulesetId));
+    return score(
+      st.hand.slice(),
+      st.melds.slice(),
+      st.flowers.slice(),
+      win.tile,
+      ctx,
+      resolveRuleset(state2.rulesetId)
+    );
   }
   function scoreDeclaration(d, seat, ctx) {
     const st = d.s.seats[seat];
@@ -3723,35 +3731,49 @@
     });
   }
   var boardSort = "wins";
+  function localStandings(rows) {
+    const counted = rows.filter((m) => m.recorded && !m.abandoned && m.finishedAt !== null);
+    const byPlayer = /* @__PURE__ */ new Map();
+    for (const m of counted) {
+      const e = byPlayer.get(m.playerId) ?? { name: m.playerName, rows: [] };
+      e.name = m.playerName;
+      e.rows.push(m);
+      byPlayer.set(m.playerId, e);
+    }
+    return [...byPlayer.values()].map((e) => {
+      const a = aggregate(e.rows);
+      const wins = e.rows.filter((m) => {
+        const c = m.chips ?? [0, 0, 0, 0];
+        return (c[0] ?? 0) >= Math.max(...c.slice(1).map((x) => x ?? 0));
+      }).length;
+      return {
+        name: e.name,
+        games: a.matches,
+        wins,
+        hands: a.hands,
+        handsWon: a.won,
+        chips: a.chips,
+        net: a.hands ? a.chips / a.hands : 0,
+        rate: a.graded ? a.matched / a.graded : null
+      };
+    });
+  }
+  async function fetchStandings() {
+    try {
+      const url = new URL("api/board", new URL(".", location.href)).toString();
+      const r = await fetch(url, { credentials: "same-origin" });
+      if (!r.ok) throw new Error(String(r.status));
+      const body = await r.json();
+      if (!Array.isArray(body.players)) throw new Error("shape");
+      return { table: body.players, games: body.games ?? [], shared: true };
+    } catch {
+      return { table: localStandings(await allMatches()), games: [], shared: false };
+    }
+  }
   function boardScreen() {
     $("veil").style.display = "flex";
     $("panel").innerHTML = `<h1>Leaderboard</h1><p class="mut">reading\u2026</p>`;
-    void allMatches().then((rows) => {
-      const counted = rows.filter((m) => m.recorded && !m.abandoned && m.finishedAt !== null);
-      const byPlayer = /* @__PURE__ */ new Map();
-      for (const m of counted) {
-        const e = byPlayer.get(m.playerId) ?? { name: m.playerName, rows: [] };
-        e.name = m.playerName;
-        e.rows.push(m);
-        byPlayer.set(m.playerId, e);
-      }
-      const table2 = [...byPlayer.values()].map((e) => {
-        const a = aggregate(e.rows);
-        const wins = e.rows.filter((m) => {
-          const c = m.chips ?? [0, 0, 0, 0];
-          return (c[0] ?? 0) >= Math.max(...c.slice(1).map((x) => x ?? 0));
-        }).length;
-        return {
-          name: e.name,
-          games: a.matches,
-          wins,
-          hands: a.hands,
-          handsWon: a.won,
-          chips: a.chips,
-          net: a.hands ? a.chips / a.hands : 0,
-          rate: a.graded ? a.matched / a.graded : null
-        };
-      });
+    void fetchStandings().then(({ table: table2, games, shared }) => {
       const key = (r) => boardSort === "wins" ? r.wins : boardSort === "hands" ? r.hands : boardSort === "chips" ? r.chips : boardSort === "net" ? r.net : r.rate ?? -1;
       table2.sort((x, y) => key(y) - key(x) || y.hands - x.hands);
       const COLS = [
@@ -3779,9 +3801,20 @@
           <span class="c2 ${r.net > 0 ? "up" : r.net < 0 ? "down" : ""}">${r.net.toFixed(1)}</span>
           <span class="c2">${fmtPct(r.rate)}</span>
         </div>`).join("")}</div>`}
-      <p class="mut" style="margin-top:10px">Forfeits and casual games are excluded.
-        This board is what THIS device has played; everyone\u2019s games are sent to us,
-        but a shared board across testers is not built yet.</p>
+      <p class="mut" style="margin-top:10px">The standings exclude forfeits and casual games.
+        ${shared ? "Counted on the server across every tester \u2014 your last match appears once it has uploaded." : "<b>Offline</b> \u2014 showing only what this device has played. The shared board needs a connection."}</p>
+      ${games.length === 0 ? "" : `
+      <h2 style="margin-top:16px">Every game played</h2>
+      <p class="mut">All of them, including the ones the standings leave out \u2014 a
+        quit match is still data, and it is usually the most interesting kind.</p>
+      <div class="rows">${games.map((g) => `
+        <div class="row ${g.name === player?.name ? "me" : ""}">
+          <span class="c1">${g.name}
+            <span class="mut">\xB7 ${g.rounds}-wind \xB7 ${g.hands} hand${g.hands === 1 ? "" : "s"}${g.quit ? " \xB7 <b>quit</b>" : ""}${g.casual ? " \xB7 casual" : ""}</span></span>
+          <span class="c2">${g.won}w</span>
+          <span class="c2 ${g.chips > 0 ? "up" : g.chips < 0 ? "down" : ""}">${fmtChips(g.chips)}</span>
+          <span class="c2">${fmtPct(g.rate)}</span>
+        </div>`).join("")}</div>`}
       ${backRow(lobbyScreen)}`;
       for (const h of Array.from($("panel").querySelectorAll(".sortable"))) {
         h.onclick = () => {
