@@ -1243,7 +1243,12 @@ async function getLobby(p: Platform): Promise<Response> {
     presenceSince(p.db, sinceIso),
     matchesWaitingOrPlaying(p.db, LOBBY_TABLE_LIMIT),
     matchesDone(p.db, RECENT_LIMIT),
-    recentLobbyMessages(p.db, LOBBY_CHAT_LIMIT),
+    // Fail soft: a lobby without chat is a lobby; a lobby that 500s because
+    // the chat table is missing on a deployment is not.
+    recentLobbyMessages(p.db, LOBBY_CHAT_LIMIT).catch((err: unknown) => {
+      console.error("lobby chat unavailable", err);
+      return [] as Awaited<ReturnType<typeof recentLobbyMessages>>;
+    }),
   ]);
 
   /* Seeded from presence; a seated human below overwrites their entry with
