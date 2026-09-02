@@ -356,6 +356,59 @@ body.counting #wall .wt{opacity:.85}
 .rows .c1 .mut{font-size:10.5px}
 .panel h2{font-size:12px;color:var(--gold);text-transform:uppercase;letter-spacing:.08em}
 
+/* ── the lobby screen: three panels (PVP-LOBBY-PROPOSAL §3.1) ──────────────
+ * Stacked on a phone; the panel itself grows wide enough at >=900px for a
+ * side-by-side row — this is the one screen that needs more than the
+ * standard 640px panel width, hence its own `.lobby3` modifier. */
+.panel.lobby3{max-width:1040px;text-align:left}
+.lobbygrid{display:flex;flex-direction:column;gap:16px;margin-top:10px}
+.lobbycol{min-width:0}
+.lobbycol h2{margin-top:0}
+@media (min-width:900px){
+  .lobbygrid{flex-direction:row;align-items:flex-start}
+  .lobbycol{flex:1}
+}
+/* "here now": a state dot ahead of the name, coloured by what it means */
+.rows .dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto}
+.rows .dot.here{background:#7fe0a4}
+.rows .dot.wait{background:var(--gold)}
+.rows .dot.play{background:var(--accent)}
+.rows .row.clickable{cursor:pointer}
+.rows .row.clickable:hover{background:rgba(255,255,255,.07)}
+/* open tables: one card per table, not a `.rows` list — a table carries more
+ * than two columns' worth (creator, badges, four seats, a Sit down button) */
+.tablelist{display:flex;flex-direction:column;gap:8px;margin-top:6px;max-height:280px;overflow-y:auto}
+.tablerow{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);
+  border-radius:9px;padding:8px 10px}
+.tr-head{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12.5px}
+.tr-head .mut{font-size:11px;margin-left:auto}
+.badge{font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;padding:1px 6px;
+  border-radius:10px;border:1px solid rgba(255,255,255,.2);color:var(--dim)}
+.badge.ranked{color:var(--gold);border-color:rgba(216,181,106,.5)}
+.badge.casual{color:var(--accent);border-color:rgba(127,179,255,.4)}
+.tablerow .lock{font-size:11px;line-height:1}
+.tr-seats{display:flex;gap:5px;margin-top:6px;flex-wrap:wrap}
+.seattile{font-size:10.5px;padding:3px 8px;border-radius:7px;background:rgba(255,255,255,.05);
+  border:1px solid rgba(255,255,255,.1);color:var(--dim)}
+.seattile.human{color:var(--ink);border-color:rgba(127,179,255,.35)}
+.tr-foot{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:6px}
+button.sitdown{background:var(--gold);color:#2a2113;border:0;border-radius:7px;padding:5px 13px;
+  font-size:11.5px;font-weight:700;cursor:pointer}
+
+/* ── new-table seat grid (§6 items 3, 5): 2x2, seat order 東南西北 ── */
+.seatgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:6px}
+.seatslot{display:flex;flex-direction:column;gap:5px}
+.seatcard{background:rgba(0,0,0,.22);border:1px solid rgba(255,255,255,.14);border-radius:10px;
+  padding:8px 10px;cursor:pointer;text-align:left;transition:border-color .12s,background .12s}
+.seatcard:hover{border-color:rgba(255,255,255,.3)}
+.seatcard.bot{border-color:rgba(216,181,106,.35);background:rgba(216,181,106,.06)}
+.seatcard.locked{cursor:default;opacity:.55}
+.seatcard.locked:hover{border-color:rgba(255,255,255,.14)}
+.seatcard .sc-wind{color:var(--gold);font-size:16px;font-weight:700;display:block;line-height:1}
+.seatcard .sc-kind{display:block;font-size:12.5px;margin-top:3px}
+.seatcard .sc-label{display:block;font-size:10.5px;color:var(--dim);margin-top:1px}
+.seatslot .chips{display:flex;flex-wrap:wrap;gap:5px}
+
 #dev{display:grid;grid-template-columns:1fr 1fr;gap:10px;max-width:1040px;margin:0 auto}
 body.devmode #mine{padding-top:2px}
 #dev .devbox{background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.09);border-radius:9px;

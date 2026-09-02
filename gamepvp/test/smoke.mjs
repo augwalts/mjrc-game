@@ -3,10 +3,13 @@
  * Headless end-to-end smoke test for the mjrc-game Worker.
  *
  * Flow:
- *   1. Mint one device token per human seat and POST /api/identity for each.
- *   2. The first human POSTs /api/tables (botSeats = 4 - MJRC_HUMANS), the
- *      rest POST /api/tables/:joinCode/join — each gets back a seat + a
- *      one-time seatToken.
+ *   1. Mint one device token per human seat that will actually join (MJRC_SEATS'
+ *      human count, minus one if MJRC_START=1) and POST /api/identity for each.
+ *   2. The first human POSTs /api/tables — `seats` if MJRC_SEATS is set (§7.2),
+ *      else the legacy `botSeats` (4 - MJRC_HUMANS) shape — the rest POST
+ *      /api/tables/:joinCode/join; each gets back a seat + a one-time seatToken.
+ *      If MJRC_START=1, the creator then POSTs /api/tables/:id/start, which
+ *      bot-fills the human seat nobody joined as and starts the clocks.
  *   3. Each human opens its own WebSocket to /table/:matchUuid, sends `join`
  *      with its seatToken, and from then on reacts to whatever the server
  *      sends: it answers a `prompt` with the simplest legal move (see
@@ -45,13 +48,46 @@ const MATCH_FORMAT = process.env.MJRC_FORMAT ?? "east";
 const RULESET_ID = process.env.MJRC_RULESET ?? "mjrc-standard";
 const TIMEOUT_MS = Number.parseInt(process.env.MJRC_TIMEOUT_MS ?? "180000", 10);
 /** Comma-separated bot profile keys (gamepvp/src/bots.ts BOT_CATALOGUE), in
- *  seat order for the bot seats — exercises the POST /api/tables `bots` pick
- *  path headless. Unset (the default) omits `bots` entirely and the server
- *  falls back to its own default lineup, same as before this option existed. */
+ *  seat order for the bot seats — exercises the LEGACY POST /api/tables
+ *  `bots` pick path headless. Unset (the default) omits `bots` entirely and
+ *  the server falls back to its own default lineup. Ignored when MJRC_SEATS
+ *  is set — that path names bot keys inline instead (`bot:<key>`). */
 const BOTS = (process.env.MJRC_BOTS ?? "")
   .split(",")
   .map((s) => s.trim())
   .filter((s) => s !== "");
+
+/**
+ * `POST /api/tables` `seats` (PVP-LOBBY-PROPOSAL-2026-09-02.md §7.2), as
+ * "human,bot:v4,human,bot:v2" — exactly 4 comma-separated entries, each
+ * "human", "bot" (the deployment's default lineup for that seat) or
+ * "bot:<key>" (gamepvp/src/bots.ts BOT_CATALOGUE). Unset falls back to the
+ * legacy `MJRC_HUMANS`/`MJRC_BOTS` shape (`botSeats` + `bots`, humans in the
+ * low seats) so every existing invocation of this script keeps working.
+ */
+function parseSeatsEnv(raw) {
+  const parts = raw.split(",").map((s) => s.trim());
+  if (parts.length !== 4) {
+    throw new Error(`MJRC_SEATS must name exactly 4 seats, got ${parts.length}: "${raw}"`);
+  }
+  return parts.map((part) => {
+    if (part === "human") return { kind: "human" };
+    const m = /^bot(?::(.+))?$/.exec(part);
+    if (!m) throw new Error(`MJRC_SEATS entry "${part}" is not "human", "bot" or "bot:<key>"`);
+    return m[1] ? { kind: "bot", bot: m[1] } : { kind: "bot" };
+  });
+}
+const SEATS = process.env.MJRC_SEATS ? parseSeatsEnv(process.env.MJRC_SEATS) : null;
+/** casual (default) or ranked — POST /api/tables `mode`. */
+const MODE = process.env.MJRC_MODE === "ranked" ? "ranked" : "casual";
+/**
+ * When set, the creator leaves the LAST human seat in `MJRC_SEATS` unfilled
+ * (nobody identifies or joins as that seat) and calls `POST
+ * /api/tables/:id/start` once everyone else is in — the §7.2 "start now, fill
+ * the rest with bots" path. Needs at least 2 human seats in `MJRC_SEATS` (the
+ * creator, plus the one left open) and is meaningless without it.
+ */
+const START = process.env.MJRC_START === "1";
 
 const GATE_HEX = createHash("sha256").update(`mjrc-gate:${GATE_PASSWORD}`).digest("hex");
 const GATE_COOKIE = `mjrc_gate=${GATE_HEX}`;
@@ -226,19 +262,48 @@ function openSeatSocket(human, matchUuid) {
 
 async function main() {
   const start = Date.now();
-  const botSeats = 4 - HUMANS;
-  console.log(
-    `mjrc smoke test — base=${HTTP_BASE} humans=${HUMANS} format=${MATCH_FORMAT} ruleset=${RULESET_ID}` +
-      (BOTS.length > 0 ? ` bots=${BOTS.join(",")}` : ""),
-  );
-  if (BOTS.length > 0 && BOTS.length !== botSeats) {
-    throw new Error(`MJRC_BOTS has ${BOTS.length} keys but botSeats is ${botSeats} (4 - MJRC_HUMANS)`);
+
+  /* Two ways to describe the table: the new `seats` plan (MJRC_SEATS, a bot
+   * may be at any seat) or the legacy botSeats/bots count (bots fill from the
+   * top). `joiningHumanCount` is how many of the plan's human seats this run
+   * actually mints an identity and joins for — every one of them, unless
+   * MJRC_START leaves the last one open on purpose. */
+  let tableBody;
+  let joiningHumanCount;
+  if (SEATS) {
+    const humanSeats = SEATS.filter((s) => s.kind === "human").length;
+    if (START && humanSeats < 2) {
+      throw new Error("MJRC_START needs at least 2 human seats in MJRC_SEATS — one stays open for /start to fill");
+    }
+    joiningHumanCount = START ? humanSeats - 1 : humanSeats;
+    if (joiningHumanCount < 1) throw new Error("MJRC_SEATS names no human seat for the creator to take");
+    tableBody = { rulesetId: RULESET_ID, matchFormat: MATCH_FORMAT, mode: MODE, seats: SEATS };
+  } else {
+    const botSeats = 4 - HUMANS;
+    if (BOTS.length > 0 && BOTS.length !== botSeats) {
+      throw new Error(`MJRC_BOTS has ${BOTS.length} keys but botSeats is ${botSeats} (4 - MJRC_HUMANS)`);
+    }
+    joiningHumanCount = HUMANS;
+    tableBody = {
+      rulesetId: RULESET_ID,
+      matchFormat: MATCH_FORMAT,
+      mode: MODE,
+      botSeats,
+      ...(BOTS.length > 0 ? { bots: BOTS } : {}),
+    };
   }
 
+  console.log(
+    `mjrc smoke test — base=${HTTP_BASE} mode=${MODE} format=${MATCH_FORMAT} ruleset=${RULESET_ID} ` +
+      (SEATS ? `seats=${process.env.MJRC_SEATS}` : `humans=${HUMANS}`) +
+      (START ? " start=1" : "") +
+      (BOTS.length > 0 ? ` bots=${BOTS.join(",")}` : ""),
+  );
+
   const humans = [];
-  for (let seat = 0; seat < HUMANS; seat += 1) {
-    const deviceToken = mintDeviceToken(seat);
-    const displayName = `Smoke${seat}`;
+  for (let i = 0; i < joiningHumanCount; i += 1) {
+    const deviceToken = mintDeviceToken(i);
+    const displayName = `Smoke${i}`;
     await apiFetch("/api/identity", { method: "POST", body: { deviceToken, displayName } });
     humans.push({ deviceToken, displayName });
   }
@@ -246,12 +311,7 @@ async function main() {
   const created = await apiFetch("/api/tables", {
     method: "POST",
     token: humans[0].deviceToken,
-    body: {
-      rulesetId: RULESET_ID,
-      matchFormat: MATCH_FORMAT,
-      botSeats,
-      ...(BOTS.length > 0 ? { bots: BOTS } : {}),
-    },
+    body: tableBody,
   });
   const matchUuid = created.matchUuid;
   humans[0].seat = created.seat;
@@ -265,6 +325,13 @@ async function main() {
     });
     humans[i].seat = joined.seat;
     humans[i].seatToken = joined.seatToken;
+  }
+
+  if (START) {
+    // The remaining human seat has nobody — /start converts it to a bot
+    // (default lineup) and starts the clocks, same as the lobby's "Start now".
+    await apiFetch(`/api/tables/${matchUuid}/start`, { method: "POST", token: humans[0].deviceToken });
+    console.log("creator started the table — the unfilled seat is now a bot");
   }
 
   const sockets = await Promise.all(humans.map((h) => openSeatSocket(h, matchUuid)));

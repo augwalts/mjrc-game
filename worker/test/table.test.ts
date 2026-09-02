@@ -43,6 +43,8 @@ import type {
   Applied,
   Archive,
   BotBrain,
+  D1Like,
+  D1PreparedLike,
   EventDraft,
   HandResultRow,
   MatchSpec,
@@ -136,6 +138,32 @@ class StubCtx implements TableCtx {
   }
   getWebSockets(): SeatSocket[] {
     return this.sockets.filter((s) => !s.closed);
+  }
+}
+
+/** `env.DB` for the lobby's fire-and-forget writes (item 6: `lobby_status`,
+ *  `current_hand`, `match_players.connected`, and `/fill`'s
+ *  `ensureBotPlayerRow`). Records every statement so a test can assert one
+ *  landed, without parsing SQL — same doctrine as db.test.ts's fake D1. */
+class StubD1 implements D1Like {
+  ran: { sql: string; args: unknown[] }[] = [];
+  fail = false;
+
+  prepare(sql: string): D1PreparedLike {
+    const self = this;
+    let bound: unknown[] = [];
+    const stmt: D1PreparedLike = {
+      bind(...values: unknown[]) {
+        bound = values;
+        return stmt;
+      },
+      async run(): Promise<unknown> {
+        if (self.fail) throw new Error("D1 unavailable");
+        self.ran.push({ sql, args: bound });
+        return { success: true };
+      },
+    };
+    return stmt;
   }
 }
 
@@ -548,6 +576,7 @@ interface Harness {
   rules: StubRules;
   bots: StubBots;
   archive: StubArchive;
+  db: StubD1;
   clock: { now: number };
   sockets: (StubSocket | null)[];
 }
@@ -556,25 +585,32 @@ async function makeTable(opts: {
   botSeats?: number[];
   config?: Partial<TableConfig>;
   matchOverAfterHands?: number;
+  rand?: () => number;
+  defaultBotFor?: (seat: SeatIndex) => { key: string; displayName: string };
+  randomizeSeats?: boolean;
 } = {}): Promise<Harness> {
   const ctx = new StubCtx();
   const rules = new StubRules();
   const bots = new StubBots();
   const archive = new StubArchive();
+  const db = new StubD1();
   const clock = { now: 1_700_000_000_000 };
   if (opts.matchOverAfterHands) rules.matchOverAfterHands = opts.matchOverAfterHands;
-  const core = new TableCore(ctx, {}, {
+  const core = new TableCore(ctx, { DB: db }, {
     rules,
     bots,
     archive,
     clock: () => clock.now,
     config: opts.config,
+    rand: opts.rand,
+    defaultBotFor: opts.defaultBotFor,
   });
   const init: TableInit = {
     matchId: MATCH_ID,
     header: makeHeader(opts.botSeats ?? []),
     seed: 20260826,
     seatTokens: TOKENS,
+    randomizeSeats: opts.randomizeSeats,
   };
   const res = await core.fetch(
     new Request("https://table.invalid/table/init", {
@@ -583,7 +619,7 @@ async function makeTable(opts: {
     }),
   );
   expect(res.status).toBe(200);
-  return { ctx, core, rules, bots, archive, clock, sockets: [null, null, null, null] };
+  return { ctx, core, rules, bots, archive, db, clock, sockets: [null, null, null, null] };
 }
 
 let requestCounter = 0;
@@ -1150,6 +1186,239 @@ describe("reconnect", () => {
     await revived.alarm();
     const view = revived.viewFor(0);
     expect(view.seats.every((s) => s.connected === false)).toBe(true);
+  });
+});
+
+/* ── 5b. the lobby: /fill and /leave ───────────────────────────────────── */
+
+/** A `MatchLogHeader` with a caller-supplied `players` array, so a test can
+ *  put an ACTUALLY UNCLAIMED human seat on the table — `makeHeader` above
+ *  always gives every seat a non-empty `playerId`, which is exactly the state
+ *  `/fill` is supposed to find and convert, so these tests build their own. */
+function customHeader(players: MatchLogHeader["players"]): MatchLogHeader {
+  return {
+    v: 1,
+    matchId: MATCH_ID,
+    engineVersion: "engine-test-1",
+    rulesetId: "hkos-standard",
+    startedAt: 0,
+    players,
+    matchLength: "oneWindRound",
+    startingChips: [1000, 1000, 1000, 1000],
+  };
+}
+
+const unclaimed = (seat: SeatIndex): MatchLogHeader["players"][number] => ({
+  playerId: "",
+  displayName: "",
+  seat,
+  bot: false,
+});
+
+async function makeFillableTable(opts: {
+  players: MatchLogHeader["players"];
+  rand?: () => number;
+  defaultBotFor?: (seat: SeatIndex) => { key: string; displayName: string };
+  randomizeSeats?: boolean;
+}): Promise<Harness> {
+  const ctx = new StubCtx();
+  const rules = new StubRules();
+  const bots = new StubBots();
+  const archive = new StubArchive();
+  const db = new StubD1();
+  const clock = { now: 1_700_000_000_000 };
+  const core = new TableCore(ctx, { DB: db }, {
+    rules,
+    bots,
+    archive,
+    clock: () => clock.now,
+    rand: opts.rand,
+    defaultBotFor: opts.defaultBotFor,
+  });
+  const init: TableInit = {
+    matchId: MATCH_ID,
+    header: customHeader(opts.players),
+    seed: 20260826,
+    seatTokens: TOKENS,
+    randomizeSeats: opts.randomizeSeats,
+  };
+  const res = await core.fetch(
+    new Request("https://table.invalid/table/init", { method: "POST", body: JSON.stringify(init) }),
+  );
+  expect(res.status).toBe(200);
+  return { ctx, core, rules, bots, archive, db, clock, sockets: [null, null, null, null] };
+}
+
+const fill = (t: Harness): Promise<Response> =>
+  t.core.fetch(new Request("https://table.invalid/table/fill", { method: "POST", body: JSON.stringify({}) }));
+
+const leave = (t: Harness, playerId: string): Promise<Response> =>
+  t.core.fetch(
+    new Request("https://table.invalid/table/leave", { method: "POST", body: JSON.stringify({ playerId }) }),
+  );
+
+describe("/fill — the creator's start-now bot-fill", () => {
+  it("converts every unclaimed human seat to the default lineup and starts the clocks", async () => {
+    const players = ([0, 1, 2, 3] as SeatIndex[]).map((seat) =>
+      seat === 0 ? { playerId: "p0", displayName: "Human0", seat, bot: false } : unclaimed(seat),
+    ) as MatchLogHeader["players"];
+    const t = await makeFillableTable({
+      players,
+      defaultBotFor: (seat) => ({ key: `k${seat}`, displayName: `Bot${seat}` }),
+    });
+    await join(t, 0);
+    // Not full yet — three seats are still unclaimed — so no clock is running.
+    expect(t.core.deadlineSnapshot().map((d) => d.name)).not.toContain("turnClock");
+
+    const res = await fill(t);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+
+    // The table is full now (three new bots + the connected human) and the
+    // dealer (seat 0, human) is on turn — the clock is running.
+    expect(t.core.deadlineSnapshot().map((d) => d.name)).toContain("turnClock");
+
+    // The lobby write fired (item 6): `lobby_status` flips to 'playing'.
+    expect(
+      t.db.ran.some((r) => r.sql.includes("SET lobby_status = ?") && r.args[0] === "playing"),
+    ).toBe(true);
+    // Each new bot got a `players` row before it could be referenced by a hand.
+    for (const seat of [1, 2, 3]) {
+      expect(
+        t.db.ran.some(
+          (r) => r.sql.includes("INSERT OR IGNORE INTO players") && r.args[0] === `bot:k${seat}`,
+        ),
+        `seat ${seat}'s bot row`,
+      ).toBe(true);
+    }
+
+    // The directory (sent on the next welcome) shows the new bots by name.
+    const back = await join(t, 0);
+    const directory = back.msgs("welcome")[0]!.payload.directory;
+    expect(directory[0]).toMatchObject({ playerId: "p0", bot: false });
+    expect(directory[1]).toMatchObject({ playerId: "bot:k1", displayName: "Bot1", bot: true });
+    expect(directory[2]).toMatchObject({ playerId: "bot:k2", displayName: "Bot2", bot: true });
+    expect(directory[3]).toMatchObject({ playerId: "bot:k3", displayName: "Bot3", bot: true });
+  });
+
+  it("leaves a seat a human already claimed but has not connected to alone", async () => {
+    const players = ([0, 1, 2, 3] as SeatIndex[]).map((seat) => {
+      if (seat === 0) return { playerId: "p0", displayName: "Human0", seat, bot: false };
+      if (seat === 1) return { playerId: "p1", displayName: "Human1", seat, bot: false }; // claimed, offline
+      return unclaimed(seat);
+    }) as MatchLogHeader["players"];
+    const t = await makeFillableTable({
+      players,
+      defaultBotFor: (seat) => ({ key: `k${seat}`, displayName: `Bot${seat}` }),
+    });
+    await join(t, 0);
+
+    await fill(t);
+    const back = await join(t, 0);
+    const directory = back.msgs("welcome")[0]!.payload.directory;
+    // Seat 1 is untouched — still human, still not connected — so the table
+    // is not full and the clocks have not started.
+    expect(directory[1]).toMatchObject({ playerId: "p1", bot: false });
+    expect(t.core.deadlineSnapshot().map((d) => d.name)).not.toContain("turnClock");
+  });
+
+  it("is idempotent once the table has started", async () => {
+    const players = ([0, 1, 2, 3] as SeatIndex[]).map(unclaimed) as MatchLogHeader["players"];
+    const p0 = { playerId: "p0", displayName: "Human0", seat: 0 as SeatIndex, bot: false };
+    players[0] = p0;
+    const t = await makeFillableTable({
+      players,
+      defaultBotFor: (seat) => ({ key: `k${seat}`, displayName: `Bot${seat}` }),
+    });
+    await join(t, 0);
+    await fill(t);
+    const writesAfterFirstFill = t.db.ran.length;
+
+    const second = await fill(t);
+    expect(second.status).toBe(200);
+    expect(await second.json()).toEqual({ ok: true });
+    // No new lobby-fill side effects on the second call.
+    expect(t.db.ran.length).toBe(writesAfterFirstFill);
+  });
+
+  it("shuffles the seat mapping deterministically under a seeded rand, then starts", async () => {
+    // Fisher-Yates draws j = floor(rand() * (i+1)) for i = 3, 2, 1. A constant
+    // rand()=0 always picks j=0, which works out to order = [1, 2, 3, 0]
+    // (order[newSeat] = oldSeat): old seat 1 -> new seat 0, old seat 2 -> new
+    // seat 1, old seat 3 -> new seat 2, old seat 0 -> new seat 3.
+    const players = ([0, 1, 2, 3] as SeatIndex[]).map((seat) => {
+      if (seat === 0) return { playerId: "pA", displayName: "Human A", seat, bot: false };
+      if (seat === 1) return { playerId: "pB", displayName: "Human B", seat, bot: false };
+      return unclaimed(seat);
+    }) as MatchLogHeader["players"];
+    const t = await makeFillableTable({
+      players,
+      randomizeSeats: true,
+      rand: () => 0,
+      defaultBotFor: (seat) => ({ key: `k${seat}`, displayName: `Bot${seat}` }),
+    });
+    const socketA = await join(t, 0); // Human A, old seat 0
+    const socketB = await join(t, 1); // Human B, old seat 1
+
+    const res = await fill(t);
+    expect(res.status).toBe(200);
+
+    // Human A's ORIGINAL token now resolves to new seat 3 — the token moved
+    // with the player, which is the whole point (a client only ever knows its
+    // token, never a seat index).
+    const backA = await join(t, 3, TOKENS[0]);
+    expect(backA.msgs("welcome")[0]!.payload.seat).toBe(3);
+
+    // Human B ends up at new seat 0 — the dealer's seat — and her ALREADY-OPEN
+    // socket (never reconnected) is rewritten in place to match: a discard
+    // sent through the very same socket object lands as seat 0, not seat 1.
+    await t.core.webSocketMessage(
+      socketB,
+      JSON.stringify({ p: 1, requestId: "shuffled-discard", type: "requestDiscard", payload: { tile: DEALER_DRAWN } }),
+    );
+    expect(t.rules.calls).toContainEqual({ type: "discard", seat: 0, tile: DEALER_DRAWN });
+    // The reducer accepted it — proof this landed as the DEALER's move
+    // (`StubRules.applyAction` throws `notYourTurn` for anyone else), not
+    // merely that the seat number 0 appears somewhere in the call log.
+    expect(socketB.msgs("rejected")).toHaveLength(0);
+    expect(socketB.msgs("accepted").length).toBeGreaterThan(0);
+    void socketA; // reclaimed and closed by `backA`'s join above — nothing more to assert on it
+  });
+});
+
+describe("/leave — a participant's explicit leave", () => {
+  it("marks the seat bot-acting, closes its socket, and keeps the token valid for reclaim", async () => {
+    const t = await seated({ config: { turnMs: 10_000_000 } });
+    const one = t.sockets[1] as StubSocket;
+
+    const res = await leave(t, "p1");
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+    expect(one.closed?.code).toBe(4001);
+
+    const zero = t.sockets[0] as StubSocket;
+    expect(zero.msgs("presence").at(-1)?.payload).toEqual({ seat: 1, connected: false, botActing: true });
+
+    // Idempotent: a second call changes nothing further.
+    const again = await leave(t, "p1");
+    expect(again.status).toBe(200);
+
+    // Reclaim: the seat token issued at `join` still resolves to this seat.
+    const back = await join(t, 1);
+    expect(back.msgs("welcome")).toHaveLength(1);
+    expect(back.msgs("welcome")[0]!.payload.seat).toBe(1);
+    expect(back.msgs("welcome")[0]!.payload.directory[1]).toMatchObject({ bot: false, connected: true });
+  });
+
+  it("refuses an unseated playerId and no-ops for a seat that is already a bot", async () => {
+    const t = await seated({ botSeats: [3] });
+
+    const missing = await leave(t, "nobody-here");
+    expect(missing.status).toBe(404);
+
+    const botSeat = await leave(t, "p3"); // makeHeader's bot seats still carry a playerId
+    expect(botSeat.status).toBe(200);
+    expect(await botSeat.json()).toEqual({ ok: true });
   });
 });
 

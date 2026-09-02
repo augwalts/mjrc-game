@@ -252,6 +252,37 @@ CREATE TABLE matches (
   -- out a query per row. Regenerable from `hands`.
   hand_count          INTEGER NOT NULL DEFAULT 0,
 
+  -- ── the lobby (PVP-LOBBY-PROPOSAL-2026-09-02.md §7.1) ─────────────────────
+  -- access/mode/lobby_status are the lobby's own vocabulary, distinct from
+  -- `status` above (running | complete | abandoned, the outbox's vocabulary) —
+  -- lobby_status tracks whether the TABLE has humans to seat, not whether the
+  -- MATCH RECORD is settled, and the two finish at different moments (a table
+  -- goes lobby_status='playing' the instant clocks start; status stays
+  -- 'running' until the outbox drains).
+  access              TEXT NOT NULL DEFAULT 'open',    -- open | private (code required)
+  mode                TEXT NOT NULL DEFAULT 'casual',  -- casual | ranked
+  lobby_status        TEXT NOT NULL DEFAULT 'waiting', -- waiting | playing | done
+  -- Written by the table object on every deal (afterCommit/advance), so the
+  -- lobby can show "hand 3 of ~8" without opening a socket. The denominator is
+  -- `hands_base`, not this column — repeats push the numerator past it.
+  current_hand        INTEGER NOT NULL DEFAULT 0,
+  -- The base dealership count the lobby divides by: 4 for one wind round
+  -- (east), 16 for a full match (four wind rounds). Set from `matchFormat` at
+  -- creation; a match with repeats plays more hands than this, on purpose.
+  hands_base           INTEGER NOT NULL DEFAULT 4,
+  -- The four seat specs exactly as the creator submitted them (§7.2 POST
+  -- /api/tables `seats`), JSON array of { kind: 'human' | 'bot', bot?: key }.
+  -- Canonical for two things the running table cannot answer on its own once a
+  -- seat has changed hands: what a still-open seat WOULD be filled with by
+  -- /fill, and what a bot seat's catalogue key was — the header's `bot:<key>`
+  -- playerId says the same thing but only for seats a table has opened.
+  seat_plan           TEXT NOT NULL DEFAULT '[]',
+  -- Shuffle the player->seat mapping at start (§6, decision 3). 0/1.
+  randomize_seats     INTEGER NOT NULL DEFAULT 0,
+  -- The creator's player id. Authorises /start and lets the lobby list "hosted
+  -- by". Nullable: rows written before this column existed have none.
+  created_by          TEXT,
+
   -- The omniscient event log blob in R2 (server-only serializer, §5.5).
   log_key             TEXT,                  -- null until the outbox confirms the write
   log_bytes           INTEGER,               -- truncated-write detection
@@ -283,6 +314,17 @@ CREATE INDEX idx_matches_missing_log
 
 -- Corpus queries slice by engine build when a scoring fix lands.
 CREATE INDEX idx_matches_engine ON matches(engine_version, started_at);
+
+-- The lobby's "open tables" list: waiting or playing, newest first. Partial so
+-- a lobby with thousands of finished matches never touches this index for them.
+CREATE INDEX idx_matches_lobby_open
+  ON matches(lobby_status, started_at DESC)
+  WHERE lobby_status IN ('waiting', 'playing');
+
+-- The lobby's "recent results" strip: last 5 done, newest first.
+CREATE INDEX idx_matches_lobby_done
+  ON matches(lobby_status, ended_at DESC)
+  WHERE lobby_status = 'done';
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- match_players — the four seats of a match.
@@ -331,6 +373,14 @@ CREATE TABLE match_players (
   moves_graded  INTEGER NOT NULL DEFAULT 0,
   moves_matched INTEGER NOT NULL DEFAULT 0,
   gap_sum       REAL NOT NULL DEFAULT 0,
+
+  -- Lobby-facing "is this seat's human here right now", updated by the table
+  -- object on socket join/close (PVP-LOBBY-PROPOSAL-2026-09-02.md §7.2's
+  -- `seats[].connected`). A cache, not canonical — the table object's own
+  -- presence map is truth for the live match; this column exists so the
+  -- STATELESS lobby query can render it without asking the DO. 0 for a bot
+  -- seat always (bots do not "connect").
+  connected     INTEGER NOT NULL DEFAULT 0,
 
   -- Provisional Elo (DESIGN.md §3). Null on an unrated match. Stored on the
   -- match, not only in rating_history, because the results screen renders the
@@ -518,3 +568,30 @@ CREATE INDEX idx_rating_history_match
 
 -- Season rollover and audits of one rating system's rows.
 CREATE INDEX idx_rating_history_season ON rating_history(season, system, id);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- presence — the lobby's "here now" heartbeat (PVP-LOBBY-PROPOSAL-2026-09-02.md
+-- §3.3, §7.1). The client POSTs /api/presence every 30s while the lobby screen
+-- is open; a row older than 90s is treated as gone (idx_presence_seen finds the
+-- live set without a scan).
+--
+-- One row per player, upserted in place — this is presence, not history. A
+-- player seated at a table is ALSO shown "here" via `match_players`/`matches`
+-- (DESIGN.md, `GET /api/lobby` §7.2), not via this table: a table's own state
+-- already says who is seated, and duplicating that into a presence row would
+-- be a second source of truth that can go stale the moment a socket drops
+-- without a matching heartbeat.
+--
+-- No `match_id` column, deliberately — an earlier draft (proposal §3.3) had
+-- one; the settled contract (§7.1) does not, because "which table" is already
+-- answerable from `match_players` and a redundant copy here is one more place
+-- for the two to disagree.
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE presence (
+  player_id  TEXT PRIMARY KEY REFERENCES players(id),
+  state      TEXT NOT NULL,  -- lobby | away (code-enforced, see "Closed vocabularies" above)
+  seen_at    TEXT NOT NULL
+);
+
+-- The 90s "here now" window, and the sweep for rows nobody will read again.
+CREATE INDEX idx_presence_seen ON presence(seen_at);

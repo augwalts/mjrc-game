@@ -115,12 +115,14 @@ export async function identify(displayName: string): Promise<Identity> {
 /* ── lobby: tables and match history ──────────────────────────────────── */
 
 export type MatchFormat = "east" | "full";
+export type TableMode = "casual" | "ranked";
+export type TableAccess = "open" | "private";
 
 export interface CreateTableResult {
   tableId: string;
   matchUuid: string;
   joinCode: string;
-  seat: 0;
+  seat: 0 | 1 | 2 | 3;
   seatToken: string;
   seatTokenExpiresAt: string;
   rulesetId: string;
@@ -129,9 +131,17 @@ export interface CreateTableResult {
   matchFormat: MatchFormat;
 }
 
+/** One of the four seats as the creator laid them out — PVP-LOBBY-PROPOSAL
+ *  §7.2's `POST /api/tables` body. The old `botSeats`/`bots` shape is still
+ *  accepted server-side (converted), but this client always sends `seats`. */
+export type SeatSpec = { kind: "human" } | { kind: "bot"; bot: string };
+
 export async function createTable(
   token: string,
-  opts: { rulesetId: string; matchFormat: MatchFormat; botSeats: number; bots?: string[] },
+  opts: {
+    rulesetId: string; matchFormat: MatchFormat; mode: TableMode; access: TableAccess;
+    randomizeSeats: boolean; seats: [SeatSpec, SeatSpec, SeatSpec, SeatSpec];
+  },
 ): Promise<CreateTableResult> {
   return apiFetch("tables", { method: "POST", token, body: opts });
 }
@@ -161,6 +171,97 @@ export interface JoinTableResult {
 
 export async function joinTable(token: string, joinCode: string): Promise<JoinTableResult> {
   return apiFetch(`tables/${encodeURIComponent(joinCode)}/join`, { method: "POST", token, body: {} });
+}
+
+/** POST /api/tables/:matchId/start — creator only, waiting only (§7.2): any
+ *  unfilled human seat becomes a bot, seats shuffle if `randomizeSeats` was
+ *  set at creation, and the clocks start. */
+export async function startTable(token: string, matchId: string): Promise<void> {
+  await apiFetch<void>(`tables/${encodeURIComponent(matchId)}/start`, { method: "POST", token, body: {} });
+}
+
+/** POST /api/tables/:matchId/leave — the seat plays out the rest of the
+ *  match as a bot; the seat token still reclaims it (§7.2). */
+export async function leaveTable(token: string, matchId: string): Promise<void> {
+  await apiFetch<void>(`tables/${encodeURIComponent(matchId)}/leave`, { method: "POST", token, body: {} });
+}
+
+/* ── lobby: presence + open tables (PVP-LOBBY-PROPOSAL-2026-09-02.md §7.2) ─
+ * `GET /api/lobby` is polled every 5s while the lobby screen is open; the
+ * three arrays are read-only summaries, never partially applied — a fetch
+ * failure (including "not implemented yet" while the backend lands this
+ * contract) is the caller's to swallow and degrade, not this module's. */
+
+export type PresenceState = "lobby" | "away";
+export type HereState = "lobby" | "waiting" | "playing";
+
+export interface LobbyHereEntry {
+  playerId: string;
+  displayName: string;
+  state: HereState;
+  matchId?: string;
+  joinCode?: string;
+  /** 0-indexed current hand and the dealership-count denominator — see
+   *  game.ts's `handLabel()` for the `hand + 1` / "past the base" rule. */
+  hand?: number;
+  handsBase?: number;
+}
+
+export interface LobbyTableSeat {
+  seat: 0 | 1 | 2 | 3;
+  kind: "human" | "bot";
+  displayName?: string;
+  connected: boolean;
+}
+
+export type LobbyStatus = "waiting" | "playing" | "done";
+
+export interface LobbyTable {
+  matchId: string;
+  /** Present only for open tables — a private table lists no code. */
+  joinCode?: string;
+  access: TableAccess;
+  mode: TableMode;
+  rulesetId: string;
+  matchFormat: MatchFormat;
+  lobbyStatus: LobbyStatus;
+  hand?: number;
+  handsBase?: number;
+  seats: LobbyTableSeat[];
+  /** The creator's player id (schema.sql `matches.created_by`) — not a
+   *  display name. The lobby screen resolves a name from `seats` instead. */
+  createdBy: string;
+  startedAt: number;
+}
+
+export interface LobbyRecentStanding {
+  displayName: string;
+  chips: number;
+  place: number;
+}
+
+export interface LobbyRecentMatch {
+  matchId: string;
+  endedAt: number;
+  mode: TableMode;
+  standings: LobbyRecentStanding[];
+}
+
+export interface LobbyPayload {
+  now: number;
+  here: LobbyHereEntry[];
+  tables: LobbyTable[];
+  recent: LobbyRecentMatch[];
+}
+
+export async function getLobby(token: string): Promise<LobbyPayload> {
+  return apiFetch("lobby", { token });
+}
+
+/** POST /api/presence — sent every 30s while the app is open and visible,
+ *  and once more on `visibilitychange` back to visible. */
+export async function postPresence(token: string, state: PresenceState): Promise<void> {
+  await apiFetch<void>("presence", { method: "POST", token, body: { state } });
 }
 
 /** One row of GET /api/matches — see worker/src/index.ts matchListView. */

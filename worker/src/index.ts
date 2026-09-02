@@ -18,13 +18,21 @@
  * replay — a plain GET.
  *
  * Routes:
- *   POST /api/identity            device token + display name (P0)
- *   GET  /api/matches             the caller's match history
- *   GET  /api/matches/:id         match detail, including per-hand rows
- *   GET  /api/matches/:id/log     the R2 event-log blob, participants only
- *   POST /api/tables              create a table
- *   POST /api/tables/:code/join   join by code
- *   GET  /api/replay/:token       PUBLIC, unauthenticated — §2's only viral loop
+ *   POST /api/identity              device token + display name (P0)
+ *   GET  /api/matches               the caller's match history
+ *   GET  /api/matches/:id           match detail, including per-hand rows
+ *   GET  /api/matches/:id/log       the R2 event-log blob, participants only
+ *   POST /api/tables                create a table (creator takes the first
+ *                                   human seat in `seats`)
+ *   POST /api/tables/:code/join     join by code, lowest free human seat
+ *   POST /api/tables/:id/start      creator only: fill empty seats with bots,
+ *                                   shuffle if asked, start the clocks
+ *   POST /api/tables/:id/leave      a participant hands their seat to a bot
+ *                                   for the rest of the match
+ *   GET  /api/lobby                 who is here, what tables are open, recent
+ *                                   results (PVP-LOBBY-PROPOSAL-2026-09-02.md §7)
+ *   POST /api/presence              the lobby heartbeat, every 30s
+ *   GET  /api/replay/:token         PUBLIC, unauthenticated — §2's only viral loop
  *
  * Not here, on purpose: CORS. The client ships same-origin behind the site's
  * host routing, and an allow-list belongs in the routing layer rather than
@@ -35,35 +43,50 @@ import { EVENT_SCHEMA_VERSION } from "@mjrc/protocol";
 import { DEFAULT_RULESET_ID, assertRulesetSound, ruleset } from "@mjrc/rulesets";
 import type {
   D1Like,
+  DoneMatchRow,
   HandRow,
+  LobbyMatchRow,
   MatchListRow,
   MatchRow,
   MatchSeatRow,
   PlayerRow,
   R2Like,
+  SeatSpec,
 } from "./db.js";
+/* Re-exported: `TableSpec.seatPlan` and `postTable` both speak this type, and
+ * gamepvp/src/index.ts (`tableInitOf`) needs it too — one shape, re-exported
+ * from where it is defined rather than imported twice from two paths. */
+export type { SeatSpec } from "./db.js";
 import {
   ID_LENGTH,
   JOIN_CODE_LENGTH,
   archiveRuleset,
   claimSeat,
   handsOfMatch,
+  humanSeatsOfMatch,
   insertCredential,
   insertMatch,
   insertPlayer,
   matchById,
   matchByJoinCode,
   matchLogById,
+  matchesDone,
   matchesForPlayer,
+  matchesWaitingOrPlaying,
+  parseSeatPlan,
   playerForCredential,
+  presenceSince,
   randomId,
   renamePlayer,
   rulesetHash,
   seatOf,
+  seatPlanOf,
   seatsOfMatch,
+  serializeSeatPlan,
   sha256Hex,
   toHex,
   touchCredential,
+  upsertPresence,
 } from "./db.js";
 
 /* ── the Table DO seam ────────────────────────────────────────────────────────
@@ -90,17 +113,17 @@ export interface TableSpec {
   engineVersion: string;
   logSchemaVersion: number;
   matchFormat: string;
-  botSeats: number;
   /**
-   * Profile keys for the bot seats, in seat order — length `botSeats` when
-   * present. Opaque to this file (worker doesn't know what a profile IS,
-   * `Platform.isBotKey` is the deployment's membership check); it is only
-   * carried through to `TableStub.openTable`, whose deployment-specific
-   * implementation resolves each key to a `PlayerRef` (gamepvp/src/index.ts
-   * `tableInitOf`). Undefined or omitted means "use the deployment's default
-   * lineup".
+   * The four seat specs, in seat order (§7.2's `seats`, or the legacy
+   * `botSeats`/`bots` converted to the same shape by `postTable`). A bot seat
+   * with no `bot` key means "use the deployment's default lineup" for that
+   * seat. Opaque past `kind`/`bot` to this file — resolving `bot` to a
+   * `PlayerRef` is deployment-specific (gamepvp/src/index.ts `tableInitOf`).
    */
-  bots?: string[];
+  seatPlan: readonly SeatSpec[];
+  /** Shuffle the player↔seat mapping when `/fill` starts the clocks (§6
+   *  decision 3) — carried into `TableInit.randomizeSeats` verbatim. */
+  randomizeSeats: boolean;
   startedAt: string;
 }
 
@@ -115,6 +138,19 @@ export interface TableStub {
   /** Idempotent by matchId — a retry after a flaky response must not open two. */
   openTable(spec: TableSpec): Promise<void>;
   issueSeatToken(claim: SeatClaim): Promise<{ seatToken: string; expiresAt: string }>;
+  /**
+   * The creator's "start now, fill the rest with bots" (§7.2 `/start`). Every
+   * still-empty human seat becomes a bot, seats shuffle if the table was
+   * created with `randomizeSeats`, and the clocks start the same way a full
+   * table always has. Idempotent once the table has started.
+   */
+  fill(): Promise<void>;
+  /**
+   * A participant's explicit leave (§7.2 `/leave`): the seat is played by a
+   * bot for the rest of the match, exactly like a disconnect grace expiring,
+   * and its socket is closed. The seat token still reclaims it. Idempotent.
+   */
+  leave(playerId: string): Promise<void>;
 }
 
 export interface TableNamespace {
@@ -165,6 +201,14 @@ export interface Platform {
    * any non-empty key (a deployment with no catalogue of its own).
    */
   isBotKey?(key: string): boolean;
+  /**
+   * A bot seat's lobby display name — the same seam as `isBotKey`, for the
+   * same reason (gamepvp/src/bots.ts owns `BOT_CATALOGUE`/`BOT_LINEUP`, not
+   * this file). `key` is undefined for a seat plan entry that never named one
+   * ("use the deployment's default lineup"); `seat` is that seat's index, the
+   * only thing a caller with no key still knows. Omitted = a generic label.
+   */
+  botDisplayName?(key: string | undefined, seat: SeatIndex): string;
 }
 
 export class ConfigError extends Error {}
@@ -302,12 +346,12 @@ function clampInt(v: unknown, lo: number, hi: number, fallback: number): number 
 }
 
 /**
- * `body.bots` from `POST /api/tables`: `undefined` means "the deployment's
- * default lineup"; otherwise it must be exactly `botSeats` non-empty keys,
- * each one `isBotKey` accepts (when the deployment supplies that check).
- * Returns the sentinel `"invalid"` rather than throwing so the one caller can
- * turn every failure mode into a single, precise 400 before any row is
- * written — see the `postTable` doctrine comment on write ordering.
+ * `body.bots` from the LEGACY `POST /api/tables` shape: `undefined` means
+ * "the deployment's default lineup"; otherwise it must be exactly `botSeats`
+ * non-empty keys, each one `isBotKey` accepts (when the deployment supplies
+ * that check). Returns the sentinel `"invalid"` rather than throwing so the
+ * one caller can turn every failure mode into a single, precise 400 before
+ * any row is written — see the `postTable` doctrine comment on write ordering.
  */
 function parseBots(
   v: unknown,
@@ -324,6 +368,66 @@ function parseBots(
     keys.push(key);
   }
   return keys;
+}
+
+/**
+ * `body.seats` from `POST /api/tables` (§7.2): exactly 4 entries, each
+ * `{ kind: 'human' }` or `{ kind: 'bot', bot?: key }`. A bot entry with no
+ * `bot` key means "the deployment's default lineup for this seat" — the same
+ * meaning `bots` being entirely absent used to carry for every bot seat at
+ * once. `"invalid"` on any malformed entry, same doctrine as `parseBots`.
+ */
+function parseSeatsBody(
+  v: unknown,
+  isBotKey: ((key: string) => boolean) | undefined,
+): SeatSpec[] | "invalid" {
+  if (!Array.isArray(v) || v.length !== 4) return "invalid";
+  const plan: SeatSpec[] = [];
+  for (const entry of v) {
+    if (entry === null || typeof entry !== "object") return "invalid";
+    const kind = (entry as { kind?: unknown }).kind;
+    if (kind === "human") {
+      plan.push({ kind: "human" });
+      continue;
+    }
+    if (kind === "bot") {
+      const raw = (entry as { bot?: unknown }).bot;
+      if (raw === undefined) {
+        plan.push({ kind: "bot" });
+        continue;
+      }
+      const bot = str(raw);
+      if (bot === null) return "invalid";
+      if (isBotKey && !isBotKey(bot)) return "invalid";
+      plan.push({ kind: "bot", bot });
+      continue;
+    }
+    return "invalid";
+  }
+  return plan;
+}
+
+/**
+ * The seat plan `POST /api/tables` actually opens the table with: `seats` if
+ * given, else the legacy `botSeats`/`bots` shape converted to the same shape
+ * — humans in the low seats, bots filling from the top, exactly the layout
+ * that shape always meant (worker/README.md §8, the P0 default). Both paths
+ * return `"invalid"` for the single 400 `postTable` raises on either.
+ */
+function seatPlanFromBody(
+  body: JsonObject,
+  isBotKey: ((key: string) => boolean) | undefined,
+): SeatSpec[] | "invalid" {
+  if (body.seats !== undefined) return parseSeatsBody(body.seats, isBotKey);
+  const botSeats = clampInt(body.botSeats, 0, 3, 0);
+  const bots = parseBots(body.bots, botSeats, isBotKey);
+  if (bots === "invalid") return "invalid";
+  const firstBot = 4 - botSeats;
+  return [0, 1, 2, 3].map((seat) => {
+    if (seat < firstBot) return { kind: "human" as const };
+    const key = bots?.[seat - firstBot];
+    return key === undefined ? { kind: "bot" as const } : { kind: "bot" as const, bot: key };
+  });
 }
 
 const MAX_DISPLAY_NAME = 40;
@@ -679,12 +783,17 @@ async function getReplay(token: string, p: Platform): Promise<Response> {
 }
 
 /**
- * POST /api/tables — create a table and take the first seat.
+ * POST /api/tables — create a table and take the creator's seat.
  *
  * The §5.3 handoff in full: D1 rows first, then the table is opened, then the
  * seat token is minted. If the DO call fails the match row is left `running`
  * and is reaped by the ops query idx_matches_running covers; the reverse order
  * would leave a live table no row points at, which nothing sweeps.
+ *
+ * The creator takes the FIRST HUMAN seat in the plan (§6, decision 3) — not
+ * always seat 0, now that a bot may sit anywhere. A plan with no human seat at
+ * all has nowhere for the creator to sit and is refused before any row is
+ * written, same as every other malformed `seats`.
  */
 async function postTable(req: Request, p: Platform, player: PlayerRow): Promise<Response> {
   const body = await readJsonObject(req);
@@ -702,15 +811,30 @@ async function postTable(req: Request, p: Platform, player: PlayerRow): Promise<
   }
 
   const matchFormat = body.matchFormat === "full" ? "full" : "east";
-  const botSeats = clampInt(body.botSeats, 0, 3, 0);
-  const bots = parseBots(body.bots, botSeats, p.isBotKey);
-  if (bots === "invalid") return fail("unknown_bot", 400);
+  const mode = body.mode === "ranked" ? "ranked" : "casual";
+  const access = body.access === "private" ? "private" : "open";
+  const randomizeSeats = body.randomizeSeats === true;
+
+  const seatPlan = seatPlanFromBody(body, p.isBotKey);
+  if (seatPlan === "invalid") return fail("unknown_bot", 400);
+
+  const creatorSeat = seatPlan.findIndex((s) => s.kind === "human");
+  if (creatorSeat === -1) return fail("bad_seats", 400);
+
+  /* Ranked needs identity and scale that a bot cannot supply (§1.5, §6
+   * decision 5) — refused before any row is written, same as every other
+   * `postTable` validation failure. */
+  if (mode === "ranked" && seatPlan.some((s) => s.kind === "bot")) {
+    return fail("ranked_needs_humans", 400);
+  }
+
   const now = p.now();
   const hash = await rulesetHash(rules);
   await archiveRuleset(p.db, hash, rules, now);
 
   const matchId = randomId(p.random, ID_LENGTH);
   const joinCode = randomId(p.random, JOIN_CODE_LENGTH);
+  const botSeats = seatPlan.filter((s) => s.kind === "bot").length;
   await insertMatch(p.db, {
     id: matchId,
     matchFormat,
@@ -720,25 +844,30 @@ async function postTable(req: Request, p: Platform, player: PlayerRow): Promise<
     logSchemaVersion: EVENT_SCHEMA_VERSION,
     roomCode: str(body.roomCode),
     joinCode,
-    /* Never rated at creation. `rated` is decided at match end and frozen
-     * (schema.sql, matches.rated), and the bot-seat policy is still open
-     * (worker/README.md §8, question 3). */
-    rated: false,
+    /* Ranked is rated at creation and frozen (schema.sql, matches.rated) — the
+     * ranked/bot check above already guarantees every seat is human. */
+    rated: mode === "ranked",
     botSeats,
     now,
+    access,
+    mode,
+    handsBase: matchFormat === "full" ? 16 : 4,
+    seatPlan: serializeSeatPlan(seatPlan),
+    randomizeSeats,
+    createdBy: player.id,
   });
 
-  if (!(await claimSeat(p.db, matchId, 0, player.id))) return fail("conflict", 409);
+  if (!(await claimSeat(p.db, matchId, creatorSeat as SeatIndex, player.id))) return fail("conflict", 409);
 
-  const handoff = await openAndSeat(p, matchId, 0, player, {
+  const handoff = await openAndSeat(p, matchId, creatorSeat as SeatIndex, player, {
     matchId,
     rulesetId: rules.id,
     rulesetHash: hash,
     engineVersion: p.engineVersion,
     logSchemaVersion: EVENT_SCHEMA_VERSION,
     matchFormat,
-    botSeats,
-    bots,
+    seatPlan,
+    randomizeSeats,
     startedAt: now,
   });
   if (handoff === null) return fail("table_unavailable", 503);
@@ -748,13 +877,15 @@ async function postTable(req: Request, p: Platform, player: PlayerRow): Promise<
       tableId: handoff.tableId,
       matchUuid: matchId,
       joinCode,
-      seat: 0,
+      seat: creatorSeat,
       seatToken: handoff.seatToken,
       seatTokenExpiresAt: handoff.expiresAt,
       rulesetId: rules.id,
       rulesetHash: hash,
       engineVersion: p.engineVersion,
       matchFormat,
+      mode,
+      access,
     },
     201,
   );
@@ -796,8 +927,6 @@ async function openAndSeat(
   }
 }
 
-const SEATS: readonly SeatIndex[] = [0, 1, 2, 3];
-
 /**
  * POST /api/tables/:code/join — take a seat at an existing table.
  *
@@ -815,10 +944,18 @@ async function postJoin(code: string, p: Platform, player: PlayerRow): Promise<R
 
   let seat = await seatOf(p.db, match.id, player.id);
   if (seat === null) {
+    /* A bot seat may be at ANY seat index now (§7.2 `seats`), not only the
+     * high ones — the free-seat search must consult the plan seat by seat
+     * rather than the old single `firstBotSeat` cutoff. */
+    const humanSeats = seatPlanOf(match.seat_plan, match.bot_seats)
+      .map((s, i) => ({ spec: s, seat: i as SeatIndex }))
+      .filter((s) => s.spec.kind === "human")
+      .map((s) => s.seat);
+
     /* Bounded retry rather than a lock: seat assignment reads then writes, and
-     * PRIMARY KEY (match_id, seat) is the arbiter. Four attempts is one per
-     * seat, which is the most contention this table can produce. */
-    for (let attempt = 0; attempt < SEATS.length && seat === null; attempt += 1) {
+     * PRIMARY KEY (match_id, seat) is the arbiter. One attempt per human seat
+     * is the most contention this table can produce. */
+    for (let attempt = 0; attempt < humanSeats.length && seat === null; attempt += 1) {
       const seats = await seatsOfMatch(p.db, match.id);
       /* A concurrent duplicate of this very request may have seated us between
        * the check above and now. UNIQUE (match_id, player_id) would refuse every
@@ -830,11 +967,7 @@ async function postJoin(code: string, p: Platform, player: PlayerRow): Promise<R
         break;
       }
       const taken = new Set(seats.map((s) => s.seat));
-      /* Bots hold the HIGH seats and have no match_players row (they are a
-       * count on the match), so the free-seat search must stop short of them
-       * or a joiner is handed a seat the table will refuse. */
-      const firstBotSeat = 4 - Math.max(0, Math.min(4, match.bot_seats));
-      const free = SEATS.find((s) => !taken.has(s) && s < firstBotSeat);
+      const free = humanSeats.find((s) => !taken.has(s));
       if (free === undefined) return fail("table_full", 409);
       if (await claimSeat(p.db, match.id, free, player.id)) seat = free;
     }
@@ -853,6 +986,201 @@ async function postJoin(code: string, p: Platform, player: PlayerRow): Promise<R
     rulesetId: match.ruleset_id,
     matchFormat: match.match_format,
   });
+}
+
+/** A table stub for a match this file already knows exists — `/start` and
+ *  `/leave` never open a table, only ever reach one that `postTable` did. */
+function tableStubFor(p: Platform, matchId: string): TableStub {
+  return p.tables.get(p.tables.idFromName(matchId));
+}
+
+/**
+ * POST /api/tables/:matchId/start — the creator's "start now, fill the rest
+ * with bots" (§7.2). Creator-only, while the table is still open to fill:
+ * anyone else gets the same 404 a non-existent match would (getMatchDetail's
+ * doctrine — a caller who fails this check has no legitimate way to learn
+ * which is true). The actual fill/shuffle/start sequence lives on the table
+ * object (`table.ts` `handleFill`) and is idempotent there, so a second call
+ * after the table has already started is a harmless no-op rather than an
+ * error this route needs to detect itself.
+ */
+async function postStart(matchId: string, p: Platform, player: PlayerRow): Promise<Response> {
+  const match = await matchById(p.db, matchId);
+  if (match === null || match.created_by !== player.id) return fail("not_found", 404);
+  /* §7.2: creator only, `lobby_status = 'waiting'`. This D1 read can be stale
+   * by the time the DO processes the call (two near-simultaneous starts, or a
+   * clock that finished starting between the read and now) — that race is
+   * `handleFill`'s to absorb, which is why IT is idempotent rather than this
+   * check being loose. */
+  if (match.lobby_status !== "waiting") return fail("already_started", 409);
+
+  try {
+    await tableStubFor(p, matchId).fill();
+  } catch (e) {
+    console.error("table fill failed", matchId, e);
+    return fail("table_unavailable", 503);
+  }
+  return json({ ok: true });
+}
+
+/**
+ * POST /api/tables/:matchId/leave — a participant's explicit leave (§7.2).
+ * `seatOf` is the same authorisation primitive every match-scoped route uses:
+ * a non-participant gets the same 404 a non-existent match would.
+ */
+async function postLeave(matchId: string, p: Platform, player: PlayerRow): Promise<Response> {
+  const seat = await seatOf(p.db, matchId, player.id);
+  if (seat === null) return fail("not_found", 404);
+
+  try {
+    await tableStubFor(p, matchId).leave(player.id);
+  } catch (e) {
+    console.error("table leave failed", matchId, player.id, e);
+    return fail("table_unavailable", 503);
+  }
+  return json({ ok: true });
+}
+
+/* ── the lobby ────────────────────────────────────────────────────────────── */
+
+/** A heartbeat older than this is not "here" (proposal §3.2). */
+const HERE_WINDOW_MS = 90_000;
+/** Defensive cap on `tables[]` — see `SQL.matchesWaitingOrPlaying`. */
+const LOBBY_TABLE_LIMIT = 200;
+/** "Last five", per §7.2. */
+const RECENT_LIMIT = 5;
+
+interface HereEntry {
+  playerId: string;
+  displayName: string;
+  state: "lobby" | "waiting" | "playing";
+  matchId?: string;
+  joinCode?: string | null;
+  hand?: number;
+  handsBase?: number;
+}
+
+/** `access === 'private'` hides the code from every lobby view, same rule for
+ *  `tables[]` and `here[]` — a private table is reachable only by the code its
+ *  creator actually shared, never by browsing. */
+const codeIfOpen = (access: string, joinCode: string | null): string | null =>
+  access === "open" ? joinCode : null;
+
+/** A bot seat's lobby label — `Platform.botDisplayName` if the deployment
+ *  supplies one (gamepvp/src/bots.ts), else a generic placeholder. Never
+ *  blank: an empty seat label reads as a bug, not as "nobody picked a name". */
+function botSeatLabel(p: Platform, key: string | undefined, seat: SeatIndex): string {
+  return p.botDisplayName?.(key, seat) ?? "Bot";
+}
+
+/**
+ * GET /api/lobby — three panels, three queries (proposal §3.3), merged here
+ * rather than in SQL: `here` is a union of two sources that mean the same
+ * thing (a player who showed up), and building that union in application code
+ * keeps every query in `db.ts` a single, obvious statement.
+ */
+async function getLobby(p: Platform): Promise<Response> {
+  // Authenticated caller only, checked by the router; the lobby view itself
+  // has no per-viewer filtering (§6 decision 1: "everyone sees everyone").
+  const now = p.now();
+  const sinceIso = new Date(Date.parse(now) - HERE_WINDOW_MS).toISOString();
+
+  const [presenceRows, openRows, doneRows] = await Promise.all([
+    presenceSince(p.db, sinceIso),
+    matchesWaitingOrPlaying(p.db, LOBBY_TABLE_LIMIT),
+    matchesDone(p.db, RECENT_LIMIT),
+  ]);
+
+  /* Seeded from presence; a seated human below overwrites their entry with
+   * the richer "at a table" state — that is strictly more specific than a
+   * bare heartbeat, never a downgrade. */
+  const here = new Map<string, HereEntry>();
+  for (const row of presenceRows) {
+    here.set(row.player_id, { playerId: row.player_id, displayName: row.display_name, state: "lobby" });
+  }
+
+  const tables = await Promise.all(
+    openRows.map(async (m: LobbyMatchRow) => {
+      const plan = seatPlanOf(m.seat_plan, m.bot_seats);
+      const humanSeats = await humanSeatsOfMatch(p.db, m.id);
+      const bySeat = new Map(humanSeats.map((s) => [s.seat, s]));
+      const joinCode = codeIfOpen(m.access, m.join_code);
+      const state: "waiting" | "playing" = m.lobby_status === "playing" ? "playing" : "waiting";
+
+      const seats = plan.map((spec, seat) => {
+        if (spec.kind === "bot") {
+          return {
+            seat,
+            kind: "bot" as const,
+            displayName: botSeatLabel(p, spec.bot, seat as SeatIndex),
+            connected: false,
+          };
+        }
+        const row = bySeat.get(seat);
+        if (row !== undefined) {
+          here.set(row.player_id, {
+            playerId: row.player_id,
+            displayName: row.display_name,
+            state,
+            matchId: m.id,
+            joinCode,
+            hand: m.current_hand,
+            handsBase: m.hands_base,
+          });
+        }
+        return {
+          seat,
+          kind: "human" as const,
+          displayName: row?.display_name,
+          connected: row !== undefined && row.connected !== 0,
+        };
+      });
+
+      return {
+        matchId: m.id,
+        joinCode,
+        access: m.access,
+        mode: m.mode,
+        rulesetId: m.ruleset_id,
+        matchFormat: m.match_format,
+        lobbyStatus: m.lobby_status,
+        hand: m.current_hand,
+        handsBase: m.hands_base,
+        seats,
+        createdBy: m.created_by,
+        startedAt: m.started_at,
+      };
+    }),
+  );
+
+  const recent = await Promise.all(
+    doneRows.map(async (m: DoneMatchRow) => {
+      const seats = await seatsOfMatch(p.db, m.id);
+      return {
+        matchId: m.id,
+        endedAt: m.ended_at,
+        mode: m.mode,
+        /* Standings for the seats `match_players` actually has rows for —
+         * every human that was ever seated. A seat that was a bot from
+         * creation and never claimed by a human has no row to read a name
+         * from (schema.sql match_players: nothing ever inserts one for a bot
+         * seat) and is omitted rather than guessed at. */
+        standings: seats.map((s) => ({ displayName: s.display_name, chips: s.final_chips, place: s.place })),
+      };
+    }),
+  );
+
+  return json({ now, here: [...here.values()], tables, recent });
+}
+
+/** POST /api/presence — the lobby heartbeat (proposal §3.2). Upsert, not
+ *  insert: presence is current state, one row per player, never history. */
+async function postPresence(req: Request, p: Platform, player: PlayerRow): Promise<Response> {
+  const body = await readJsonObject(req);
+  if (body === null) return fail("bad_json", 400);
+  const state = body.state === "away" ? "away" : "lobby";
+  await upsertPresence(p.db, player.id, state, p.now());
+  return new Response(null, { status: 204, headers: BASE_HEADERS });
 }
 
 /* ── router ───────────────────────────────────────────────────────────────── */
@@ -917,6 +1245,24 @@ export async function handle(request: Request, p: Platform): Promise<Response> {
       if (method !== "POST") return fail("method_not_allowed", 405);
       return postJoin(seg[2], p, player);
     }
+    if (seg.length === 4 && seg[3] === "start") {
+      if (method !== "POST") return fail("method_not_allowed", 405);
+      return postStart(seg[2], p, player);
+    }
+    if (seg.length === 4 && seg[3] === "leave") {
+      if (method !== "POST") return fail("method_not_allowed", 405);
+      return postLeave(seg[2], p, player);
+    }
+  }
+
+  if (seg[1] === "lobby" && seg.length === 2) {
+    if (method !== "GET") return fail("method_not_allowed", 405);
+    return getLobby(p);
+  }
+
+  if (seg[1] === "presence" && seg.length === 2) {
+    if (method !== "POST") return fail("method_not_allowed", 405);
+    return postPresence(request, p, player);
   }
 
   return fail("not_found", 404);

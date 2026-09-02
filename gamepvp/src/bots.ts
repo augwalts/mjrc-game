@@ -67,6 +67,19 @@ export const isBotCatalogueKey = (key: string): boolean => CATALOGUE_BY_KEY.has(
 
 export const catalogueEntry = (key: string): BotCatalogueEntry | undefined => CATALOGUE_BY_KEY.get(key);
 
+/**
+ * The default lineup pick for seat `seat` — used in two places that both mean
+ * "a bot seat with no key of its own": `tableInitOf` (worker/src/index.ts's
+ * `TableSpec.seatPlan` entry `{ kind: 'bot' }`, no `bot`) and the table
+ * object's `/fill` (worker/src/table.ts `TableDeps.defaultBotFor`, installed
+ * via `installTableRules` in ./index.ts). One function so the two paths can
+ * never pick different defaults for the same seat.
+ */
+export const defaultBotFor = (seat: SeatIndex): { key: string; displayName: string } => {
+  const spec = BOT_LINEUP[seat]!;
+  return { key: spec.profile, displayName: spec.displayName };
+};
+
 /** `bot:<key>` → `<key>`, or null if `playerId` is not a bot ref at all. */
 const keyOfPlayerId = (playerId: string): string | null =>
   playerId.startsWith("bot:") ? playerId.slice("bot:".length) : null;

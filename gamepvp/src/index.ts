@@ -3,7 +3,9 @@
  *
  *   1. The front-door gate. Invite-only beta: a shared password, checked on
  *      EVERY request including the assets and the socket upgrade. Fails closed.
- *   2. Static assets (the client) — `ASSETS`, built by ./build.sh.
+ *   2. Static assets (the client) — `ASSETS`, built by ./build.sh. `/j/:code`
+ *      also serves the client's index.html unchanged (the invite link,
+ *      PVP-LOBBY-PROPOSAL-2026-09-02.md §3.2) — the client reads the path.
  *   3. The platform API (`/api/*`) — worker/src/index.ts, plain HTTP over D1.
  *   4. The match plane (`/table/:matchId`) — a WebSocket into one TableDO.
  *
@@ -28,14 +30,15 @@ import {
   type Env as PlatformEnv,
   type Platform,
   type SeatClaim,
+  type SeatSpec,
   type TableNamespace,
   type TableSpec,
 } from "../../worker/src/index.js";
-import { BOT_CATALOGUE, BOT_LINEUP, bots, catalogueEntry, isBotCatalogueKey } from "./bots.js";
+import { BOT_CATALOGUE, BOT_LINEUP, bots, catalogueEntry, defaultBotFor, isBotCatalogueKey } from "./bots.js";
 
 /* ── bind the engine into the table, once, at module load ─────────────── */
 
-installTableRules({ startMatch, startNextHand, applyAction, legalActions }, bots);
+installTableRules({ startMatch, startNextHand, applyAction, legalActions }, bots, defaultBotFor);
 
 /** The Durable Object binding target (wrangler.jsonc `class_name`). */
 export class TableDO extends BaseTableDO {}
@@ -190,6 +193,14 @@ function tableNamespace(env: Env): TableNamespace {
           if (!res.ok) throw new Error(`seat claim ${res.status}: ${await res.text()}`);
           return (await res.json()) as { seatToken: string; expiresAt: string };
         },
+        async fill(): Promise<void> {
+          const res = await post(stub, "/fill", {});
+          if (!res.ok) throw new Error(`table fill ${res.status}: ${await res.text()}`);
+        },
+        async leave(playerId: string): Promise<void> {
+          const res = await post(stub, "/leave", { playerId });
+          if (!res.ok) throw new Error(`table leave ${res.status}: ${await res.text()}`);
+        },
       };
     },
   };
@@ -213,26 +224,31 @@ async function ensureBotPlayers(env: Env, init: TableInit, now: string): Promise
   }
 }
 
-/** Humans take the low seats, in join order; bots fill from the top. `bots`
- *  is the creator's picks for those seats, in seat order (worker/src/index.ts
- *  `postTable` already rejected a length mismatch or an unknown key, so this
- *  is defensive, not the primary check). The seed and the placeholder tokens
- *  are coordination entropy, not game state. */
+/**
+ * A seat's spec (worker/src/index.ts `TableSpec.seatPlan`, §7.2's `seats` or
+ * the legacy `botSeats`/`bots` converted to the same shape by `postTable`)
+ * becomes this seat's `PlayerRef`: an empty human seat waiting for `/seat` to
+ * bind it, or a bot seat with `bot:<key>` naming the profile — falling back
+ * to `BOT_LINEUP`'s default for that seat index when the plan named none
+ * (`postTable` already validated any key it DID name, so `catalogueEntry`
+ * missing here is defensive, not the primary check). A bot may now be at any
+ * seat, not only the top ones (§6 decision 3 — the seat plan is the host's,
+ * not derived from a count).
+ */
+function playerRefFor(seat: 0 | 1 | 2 | 3, spec: SeatSpec): MatchLogHeader["players"][number] {
+  if (spec.kind === "human") return { playerId: "", displayName: "", seat, bot: false };
+  const entry = spec.bot !== undefined ? catalogueEntry(spec.bot) : undefined;
+  const key = entry?.key ?? spec.bot ?? BOT_LINEUP[seat]!.profile;
+  const displayName = entry?.displayName ?? BOT_LINEUP[seat]!.displayName;
+  return { playerId: `bot:${key}`, displayName, seat, bot: true };
+}
+
+/** The seed and the placeholder tokens are coordination entropy, not game
+ *  state — see `placeholderToken`'s doc comment. */
 function tableInitOf(spec: TableSpec): TableInit {
-  const botSeats = Math.max(0, Math.min(4, spec.botSeats));
-  const firstBot = 4 - botSeats;
-  const seatOf = (i: number) => i as 0 | 1 | 2 | 3;
-  const players = [0, 1, 2, 3].map((i) => {
-    const seat = seatOf(i);
-    if (i >= firstBot) {
-      const pick = spec.bots?.[i - firstBot];
-      const entry = pick !== undefined ? catalogueEntry(pick) : undefined;
-      const key = entry?.key ?? pick ?? BOT_LINEUP[seat]!.profile;
-      const displayName = entry?.displayName ?? BOT_LINEUP[seat]!.displayName;
-      return { playerId: `bot:${key}`, displayName, seat, bot: true };
-    }
-    return { playerId: "", displayName: "", seat, bot: false };
-  }) as MatchLogHeader["players"];
+  const players = ([0, 1, 2, 3] as const).map((seat) =>
+    playerRefFor(seat, spec.seatPlan[seat] ?? { kind: "human" }),
+  ) as MatchLogHeader["players"];
   const header: MatchLogHeader = {
     v: EVENT_SCHEMA_VERSION,
     matchId: spec.matchId,
@@ -250,6 +266,7 @@ function tableInitOf(spec: TableSpec): TableInit {
     seed: (words[0]! & 0x7fffffff) >>> 0,
     seatTokens: [placeholderToken(), placeholderToken(), placeholderToken(), placeholderToken()],
     rulesetHash: spec.rulesetHash,
+    randomizeSeats: spec.randomizeSeats,
   };
 }
 
@@ -276,6 +293,12 @@ function platformOf(env: Env): Platform {
     engineVersion: ENGINE_VERSION,
     replayTokenSecret,
     isBotKey: isBotCatalogueKey,
+    // A bot seat's lobby label (worker/src/index.ts `getLobby`'s `botSeatLabel`):
+    // the catalogue entry's name if `key` names one, else the seat's default
+    // lineup pick — the same fallback `playerRefFor` uses when opening the
+    // table, so the lobby never shows a different name than the seat gets.
+    botDisplayName: (key, seat) => (key !== undefined ? catalogueEntry(key)?.displayName : undefined)
+      ?? BOT_LINEUP[seat]!.displayName,
   };
 }
 
@@ -350,6 +373,20 @@ export default {
 
     if (seg[0] === "table" && seg.length === 2) {
       return tableSocket(request, env, seg[1]!);
+    }
+
+    /* GET /j/:code — the invite link (proposal §3.2). Serves the SPA's
+     * index.html UNCHANGED: the client reads `location.pathname` itself and
+     * prefills the join screen with the code. Fetching path "/" rather than
+     * rewriting `request` in place matters — `env.ASSETS.fetch` resolves by
+     * path, and `/j/<code>` has no asset of its own to find. */
+    if (seg[0] === "j" && seg.length === 2) {
+      const rootUrl = new URL(request.url);
+      rootUrl.pathname = "/";
+      return withCookie(
+        await env.ASSETS.fetch(new Request(rootUrl.toString(), { headers: request.headers })),
+        admitted.setCookie,
+      );
     }
 
     return withCookie(await env.ASSETS.fetch(request), admitted.setCookie);

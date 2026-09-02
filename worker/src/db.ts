@@ -200,6 +200,73 @@ export interface PlayerRow {
   rating_season: string | null;
 }
 
+/* ── the lobby (PVP-LOBBY-PROPOSAL-2026-09-02.md §7) ─────────────────────────
+ * A seat spec is the creator's plan for one of the four seats, exactly as
+ * submitted to `POST /api/tables` (§7.2) and stored verbatim in
+ * `matches.seat_plan`. It is the one place a still-open seat's eventual bot
+ * profile is recorded before the table ever opens — the header's `bot:<key>`
+ * PlayerRef says the same thing but only for a seat the table HAS opened, so
+ * `/fill` (worker/src/table.ts) and the lobby's `tables[]` view both read this
+ * column instead.
+ */
+export type SeatKind = "human" | "bot";
+
+export interface SeatSpec {
+  kind: SeatKind;
+  /** Bot catalogue key (gamepvp/src/bots.ts `BotCatalogueEntry.key`). Present
+   *  iff `kind === 'bot'`; absent for a human seat. */
+  bot?: string;
+}
+
+/** `matches.seat_plan` round-trips through this, never through a bare
+ *  `JSON.parse` at a call site — a malformed or legacy-shape row must fail the
+ *  same way everywhere it is read, not once per caller. */
+export function parseSeatPlan(raw: string): SeatSpec[] | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(parsed) || parsed.length !== 4) return null;
+  const plan: SeatSpec[] = [];
+  for (const entry of parsed) {
+    if (!entry || typeof entry !== "object") return null;
+    const kind = (entry as { kind?: unknown }).kind;
+    if (kind === "human") {
+      plan.push({ kind: "human" });
+      continue;
+    }
+    if (kind === "bot") {
+      const bot = (entry as { bot?: unknown }).bot;
+      if (typeof bot !== "string" || bot === "") return null;
+      plan.push({ kind: "bot", bot });
+      continue;
+    }
+    return null;
+  }
+  return plan;
+}
+
+export function serializeSeatPlan(plan: readonly SeatSpec[]): string {
+  return JSON.stringify(plan);
+}
+
+/** The four seat specs for a match row, tolerating rows written before
+ *  `seat_plan` existed (schema.sql default `'[]'`, which `parseSeatPlan`
+ *  rejects for being the wrong length) — those fall back to the OLD
+ *  convention `bot_seats` alone used to mean: humans in the low seats, bots
+ *  filling from the top. One fallback, shared by every reader (`postJoin`,
+ *  the lobby), so a legacy row reads the same way everywhere. */
+export function seatPlanOf(seatPlanJson: string, botSeats: number): SeatSpec[] {
+  const parsed = parseSeatPlan(seatPlanJson);
+  if (parsed !== null) return parsed;
+  const firstBot = 4 - Math.max(0, Math.min(4, botSeats));
+  return [0, 1, 2, 3].map((seat) =>
+    seat < firstBot ? { kind: "human" as const } : { kind: "bot" as const },
+  );
+}
+
 export interface MatchListRow {
   id: string;
   status: string;
@@ -240,6 +307,14 @@ export interface MatchRow {
   log_sha256: string | null;
   started_at: string;
   ended_at: string | null;
+  access: string;
+  mode: string;
+  lobby_status: string;
+  current_hand: number;
+  hands_base: number;
+  seat_plan: string;
+  randomize_seats: number;
+  created_by: string | null;
 }
 
 /** Just enough of a match to decide whether its log may be served, and where
@@ -347,13 +422,16 @@ export const SQL = Object.freeze({
   insertMatch: `
     INSERT INTO matches
       (id, status, match_format, ruleset_hash, ruleset_id, engine_version,
-       log_schema_version, room_code, join_code, rated, bot_seats, started_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       log_schema_version, room_code, join_code, rated, bot_seats, started_at,
+       access, mode, lobby_status, hands_base, seat_plan, randomize_seats, created_by)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 
   matchById: `
     SELECT id, status, match_format, ruleset_hash, ruleset_id, engine_version,
            log_schema_version, room_code, join_code, rated, bot_seats,
-           hand_count, log_key, log_bytes, log_sha256, started_at, ended_at
+           hand_count, log_key, log_bytes, log_sha256, started_at, ended_at,
+           access, mode, lobby_status, current_hand, hands_base, seat_plan,
+           randomize_seats, created_by
       FROM matches
      WHERE id = ?`,
 
@@ -374,7 +452,9 @@ export const SQL = Object.freeze({
   matchByJoinCode: `
     SELECT id, status, match_format, ruleset_hash, ruleset_id, engine_version,
            log_schema_version, room_code, join_code, rated, bot_seats,
-           hand_count, log_key, log_bytes, log_sha256, started_at, ended_at
+           hand_count, log_key, log_bytes, log_sha256, started_at, ended_at,
+           access, mode, lobby_status, current_hand, hands_base, seat_plan,
+           randomize_seats, created_by
       FROM matches
      WHERE status = 'running' AND join_code = ?`,
 
@@ -436,6 +516,63 @@ export const SQL = Object.freeze({
       FROM hands
      WHERE match_id = ?
      ORDER BY hand_index`,
+
+  /* ── the lobby ──────────────────────────────────────────────────────────
+   * Three statements, one per `GET /api/lobby` panel (proposal §3.3: "three
+   * queries"). Seat detail for a given match is a fourth, reused per match
+   * rather than folded into a join — `match_players` holds a row only for a
+   * seat a HUMAN has claimed (bots never claim through `claimSeat`), so the
+   * lobby always falls back to `seat_plan` for a bot's display name anyway;
+   * keeping this as its own statement means that fallback lives in one place
+   * (index.ts `lobbySeats`) instead of duplicated per caller.
+   */
+
+  /** Everyone who pinged presence inside the "here now" window (index.ts
+   *  `HERE_WINDOW_MS`). `p.deleted_at IS NULL` — a soft-deleted player's stale
+   *  heartbeat must not resurrect them in the lobby. */
+  presenceSince: `
+    SELECT pr.player_id, pr.state, pr.seen_at, p.display_name
+      FROM presence pr
+      JOIN players p ON p.id = pr.player_id
+     WHERE pr.seen_at >= ? AND p.deleted_at IS NULL`,
+
+  /** One row per player per heartbeat — presence is current state, not
+   *  history, so this is always exactly one row before and after. */
+  upsertPresence: `
+    INSERT INTO presence (player_id, state, seen_at)
+    VALUES (?, ?, ?)
+    ON CONFLICT (player_id) DO UPDATE SET state = excluded.state, seen_at = excluded.seen_at`,
+
+  /** The open-table panel: every match still looking for humans or still
+   *  playing, newest first. Bounded defensively — the lobby lists "every"
+   *  such table, and at P0 scale that is never near this many, but an
+   *  unbounded read here is the one query on this screen with no natural cap. */
+  matchesWaitingOrPlaying: `
+    SELECT id, match_format, ruleset_id, access, mode, lobby_status,
+           current_hand, hands_base, seat_plan, bot_seats, created_by,
+           started_at, join_code
+      FROM matches
+     WHERE lobby_status IN ('waiting', 'playing')
+     ORDER BY started_at DESC
+     LIMIT ?`,
+
+  /** The recent-results strip: last N finished, newest first. */
+  matchesDone: `
+    SELECT id, mode, ended_at
+      FROM matches
+     WHERE lobby_status = 'done'
+     ORDER BY ended_at DESC
+     LIMIT ?`,
+
+  /** A match's HUMAN seats only — bots never appear here (see header comment).
+   *  `connected` is the table object's own cache (schema.sql match_players,
+   *  "Lobby-facing"), not derived from anything this query can see. */
+  humanSeatsOfMatch: `
+    SELECT mp.seat, mp.player_id, p.display_name, mp.connected
+      FROM match_players mp
+      JOIN players p ON p.id = mp.player_id
+     WHERE mp.match_id = ?
+     ORDER BY mp.seat`,
 });
 
 /* ── identity ─────────────────────────────────────────────────────────────── */
@@ -541,6 +678,16 @@ export interface NewMatch {
   rated: boolean;
   botSeats: number;
   now: string;
+  /** open | private (schema.sql matches.access). */
+  access: string;
+  /** casual | ranked (schema.sql matches.mode). */
+  mode: string;
+  /** 4 for `east`, 16 for `full` (schema.sql matches.hands_base). */
+  handsBase: number;
+  /** The four seat specs as submitted, JSON — `serializeSeatPlan`. */
+  seatPlan: string;
+  randomizeSeats: boolean;
+  createdBy: string;
 }
 
 export async function insertMatch(db: D1Like, m: NewMatch): Promise<void> {
@@ -559,6 +706,15 @@ export async function insertMatch(db: D1Like, m: NewMatch): Promise<void> {
       m.rated ? 1 : 0,
       m.botSeats,
       m.now,
+      m.access,
+      m.mode,
+      /* lobby_status starts 'waiting' always — a match is never created
+       * mid-play. The table object moves it to 'playing' once clocks start. */
+      "waiting",
+      m.handsBase,
+      m.seatPlan,
+      m.randomizeSeats ? 1 : 0,
+      m.createdBy,
     )
     .run();
 }
@@ -625,5 +781,91 @@ export async function claimSeat(
 
 export async function handsOfMatch(db: D1Like, matchId: string): Promise<HandRow[]> {
   const { results } = await db.prepare(SQL.handsOfMatch).bind(matchId).all<HandRow>();
+  return results;
+}
+
+/* ── the lobby ────────────────────────────────────────────────────────────── */
+
+export interface PresenceRow {
+  player_id: string;
+  state: string;
+  seen_at: string;
+  display_name: string;
+}
+
+/** Upsert this player's heartbeat. `state` is presence's own vocabulary
+ *  (schema.sql presence.state: lobby | away), separate from a match's
+ *  `lobby_status` — a player can be `lobby`-state and seated nowhere, or
+ *  heartbeat `away` while still seated at a table the match row already
+ *  describes. */
+export async function upsertPresence(
+  db: D1Like,
+  playerId: string,
+  state: string,
+  now: string,
+): Promise<void> {
+  await db.prepare(SQL.upsertPresence).bind(playerId, state, now).run();
+}
+
+/** Every presence row seen at or after `sinceIso` — the "here now" window,
+ *  computed by the caller (index.ts `HERE_WINDOW_MS`) so this file stays free
+ *  of ambient time (rule 3 at the top). */
+export async function presenceSince(db: D1Like, sinceIso: string): Promise<PresenceRow[]> {
+  const { results } = await db.prepare(SQL.presenceSince).bind(sinceIso).all<PresenceRow>();
+  return results;
+}
+
+export interface LobbyMatchRow {
+  id: string;
+  match_format: string;
+  ruleset_id: string;
+  access: string;
+  mode: string;
+  lobby_status: string;
+  current_hand: number;
+  hands_base: number;
+  seat_plan: string;
+  bot_seats: number;
+  created_by: string | null;
+  started_at: string;
+  join_code: string | null;
+}
+
+/** Every table still looking for humans or still playing, newest first.
+ *  `limit` is the defensive cap (SQL.matchesWaitingOrPlaying), not a page
+ *  size the client controls — the lobby lists "every" such table. */
+export async function matchesWaitingOrPlaying(
+  db: D1Like,
+  limit: number,
+): Promise<LobbyMatchRow[]> {
+  const { results } = await db.prepare(SQL.matchesWaitingOrPlaying).bind(limit).all<LobbyMatchRow>();
+  return results;
+}
+
+export interface DoneMatchRow {
+  id: string;
+  mode: string;
+  ended_at: string | null;
+}
+
+/** The last `limit` finished matches, newest first — the recent-results strip. */
+export async function matchesDone(db: D1Like, limit: number): Promise<DoneMatchRow[]> {
+  const { results } = await db.prepare(SQL.matchesDone).bind(limit).all<DoneMatchRow>();
+  return results;
+}
+
+export interface LobbySeatRow {
+  seat: number;
+  player_id: string;
+  display_name: string;
+  connected: number;
+}
+
+/** A match's human-claimed seats — bots never appear (schema.sql
+ *  match_players: nothing ever inserts a row for a bot seat; a bot's identity
+ *  lives in the header and in `matches.seat_plan` instead). Callers building a
+ *  lobby view fall back to the seat plan for any seat missing here. */
+export async function humanSeatsOfMatch(db: D1Like, matchId: string): Promise<LobbySeatRow[]> {
+  const { results } = await db.prepare(SQL.humanSeatsOfMatch).bind(matchId).all<LobbySeatRow>();
   return results;
 }

@@ -36,8 +36,11 @@ import type {
 } from "../../protocol/src/messages.js";
 import {
   ApiError, RequestRejected, TableSocket,
-  createTable, identify, joinTable, listBots, listMatches, matchDetail, storedIdentity,
-  type BotCatalogueEntry, type CreateTableResult, type Identity, type MatchFormat, type MatchListItem,
+  createTable, getLobby, identify, joinTable, leaveTable as apiLeaveTable, listBots, listMatches,
+  matchDetail, postPresence, startTable as apiStartTable, storedIdentity,
+  type BotCatalogueEntry, type CreateTableResult, type Identity, type LobbyHereEntry, type LobbyPayload,
+  type LobbyTable, type LobbyTableSeat, type MatchFormat, type MatchListItem, type SeatSpec,
+  type TableAccess, type TableMode,
 } from "./net.js";
 
 declare global {
@@ -132,10 +135,39 @@ function loadBotCatalogue(): Promise<BotCatalogueEntry[]> {
 
 const $ = (id: string): HTMLElement => document.getElementById(id)!;
 const fmtChips = (n: number): string => `${n > 0 ? "+" : ""}${n}`;
+/** The lobby lists free-text display names — escape them before they land in
+ *  `innerHTML` (the rest of this file trusts server-shaped prose, but a name
+ *  is player-authored). */
+const esc = (s: string): string =>
+  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
 /* ── identity + session ───────────────────────────────────────────────── */
 let identity: Identity | null = null;
 const SESSION_KEY = "mjrc.gamepvp.activeMatch";
+/** Set only by `doCreateTable()`, right before `connectToMatch`, and cleared
+ *  whenever a match/table is left. Nothing on the wire says "you made this
+ *  table" — `/start` is creator-only server-side regardless, this only gates
+ *  whether the waiting room OFFERS the button. Persisted alongside the
+ *  session key so a reload of the creator's own tab keeps the button. */
+let isCreatorOfCurrentTable = false;
+
+/* ── presence heartbeat (PVP-LOBBY-PROPOSAL §3.2/§7.2) ───────────────────
+ * "lobby" is the only state this client ever sends — it means "this device
+ * is open", not "the lobby screen is on screen"; GET /api/lobby derives the
+ * richer waiting/playing state server-side from match participation. Starts
+ * once identity exists and never stops (the app, not any one screen). */
+let presenceHeartbeatStarted = false;
+function ensurePresenceHeartbeat(): void {
+  if (presenceHeartbeatStarted) return;
+  presenceHeartbeatStarted = true;
+  const beat = (): void => {
+    if (identity && document.visibilityState === "visible") {
+      void postPresence(identity.deviceToken, "lobby").catch(() => { /* best effort */ });
+    }
+  };
+  window.setInterval(beat, 30_000);
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") beat(); });
+}
 
 /* ── the live table ────────────────────────────────────────────────────
  * `snap` is this seat's redacted fold, replaced whole every time the server
@@ -802,13 +834,64 @@ async function fetchMatchAgreement(matchId: string | null): Promise<void> {
   }
 }
 
+async function copyText(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) { await navigator.clipboard.writeText(text); return true; }
+    throw new Error("no clipboard api");
+  } catch {
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      const ok = document.execCommand("copy");
+      ta.remove();
+      return ok;
+    } catch {
+      return false;
+    }
+  }
+}
+async function copyInviteLink(): Promise<void> {
+  if (!currentJoinCode) return;
+  const url = `${location.origin}/j/${currentJoinCode}`;
+  flashHudNote(await copyText(url) ? "invite link copied" : `could not copy — ${url}`);
+}
+
+/** Best-effort `POST /api/tables/:matchId/leave` (bot takes the seat for the
+ *  rest of the match), then always the local reset + back-to-lobby — a
+ *  failed leave call must not strand the player on a dead screen. */
+async function leaveTableAndReturn(matchId: string | null): Promise<void> {
+  if (identity && matchId) {
+    try { await apiLeaveTable(identity.deviceToken, matchId); } catch { /* best effort */ }
+  }
+  leaveTable();
+}
+async function startTableNow(btn: HTMLButtonElement): Promise<void> {
+  if (!identity || !currentMatchUuid) return;
+  btn.disabled = true; btn.textContent = "starting…";
+  try {
+    await apiStartTable(identity.deviceToken, currentMatchUuid);
+    // No local transition needed — the server's own prompt/events clear the
+    // waiting-room veil via syncVeil() the instant the clocks start.
+  } catch (e) {
+    flashHudNote(describeError(e));
+    btn.disabled = false; btn.textContent = "Start now — fill empty seats with bots";
+  }
+}
+
 function waitingRoomScreen(): void {
+  beforeScreen();
   $("veil").style.display = "flex";
-  $("panel").classList.remove("about");
   const connectedN = directory ? directory.filter((d) => d.bot || (presence[d.seat]?.connected ?? d.connected)).length : 0;
   $("panel").innerHTML = `
     <h1>Waiting for the table</h1>
-    ${currentJoinCode ? `<p class="mut">join code</p><h1 style="letter-spacing:.14em;color:var(--gold)">${currentJoinCode}</h1>` : ""}
+    ${currentJoinCode ? `
+      <p class="mut">join code</p><h1 style="letter-spacing:.14em;color:var(--gold)">${currentJoinCode}</h1>
+      <button id="btnCopyInvite" style="background:rgba(255,255,255,.08)">copy invite link</button>` : ""}
     <div class="rows">${[0, 1, 2, 3].map((s) => {
       const d = directory?.[s];
       const isMe = s === mySeat;
@@ -817,9 +900,14 @@ function waitingRoomScreen(): void {
         <span class="c2">${d?.bot ? "bot" : conn ? "connected" : "waiting…"}</span></div>`;
     }).join("")}</div>
     <p class="mut">waiting for ${Math.max(0, 4 - connectedN)} more player${Math.max(0, 4 - connectedN) === 1 ? "" : "s"}</p>
-    <button id="btnLeaveWait" style="background:rgba(255,255,255,.08)">◂ leave</button>`;
+    ${isCreatorOfCurrentTable ? `<button id="btnStartNow">Start now — fill empty seats with bots</button>` : ""}
+    <button id="btnLeaveWait" style="background:rgba(255,255,255,.08);margin-left:${isCreatorOfCurrentTable ? "8px" : "0"}">◂ leave</button>`;
+  const copyBtn = document.getElementById("btnCopyInvite");
+  if (copyBtn) copyBtn.onclick = () => void copyInviteLink();
+  const startBtn = document.getElementById("btnStartNow") as HTMLButtonElement | null;
+  if (startBtn) startBtn.onclick = () => void startTableNow(startBtn);
   const b = document.getElementById("btnLeaveWait");
-  if (b) (b as HTMLButtonElement).onclick = () => leaveTable();
+  if (b) (b as HTMLButtonElement).onclick = () => void leaveTableAndReturn(currentMatchUuid);
 }
 
 /** "played like the engine 62% · 41 moves" — server truth (`matchAgreement`),
@@ -835,8 +923,8 @@ const agreementLine = (seat: SeatIndex): string => {
 function showMatchEndScreen(): void {
   const info = matchEndInfo;
   if (!info) return;
+  beforeScreen();
   $("veil").style.display = "flex";
-  $("panel").classList.remove("about");
   const order = [0, 1, 2, 3].sort((a, b) => info.standings[b]! - info.standings[a]!);
   const place = order.indexOf(mySeat) + 1;
   const mine = isDesktop() && matchAgreement ? matchAgreement[mySeat] : null;
@@ -862,15 +950,23 @@ function showMatchEndScreen(): void {
   (document.getElementById("btnBackLobby") as HTMLButtonElement).onclick = () => {
     matchEndInfo = null; ts?.close(); ts = null; snap = null; directory = null;
     sessionHands.length = 0; coachTally.graded = 0; coachTally.matched = 0; matchAgreement = undefined;
+    currentMatchUuid = null; currentJoinCode = null; isCreatorOfCurrentTable = false;
     lobbyScreen();
   };
 }
 
+/** Local-only: closes the socket and returns to the lobby. Does NOT call
+ *  the server's `/leave` — that is `leaveTableAndReturn()`'s job, for the
+ *  cases where the player is actually asking to be replaced by a bot
+ *  (the quit-menu confirm, the waiting-room leave button). This is also the
+ *  fallback for "there is nothing left to leave" paths: after `matchEnd`,
+ *  and a join that was refused outright. */
 function leaveTable(): void {
   ts?.close(); ts = null;
   sessionStorage.removeItem(SESSION_KEY);
   snap = null; directory = null; matchEndInfo = null; overlay = null; curLegal = null; pending = null;
   matchAgreement = undefined;
+  currentMatchUuid = null; currentJoinCode = null; isCreatorOfCurrentTable = false;
   stopClock();
   lobbyScreen();
 }
@@ -1146,12 +1242,15 @@ function setConnBadge(msg: string): void {
 /* ── socket wiring ─────────────────────────────────────────────────────── */
 function connectToMatch(r: {
   matchUuid: string; joinCode: string | null; seat: SeatIndex; seatToken: string;
-  rulesetId: string; matchFormat: MatchFormat;
+  rulesetId: string; matchFormat: MatchFormat; creator?: boolean;
 }): void {
   currentMatchUuid = r.matchUuid; currentJoinCode = r.joinCode;
   currentRulesetId = r.rulesetId; currentMatchFormat = r.matchFormat;
   mySeat = r.seat;
-  sessionStorage.setItem(SESSION_KEY, JSON.stringify({ matchUuid: r.matchUuid, joinCode: r.joinCode, seat: r.seat }));
+  isCreatorOfCurrentTable = r.creator ?? false;
+  sessionStorage.setItem(SESSION_KEY, JSON.stringify({
+    matchUuid: r.matchUuid, joinCode: r.joinCode, seat: r.seat, creator: isCreatorOfCurrentTable,
+  }));
   snap = null; directory = null; lastSeq = -1; curLegal = null; pending = null;
   overlay = null; matchEndInfo = null; matchAgreement = undefined;
   pileTiles = []; handSig = ""; landingMeld = null; feed.length = 0;
@@ -1213,8 +1312,8 @@ function connectToMatch(r: {
 }
 
 function fatalScreen(msg: string): void {
+  beforeScreen();
   $("veil").style.display = "flex";
-  $("panel").classList.remove("about");
   $("panel").innerHTML = `<h1>Something needs a reload</h1><p>${msg}</p>
     <button id="btnReload">reload ▸</button>`;
   (document.getElementById("btnReload") as HTMLButtonElement).onclick = () => location.reload();
@@ -1227,6 +1326,21 @@ const wireBack = (to: () => void): void => {
   if (b) (b as HTMLButtonElement).onclick = () => to();
 };
 
+/* ── the lobby's own poll: 5s while lobbyScreen is showing, stopped the
+ * instant anything else is (task: "stop when it is not"). Every OTHER
+ * screen function calls `beforeScreen()` first, which is what stops it —
+ * there is no separate "leaving the lobby" event to hook. */
+let lobbyPollTimer = 0;
+let lobbyGen = 0;
+let lobbyData: LobbyPayload | null = null;
+function stopLobbyPoll(): void { window.clearInterval(lobbyPollTimer); lobbyPollTimer = 0; }
+/** Every screen but the lobby calls this first: stops the lobby poll and
+ *  clears the two panel-width classes the lobby and about screens set. */
+function beforeScreen(): void {
+  stopLobbyPoll();
+  $("panel").classList.remove("about", "lobby3");
+}
+
 function describeError(e: unknown): string {
   if (e instanceof ApiError) return e.code;
   if (e instanceof RequestRejected) return e.code;
@@ -1235,6 +1349,7 @@ function describeError(e: unknown): string {
 }
 
 function aboutScreen(back: () => void): void {
+  beforeScreen();
   $("veil").style.display = "flex";
   $("panel").classList.add("about");
   $("panel").innerHTML = `
@@ -1267,8 +1382,8 @@ function aboutScreen(back: () => void): void {
 }
 
 function nameScreen(then: () => void): void {
+  beforeScreen();
   $("veil").style.display = "flex";
-  $("panel").classList.remove("about");
   $("panel").innerHTML = `
     <h1>香港麻雀 · MJRC</h1>
     <p>What should we call you? This is a private beta — every game you play
@@ -1287,6 +1402,7 @@ function nameScreen(then: () => void): void {
     if (!nm) { input.focus(); return; }
     try {
       identity = await identify(nm);
+      ensurePresenceHeartbeat();
       then();
     } catch (e) {
       $("nameNote").innerHTML = `<b style="color:var(--danger)">Could not reach the server</b> — ${describeError(e)}`;
@@ -1297,40 +1413,225 @@ function nameScreen(then: () => void): void {
   input.focus();
 }
 
-function lobbyScreen(): void {
-  $("veil").style.display = "flex";
-  $("panel").classList.remove("about");
-  $("panel").innerHTML = `
-    <h1>香港麻雀 · MJRC</h1>
-    <p class="mut">Playing as <b>${identity?.displayName ?? "—"}</b> ·
-      <a href="#" id="btnRename" style="color:var(--gold)">change name</a></p>
-    <div class="choices lobby" style="margin-top:16px">
-      <div class="choice" id="goNew"><b>New table ▸</b><span>Pick rules and length, invite by code.</span></div>
-      <div class="choice" id="goJoin"><b>Join by code</b><span>Enter a table's join code to sit down.</span></div>
-      <div class="choice" id="goStats"><b>Your games</b><span>Every match you have played — our record of it, not this device's.</span></div>
-    </div>
-    <p class="mut"><a href="#" id="btnAbout2" style="color:var(--gold)">what is this?</a></p>`;
-  (document.getElementById("goNew") as HTMLElement).onclick = () => newTableScreen();
-  (document.getElementById("goJoin") as HTMLElement).onclick = () => joinScreen();
-  (document.getElementById("goStats") as HTMLElement).onclick = () => statsScreen();
-  (document.getElementById("btnRename") as HTMLElement).onclick = (e) => { e.preventDefault(); nameScreen(lobbyScreen); };
-  (document.getElementById("btnAbout2") as HTMLElement).onclick = (e) => { e.preventDefault(); aboutScreen(lobbyScreen); };
+/** "hand 3/4" — `hand` is 0-indexed on the wire, `handsBase` is the
+ *  dealership-count denominator (4 east, 16 full); a repeat pushes the
+ *  numerator past it on purpose ("hand 5/4" — task spec item 6). */
+function handLabel(hand: number | undefined, handsBase: number | undefined): string {
+  if (hand === undefined || handsBase === undefined) return "in a hand";
+  return `hand ${hand + 1}/${handsBase}`;
+}
+function ruleLabel(id: string): string {
+  return RULE_PICKS.find(([rid]) => rid === id)?.[1] ?? id;
+}
+const matchFormatLabel = (f: MatchFormat): string => (f === "full" ? "全莊" : "東圈");
+/** `createdBy` on the wire is a player id (schema.sql), not a name — the
+ *  creator is always the table's first human seat, so read the name off
+ *  `seats` instead and fall back to the raw id if that seat has none yet. */
+function creatorName(t: LobbyTable): string {
+  return t.seats.find((s) => s.kind === "human" && s.displayName)?.displayName ?? t.createdBy;
 }
 
-const newTableDraft: { rulesetId: string; matchFormat: MatchFormat; botSeats: number; bots: string[] } = {
-  rulesetId: "mjrc-standard", matchFormat: "east", botSeats: 3, bots: DEFAULT_BOT_LINEUP.slice(1),
-};
-/** Reset the picks to the default lineup for `n` bot seats — the last `n`
- *  entries of DEFAULT_BOT_LINEUP, in seat order (see the comment above it). */
-function defaultBotPicks(n: number): string[] {
-  return DEFAULT_BOT_LINEUP.slice(4 - n);
+function hereStateLabel(e: LobbyHereEntry, tables: LobbyTable[]): string {
+  if (e.state === "lobby") return "in the lobby";
+  if (e.state === "playing") return `playing, ${handLabel(e.hand, e.handsBase)}`;
+  const t = e.matchId ? tables.find((x) => x.matchId === e.matchId) : undefined;
+  if (!t) return "waiting at a table";
+  const filled = t.seats.filter((s) => s.kind === "bot" || s.connected).length;
+  return `waiting at a table ${filled}/4`;
 }
-let newTableGen = 0;
-function newTableScreen(): void {
-  const gen = ++newTableGen;
+function hereRowHtml(e: LobbyHereEntry, tables: LobbyTable[]): string {
+  const t = e.matchId ? tables.find((x) => x.matchId === e.matchId) : undefined;
+  const clickable = e.state === "waiting" && t?.access === "open" && t.lobbyStatus === "waiting" && !!t.joinCode;
+  const dot = e.state === "lobby" ? "here" : e.state === "waiting" ? "wait" : "play";
+  return `<div class="row${clickable ? " clickable" : ""}" ${clickable ? `data-code="${t!.joinCode}"` : ""}>
+    <span class="dot ${dot}"></span>
+    <span class="c1">${esc(e.displayName)}</span>
+    <span class="c2 mut" style="width:auto">${hereStateLabel(e, tables)}</span></div>`;
+}
+
+function seatTileHtml(s: LobbyTableSeat): string {
+  const filled = s.kind === "bot" || !!s.displayName;
+  const label = s.kind === "bot" ? (s.displayName ?? "bot") : (s.displayName ?? "empty");
+  return `<span class="seattile ${s.kind === "bot" ? "bot" : filled ? "human" : "empty"}">${esc(label)}</span>`;
+}
+function tableRowHtml(t: LobbyTable): string {
+  const filled = t.seats.filter((s) => s.kind === "bot" || s.connected).length;
+  const canSit = t.access === "open" && t.lobbyStatus === "waiting" && !!t.joinCode;
+  const status = t.lobbyStatus === "playing" ? handLabel(t.hand, t.handsBase)
+    : t.lobbyStatus === "waiting" ? `${filled}/4 seated` : "";
+  return `<div class="tablerow">
+    <div class="tr-head">
+      <b>${esc(creatorName(t))}</b>
+      <span class="badge ${t.mode}">${t.mode}</span>
+      ${t.access === "private" ? `<span class="lock" title="private — needs the code">🔒</span>` : ""}
+      <span class="mut">${esc(ruleLabel(t.rulesetId))} · ${matchFormatLabel(t.matchFormat)}</span>
+    </div>
+    <div class="tr-seats">${t.seats.map(seatTileHtml).join("")}</div>
+    <div class="tr-foot"><span class="mut">${status}</span>
+      ${canSit ? `<button class="sitdown" data-code="${t.joinCode}">Sit down</button>` : ""}</div>
+  </div>`;
+}
+
+function recentRowHtml(m: LobbyRecentMatchSafe): string {
+  const order = [...m.standings].sort((a, b) => a.place - b.place);
+  const line = order.map((s) =>
+    `${s.place}. ${esc(s.displayName)} <b class="${s.chips > 0 ? "up" : s.chips < 0 ? "down" : ""}">${fmtChips(s.chips)}</b>`,
+  ).join(" &nbsp;·&nbsp; ");
+  return `<div class="row"><span class="c1">${new Date(m.endedAt).toLocaleDateString()}
+    <span class="badge ${m.mode}">${m.mode}</span> &nbsp; ${line}</span></div>`;
+}
+/** `LobbyRecentMatch` re-exported locally only to keep this file's imports
+ *  from net.ts to one line above; identical shape. */
+type LobbyRecentMatchSafe = LobbyPayload["recent"][number];
+
+async function sitDownByCode(code: string): Promise<void> {
+  if (!identity) return;
+  try {
+    const r = await joinTable(identity.deviceToken, code);
+    connectToMatch({
+      matchUuid: r.matchUuid, joinCode: code, seat: r.seat, seatToken: r.seatToken,
+      rulesetId: r.rulesetId, matchFormat: r.matchFormat,
+    });
+  } catch (e) {
+    flashHudNote(describeError(e));
+    lobbyScreen();
+  }
+}
+
+function wireLobbyPanel(): void {
+  (document.getElementById("goNew") as HTMLElement).onclick = () => { beforeScreen(); newTableScreen(); };
+  (document.getElementById("goJoin") as HTMLElement).onclick = () => { beforeScreen(); joinScreen(); };
+  (document.getElementById("goStats") as HTMLElement).onclick = () => { beforeScreen(); statsScreen(); };
+  (document.getElementById("btnRename") as HTMLElement).onclick = (e) => { e.preventDefault(); beforeScreen(); nameScreen(lobbyScreen); };
+  (document.getElementById("btnAbout2") as HTMLElement).onclick = (e) => { e.preventDefault(); beforeScreen(); aboutScreen(lobbyScreen); };
+  for (const el of Array.from($("panel").querySelectorAll<HTMLElement>(".row.clickable[data-code]"))) {
+    el.onclick = () => { const code = el.dataset.code!; beforeScreen(); void sitDownByCode(code); };
+  }
+  for (const el of Array.from($("panel").querySelectorAll<HTMLButtonElement>("button.sitdown"))) {
+    el.onclick = () => { const code = el.dataset.code!; beforeScreen(); void sitDownByCode(code); };
+  }
+}
+
+/** Redraws from `lobbyData` only — never fetches. `lobbyData` starts `null`
+ *  ("reading…") and, per the task brief ("degrade gracefully… rather than
+ *  faking data"), simply stays whatever it last was on a failed poll — an
+ *  empty array once the first successful read comes back empty, never a
+ *  fabricated row. */
+function renderLobby(): void {
+  const data = lobbyData;
+  const here = data?.here ?? [];
+  const tables = data?.tables ?? [];
+  const recent = data?.recent ?? [];
+  const reading = data === null;
+  $("panel").innerHTML = `
+    <h1>香港麻雀 · MJRC</h1>
+    <p class="mut">Playing as <b>${esc(identity?.displayName ?? "—")}</b> ·
+      <a href="#" id="btnRename" style="color:var(--gold)">change name</a></p>
+    <div class="lobbygrid">
+      <div class="lobbycol">
+        <h2>Here now</h2>
+        <div class="rows">${here.length === 0
+          ? `<p class="mut">${reading ? "reading…" : "nobody else is around right now"}</p>`
+          : here.map((e) => hereRowHtml(e, tables)).join("")}</div>
+      </div>
+      <div class="lobbycol">
+        <h2>Open tables</h2>
+        <div class="tablelist">${tables.length === 0
+          ? `<p class="mut">${reading ? "reading…" : "no tables right now — start one"}</p>`
+          : tables.map(tableRowHtml).join("")}</div>
+      </div>
+      <div class="lobbycol">
+        <div class="choices lobby">
+          <div class="choice" id="goNew"><b>New table ▸</b><span>Pick rules, mode and seats, invite by code.</span></div>
+          <div class="choice" id="goJoin"><b>Join by code</b><span>Enter a table's join code to sit down.</span></div>
+          <div class="choice" id="goStats"><b>Your games</b><span>Every match you have played — our record of it, not this device's.</span></div>
+        </div>
+      </div>
+    </div>
+    <h2 style="margin-top:16px">Recent results</h2>
+    <div class="rows">${recent.length === 0
+      ? `<p class="mut">${reading ? "reading…" : "nothing finished yet"}</p>`
+      : recent.map(recentRowHtml).join("")}</div>
+    <p class="mut" style="margin-top:10px"><a href="#" id="btnAbout2" style="color:var(--gold)">what is this?</a></p>`;
+  wireLobbyPanel();
+}
+
+/** GET /api/lobby every 5s while this screen is up (§3, §7.2). Not yet
+ *  implemented server-side as of this build — a failed poll is swallowed and
+ *  the panels stay on whatever they last showed (or "reading…" on the very
+ *  first attempt), never a fake row. */
+async function refreshLobby(gen: number): Promise<void> {
+  if (!identity || gen !== lobbyGen) return;
+  try {
+    lobbyData = await getLobby(identity.deviceToken);
+  } catch {
+    /* degrade gracefully — see renderLobby's doc comment */
+  }
+  if (gen === lobbyGen) renderLobby();
+}
+
+function lobbyScreen(): void {
+  const gen = ++lobbyGen;
+  stopLobbyPoll();
   $("veil").style.display = "flex";
   $("panel").classList.remove("about");
-  const n = newTableDraft.botSeats;
+  $("panel").classList.add("lobby3");
+  renderLobby();
+  void refreshLobby(gen);
+  lobbyPollTimer = window.setInterval(() => void refreshLobby(gen), 5000);
+}
+
+/** Seat 東南西北 order, exactly what `POST /api/tables` `seats[4]` sends.
+ *  `bot` is remembered even while `kind === "human"` so toggling a seat back
+ *  to bot restores the last pick instead of resetting it. */
+interface SeatDraft { kind: "human" | "bot"; bot: string; }
+const newTableDraft: {
+  rulesetId: string; matchFormat: MatchFormat; mode: TableMode; access: TableAccess;
+  randomizeSeats: boolean; seats: [SeatDraft, SeatDraft, SeatDraft, SeatDraft];
+} = {
+  rulesetId: "mjrc-standard", matchFormat: "east", mode: "casual", access: "open", randomizeSeats: false,
+  seats: [
+    { kind: "human", bot: DEFAULT_BOT_LINEUP[0]! },
+    { kind: "bot", bot: DEFAULT_BOT_LINEUP[1]! },
+    { kind: "bot", bot: DEFAULT_BOT_LINEUP[2]! },
+    { kind: "bot", bot: DEFAULT_BOT_LINEUP[3]! },
+  ],
+};
+/** "The creator's own seat is the first human seat" (task spec item 3). */
+const firstHumanSeatIx = (): number => Math.max(0, newTableDraft.seats.findIndex((s) => s.kind === "human"));
+const humanSeatCount = (): number => newTableDraft.seats.filter((s) => s.kind === "human").length;
+const botDisplayName = (key: string): string => botCatalogue?.find((b) => b.key === key)?.displayName ?? key;
+
+function botChipsRow(i: number): string {
+  const picked = newTableDraft.seats[i]!.bot;
+  const catalogue = botCatalogue ?? [];
+  return catalogue.length > 0
+    ? catalogue.map((b) => `
+      <button class="botchip ${b.key === picked ? "on" : ""}" data-seat="${i}" data-key="${b.key}"
+        title="${esc(b.blurb)} · strength ${b.strength}/5">${esc(b.displayName)}</button>`).join("")
+    : `<button class="botchip on" data-seat="${i}" data-key="${picked}">${esc(picked)}</button>`;
+}
+function seatSlotHtml(i: number): string {
+  const seat = newTableDraft.seats[i]!;
+  const isCreator = seat.kind === "human" && firstHumanSeatIx() === i;
+  const ranked = newTableDraft.mode === "ranked";
+  const label = seat.kind === "human" ? (isCreator ? "you" : "open — a player joins") : botDisplayName(seat.bot);
+  return `<div class="seatslot">
+    <div class="seatcard ${seat.kind}${ranked ? " locked" : ""}" data-seat="${i}">
+      <span class="sc-wind">${WIND_CH[i]}</span>
+      <b class="sc-kind">${seat.kind === "human" ? "Human" : "Bot"}</b>
+      <span class="sc-label">${esc(label)}</span>
+    </div>
+    ${seat.kind === "bot" && !ranked ? `<div class="chips">${botChipsRow(i)}</div>` : ""}
+  </div>`;
+}
+
+let newTableGen = 0;
+function newTableScreen(): void {
+  beforeScreen();
+  const gen = ++newTableGen;
+  $("veil").style.display = "flex";
+  const ranked = newTableDraft.mode === "ranked";
   $("panel").innerHTML = `
     <h1>New table</h1>
     <h2>Length</h2>
@@ -1342,13 +1643,26 @@ function newTableScreen(): void {
     <div class="choices two">${RULE_PICKS.map(([id, label, blurb]) => `
       <div class="choice ${newTableDraft.rulesetId === id ? "sel" : ""}" data-r="${id}">
         <b>${label}</b><span>${blurb}</span></div>`).join("")}</div>
-    <h2>Bots</h2>
-    <div class="seg">${[0, 1, 2, 3].map((k) => `
-      <button class="${n === k ? "on" : ""}" data-bots="${k}">
-        <b>${k}</b><span>${k === 0 ? "all human" : k === 3 ? "solo vs bots" : `${4 - k} human seats`}</span></button>`).join("")}</div>
-    ${n > 0 ? `<p class="segcap">Who plays the ${n === 1 ? "bot seat" : "bot seats"} — tap a name to swap it.</p>
-    <div class="botpicks">${botPickerRows(n)}</div>` : ""}
-    <p class="mut">Playing as <b>${identity?.displayName ?? "—"}</b> ·
+    <h2>Mode</h2>
+    <div class="seg">
+      <button class="${!ranked ? "on" : ""}" data-mode="casual"><b>Casual</b><span>unrated · any mix of bots</span></button>
+      <button class="${ranked ? "on" : ""}" data-mode="ranked"><b>Ranked</b><span>rated · four humans</span></button>
+    </div>
+    <h2>Access</h2>
+    <div class="seg">
+      <button class="${newTableDraft.access === "open" ? "on" : ""}" data-access="open"><b>Open</b><span>listed in the lobby</span></button>
+      <button class="${newTableDraft.access === "private" ? "on" : ""}" data-access="private"><b>Private</b><span>code only</span></button>
+    </div>
+    <p class="segcap">${newTableDraft.access === "open"
+      ? "Everyone can see this table in the lobby and sit down."
+      : "Private — only people with the code can join."}</p>
+    <div class="setrow"><label style="width:auto;flex:1">Randomize seats at start</label>
+      <input type="checkbox" id="setRandomize" ${newTableDraft.randomizeSeats ? "checked" : ""}></div>
+    <h2>Seats</h2>
+    <p class="segcap">${ranked ? "Ranked needs four human seats — bots are off."
+      : "Tap a seat to swap human/bot; tap a bot's name below it to pick which one."}</p>
+    <div class="seatgrid">${[0, 1, 2, 3].map((i) => seatSlotHtml(i)).join("")}</div>
+    <p class="mut">Playing as <b>${esc(identity?.displayName ?? "—")}</b> ·
       <a href="#" id="btnRename" style="color:var(--gold)">change name</a></p>
     <button id="btnCreate">create table ▸</button>
     <button id="btnLobby" style="margin-left:8px;background:rgba(255,255,255,.08)">◂ lobby</button>
@@ -1356,62 +1670,73 @@ function newTableScreen(): void {
   for (const el of Array.from($("panel").querySelectorAll<HTMLElement>(".seg button[data-fmt]"))) {
     el.onclick = () => { newTableDraft.matchFormat = el.dataset.fmt as MatchFormat; newTableScreen(); };
   }
-  for (const el of Array.from($("panel").querySelectorAll<HTMLElement>(".seg button[data-bots]"))) {
+  for (const el of Array.from($("panel").querySelectorAll<HTMLElement>(".seg button[data-mode]"))) {
     el.onclick = () => {
-      const picked = Number(el.dataset.bots);
-      if (picked !== newTableDraft.botSeats) newTableDraft.bots = defaultBotPicks(picked);
-      newTableDraft.botSeats = picked;
+      newTableDraft.mode = el.dataset.mode as TableMode;
+      if (newTableDraft.mode === "ranked") for (const s of newTableDraft.seats) s.kind = "human";
       newTableScreen();
     };
   }
-  for (const el of Array.from($("panel").querySelectorAll<HTMLElement>(".choice"))) {
+  for (const el of Array.from($("panel").querySelectorAll<HTMLElement>(".seg button[data-access]"))) {
+    el.onclick = () => { newTableDraft.access = el.dataset.access as TableAccess; newTableScreen(); };
+  }
+  for (const el of Array.from($("panel").querySelectorAll<HTMLElement>(".choice[data-r]"))) {
     el.onclick = () => { newTableDraft.rulesetId = el.dataset.r!; newTableScreen(); };
   }
-  for (const el of Array.from($("panel").querySelectorAll<HTMLElement>(".botchip"))) {
-    el.onclick = () => {
-      const seatIx = Number(el.dataset.seatIx);
-      newTableDraft.bots[seatIx] = el.dataset.key!;
-      newTableScreen();
-    };
+  const rnd = document.getElementById("setRandomize") as HTMLInputElement | null;
+  if (rnd) rnd.onchange = () => { newTableDraft.randomizeSeats = rnd.checked; };
+  if (!ranked) {
+    for (const el of Array.from($("panel").querySelectorAll<HTMLElement>(".seatcard"))) {
+      el.onclick = () => {
+        const i = Number(el.dataset.seat);
+        const seat = newTableDraft.seats[i]!;
+        if (seat.kind === "human") {
+          if (humanSeatCount() <= 1) return; // the creator needs a seat somewhere
+          seat.kind = "bot";
+        } else {
+          seat.kind = "human";
+        }
+        newTableScreen();
+      };
+    }
+    for (const el of Array.from($("panel").querySelectorAll<HTMLElement>(".botchip"))) {
+      el.onclick = (e) => {
+        e.stopPropagation();
+        const i = Number(el.dataset.seat);
+        newTableDraft.seats[i]!.bot = el.dataset.key!;
+        newTableScreen();
+      };
+    }
   }
   const ren = document.getElementById("btnRename");
   if (ren) ren.onclick = (e) => { e.preventDefault(); nameScreen(newTableScreen); };
   wireBack(lobbyScreen);
   (document.getElementById("btnCreate") as HTMLButtonElement).onclick = () => void doCreateTable();
-  if (n > 0 && !botCatalogue) {
+  if (!botCatalogue) {
     void loadBotCatalogue().then(() => { if (gen === newTableGen) newTableScreen(); });
   }
 }
-/** One compact row per bot seat: a wrap of small name chips (catalogue once
- *  loaded, else just the current pick) — no modal, portrait-friendly. */
-function botPickerRows(n: number): string {
-  while (newTableDraft.bots.length < n) newTableDraft.bots.push(DEFAULT_BOT_LINEUP[DEFAULT_BOT_LINEUP.length - 1]!);
-  newTableDraft.bots.length = n;
-  const catalogue = botCatalogue ?? [];
-  const rows: string[] = [];
-  for (let i = 0; i < n; i++) {
-    const picked = newTableDraft.bots[i]!;
-    const chips = catalogue.length > 0
-      ? catalogue.map((b) => `
-        <button class="botchip ${b.key === picked ? "on" : ""}" data-seat-ix="${i}" data-key="${b.key}"
-          title="${b.blurb} · strength ${b.strength}/5">${b.displayName}</button>`).join("")
-      : `<button class="botchip on" data-seat-ix="${i}" data-key="${picked}">${picked}</button>`;
-    rows.push(`<div class="botrow"><span class="botlabel">bot ${i + 1}</span><div class="chips">${chips}</div></div>`);
-  }
-  return rows.join("");
-}
 async function doCreateTable(): Promise<void> {
   if (!identity) return;
+  if (humanSeatCount() < 1) {
+    const err = document.getElementById("createErr");
+    if (err) err.innerHTML = `<b style="color:var(--danger)">at least one seat has to be human — that's you</b>`;
+    return;
+  }
   const btn = document.getElementById("btnCreate") as HTMLButtonElement | null;
   if (btn) { btn.disabled = true; btn.textContent = "creating…"; }
   try {
+    const seats = newTableDraft.seats.map((s): SeatSpec =>
+      s.kind === "human" ? { kind: "human" } : { kind: "bot", bot: s.bot },
+    ) as [SeatSpec, SeatSpec, SeatSpec, SeatSpec];
     const r: CreateTableResult = await createTable(identity.deviceToken, {
-      rulesetId: newTableDraft.rulesetId, matchFormat: newTableDraft.matchFormat, botSeats: newTableDraft.botSeats,
-      ...(newTableDraft.botSeats > 0 ? { bots: newTableDraft.bots.slice(0, newTableDraft.botSeats) } : {}),
+      rulesetId: newTableDraft.rulesetId, matchFormat: newTableDraft.matchFormat,
+      mode: newTableDraft.mode, access: newTableDraft.access, randomizeSeats: newTableDraft.randomizeSeats,
+      seats,
     });
     connectToMatch({
       matchUuid: r.matchUuid, joinCode: r.joinCode, seat: r.seat, seatToken: r.seatToken,
-      rulesetId: r.rulesetId, matchFormat: r.matchFormat,
+      rulesetId: r.rulesetId, matchFormat: r.matchFormat, creator: true,
     });
   } catch (e) {
     if (btn) { btn.disabled = false; btn.textContent = "create table ▸"; }
@@ -1420,14 +1745,15 @@ async function doCreateTable(): Promise<void> {
   }
 }
 
-function joinScreen(): void {
+/** `prefill`: the code from a `/j/<code>` deep link — see `boot()`. */
+function joinScreen(prefill = ""): void {
+  beforeScreen();
   $("veil").style.display = "flex";
-  $("panel").classList.remove("about");
   $("panel").innerHTML = `
     <h1>Join a table</h1>
     <p class="mut">Enter the code the table's creator was shown.</p>
     <div class="setrow"><input id="codeIn" type="text" maxlength="10" autocapitalize="characters"
-      placeholder="join code" style="flex:1;padding:9px 12px;font-size:18px;letter-spacing:.08em;
+      placeholder="join code" value="${esc(prefill)}" style="flex:1;padding:9px 12px;font-size:18px;letter-spacing:.08em;
       text-transform:uppercase;border-radius:9px;background:rgba(255,255,255,.07);
       border:1px solid rgba(255,255,255,.18);color:var(--ink)"></div>
     <button id="btnJoin">join ▸</button>
@@ -1435,6 +1761,7 @@ function joinScreen(): void {
     <p class="mut" id="joinErr"></p>`;
   const input = document.getElementById("codeIn") as HTMLInputElement;
   input.focus();
+  if (prefill) input.select();
   const go = async (): Promise<void> => {
     if (!identity) return;
     const code = input.value.trim();
@@ -1459,8 +1786,8 @@ function joinScreen(): void {
 }
 
 function statsScreen(): void {
+  beforeScreen();
   $("veil").style.display = "flex";
-  $("panel").classList.remove("about");
   $("panel").innerHTML = `<h1>Your games</h1><p class="mut">reading…</p>`;
   if (!identity) { lobbyScreen(); return; }
   void listMatches(identity.deviceToken, { limit: 40 }).then((r) => {
@@ -1491,8 +1818,8 @@ function statsScreen(): void {
 }
 
 function settingsScreen(back: () => void): void {
+  beforeScreen();
   $("veil").style.display = "flex";
-  $("panel").classList.remove("about");
   $("panel").innerHTML = `
     <h1>Settings</h1>
     <h2 style="margin-top:14px">Table</h2>
@@ -1548,7 +1875,21 @@ async function copyDiagnostic(): Promise<void> {
 /* ── boot ──────────────────────────────────────────────────────────────── */
 (document.getElementById("btnFeedback") as HTMLButtonElement).onclick = () => void copyDiagnostic();
 (document.getElementById("btnSettings") as HTMLButtonElement).onclick = () => settingsScreen(() => syncVeil());
-(document.getElementById("btnQuit") as HTMLButtonElement).onclick = () => leaveTable();
+/** "Leave table" (task item 5): only a live seat needs the confirm and the
+ *  server-side `/leave` call — quitting from anywhere else (the lobby, a
+ *  finished match's scoreboard) is just "go to the lobby", which `leaveTable`
+ *  already does safely with a null `ts`. */
+(document.getElementById("btnQuit") as HTMLButtonElement).onclick = () => {
+  if (ts && currentMatchUuid && !matchEndInfo) {
+    const ok = window.confirm(
+      "Leave the table? A bot plays your seat for the rest of the match — you can come back.",
+    );
+    if (!ok) return;
+    void leaveTableAndReturn(currentMatchUuid);
+  } else {
+    leaveTable();
+  }
+};
 saveSettings();
 wireHover();
 document.addEventListener("visibilitychange", () => {
@@ -1559,12 +1900,12 @@ async function resumeOrLobby(): Promise<void> {
   const raw = sessionStorage.getItem(SESSION_KEY);
   if (raw && identity) {
     try {
-      const s = JSON.parse(raw) as { matchUuid: string; joinCode: string | null; seat: SeatIndex };
+      const s = JSON.parse(raw) as { matchUuid: string; joinCode: string | null; seat: SeatIndex; creator?: boolean };
       if (s.joinCode) {
         const r = await joinTable(identity.deviceToken, s.joinCode);
         connectToMatch({
           matchUuid: r.matchUuid, joinCode: s.joinCode, seat: r.seat, seatToken: r.seatToken,
-          rulesetId: r.rulesetId, matchFormat: r.matchFormat,
+          rulesetId: r.rulesetId, matchFormat: r.matchFormat, creator: s.creator,
         });
         return;
       }
@@ -1575,7 +1916,19 @@ async function resumeOrLobby(): Promise<void> {
   lobbyScreen();
 }
 
+/** `/j/<code>` deep link (task item 4): "go straight to the join flow with
+ *  the code filled (after identity), then history.replaceState to /." Read
+ *  once at boot, before the URL is rewritten — a resumed session (an active
+ *  match in sessionStorage) still loses to an explicit invite link, since
+ *  opening one is a deliberate act the task calls out by name. */
+function pendingJoinCodeFromUrl(): string | null {
+  const m = /^\/j\/([A-Za-z0-9]+)\/?$/.exec(location.pathname);
+  return m ? m[1]!.toUpperCase() : null;
+}
+
 async function boot(): Promise<void> {
+  const joinCode = pendingJoinCodeFromUrl();
+  if (joinCode) history.replaceState(null, "", "/");
   const stored = storedIdentity();
   if (stored.deviceToken && stored.displayName) {
     try {
@@ -1583,9 +1936,11 @@ async function boot(): Promise<void> {
     } catch {
       identity = { playerId: "", displayName: stored.displayName, rating: null, deviceToken: stored.deviceToken };
     }
-    await resumeOrLobby();
+    ensurePresenceHeartbeat();
+    if (joinCode) joinScreen(joinCode);
+    else await resumeOrLobby();
   } else {
-    nameScreen(() => aboutScreen(lobbyScreen));
+    nameScreen(() => (joinCode ? joinScreen(joinCode) : aboutScreen(lobbyScreen)));
   }
 }
 void boot();

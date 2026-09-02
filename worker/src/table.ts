@@ -359,6 +359,24 @@ export interface TableDeps {
    * Absent by default — the seam exists before the service does.
    */
   notify?: SeatNotifier;
+  /**
+   * Uniform [0, 1) for `handleFill`'s seat shuffle (lobby §6 decision 3) —
+   * NEVER `prng(seed)`: that stream is reserved for game facts a replay must
+   * reproduce, and who sat where before the clocks started is coordination,
+   * exactly like `mintSeatToken`. Injected so the shuffle is testable;
+   * production wiring uses the platform's CSPRNG. Defaults to that CSPRNG
+   * when omitted, so every existing caller of `TableCore`'s constructor keeps
+   * working unchanged.
+   */
+  rand?: () => number;
+  /**
+   * The bot profile that fills seat `seat` when `/fill` finds it still empty
+   * and the seat plan named no specific key (worker/README.md §8: "use the
+   * deployment's default lineup"). Opaque `key` — same seam as
+   * `TableSpec.bots` (gamepvp/src/bots.ts `BOT_LINEUP`). Absent means every
+   * unfilled seat falls back to a generic bot identity.
+   */
+  defaultBotFor?: (seat: SeatIndex) => { key: string; displayName: string };
 }
 
 export type SeatNotice = "tableFull" | "yourTurn" | "matchEnd";
@@ -377,6 +395,13 @@ export interface TableInit {
   rulesetHash?: string;
   roomCode?: string;
   joinCode?: string;
+  /**
+   * Shuffle the player↔seat mapping when `/fill` starts the clocks (lobby §6
+   * decision 3). Carried from `matches.randomize_seats` because the DECISION
+   * was the creator's, made at `POST /api/tables` time — `/fill` only carries
+   * it out, it does not re-decide it.
+   */
+  randomizeSeats?: boolean;
 }
 
 interface TableMeta extends TableInit {
@@ -528,6 +553,32 @@ function mintSeatToken(): string {
   let hex = "";
   for (const b of bytes) hex += b.toString(16).padStart(2, "0");
   return hex;
+}
+
+/** Coordination entropy, same rule as `mintSeatToken`: the platform's CSPRNG,
+ *  never `prng(seed)`. The production default for `TableDeps.rand`. */
+function cryptoRand(): number {
+  const buf = new Uint32Array(1);
+  (globalThis as { crypto: { getRandomValues(a: Uint32Array): Uint32Array } }).crypto.getRandomValues(buf);
+  return buf[0]! / 0x1_0000_0000;
+}
+
+/** Fisher-Yates over the four seats. Pure function of `rand`, so a seeded
+ *  `rand` makes the permutation reproducible in tests (`handleFill`'s doc
+ *  comment). Returns `perm` where `perm[oldSeat]` is the NEW seat that
+ *  player held `oldSeat` moves to. */
+function shuffleSeats(rand: () => number): FourSeats<SeatIndex> {
+  const order: SeatIndex[] = [0, 1, 2, 3];
+  for (let i = order.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(rand() * (i + 1));
+    const tmp = order[i]!;
+    order[i] = order[j]!;
+    order[j] = tmp;
+  }
+  // `order[newSeat] = oldSeat` — the standard Fisher-Yates result read
+  // exactly as it comes out, no inversion. `shufflePlayers` builds seat
+  // `newSeat`'s new contents by reading `order[newSeat]`.
+  return order as FourSeats<SeatIndex>;
 }
 
 /** Length-independent-ish compare, so a token check is not a timing oracle. */
@@ -756,6 +807,8 @@ export class TableCore {
     const url = new URL(request.url);
     if (url.pathname.endsWith("/init")) return this.handleInit(request);
     if (url.pathname.endsWith("/seat")) return this.handleSeat(request);
+    if (url.pathname.endsWith("/fill")) return this.handleFill(request);
+    if (url.pathname.endsWith("/leave")) return this.handleLeave(request);
     if (this.tombstone) return new Response("match over", { status: 410 });
     if (request.headers.get("Upgrade") !== "websocket") {
       return new Response("expected websocket", { status: 400 });
@@ -894,6 +947,223 @@ export class TableCore {
     });
   }
 
+  /**
+   * Lobby → table: the creator's "start now, fill the rest with bots" (§7.2
+   * `/start`, PVP-LOBBY-PROPOSAL-2026-09-02.md §3.4). Every human seat nobody
+   * has EVER claimed (`playerId === ""` — `handleSeat`'s own test) becomes a
+   * bot; a seat a human already claimed but has not yet opened a socket is
+   * left alone — that is "joined but currently offline", which the
+   * disconnect-grace/bot-takeover path already covers, and `/fill` is
+   * answering a different question ("nobody ever showed up at all"). Then, if
+   * the table was created with `randomizeSeats`, the player↔seat mapping is
+   * shuffled — before the clocks start, so it decides nothing about a hand
+   * nobody has looked at yet. Finally the existing clock-start path runs,
+   * same as when the last human seat connects on its own.
+   *
+   * Idempotent: once the table has started this is a no-op 200 — a retried
+   * request, or a second click, changes nothing.
+   */
+  private async handleFill(request: Request): Promise<Response> {
+    const secret = this.env.TABLE_SECRET;
+    if (secret && !tokensMatch(request.headers.get("x-mjrc-table-secret") ?? "", secret)) {
+      return new Response("forbidden", { status: 403 });
+    }
+    if (this.tombstone || this.book.matchOver) return new Response("match over", { status: 410 });
+    if (!this.meta) return new Response("table not initialised", { status: 409 });
+
+    const okResponse = () =>
+      new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json; charset=utf-8" },
+      });
+    if (this.book.started) return okResponse();
+
+    const meta = this.meta;
+    const players = four((seat) => meta.header.players[seat]);
+    for (const seat of SEATS) {
+      const current = players[seat];
+      if (current.bot || current.playerId !== "") continue;
+      const pick = this.deps.defaultBotFor?.(seat) ?? {
+        key: `seat${seat}`,
+        displayName: `Bot ${seat + 1}`,
+      };
+      const playerId = `bot:${pick.key}`;
+      players[seat] = { playerId, displayName: pick.displayName, seat, bot: true };
+      await this.ensureBotPlayerRow(playerId, pick.displayName);
+    }
+    this.meta = { ...meta, header: { ...meta.header, players } };
+
+    if (this.meta.randomizeSeats) this.shufflePlayers(this.deps.rand ?? cryptoRand);
+
+    await this.persistCore();
+    await this.maybeStartClocks();
+    return okResponse();
+  }
+
+  /**
+   * Permute the player↔seat mapping (lobby §6 decision 3): `header.players`,
+   * `seatTokens`, `presence` and the client-recorded bookkeeping move
+   * together. The dealt hand (`state`) does NOT move — it stays keyed by
+   * physical seat, because a permutation of who sits where before the clocks
+   * start decides nothing about a hand nobody has looked at yet
+   * (`handleInit`'s doc comment: hand 0 is dealt with nobody connected). Any
+   * socket already open is rewritten in place, because the only thing a
+   * client remembers is its seat token, and the token stays valid at
+   * whichever seat it now resolves to — `handleJoin` matches by token, not by
+   * the seat a client last heard it was at.
+   */
+  private shufflePlayers(rand: () => number): void {
+    const meta = this.requireMeta();
+    const order = shuffleSeats(rand); // order[newSeat] = the seat that moves there
+
+    const newPlayers = four((newSeat) => ({ ...meta.header.players[order[newSeat]], seat: newSeat }));
+    const newSeatTokens = four((newSeat) => meta.seatTokens[order[newSeat]]);
+    const newPresence = four((newSeat) => this.presence[order[newSeat]]);
+    const newClients = four((newSeat) => this.book.clients[order[newSeat]]);
+
+    this.meta = { ...meta, header: { ...meta.header, players: newPlayers }, seatTokens: newSeatTokens };
+    this.presence = newPresence;
+    this.book.clients = newClients;
+
+    const newSeatOfOld = new Map<SeatIndex, SeatIndex>();
+    order.forEach((oldSeat, newSeat) => newSeatOfOld.set(oldSeat, newSeat as SeatIndex));
+    for (const ws of this.ctx.getWebSockets()) {
+      const att = this.attachmentOf(ws);
+      if (!att) continue;
+      const newSeat = newSeatOfOld.get(att.seat);
+      if (newSeat === undefined || newSeat === att.seat) continue;
+      ws.serializeAttachment({
+        matchId: att.matchId,
+        seat: newSeat,
+        playerId: att.playerId,
+      } satisfies SocketAttachment);
+    }
+  }
+
+  /** Bots are players (schema.sql `players.kind = 'bot'`) and `hands`
+   *  references them by id, so a row must exist before the first hand that
+   *  names this bot can be archived — same requirement `ensureBotPlayers`
+   *  meets at table creation (gamepvp/src/index.ts), just reached from
+   *  inside the table object because `/fill` is the first place a NEW bot
+   *  identity can appear after creation. Idempotent (`INSERT OR IGNORE`);
+   *  fire-and-forget like every other lobby write from this object (item 6:
+   *  a D1 hiccup here must never stop `/fill` from starting the match). */
+  private async ensureBotPlayerRow(playerId: string, displayName: string): Promise<void> {
+    if (!this.env.DB) return;
+    try {
+      const now = new Date(this.deps.clock()).toISOString();
+      await this.env.DB.prepare(
+        `INSERT OR IGNORE INTO players (id, kind, display_name, created_at, updated_at, last_seen_at)
+         VALUES (?, 'bot', ?, ?, ?, ?)`,
+      )
+        .bind(playerId, displayName, now, now, now)
+        .run();
+    } catch (err) {
+      console.error("ensureBotPlayerRow failed", this.meta?.matchId, playerId, err);
+    }
+  }
+
+  /** `matches.lobby_status` — 'playing' when the clocks start, 'done' at
+   *  match end (`bindingArchive.finishMatch`, which folds it into the same
+   *  UPDATE it already runs rather than a second round trip). Best-effort:
+   *  the game itself never depends on this column, only the stateless lobby
+   *  read does. */
+  private async writeLobbyStatus(status: string): Promise<void> {
+    if (!this.env.DB) return;
+    try {
+      await this.env.DB.prepare(`UPDATE matches SET lobby_status = ? WHERE id = ?`)
+        .bind(status, this.requireMeta().matchId)
+        .run();
+    } catch (err) {
+      console.error("writeLobbyStatus failed", this.meta?.matchId, status, err);
+    }
+  }
+
+  /** `matches.current_hand`, so the lobby can show "hand 3 of ~8" without
+   *  opening a socket (schema.sql, "Lobby-facing"). One UPDATE per deal,
+   *  best-effort — a D1 hiccup here must never interrupt the hand that just
+   *  started. */
+  private async writeCurrentHand(handIndex: number): Promise<void> {
+    if (!this.env.DB) return;
+    try {
+      await this.env.DB.prepare(`UPDATE matches SET current_hand = ? WHERE id = ?`)
+        .bind(handIndex, this.requireMeta().matchId)
+        .run();
+    } catch (err) {
+      console.error("writeCurrentHand failed", this.meta?.matchId, handIndex, err);
+    }
+  }
+
+  /** `match_players.connected` — a lobby-facing cache of "is this seat's
+   *  human here right now" (schema.sql, "Lobby-facing"). A no-op UPDATE for a
+   *  bot seat, which never has a `match_players` row to match (nothing ever
+   *  inserts one — see `humanSeatsOfMatch`'s doc comment in worker/src/db.ts).
+   *  Best-effort, like every other lobby write from this object. */
+  private async writeSeatConnected(seat: SeatIndex, connected: boolean): Promise<void> {
+    if (!this.env.DB) return;
+    try {
+      await this.env.DB.prepare(`UPDATE match_players SET connected = ? WHERE match_id = ? AND seat = ?`)
+        .bind(connected ? 1 : 0, this.requireMeta().matchId, seat)
+        .run();
+    } catch (err) {
+      console.error("writeSeatConnected failed", this.meta?.matchId, seat, err);
+    }
+  }
+
+  /**
+   * Lobby → table: a participant's explicit leave (§7.2 `/leave`). The seat
+   * is marked bot-acting for the rest of the match — the same state a
+   * disconnect grace expiring produces (`onGraceExpired`) — so it plays out
+   * exactly like a takeover: counted in `bot_takeover_hands`, decided by
+   * `BotBrain` from here on. Its socket, if any, is closed with 4001 "left" so
+   * the client can tell a deliberate leave from a network drop. The seat
+   * token is untouched: reclaim stays possible, which is the feature — "I
+   * left, changed my mind" is a rejoin (proposal §3.2).
+   *
+   * Idempotent: a seat already bot-acting, or a bot seat, answers 200 and
+   * changes nothing further (the socket-close loop still runs, harmlessly,
+   * in case a stray reconnect raced this call).
+   */
+  private async handleLeave(request: Request): Promise<Response> {
+    const secret = this.env.TABLE_SECRET;
+    if (secret && !tokensMatch(request.headers.get("x-mjrc-table-secret") ?? "", secret)) {
+      return new Response("forbidden", { status: 403 });
+    }
+    if (this.tombstone || this.book.matchOver) return new Response("match over", { status: 410 });
+    if (!this.meta) return new Response("table not initialised", { status: 409 });
+
+    let body: { playerId?: unknown };
+    try {
+      body = (await request.json()) as typeof body;
+    } catch {
+      return new Response("malformed leave", { status: 400 });
+    }
+    const playerId = body.playerId;
+    if (typeof playerId !== "string" || playerId === "") {
+      return new Response("malformed leave", { status: 400 });
+    }
+
+    const meta = this.meta;
+    const seat = SEATS.find((s) => meta.header.players[s].playerId === playerId);
+    if (seat === undefined) return new Response("not seated", { status: 404 });
+
+    if (!meta.header.players[seat].bot && !this.presence[seat].botActing) {
+      this.presence[seat] = { connected: false, botActing: true };
+      this.armDerived(this.deps.clock());
+      await this.persistCore();
+      this.broadcastPresence(seat);
+      await this.rearm();
+    }
+    for (const ws of this.ctx.getWebSockets()) {
+      const att = this.attachmentOf(ws);
+      if (att?.seat === seat) ws.close(4001, "left");
+    }
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { "content-type": "application/json; charset=utf-8" },
+    });
+  }
+
   /* ── sockets ─────────────────────────────────────────────────────────── */
 
   async webSocketMessage(ws: SeatSocket, message: string | ArrayBuffer): Promise<void> {
@@ -975,6 +1245,7 @@ export class TableCore {
     await this.persistCore();
     this.broadcastPresence(seat);
     await this.rearm();
+    await this.writeSeatConnected(seat, false);
   }
 
   private async handleJoin(
@@ -1018,6 +1289,7 @@ export class TableCore {
     const client = clientLabel(p.client);
     if (client !== null) this.book.clients[seat] = client;
     await this.persistCore();
+    await this.writeSeatConnected(seat, true);
 
     this.send(ws, {
       p: PROTOCOL_VERSION,
@@ -1403,6 +1675,8 @@ export class TableCore {
   }
 
   private async afterCommit(events: readonly GameEvent[]): Promise<void> {
+    const dealt = events.find((e) => e.type === "deal");
+    if (dealt) await this.writeCurrentHand(dealt.handIndex);
     const ended = events.find(isHandEnd);
     if (ended) {
       // The row's facts are read off the book BEFORE advancing, because the
@@ -1434,6 +1708,7 @@ export class TableCore {
     this.armDerived(this.deps.clock());
     await this.persistCore();
     await this.rearm();
+    await this.writeLobbyStatus("playing");
     for (const seat of SEATS) this.notifySeat(seat, "tableFull");
   }
 
@@ -2152,9 +2427,13 @@ export function bindingArchive(env: TableEnv): Archive {
         JSON.stringify({ matchId: summary.matchId, hands: summary.handLogKeys }),
         { httpMetadata: { contentType: "application/json" } },
       );
+      // lobby_status = 'done' folds into this same UPDATE (item 6) rather
+      // than a second round trip — the outbox's own close-out is the one
+      // place that already knows the match is over for both meanings of
+      // "over" (schema.sql matches, "the lobby" comment on `lobby_status`).
       await env.DB.prepare(
         `UPDATE matches
-            SET status = 'complete', hand_count = ?, ended_at = ?, log_key = ?
+            SET status = 'complete', hand_count = ?, ended_at = ?, log_key = ?, lobby_status = 'done'
           WHERE id = ?`,
       )
         .bind(summary.handsPlayed, iso(summary.endedAt), manifestKey, summary.matchId)
@@ -2190,10 +2469,18 @@ export function bindingArchive(env: TableEnv): Archive {
  * — and a static import of one build into the persistence layer forecloses
  * that. The seam also lets the outbox be tested without the engine at all.
  */
-let installed: { rules: TableRules; bots: BotBrain } | null = null;
+let installed: {
+  rules: TableRules;
+  bots: BotBrain;
+  defaultBotFor?: (seat: SeatIndex) => { key: string; displayName: string };
+} | null = null;
 
-export function installTableRules(rules: TableRules, bots: BotBrain): void {
-  installed = { rules, bots };
+export function installTableRules(
+  rules: TableRules,
+  bots: BotBrain,
+  defaultBotFor?: (seat: SeatIndex) => { key: string; displayName: string },
+): void {
+  installed = { rules, bots, defaultBotFor };
 }
 
 /** Only known numeric keys survive, so a typo cannot smuggle in a field. */
@@ -2233,6 +2520,7 @@ export class TableDO {
       archive: bindingArchive(env),
       clock: () => Date.now(),
       config: configOverride(env.TABLE_CONFIG),
+      defaultBotFor: installed.defaultBotFor,
     });
   }
 

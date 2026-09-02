@@ -14,9 +14,10 @@ for *this seat only*; it is replaced whole, never patched.
 ## Files
 
 - `net.ts` — the wire layer. Identity + lobby HTTP calls (`identify`,
-  `createTable`, `joinTable`, `listMatches`, `matchDetail`), and
-  `TableSocket`: connect, `join`, reconnect with backoff, `resync`, heartbeat
-  echo, and a typed callback per server message. Holds no game state.
+  `createTable`, `joinTable`, `listMatches`, `matchDetail`, `getLobby`,
+  `postPresence`, `startTable`, `leaveTable`), and `TableSocket`: connect,
+  `join`, reconnect with backoff, `resync`, heartbeat echo, and a typed
+  callback per server message. Holds no game state.
 - `game.ts` — the client: DOM rendering, tile art, animations, screens, and
   the coach. Everything it knows about the match comes from `net.ts`'s
   callbacks.
@@ -32,20 +33,65 @@ for *this seat only*; it is replaced whole, never patched.
 
 1. Boot: read a stored device token + display name from `localStorage`
    (`mjrc.gamepvp.deviceToken`/`displayName`); if present, call
-   `identify()` to confirm/refresh; else show the name screen.
-2. Lobby → **New table** (`POST /api/tables`) or **Join by code**
-   (`POST /api/tables/:code/join`). Either way you get `{ matchUuid,
-   joinCode, seat, seatToken }`, persisted to `sessionStorage` under
-   `mjrc.gamepvp.activeMatch` so a reload re-joins the same match through the
-   join-by-code endpoint (`resumeOrLobby()`).
-3. `TableSocket.connect()` opens `wss://…/table/<matchUuid>`, sends `join`.
+   `identify()` to confirm/refresh; else show the name screen. Opening the
+   app at `/j/<code>` (an invite link — see "Waiting room" below) is read
+   once here, before anything else, and the URL is immediately rewritten to
+   `/` with `history.replaceState`; after identity resolves this sends the
+   player straight to `joinScreen(code)` (code pre-filled, not auto-submitted)
+   instead of the lobby or a resumed session — a deep link is a deliberate
+   act and wins over both.
+2. **Lobby** (`lobbyScreen()`/`renderLobby()`) — three panels, stacked on a
+   phone and side by side ≥900px (`.lobby3`/`.lobbygrid` in `index.html`):
+   **Here now** (everyone seen in the last 90s, from `GET /api/lobby`'s
+   `here[]`; tapping a name waiting at an *open* table sits down at it),
+   **Open tables** (`tables[]`; a lock icon for private tables, a **Sit
+   down** button only when open and waiting, seats as four small tiles),
+   then **New table** / **Join by code** / **Your games**, and a **Recent
+   results** strip (`recent[]`, last 5). Polled every 5s
+   (`refreshLobby`/`lobbyPollTimer`) while this screen is up; every other
+   screen function starts with `beforeScreen()`, which is what stops the
+   poll — there is no separate "left the lobby" event. A failed poll (the
+   backend not there yet, a network blip) is swallowed and the panels keep
+   showing whatever they last had, never a fabricated row.
+3. **New table** (`newTableScreen()`) — length, ruleset, **mode**
+   (casual/ranked — ranked forces every seat human and greys the bot
+   picker), **access** (open/private, with a one-line explanation),
+   **randomize seats at start**, and a 2×2 seat grid in seat order 東南西北.
+   Each seat is a card that cycles human↔bot; a bot seat shows the
+   catalogue's chips inline underneath for picking which one. The creator's
+   own seat is always the first human seat in the array and is labelled
+   "you" — toggling the last remaining human seat to bot is a no-op (the
+   creator needs a seat). `POST /api/tables` takes the new
+   `{ rulesetId, matchFormat, mode, access, randomizeSeats, seats }` shape;
+   `net.ts`'s `createTable()` no longer accepts the old `botSeats`/`bots`
+   fields (the server still does, converted, for anything else that calls
+   it).
+4. **Join by code** (`joinScreen(prefill?)`) or **Sit down**/tapping a
+   waiting entry in the lobby (`sitDownByCode()`, same
+   `POST /api/tables/:code/join` under the hood). Either way you get
+   `{ matchUuid, joinCode, seat, seatToken }`, persisted to `sessionStorage`
+   under `mjrc.gamepvp.activeMatch` (now also carrying `creator: boolean`)
+   so a reload re-joins the same match through the join-by-code endpoint
+   (`resumeOrLobby()`) and a page reload of the creator's own tab still
+   shows the waiting room's "Start now" button.
+5. `TableSocket.connect()` opens `wss://…/table/<matchUuid>`, sends `join`.
    `welcome` carries the seat, the directory and a full `SeatSnapshot` — the
    table renders immediately even before every human has connected (the
    server deals hand 0 at table-open time, `worker/src/table.ts`
    `handleInit`). A waiting-room veil sits over the table until every human
    seat in `directory` shows connected, or the first `prompt` arrives
    (whichever is proof the clocks started).
-4. `events`/`restore` messages carry a batch of `RedactedGameEvent`s **and**
+6. **Waiting room** (`waitingRoomScreen()`) — the join code, a **Copy invite
+   link** button (`${origin}/j/${code}`, `navigator.clipboard` with a
+   select-and-`execCommand("copy")` fallback for browsers without it), seat
+   cards live from `directory` + `presence`, and for the creator only
+   (`isCreatorOfCurrentTable`) a **Start now — fill empty seats with bots**
+   button (`POST /api/tables/:matchId/start`) — no local transition on
+   success, the server's own `prompt`/`events` clear the veil once the
+   clocks start. **Leave** calls `POST /api/tables/:matchId/leave`
+   best-effort (`leaveTableAndReturn()`) and always returns to the lobby
+   even if that call fails.
+7. `events`/`restore` messages carry a batch of `RedactedGameEvent`s **and**
    the snapshot from after they landed. `applyBatch()` enforces the
    contract literally: `consume(events)` animates against the *old* `snap`
    (still in scope), then `snap` is replaced. This ordering matters for one
@@ -53,31 +99,45 @@ for *this seat only*; it is replaced whole, never patched.
    computed from the pre-claim meld count, not the post-claim one, since
    Solo's synchronous reducer loop used to update `state` before consuming
    events and this client deliberately does the opposite.
-5. `prompt` is the only source of legality. `actionsOf(mySeat, legal)`
+8. `prompt` is the only source of legality. `actionsOf(mySeat, legal)`
    (`protocol/src/seatview.ts`) turns it into the same `Action[]` shape the
    old `legalActions()` produced, so the render/click code barely changed.
    Clicking sends a `request*` with a fresh `requestId` and disables the
    button (`pending = null`) until `accepted` or `rejected` comes back; a
    rejection re-enables the prompt and shows a short note.
-6. The turn/claim clock reads `prompt.deadlineTs` (Unix ms) and runs
+9. The turn/claim clock reads `prompt.deadlineTs` (Unix ms) and runs
    `requestAnimationFrame` **only** while a deadline is armed — cancelled the
    instant it passes or a new prompt/no-prompt state arrives. Solo's clock
    ran continuously from boot; this was the one item on the client
    performance budget called out by name (PVP-MULTIPLAYER-PLAN §2.2).
-7. `matchEnd` shows a scoreboard from the event's own `standings`/
-   `placements`, built up live from `sessionHands` (accumulated during play,
-   not fetched back from the server) plus a local `coachTally` for "engine
-   agreement". "Back to lobby" closes the socket and clears the session key.
-8. Reconnect: on an unexpected socket close, `TableSocket` retries with
-   capped exponential backoff and re-sends `join` with the same seat token
-   (the server does not invalidate it on disconnect — the token *is* the
-   reclaim credential, `table.ts` comment on `handleJoin`). If `join` itself
-   is rejected `unauthenticated` (an expired/consumed token), the callback
-   re-fetches one via `joinTable()` and retries over the same socket
-   (`TableSocket.rejoin()`). After every successful `welcome`, and on
-   `visibilitychange` back to `visible` (iOS suspends the socket in the
-   background), the client also sends an explicit `resync(lastSeq)` as a
-   race hedge — cheap since it is almost always an empty answer.
+10. **In-game "Leave table"** — the quit-menu button (`#btnQuit`), while a
+    match is live, asks to confirm ("a bot plays your seat for the rest of
+    the match; you can come back") before calling the same
+    `leaveTableAndReturn()` as the waiting room: `/leave`, then close the
+    socket and go to the lobby. Outside a live match the same button is
+    just "go to the lobby" (`leaveTable()`, no confirm, no server call).
+11. `matchEnd` shows a scoreboard from the event's own `standings`/
+    `placements`, built up live from `sessionHands` (accumulated during play,
+    not fetched back from the server) plus a local `coachTally` for "engine
+    agreement". "Back to lobby" closes the socket and clears the session key.
+12. Reconnect: on an unexpected socket close, `TableSocket` retries with
+    capped exponential backoff and re-sends `join` with the same seat token
+    (the server does not invalidate it on disconnect — the token *is* the
+    reclaim credential, `table.ts` comment on `handleJoin`). If `join` itself
+    is rejected `unauthenticated` (an expired/consumed token), the callback
+    re-fetches one via `joinTable()` and retries over the same socket
+    (`TableSocket.rejoin()`). After every successful `welcome`, and on
+    `visibilitychange` back to `visible` (iOS suspends the socket in the
+    background), the client also sends an explicit `resync(lastSeq)` as a
+    race hedge — cheap since it is almost always an empty answer.
+13. **Presence heartbeat**, decoupled from any one screen
+    (`ensurePresenceHeartbeat()`, started once identity exists): every 30s,
+    and once more on `visibilitychange` back to `visible`, while
+    `document.visibilityState === "visible"`, `POST /api/presence
+    { state: "lobby" }`. That literal `"lobby"` means "this device is open",
+    not "the lobby screen is showing" — `GET /api/lobby` derives the richer
+    waiting/playing state server-side from match participation, which is
+    why this keeps sending during a live match too.
 
 ## What was removed from Solo, and why
 
@@ -92,9 +152,10 @@ for *this seat only*; it is replaced whole, never patched.
   `#call`/`#say` `.s0`-`.s3` classes all key off `rel()`, while
   `snap.seats[...]`/`directory[...]` lookups always use the real seat.
 - **`TABLES`/`BOT_NAMES`.** Bot names and which seats are bots now come from
-  the server's `directory`. The frozen four-table picker is gone; a "New
-  table" screen instead lets the creator pick a ruleset and how many bot
-  seats (0-3) to fill.
+  the server's `directory`. The frozen four-table picker is gone; "New
+  table" is a 2×2 seat grid (東南西北) where each seat is independently
+  human or a specific bot from the catalogue, plus mode (casual/ranked),
+  access (open/private) and a randomize-seats-at-start toggle.
 - **The local IndexedDB recorder (`store.ts`, `sync.ts`).** Deleted outright
   — the server is the record now (`GET /api/matches`), and there is nothing
   left in this directory that imports them. "Your games" reads that endpoint
@@ -164,12 +225,15 @@ fire on a ~260 ms long-press, per the "touch first" client rule
   toss animations replaying for tiles that were already on the table,
   since the DOM nodes are new even though the discards are not. Cosmetic
   only.
-- **No explicit "leave"/forfeit request.** `ClientRequest` has no leave/quit
-  message type, so the "quit" button and "leave" from the waiting room just
-  close the socket; the server's existing disconnect-grace + bot-takeover
-  path is what actually removes the player from the seat's critical path.
-  There is no way for the client to mark its own departure as a forfeit
-  the way Solo's local recorder did.
+- **"Leave" is an HTTP call, not a socket request.** `ClientRequest` still has
+  no leave/quit message type — §7.2's `/leave` is a plain
+  `POST /api/tables/:matchId/leave`, called from the client before the socket
+  is closed (`leaveTableAndReturn()`), not a `request*` the table object
+  answers with `accepted`/`rejected`. If that POST fails (offline, the route
+  not deployed yet), the client still closes the socket and returns to the
+  lobby — the server's disconnect-grace + bot-takeover path is the fallback
+  either way, so a failed leave call degrades to what this file used to do
+  unconditionally, not to a stuck screen.
 - **Waiting-room "all connected" detection** is inferred client-side from
   `directory` + `presence` (every non-bot seat connected) rather than a
   dedicated server signal — the protocol has no explicit "match started"
