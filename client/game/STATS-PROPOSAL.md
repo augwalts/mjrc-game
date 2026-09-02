@@ -121,35 +121,60 @@ possible, and nothing yet uses it.
 
 ---
 
-## 4. The one real obstacle
+## 4. The obstacle I claimed, and why it was wrong
 
-**Per-hand detail is not stored.** `MatchRec` keeps `chips[]` (final only),
-`hands`, `won`, `selfDrawn`, `fed`, `drawnHands`, `seatWins[]` — and **no faan per
-win and no per-hand chip totals.**
+I first wrote that per-hand faan and chip totals "are not stored", so the two
+ported charts had no server-side source. **That was wrong, and the owner was
+right to push back: the entire game IS stored.**
 
-So charts 2 and 3 have no source, and this splits by surface:
+`actions_gz` is the complete action log, the reducer is pure, and replaying the
+inputs regenerates every event exactly. `engine/test/replay-upload.test.ts`
+proves it against **real traffic** — the fixture is Auhie's 7-hand match pulled
+out of the live database:
 
-| | client (your own games) | server (across testers) |
-| --- | --- | --- |
-| source | the local **event log** has everything | needs work |
-| cost | none — build today | see below |
+```
+672 actions  ->  1365 events  ·  7 hands  ·  5 wins
+final standings [-288, 0, 272, 16]  ==  the chips column in game_match
+```
 
-Server-side has three options:
+Every `handEnd` payload carries what a stats page needs:
 
-- **A — replay `actions_gz`.** The action log is uploaded and the reducer is
-  pure, so replaying regenerates the events exactly. Nothing new to store, and
-  it is correct by construction. Costs CPU per request, so it wants caching.
-- **B — add summary columns**: faan per win, per-hand chip totals. A migration
-  and a client change, and it silently misses every match already uploaded.
-- **C — client-only for now.** Charts 2 and 3 on your own games, tiers 2 and 3
-  shared. Ships immediately and defers the decision.
+```json
+{ "outcome": "winOnDiscard", "winner": 2, "loser": 0, "faan": 8,
+  "chipDeltas": [-128, 0, 128, 0], "standings": [-160, 0, 176, -16],
+  "dealerRepeats": true, "nextDealer": 2, "nextRoundWind": 0 }
+```
 
-**Recommendation: C now, A when the shared versions are wanted.** Tier 2 is the
-genuinely new thing and needs none of this — `game_move` is already in D1 and
-already complete.
+- `faan` per win → the **hand distribution** chart. That match: 5, 4, 8, 4, 7.
+- `standings` after every hand → the **score progression** chart, one line per
+  seat, which is exactly what `chart.ts::progressionSvg` already draws.
+- `outcome` distinguishes 流局, which a faan histogram has to exclude — two of
+  Auhie's seven hands were draws.
+
+So **no migration and no new columns.** What is missing is not the data, it is
+a *queryable* form of it: SQL cannot see inside a gzipped blob.
+
+### What actually needs building
+
+A replay step. Two shapes, and the choice is real:
+
+- **Replay on read.** The stats endpoint ungzips and replays the matches it
+  needs. Nothing new is stored and it cannot drift from the truth, because the
+  truth is recomputed every time. 672 actions replay in ~25ms, so a page over
+  a few dozen matches is fine; it wants a cache once the demo has hundreds.
+- **Replay on write, into a `game_hand` table.** One row per hand — faan,
+  outcome, chip deltas, standings — written when the match uploads, and
+  backfilled for the four matches already in D1 by replaying them once. SQL can
+  then aggregate directly, which every chart here wants.
+
+**Recommendation: replay on write.** The read path stays a plain query, the
+charts get to be SQL rather than JavaScript over blobs, and the backfill is
+cheap because the fixture test already shows the replay is exact. Keep
+`actions_gz` regardless — it is the source, and `game_hand` is a derived cache
+that can always be rebuilt from it.
 
 ### Suggested first build
 
-Chart 7 (your worst moves) and chart 4 (agreement by difficulty). Between them
-they answer "am I any good and where exactly am I losing it", they need no
-schema change, and they use the data the demo was built to collect.
+Chart 7 (your worst moves) and chart 4 (agreement by difficulty) still come
+first: `game_move` is already queryable and needs none of the above. Then
+`game_hand` and the two ported charts.
