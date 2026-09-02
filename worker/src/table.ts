@@ -1283,11 +1283,18 @@ export class TableCore {
     await this.rearm();
   }
 
-  async webSocketClose(ws: SeatSocket): Promise<void> {
+  // Diagnostic logging on the socket lifecycle is deliberate: a dropped seat
+  // on the live platform is invisible otherwise, and the close code is the
+  // only clue whether the client, an intermediary or the runtime ended it.
+  async webSocketClose(ws: SeatSocket, code?: number, reason?: string, wasClean?: boolean): Promise<void> {
+    const att = this.attachmentOf(ws);
+    console.log("ws close", this.meta?.matchId ?? "?", "seat", att?.seat ?? "?", "code", code, "reason", reason, "clean", wasClean);
     await this.onSocketGone(ws);
   }
 
-  async webSocketError(ws: SeatSocket): Promise<void> {
+  async webSocketError(ws: SeatSocket, error?: unknown): Promise<void> {
+    const att = this.attachmentOf(ws);
+    console.error("ws error", this.meta?.matchId ?? "?", "seat", att?.seat ?? "?", String(error));
     await this.onSocketGone(ws);
   }
 
@@ -2044,6 +2051,7 @@ export class TableCore {
 
   private async onGraceExpired(seat: SeatIndex): Promise<void> {
     if (this.presence[seat].connected) return;
+    console.log("grace expired", this.meta?.matchId ?? "?", "seat", seat, "bot takes over at hand", this.state?.handIndex);
     this.presence[seat] = { connected: false, botActing: true };
     this.armDerived(this.deps.clock());
     await this.persistCore();

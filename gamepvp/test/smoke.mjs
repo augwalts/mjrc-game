@@ -187,11 +187,18 @@ function handleEvents(events) {
 /* ── one seat's socket ─────────────────────────────────────────────────── */
 
 /** Resolves with the open WebSocket once `welcome` confirms the join. */
-function openSeatSocket(human, matchUuid) {
+const MAX_RECONNECTS = 8;
+
+function openSeatSocket(human, matchUuid, resume = null) {
   const label = `seat${human.seat}`;
   return new Promise((resolveConnected, rejectConnected) => {
     const ws = new WebSocket(`${WS_BASE}/table/${matchUuid}?gate=${GATE_HEX}`);
     let joined = false;
+    const openedAt = Date.now();
+    let lastSeq = resume?.lastSeq ?? -1;
+    const trackSeq = (events) => {
+      for (const e of events) if (typeof e.seq === "number" && e.seq > lastSeq) lastSeq = e.seq;
+    };
 
     const send = (type, payload) => {
       ws.send(JSON.stringify({ p: 1, requestId: randomUUID(), type, payload }));
@@ -212,7 +219,12 @@ function openSeatSocket(human, matchUuid) {
       switch (msg.type) {
         case "welcome":
           joined = true;
-          console.log(`${label}: joined match ${msg.payload.matchId} as seat ${msg.payload.seat}`);
+          if (resume) {
+            console.log(`${label}: rejoined (reconnect #${resume.count}); resync since seq ${lastSeq}`);
+            send("resync", { sinceSeq: lastSeq });
+          } else {
+            console.log(`${label}: joined match ${msg.payload.matchId} as seat ${msg.payload.seat}`);
+          }
           resolveConnected(ws);
           break;
         case "accepted":
@@ -223,9 +235,11 @@ function openSeatSocket(human, matchUuid) {
           );
           break;
         case "events":
+          trackSeq(msg.payload.events);
           handleEvents(msg.payload.events);
           break;
         case "restore":
+          trackSeq(msg.payload.events);
           handleEvents(msg.payload.events);
           break;
         case "prompt":
@@ -247,9 +261,19 @@ function openSeatSocket(human, matchUuid) {
     });
 
     ws.addEventListener("close", (ev) => {
-      if (!shared.matchEndPayload) {
-        faultDeferred.reject(new Error(`${label}: socket closed unexpectedly (code=${ev.code})`));
+      if (shared.matchEndPayload) return;
+      // The real client reconnects and resyncs; so does this one, and it
+      // records when the drop happened so a platform-side pattern shows up.
+      const count = (resume?.count ?? 0) + 1;
+      const alive = ((Date.now() - openedAt) / 1000).toFixed(0);
+      console.warn(`${label}: socket closed (code=${ev.code}, reason="${ev.reason}") after ${alive}s; reconnecting (#${count})`);
+      if (count > MAX_RECONNECTS) {
+        faultDeferred.reject(new Error(`${label}: gave up after ${MAX_RECONNECTS} reconnects`));
+        return;
       }
+      setTimeout(() => {
+        openSeatSocket(human, matchUuid, { count, lastSeq }).catch((err) => faultDeferred.reject(err));
+      }, 1000 * count);
     });
 
     ws.addEventListener("error", () => {
@@ -316,6 +340,8 @@ async function main() {
     const displayName = `Smoke${i}`;
     await apiFetch("/api/identity", { method: "POST", body: { deviceToken, displayName } });
     humans.push({ deviceToken, displayName });
+    // Printed so the match can be queried afterwards as this player.
+    console.log(`${displayName}: device token ${deviceToken}`);
   }
 
   const created = await apiFetch("/api/tables", {
