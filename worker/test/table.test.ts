@@ -18,6 +18,7 @@
 import { describe, expect, it } from "vitest";
 import type {
   Action,
+  ClaimOption,
   GameState,
   Phase,
   SeatIndex,
@@ -38,7 +39,7 @@ import type {
   ServerToSeat,
 } from "@mjrc/protocol";
 import * as engine from "../../engine/src/reducer.js";
-import { DEFAULT_TABLE_CONFIG, TableCore, bindingArchive } from "../src/table.js";
+import { DEFAULT_TABLE_CONFIG, TableCore, bindingArchive, configOverride } from "../src/table.js";
 import type {
   Applied,
   Archive,
@@ -288,6 +289,11 @@ class StubRules {
   handsEnded = 0;
   matchOverAfterHands = 99;
   matchSeed = 0;
+  /** What every `claimOffered` in the next discard's window offers — a test
+   *  overrides this to exercise `claimWindowMs`'s pung/chow/win tiers (§8a
+   *  rule 3). Every offered seat gets the same list; nothing here needs a
+   *  seat offered chow and another offered win in the same window. */
+  claimOptions: ClaimOption[] = [{ kind: "pung" }];
 
   startMatch(spec: MatchSpec): Applied {
     this.matchSeed = spec.seed;
@@ -400,7 +406,7 @@ class StubRules {
             seat: s,
             tile: action.tile,
             from: action.seat,
-            options: [{ kind: "pung" }],
+            options: clone(this.claimOptions),
             deadlineTs: 0,
           },
         });
@@ -789,9 +795,9 @@ describe("deadline multiplexer", () => {
     const names = t.core.deadlineSnapshot().map((d) => d.name);
     expect(names).toContain("disconnectGrace:3");
     expect(names).toContain("claimWindow");
-    expect(t.ctx.storage.alarm).toBe(start + DEFAULT_TABLE_CONFIG.claimWindowMs);
+    expect(t.ctx.storage.alarm).toBe(start + DEFAULT_TABLE_CONFIG.claimWindowMs.pung);
 
-    t.clock.now = start + DEFAULT_TABLE_CONFIG.claimWindowMs + 1;
+    t.clock.now = start + DEFAULT_TABLE_CONFIG.claimWindowMs.pung + 1;
     await t.core.alarm();
     expect(t.rules.calls.map((a) => a.type)).toContain("pass");
     // …and the grace is still there, untouched, re-armed as the next alarm.
@@ -873,6 +879,26 @@ describe("deadline multiplexer", () => {
     // A rejected move commits nothing, so the seat's clock keeps running down.
     expect(t.core.deadlineSnapshot().find((d) => d.name === "turnClock")?.at).toBe(armedAt);
   });
+
+  it("arms no turn clock at a table with exactly one human seat (§8a rule 4)", async () => {
+    const t = await seated({ botSeats: [1, 2, 3] });
+    // Seat 0 (human, dealer) is on turn and has not gone anywhere — nothing
+    // forces its own move along. `deadlineTs` on its prompt is 0 (the "no
+    // clock" the client watches for), which falls straight out of no
+    // "turnClock" entry existing to read.
+    const names = t.core.deadlineSnapshot().map((d) => d.name);
+    expect(names).not.toContain("turnClock");
+    expect(names).not.toContain("botPace:0");
+    const prompt = (t.sockets[0] as StubSocket).msgs("prompt").at(-1);
+    expect(prompt?.payload.deadlineTs).toBe(0);
+  });
+
+  it("keeps the turn clock at a table with more than one human seat", async () => {
+    // The two-bot, two-human default `seated()` table — still multi-human.
+    const t = await seated({ botSeats: [2, 3] });
+    const start = t.clock.now;
+    expect(t.core.deadlineSnapshot()).toContainEqual({ name: "turnClock", at: start + DEFAULT_TABLE_CONFIG.turnMs });
+  });
 });
 
 /* ── 3. claim windows and bot pacing ───────────────────────────────────── */
@@ -893,58 +919,78 @@ describe("claim windows", () => {
     expect(names).toContain("claimWindow");
   });
 
-  it("holds a bot's answer until the window's fixed minimum has run", async () => {
+  it("resolves a bot-only window as soon as the last bot answers, ignoring the fixed minimum (§8a rule 2)", async () => {
     const t = await seated({ botSeats: [1, 2, 3], config: { turnMs: 10_000_000 } });
+    // Inside the default botMinPaceMs-botMaxPaceMs band (250-900ms), so the
+    // clamp never enters into it — both bots are due at exactly the same tick.
+    t.bots.pace = 300;
     const start = t.clock.now;
     await request(t, 0, "requestDiscard", { tile: 0 });
-
-    t.clock.now = start + t.bots.pace + 1;
-    await t.core.alarm();
-    expect(t.bots.decideCalls.map((c) => c.seat).sort()).toEqual([1, 2]);
-    // Decided — but still not applied. The window owns the clock.
+    const names = t.core.deadlineSnapshot().map((d) => d.name);
+    expect(names).toContain("botPace:1");
+    expect(names).toContain("botPace:2");
     expect(t.rules.calls.map((a) => a.type)).toEqual(["discard"]);
 
-    t.clock.now = start + DEFAULT_TABLE_CONFIG.claimWindowMs + 1;
+    // One alarm() carries both paced answers AND the early close — no second
+    // jump out to claimWindowMs.pung (6000ms, an order of magnitude later) is
+    // needed, unlike a window a human is offered in.
+    t.clock.now = start + 300 + 1;
     await t.core.alarm();
+    expect(t.bots.decideCalls.map((c) => c.seat).sort()).toEqual([1, 2]);
     expect(t.rules.calls.slice(1).map((a) => `${a.type}:${a.seat}`)).toEqual(["pass:1", "pass:2"]);
+    expect(t.core.deadlineSnapshot().map((d) => d.name)).not.toContain("claimWindow");
   });
 
-  it("does not shorten the window when a human answers early", async () => {
+  it.each([
+    ["pung", 6_000] as const,
+    ["chow", 9_000] as const,
+    ["win", 15_000] as const,
+  ])("scales a human window's duration by the option offered — %s", async (kind, ms) => {
+    expect(DEFAULT_TABLE_CONFIG.claimWindowMs[kind]).toBe(ms); // pins the default this test exercises
+    const t = await seated({ config: { turnMs: 10_000_000 } });
+    t.rules.claimOptions = [{ kind }];
+    const start = t.clock.now;
+    await request(t, 0, "requestDiscard", { tile: 0 });
+    const closesAt = t.core.deadlineSnapshot().find((d) => d.name === "claimWindow")?.at;
+    expect(closesAt).toBe(start + ms);
+  });
+
+  it("keeps a human window open while a human is pending, then closes it the instant the last one answers (§8a rule 3)", async () => {
     const t = await seated({ config: { turnMs: 10_000_000 } });
     const start = t.clock.now;
     await request(t, 0, "requestDiscard", { tile: 0 });
     const closesAt = t.core.deadlineSnapshot().find((d) => d.name === "claimWindow")?.at;
-    expect(closesAt).toBe(start + DEFAULT_TABLE_CONFIG.claimWindowMs);
+    expect(closesAt).toBe(start + DEFAULT_TABLE_CONFIG.claimWindowMs.pung);
 
     t.clock.now = start + 40;
     await request(t, 1, "requestPass", { offerSeq: offerSeqFor(t.sockets[1] as StubSocket) });
-    t.clock.now = start + 80;
-    await request(t, 2, "requestPass", { offerSeq: offerSeqFor(t.sockets[2] as StubSocket) });
-
-    // Both answers are in and the window still has not moved or resolved.
+    // Seat 2 is still pending — the window has not moved or resolved.
     expect(t.rules.calls.map((a) => a.type)).toEqual(["discard"]);
     expect(t.core.deadlineSnapshot().find((d) => d.name === "claimWindow")?.at).toBe(closesAt);
     const acks = (t.sockets[1] as StubSocket).msgs("accepted");
     expect(acks.length).toBeGreaterThan(0);
 
-    t.clock.now = (closesAt ?? 0) + 1;
-    await t.core.alarm();
+    t.clock.now = start + 80;
+    await request(t, 2, "requestPass", { offerSeq: offerSeqFor(t.sockets[2] as StubSocket) });
+    // The last human has answered — the window closes at once, ~5,900ms
+    // before claimWindowMs.pung would otherwise have fired it.
     expect(t.rules.calls.slice(1).map((a) => `${a.type}:${a.seat}`)).toEqual(["pass:1", "pass:2"]);
+    expect(t.core.deadlineSnapshot().map((d) => d.name)).not.toContain("claimWindow");
   });
 
-  it("applies answers in seat order regardless of arrival order", async () => {
+  it("applies answers in seat order regardless of arrival order, even when that order closes the window early", async () => {
     const t = await seated({ config: { turnMs: 10_000_000 } });
-    const start = t.clock.now;
     await request(t, 0, "requestDiscard", { tile: 0 });
-    // Seat 2 answers first; seat 1 second. Resolution order must not follow the network.
+    // Seat 2 answers first; seat 1 (the last human pending) second — the
+    // window closes the moment seat 1 answers, and still resolves in
+    // ascending seat order, not arrival order.
     await request(t, 2, "requestClaim", {
       offerSeq: offerSeqFor(t.sockets[2] as StubSocket),
       option: { kind: "pung" },
     });
     await request(t, 1, "requestPass", { offerSeq: offerSeqFor(t.sockets[1] as StubSocket) });
-    t.clock.now = start + DEFAULT_TABLE_CONFIG.claimWindowMs + 1;
-    await t.core.alarm();
     expect(t.rules.calls.slice(1).map((a) => `${a.type}:${a.seat}`)).toEqual(["pass:1", "claim:2"]);
+    expect(t.core.deadlineSnapshot().map((d) => d.name)).not.toContain("claimWindow");
   });
 
   it("refuses a click on an offer that is no longer open", async () => {
@@ -1015,7 +1061,7 @@ describe("pause / resume", () => {
     const start = t.clock.now;
     await request(t, 0, "requestDiscard", { tile: 0 });
     const before = t.core.deadlineSnapshot().find((d) => d.name === "claimWindow")?.at;
-    expect(before).toBe(start + DEFAULT_TABLE_CONFIG.claimWindowMs);
+    expect(before).toBe(start + DEFAULT_TABLE_CONFIG.claimWindowMs.pung);
 
     t.clock.now = start + 100;
     await request(t, 1, "requestPause", {});
@@ -1297,7 +1343,7 @@ describe("outbox", () => {
   it("archives the whole hand, contiguous and in order", async () => {
     const t = await seated({ config: { turnMs: 10_000_000, handEndIntermissionMs: 0 } });
     await request(t, 0, "requestDiscard", { tile: 0 });
-    t.clock.now += DEFAULT_TABLE_CONFIG.claimWindowMs + 1;
+    t.clock.now += DEFAULT_TABLE_CONFIG.claimWindowMs.pung + 1;
     await t.core.alarm();
     await request(t, 1, "requestWinOnSelfDraw", {});
     t.clock.now += 1;
@@ -1593,8 +1639,10 @@ describe("/fill — the creator's start-now bot-fill", () => {
     expect(await res.json()).toEqual({ ok: true });
 
     // The table is full now (three new bots + the connected human) and the
-    // dealer (seat 0, human) is on turn — the clock is running.
-    expect(t.core.deadlineSnapshot().map((d) => d.name)).toContain("turnClock");
+    // dealer (seat 0, human) is on turn — but with only one human seat at
+    // this table, §8a rule 4 means no turn clock arms; that seat's own move
+    // waits indefinitely instead.
+    expect(t.core.deadlineSnapshot().map((d) => d.name)).not.toContain("turnClock");
 
     // The lobby write fired (item 6): `lobby_status` flips to 'playing'.
     expect(
@@ -2452,5 +2500,45 @@ describe("bindingArchive — ranked settlement", () => {
     // rating_games did not tick a second time — the read at the top of
     // `settleRatedMatch` found existing history and skipped everything after.
     for (const p of db.players) expect(p.rating_games).toBe(1);
+  });
+});
+
+/* ── 10. configOverride — the TABLE_CONFIG var's JSON shape ─────────────── */
+
+describe("configOverride", () => {
+  it("applies the old single-number claimWindowMs to all three kinds", () => {
+    const out = configOverride(
+      JSON.stringify({ turnMs: 20_000, claimWindowMs: 4_000, disconnectGraceMs: 60_000 }),
+    );
+    expect(out?.claimWindowMs).toEqual({ pung: 4_000, chow: 4_000, win: 4_000 });
+    expect(out?.turnMs).toBe(20_000);
+    expect(out?.disconnectGraceMs).toBe(60_000);
+  });
+
+  it("accepts the new { pung, chow, win } object, complete or partial", () => {
+    const full = configOverride(JSON.stringify({ claimWindowMs: { pung: 1_000, chow: 1_500, win: 2_500 } }));
+    expect(full?.claimWindowMs).toEqual({ pung: 1_000, chow: 1_500, win: 2_500 });
+
+    // A kind the object omits keeps DEFAULT_TABLE_CONFIG's, not 0 or undefined.
+    const partial = configOverride(JSON.stringify({ claimWindowMs: { win: 2_500 } }));
+    expect(partial?.claimWindowMs).toEqual({ ...DEFAULT_TABLE_CONFIG.claimWindowMs, win: 2_500 });
+  });
+
+  it("ignores a malformed claimWindowMs and leaves it out of the override entirely", () => {
+    const out = configOverride(JSON.stringify({ claimWindowMs: "soon", turnMs: 5_000 }));
+    expect(out?.claimWindowMs).toBeUndefined();
+    expect(out?.turnMs).toBe(5_000);
+  });
+
+  it("still rejects an unknown key and a negative or non-finite number", () => {
+    const out = configOverride(
+      JSON.stringify({ turnMs: -1, botMinPaceMs: Number.POSITIVE_INFINITY, notARealKey: 1, disconnectGraceMs: 60_000 }),
+    );
+    expect(out).toEqual({ disconnectGraceMs: 60_000 });
+  });
+
+  it("returns undefined for absent or unparsable input, same as before this existed", () => {
+    expect(configOverride(undefined)).toBeUndefined();
+    expect(configOverride("not json")).toBeUndefined();
   });
 });

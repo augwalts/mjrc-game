@@ -39,6 +39,7 @@ import { prng } from "@mjrc/engine";
 import { INITIAL_RATING, RATING_SYSTEM_ID, provisionalK, updateRatings } from "../../engine/src/rating.js";
 import type {
   Action,
+  ClaimKind,
   ClaimOption,
   FaanAward,
   GameState,
@@ -321,15 +322,35 @@ export interface Archive {
 }
 
 export interface TableConfig {
-  /** 摸 → 打. The seat's own clock; a bot takes the move when it expires. */
+  /**
+   * 摸 → 打. The seat's own clock; a bot takes the move when it expires. NOT
+   * armed at all when the table has exactly one human seat (§8a rule 4) — a
+   * lone human's turn waits indefinitely, and the disconnect grace plus
+   * auto-play are what still cover an absent player. Multi-human tables keep
+   * it.
+   */
   turnMs: number;
-  /** The FIXED MINIMUM claim window. It always runs in full — see openWindow. */
-  claimWindowMs: number;
+  /**
+   * The claim window's duration, by the STRONGEST option offered to a HUMAN
+   * seat in it (kong counts as pung; §8a rule 3). A window where every
+   * offered seat is bot-controlled ignores this entirely and resolves as
+   * soon as the last bot answers (rule 2) — these numbers never even become
+   * its `closesAt`. Once every human in the window has answered, it closes
+   * at once; the duration below is only the ceiling while a human is still
+   * pending.
+   */
+  claimWindowMs: { pung: number; chow: number; win: number };
   /** How long a dropped socket holds its seat before a bot plays it. */
   disconnectGraceMs: number;
   botMinPaceMs: number;
   botMaxPaceMs: number;
-  /** Margin keeping a bot's held answer strictly inside the window. */
+  /**
+   * Margin keeping a bot's held answer strictly inside a window that has a
+   * human pending. Does NOT apply to a bot-only window (§8a rule 2) — there,
+   * nothing human-visible is being protected, so a bot paces itself all the
+   * way up to its own `botMaxPaceMs` and the window closes the instant it
+   * answers.
+   */
   botWindowMarginMs: number;
   requestWindowMs: number;
   maxRequestsPerWindow: number;
@@ -348,10 +369,10 @@ export interface TableConfig {
 
 export const DEFAULT_TABLE_CONFIG: TableConfig = {
   turnMs: 20_000,
-  claimWindowMs: 5_000,
+  claimWindowMs: { pung: 6_000, chow: 9_000, win: 15_000 },
   disconnectGraceMs: 30_000,
-  botMinPaceMs: 700,
-  botMaxPaceMs: 2_500,
+  botMinPaceMs: 250,
+  botMaxPaceMs: 900,
   botWindowMarginMs: 400,
   requestWindowMs: 10_000,
   maxRequestsPerWindow: 40,
@@ -1842,16 +1863,20 @@ export class TableCore {
       if (!this.isBotControlled(seat)) {
         this.tallyGrade(seat, this.viewFor(seat), this.legalFor(seat), action);
       }
-      // HELD. The window always runs its full fixed minimum, so answering fast
-      // can never shorten it — a window that closed the instant everyone had
-      // answered would announce, by its own duration, that somebody was
-      // holding a claim (§5.2). This is also why claim resolution is
-      // deterministic: the answers are applied in seat order at the deadline,
-      // never in the order the packets happened to arrive.
+      // HELD — resolution is still in SEAT ORDER at the close, never in the
+      // order the packets happened to arrive, so an early close (below) is
+      // exactly as deterministic as a timed-out one (§5.2). Answering fast no
+      // longer shortens the window on its own (`windowReadyToClose` decides
+      // that, per §8a): while a human this window was offered to has not yet
+      // answered, holding every answer to the same close time is still what
+      // stops one human reading another's hesitation.
       win.answers[String(seat)] = action;
       this.armDerived(this.deps.clock());
       await this.persistCore();
       if (ws && requestId) this.send(ws, accepted(requestId, this.seq));
+      // §8a rules 2 and 3: once nothing is left pending that closing early
+      // would leak, resolve now rather than waiting for `closesAt`.
+      if (this.windowReadyToClose(win)) await this.closeWindow();
       return;
     }
 
@@ -1924,11 +1949,17 @@ export class TableCore {
     // already carries — never a second, possibly different, evaluation.
     const nextHandTs = this.handEndIntermissionActive() ? ts + this.config.handEndIntermissionMs : undefined;
 
+    // Same doctrine as `nextHandTs` just above: decided ONCE, from the drafts
+    // themselves, before any event is stamped — every `claimOffered` /
+    // `robKongWindow` event this commit produces gets exactly this one
+    // `closesAt`, never a per-event re-evaluation.
+    const windowClosesAt = this.computeWindowClosesAt(applied.events, ts);
+
     const events: GameEvent[] = [];
     for (const draft of applied.events) {
       const seq = this.seq++;
       let stamped = stampEvent(draft, meta.matchId, seq, ts);
-      stamped = stampWindowDeadline(stamped, ts + this.config.claimWindowMs);
+      stamped = stampWindowDeadline(stamped, windowClosesAt);
       stamped = stampHandEndDeadline(stamped, nextHandTs);
       events.push(stamped);
     }
@@ -2005,6 +2036,75 @@ export class TableCore {
       for (const k of keys.slice(i, i + STORAGE_BATCH)) slice[k] = batch[k];
       await this.ctx.storage.put(slice);
     }
+  }
+
+  /** A claim kind's human decision duration (§8a rule 3) — kong counts as pung. */
+  private claimDurationMs(kind: ClaimKind): number {
+    if (kind === "chow") return this.config.claimWindowMs.chow;
+    if (kind === "win") return this.config.claimWindowMs.win;
+    return this.config.claimWindowMs.pung; // pung, kong
+  }
+
+  /**
+   * The ceiling used for a window where every offered seat is bot-controlled
+   * (§8a rule 2): generous enough that `paceAt`'s clamp never compresses a
+   * bot's own pace, but otherwise irrelevant — `windowReadyToClose` resolves
+   * the window the instant the last bot answers, never by waiting this out.
+   */
+  private botOnlyWindowCeiling(ts: number): number {
+    return ts + this.config.botMaxPaceMs + this.config.botWindowMarginMs;
+  }
+
+  /**
+   * `closesAt` for the window this commit's drafts open, if any — computed
+   * from the drafts themselves (before they are stamped) because it depends
+   * on WHICH seats are offered and WHAT they are offered, not only on when.
+   * Returns `ts` when these drafts open no window; `stampWindowDeadline`
+   * ignores that value since it only ever touches a `claimOffered` or
+   * `robKongWindow` payload.
+   *
+   *  - A robKong window only ever offers a win (§ClaimOfferedPayload doc).
+   *  - A claim window's duration is the longest option offered to any HUMAN
+   *    seat in it (§8a rule 3); a window offered to no human at all — every
+   *    seat in it bot-controlled — uses `botOnlyWindowCeiling` instead
+   *    (§8a rule 2).
+   */
+  private computeWindowClosesAt(drafts: readonly EventDraft[], ts: number): number {
+    const rob = drafts.find(
+      (e): e is Extract<EventDraft, { type: "robKongWindow" }> => e.type === "robKongWindow",
+    );
+    if (rob) {
+      const humanOffered = rob.payload.offeredTo.some((s) => !this.isBotControlled(s));
+      return humanOffered ? ts + this.config.claimWindowMs.win : this.botOnlyWindowCeiling(ts);
+    }
+    const offers = drafts.filter(
+      (e): e is Extract<EventDraft, { type: "claimOffered" }> => e.type === "claimOffered",
+    );
+    if (offers.length === 0) return ts;
+    let longest = 0;
+    let anyHuman = false;
+    for (const o of offers) {
+      if (this.isBotControlled(o.payload.seat)) continue;
+      anyHuman = true;
+      for (const opt of o.payload.options) longest = Math.max(longest, this.claimDurationMs(opt.kind));
+    }
+    return anyHuman ? ts + longest : this.botOnlyWindowCeiling(ts);
+  }
+
+  /**
+   * §8a rules 2 and 3, unified: a window with any human offered waits ONLY on
+   * its humans — the whole reason the fixed minimum exists is to stop one
+   * human reading another's hesitation, and once every human has answered
+   * there is nothing left to protect, so the window closes at once even if a
+   * bot offered in it has not yet answered (it still gets its own paced
+   * deadline; §submit just stops making the table wait on it to close the
+   * window). A window offered to no human at all waits on every bot instead,
+   * because there nothing is hidden from anyone by holding it open longer.
+   */
+  private windowReadyToClose(win: WindowRecord): boolean {
+    const humanSeats = win.offered.filter((s) => !this.isBotControlled(s));
+    const pending = humanSeats.length > 0 ? humanSeats : win.offered;
+    return pending.every((s) => win.answers[String(s)] !== undefined);
   }
 
   /** Open a window the reducer just announced, or retire a spent one. */
@@ -2577,6 +2677,18 @@ export class TableCore {
   }
 
   /**
+   * Seats the HEADER says are human — §8a rule 4's count. Deliberately not
+   * `isBotControlled`: a disconnected or auto-played human seat is still a
+   * human who might come back and want a turn clock's absence to still hold,
+   * and `maybeStartClocks` already uses this same header field to decide the
+   * table is "full" of humans in the first place.
+   */
+  private humanSeatCount(): number {
+    const meta = this.requireMeta();
+    return SEATS.filter((s) => !meta.header.players[s].bot).length;
+  }
+
+  /**
    * Rebuild the deadlines that follow from the current situation. The
    * disconnect graces and the outbox retry are NOT touched here — they belong
    * to events that have nothing to do with whose turn it is, and clearing them
@@ -2590,20 +2702,31 @@ export class TableCore {
       if (win) {
         keep.add("claimWindow");
         this.setDeadlineIfNew("claimWindow", win.closesAt, `w${win.openedSeq}`);
+        // §8a rule 2: the margin exists to keep a bot's held answer strictly
+        // inside a window a human might still be reading. A window with no
+        // human offered has nothing to protect, so a bot there paces itself
+        // all the way to its own `botMaxPaceMs` uncompressed — `closesAt` is
+        // only `botOnlyWindowCeiling`, a safety net, not a real constraint.
+        const humanOffered = win.offered.some((s) => !this.isBotControlled(s));
         for (const seat of win.offered) {
           if (win.answers[String(seat)] !== undefined) continue;
           if (!this.isBotControlled(seat)) continue;
           const name: DeadlineName = `botPace:${seat}`;
           keep.add(name);
-          this.setDeadlineIfNew(
-            name,
-            this.paceAt(seat, now, win.closesAt - this.config.botWindowMarginMs),
-            `w${win.openedSeq}:${seat}`,
-          );
+          const notAfter = humanOffered
+            ? win.closesAt - this.config.botWindowMarginMs
+            : Number.POSITIVE_INFINITY;
+          this.setDeadlineIfNew(name, this.paceAt(seat, now, notAfter), `w${win.openedSeq}:${seat}`);
         }
       } else if (state.phase === "awaitDiscard") {
-        keep.add("turnClock");
-        this.setDeadlineIfNew("turnClock", now + this.config.turnMs, this.book.turnToken);
+        // §8a rule 4: a table with exactly one human seat never arms the turn
+        // clock — that seat's turn waits indefinitely (the disconnect grace
+        // and auto-play still cover an absent player). A bot's own turn is
+        // still paced below regardless, so this alone never stalls the table.
+        if (this.humanSeatCount() !== 1) {
+          keep.add("turnClock");
+          this.setDeadlineIfNew("turnClock", now + this.config.turnMs, this.book.turnToken);
+        }
         if (this.isBotControlled(state.turn)) {
           const name: DeadlineName = `botPace:${state.turn}`;
           keep.add(name);
@@ -3180,8 +3303,39 @@ export function installTableRules(
   installed = { rules, bots, defaultBotFor };
 }
 
-/** Only known numeric keys survive, so a typo cannot smuggle in a field. */
-function configOverride(raw: string | undefined): Partial<TableConfig> | undefined {
+const isFiniteNonNegative = (v: unknown): v is number =>
+  typeof v === "number" && Number.isFinite(v) && v >= 0;
+
+/**
+ * `claimWindowMs` alone within `configOverride`: accepts EITHER the old
+ * shape — a single number, applied to all three kinds alike, so an existing
+ * `TABLE_CONFIG` var keeps working untouched — or the new
+ * `{ pung, chow, win }` object (§8a rule 3), partial or complete; any kind it
+ * omits keeps `DEFAULT_TABLE_CONFIG`'s. Returns `undefined` when `raw` is
+ * neither shape, so the caller's default (or its own default) survives.
+ */
+function claimWindowMsOverride(raw: unknown): TableConfig["claimWindowMs"] | undefined {
+  if (isFiniteNonNegative(raw)) return { pung: raw, chow: raw, win: raw };
+  if (!raw || typeof raw !== "object") return undefined;
+  const rec = raw as Record<string, unknown>;
+  const merged = { ...DEFAULT_TABLE_CONFIG.claimWindowMs };
+  let any = false;
+  for (const kind of ["pung", "chow", "win"] as const) {
+    const v = rec[kind];
+    if (isFiniteNonNegative(v)) {
+      merged[kind] = v;
+      any = true;
+    }
+  }
+  return any ? merged : undefined;
+}
+
+/**
+ * Only known keys survive, so a typo cannot smuggle in a field. Exported
+ * only so worker/test/table.test.ts can exercise the `TABLE_CONFIG` var's
+ * JSON shape directly — `TableDO` (below) is its one production caller.
+ */
+export function configOverride(raw: string | undefined): Partial<TableConfig> | undefined {
   if (!raw) return undefined;
   let parsed: unknown;
   try {
@@ -3190,11 +3344,15 @@ function configOverride(raw: string | undefined): Partial<TableConfig> | undefin
     return undefined;
   }
   if (!parsed || typeof parsed !== "object") return undefined;
+  const rec = parsed as Record<string, unknown>;
   const out: Partial<TableConfig> = {};
   for (const key of Object.keys(DEFAULT_TABLE_CONFIG) as (keyof TableConfig)[]) {
-    const v = (parsed as Record<string, unknown>)[key];
-    if (typeof v === "number" && Number.isFinite(v) && v >= 0) out[key] = v;
+    if (key === "claimWindowMs") continue;
+    const v = rec[key];
+    if (isFiniteNonNegative(v)) out[key] = v;
   }
+  const claimWindowMs = claimWindowMsOverride(rec.claimWindowMs);
+  if (claimWindowMs) out.claimWindowMs = claimWindowMs;
   return out;
 }
 

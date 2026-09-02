@@ -56,9 +56,12 @@
   // start if they disagree.
   "vars": {
     "ENGINE_VERSION": "mjrc-engine/1.0.0",
-    // Augustine's rulings 2026-09-01: 20 s turn, 5 s claim window, 60 s grace
-    // (long enough for an app switch on a phone).
-    "TABLE_CONFIG": "{\"turnMs\":20000,\"claimWindowMs\":5000,\"disconnectGraceMs\":60000}"
+    // Augustine's rulings 2026-09-01 (20 s turn, 60 s grace — long enough for
+    // an app switch on a phone) plus the 2026-09-02 night timing pass (§8a of
+    // PVP-LOBBY-PROPOSAL-2026-09-02.md): a human claim window scales with the
+    // decision — pung 6 s, chow 9 s, win 15 s — and a bot-only window ignores
+    // this and resolves as soon as the last bot answers instead.
+    "TABLE_CONFIG": "{\"turnMs\":20000,\"claimWindowMs\":{\"pung\":6000,\"chow\":9000,\"win\":15000},\"disconnectGraceMs\":60000}"
   },
 
   // Live since 2026-09-02. wrangler created the DNS record on deploy.

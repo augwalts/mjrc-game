@@ -128,9 +128,15 @@ export const bots: BotBrain = {
       profile: profileFor(view.seat, player),
     });
   },
-  /** Think time inside the window; the table clamps it to its own bounds. */
+  /**
+   * Think time inside the window; the table clamps it to its own bounds
+   * (`TableConfig.botMinPaceMs`/`botMaxPaceMs`, 250-900ms by default — §8a
+   * rule 1, "turns against three bots felt 1-4s each"). Kept inside that
+   * band here too, not just left to the clamp, so a table running a
+   * different config still sees the same spread this was tuned for.
+   */
   paceMs(_legal, rand) {
-    return 700 + Math.floor(rand() * 1800);
+    return 250 + Math.floor(rand() * 650);
   },
   /**
    * The record behind "played like the engine" (client/gamepvp desktop-only
