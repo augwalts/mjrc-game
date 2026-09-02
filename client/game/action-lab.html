@@ -89,10 +89,9 @@ hr{border:0;border-top:1px solid #2c2823;margin:30px 0 0}
     </select></label>
   <label>the WIN button
     <select id="winFx">
-      <option value="both">sheen + pulse</option>
+      <option value="rays">rays + pulse</option>
       <option value="pulse">pulse only</option>
       <option value="sheen">sheen only</option>
-      <option value="rays">rays + pulse</option>
       <option value="none">flat gold, as it ships</option>
     </select></label>
   <label>chow colour
@@ -123,12 +122,12 @@ hr{border:0;border-top:1px solid #2c2823;margin:30px 0 0}
  * Safari 16.4, and this is a beta on whatever phones friends happen to own.
  * Five short lines buy every browser.                                       */
 const PROPOSED = `
-#actions{gap:10px;min-height:56px;margin-top:7px;flex-wrap:wrap}
+#actions{gap:8px;min-height:54px;margin-top:6px;flex-wrap:wrap}
 #actions button{
   --c:#cfe3d8;--bg:rgba(255,255,255,.08);--bd:rgba(255,255,255,.2);
   display:flex;flex-direction:column;align-items:center;gap:1px;
   background:var(--bg);color:var(--c);border:1.5px solid var(--bd);
-  border-radius:13px;padding:9px 20px;min-height:52px;justify-content:center;
+  border-radius:12px;padding:7px 10px;min-height:52px;justify-content:center;
   font-size:18px;font-weight:700;
   box-shadow:0 5px 16px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.13);
   animation:callRise .17s cubic-bezier(.2,.9,.3,1.1) backwards}
@@ -138,7 +137,7 @@ const PROPOSED = `
    tiles ARE the choice, so they belong on the button rather than beside it.
    Sized explicitly because the mobile block forces .tile to 24x33. */
 #actions button .tw{display:flex;gap:3px;align-items:center;margin-top:2px}
-#actions button .tw .tile{width:21px;height:30px;border-radius:3px;
+#actions button .tw .tile{width:20px;height:28px;border-radius:3px;
   box-shadow:0 1px 0 #b8ad93,0 1px 3px rgba(0,0,0,.45)}
 #actions button .tw .tile.got{outline:2px solid var(--gold);outline-offset:1px}
 #actions button.pung{--c:#8ccff7;--bg:rgba(24,70,104,.94);--bd:rgba(93,184,240,.6)}
@@ -146,7 +145,7 @@ const PROPOSED = `
 #actions button.win{--c:#2a2113;--bg:var(--gold);--bd:var(--gold);
   box-shadow:0 5px 16px rgba(0,0,0,.45), 0 0 26px -4px rgba(255,210,63,.65)}
 #actions button.pass{--c:#93a79d;--bg:rgba(255,255,255,.055);--bd:rgba(255,255,255,.15);
-  font-size:16px;font-weight:500;padding:9px 17px}
+  font-size:16px;font-weight:500;padding:7px 14px}
 #actions button:active{transform:translateY(1px)}
 @keyframes callRise{from{transform:translateY(10px);opacity:0}}
 `;
@@ -195,7 +194,7 @@ const chowCss = (name) => {
  * would build because that is the choice being made; the win has no choice in
  * it, and giving it the same furniture as chow would make it read as a peer.  */
 const WIN_BASE = `
-#actions button.win{font-size:21px;padding:12px 26px;min-height:58px;letter-spacing:.02em}`;
+#actions button.win{font-size:21px;padding:9px 18px;min-height:56px;letter-spacing:.02em}`;
 const WIN_SHEEN = `
 #actions button.win{position:relative;overflow:hidden}
 #actions button.win::after{content:"";position:absolute;top:0;bottom:0;width:55%;left:-70%;
