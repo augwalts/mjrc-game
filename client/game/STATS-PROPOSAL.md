@@ -81,11 +81,25 @@ hand, turn, kind, played, engine_pick, gap, top1_minus_top2, reason
 Nothing on the site can produce any of this, and the demo has been collecting it
 since the first tester. It is currently uploaded and never looked at.
 
-`top1_minus_top2` is the one that matters most and is the easiest to waste. A raw
-match rate counts forced moves as successes, so it flatters everyone and drifts
-toward the share of positions that were obvious. Filtering to real decisions is
-what makes the number mean something — the column exists precisely so that is
-possible, and nothing yet uses it.
+`top1_minus_top2` is the one that matters most and is the easiest to waste, and
+**measuring it changed what I thought it would say.** I assumed a raw match rate
+would flatter players by scoring forced moves as successes. Built against the
+447 real graded moves (`stats-lab.html`), it does the opposite:
+
+| difficulty | moves | agreement |
+| --- | ---: | ---: |
+| forced — engine indifferent | 117 | 71% |
+| near-tie | 227 | **29%** |
+| a real choice | 48 | 42% |
+| clear | 7 | 86% |
+| obvious | 48 | **94%** |
+| **all** | **447** | **49%** |
+| **decisions that cost something** (≥0.5) | 103 | **69%** |
+
+A U. Testers play the obvious moves right and diverge on the close ones, and
+the near-tie band is HALF of every move ever graded — so the headline 49%
+*understates* them, because diverging on a near-tie is worth almost nothing by
+definition. The single number is not just noisy, it points the wrong way.
 
 ---
 
