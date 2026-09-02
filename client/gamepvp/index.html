@@ -359,8 +359,17 @@ body.counting #wall .wt{opacity:.85}
 /* ── the lobby screen: three panels (PVP-LOBBY-PROPOSAL §3.1) ──────────────
  * Stacked on a phone; the panel itself grows wide enough at >=900px for a
  * side-by-side row — this is the one screen that needs more than the
- * standard 640px panel width, hence its own `.lobby3` modifier. */
-.panel.lobby3{max-width:1040px;text-align:left}
+ * standard 640px panel width, hence its own `.lobby3` modifier.
+ *
+ * Bug (browser test, 2026-09-01): this used to be written `.panel.lobby3`
+ * (specificity 0-2-0), which the base `#panel{text-align:center;
+ * max-width:640px}` rule (0-1-0... actually 1-0-0, an ID) always beat
+ * regardless of source order or which class was added/removed in JS — so
+ * `.lobby3` never actually widened the panel or left-aligned its text; it
+ * only ever looked right by accident (little enough content to not notice
+ * the centering, or a stale cached stylesheet). `#panel.about` a few rules
+ * up already got this right by pairing the ID; do the same here. */
+#panel.lobby3{max-width:1040px;text-align:left}
 .lobbygrid{display:flex;flex-direction:column;gap:16px;margin-top:10px}
 .lobbycol{min-width:0}
 .lobbycol h2{margin-top:0}
@@ -640,9 +649,15 @@ body.devmode #mine{padding-top:2px}
 <div id="fly"></div>
 <div class="veil" id="veil"><div class="panel" id="panel"></div></div>
 <script>
+// ABSOLUTE paths (leading "/"), not page-relative ones: this same index.html
+// is served at deep-link URLs like /j/<code> (task item — verified live: a
+// relative "game.js" resolves against /j/<code>/ and 404s into the SPA's own
+// HTML fallback, which then fails to parse as a script — "Unexpected token
+// '<'" — and the app never boots at all). A leading slash always resolves
+// to the site root regardless of what path this page was opened at.
 for (const f of ["tile-engine.js", "bots.js", "game.js"]) {
   const t = document.createElement("script");
-  t.src = f + "?v=" + Date.now();
+  t.src = "/" + f + "?v=" + Date.now();
   t.async = false;
   document.head.appendChild(t);
 }

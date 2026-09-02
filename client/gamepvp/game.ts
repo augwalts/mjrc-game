@@ -160,16 +160,29 @@ let isCreatorOfCurrentTable = false;
  * richer waiting/playing state server-side from match participation. Starts
  * once identity exists and never stops (the app, not any one screen). */
 let presenceHeartbeatStarted = false;
+let presenceHeartbeatTimer = 0;
 function ensurePresenceHeartbeat(): void {
   if (presenceHeartbeatStarted) return;
   presenceHeartbeatStarted = true;
   const beat = (): void => {
-    if (identity && document.visibilityState === "visible") {
-      void postPresence(identity.deviceToken, "lobby").catch(() => { /* best effort */ });
-    }
+    if (identity) void postPresence(identity.deviceToken, "lobby").catch(() => { /* best effort */ });
   };
-  window.setInterval(beat, 30_000);
-  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") beat(); });
+  // The interval itself stops while the tab is hidden — not just a guard
+  // inside `beat()` that skips the network call — so a backgrounded tab
+  // truly stops ticking, not just stops sending. Resuming beats immediately
+  // rather than waiting out the rest of a stale 30s window.
+  const startTicking = (): void => {
+    if (presenceHeartbeatTimer) return;
+    presenceHeartbeatTimer = window.setInterval(beat, 30_000);
+  };
+  const stopTicking = (): void => {
+    window.clearInterval(presenceHeartbeatTimer);
+    presenceHeartbeatTimer = 0;
+  };
+  if (document.visibilityState === "visible") startTicking();
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") { beat(); startTicking(); } else { stopTicking(); }
+  });
 }
 
 /* ── the live table ────────────────────────────────────────────────────
@@ -180,6 +193,15 @@ function ensurePresenceHeartbeat(): void {
 let ts: TableSocket | null = null;
 let snap: SeatVisible<SeatSnapshot> | null = null;
 let directory: FourSeats<SeatDirectoryEntry> | null = null;
+/** What the waiting room shows BEFORE `directory` lands (the socket's
+ *  `welcome` message is a round trip away). `createTable` already told this
+ *  client its own seat plan (the request body it just sent); `joinTable`
+ *  did not, so that path falls back to this match's row in `lobbyData`, if
+ *  the lobby happens to have one cached. Either way this is only ever a
+ *  seed — `directory`/`presence` are authoritative the moment they arrive,
+ *  see `seatWaitInfo()`. */
+interface SeatPlanEntry { bot: boolean; displayName?: string; }
+let seatPlan: FourSeats<SeatPlanEntry> | null = null;
 const presence: Partial<Record<SeatIndex, { connected: boolean; botActing: boolean }>> = {};
 let mySeat: SeatIndex = 0;
 let lastSeq = -1;
@@ -211,8 +233,11 @@ let matchAgreement: FourSeats<SeatAgreement> | undefined = undefined;
  *  goes through; snapshot/directory lookups always use the real seat. */
 const rel = (s: SeatIndex): 0 | 1 | 2 | 3 => (((s - mySeat + 4) % 4) as 0 | 1 | 2 | 3);
 const actualSeat = (r: 0 | 1 | 2 | 3): SeatIndex => (((mySeat + r) % 4) as SeatIndex);
+/** `directory[s].displayName` is `""` for an unfilled human seat (protocol
+ *  doc comment on `PresencePayload`) — `||`, not `??`, so an empty string
+ *  falls through to the placeholder same as a missing entry. */
 const seatName = (s: SeatIndex): string =>
-  s === mySeat ? (identity?.displayName ?? "You") : (directory?.[s]?.displayName ?? `seat ${s}`);
+  s === mySeat ? (identity?.displayName ?? "You") : (directory?.[s]?.displayName || `seat ${s}`);
 
 /** Purely decorative jitter — the wall's assemble stagger and the pile's
  *  organic-heap placement. Solo seeded these from the match's engine seed;
@@ -886,23 +911,49 @@ async function startTableNow(btn: HTMLButtonElement): Promise<void> {
   }
 }
 
+/** One seat's row in the waiting room. `directory` (from the socket's
+ *  `welcome`) is authoritative the moment it exists; before that, `seatPlan`
+ *  (seeded at `connectToMatch` — see its doc comment) tells us who's a bot
+ *  RIGHT AWAY instead of every seat reading "empty seat / waiting…" for one
+ *  round trip. A bot seat is always "connected" — it has no human to wait
+ *  on — and so is this device's own seat, the one actually looking at this
+ *  screen. */
+interface SeatWaitInfo { isMe: boolean; bot: boolean; label: string; connected: boolean; }
+function seatWaitInfo(s: SeatIndex): SeatWaitInfo {
+  const isMe = s === mySeat;
+  const d = directory?.[s];
+  const plan = seatPlan?.[s];
+  const bot = d?.bot ?? plan?.bot ?? false;
+  // `||`, not `??` — an unfilled human seat's `displayName` is `""` on the
+  // wire (see `seatName`'s doc comment), which must fall through to the
+  // placeholder same as a missing directory entry, not render blank.
+  const label = isMe ? "You" : (d?.displayName || plan?.displayName || (bot ? "bot" : "empty seat"));
+  const connected = bot || isMe || (presence[s]?.connected ?? d?.connected ?? false);
+  return { isMe, bot, label, connected };
+}
+/** "waiting for N more" counts only unfilled HUMAN seats (task brief) — a
+ *  bot seat is never something anyone is waiting on. */
+function humanSeatsStillNeeded(): number {
+  let n = 0;
+  for (let s = 0; s < 4; s++) if (!seatWaitInfo(s as SeatIndex).connected) n++;
+  return n;
+}
+
 function waitingRoomScreen(): void {
   beforeScreen();
   $("veil").style.display = "flex";
-  const connectedN = directory ? directory.filter((d) => d.bot || (presence[d.seat]?.connected ?? d.connected)).length : 0;
+  const needed = humanSeatsStillNeeded();
   $("panel").innerHTML = `
     <h1>Waiting for the table</h1>
     ${currentJoinCode ? `
       <p class="mut">join code</p><h1 style="letter-spacing:.14em;color:var(--gold)">${currentJoinCode}</h1>
       <button id="btnCopyInvite" style="background:rgba(255,255,255,.08)">copy invite link</button>` : ""}
     <div class="rows">${[0, 1, 2, 3].map((s) => {
-      const d = directory?.[s];
-      const isMe = s === mySeat;
-      const conn = d ? (d.bot || (presence[s as SeatIndex]?.connected ?? d.connected)) : isMe;
-      return `<div class="row ${isMe ? "me" : ""}"><span class="c1">${isMe ? "You" : (d?.displayName ?? "empty seat")}</span>
-        <span class="c2">${d?.bot ? "bot" : conn ? "connected" : "waiting…"}</span></div>`;
+      const info = seatWaitInfo(s as SeatIndex);
+      return `<div class="row ${info.isMe ? "me" : ""}"><span class="c1">${esc(info.label)}</span>
+        <span class="c2">${info.bot ? "bot" : info.connected ? "connected" : "waiting…"}</span></div>`;
     }).join("")}</div>
-    <p class="mut">waiting for ${Math.max(0, 4 - connectedN)} more player${Math.max(0, 4 - connectedN) === 1 ? "" : "s"}</p>
+    <p class="mut">waiting for ${needed} more player${needed === 1 ? "" : "s"}</p>
     ${isCreatorOfCurrentTable ? `<button id="btnStartNow">Start now — fill empty seats with bots</button>` : ""}
     <button id="btnLeaveWait" style="background:rgba(255,255,255,.08);margin-left:${isCreatorOfCurrentTable ? "8px" : "0"}">◂ leave</button>`;
   const copyBtn = document.getElementById("btnCopyInvite");
@@ -972,7 +1023,7 @@ function showMatchEndScreen(): void {
 function leaveTable(): void {
   ts?.close(); ts = null;
   sessionStorage.removeItem(SESSION_KEY);
-  snap = null; directory = null; matchEndInfo = null; overlay = null; curLegal = null; pending = null;
+  snap = null; directory = null; seatPlan = null; matchEndInfo = null; overlay = null; curLegal = null; pending = null;
   matchAgreement = undefined;
   currentMatchUuid = null; currentJoinCode = null; isCreatorOfCurrentTable = false;
   stopClock();
@@ -1025,6 +1076,7 @@ const REJECT_NOTES: Record<RejectCode, string> = {
   windowClosed: "too late — the window closed",
   duplicateRequest: "already sent",
   rateLimited: "slow down a moment",
+  chatRefused: "that message wasn't sent",
   matchOver: "the match is over",
 };
 
@@ -1251,6 +1303,8 @@ function setConnBadge(msg: string): void {
 function connectToMatch(r: {
   matchUuid: string; joinCode: string | null; seat: SeatIndex; seatToken: string;
   rulesetId: string; matchFormat: MatchFormat; creator?: boolean;
+  /** Best-effort seed for the waiting room — see `seatPlan`'s doc comment. */
+  seatPlan?: FourSeats<SeatPlanEntry> | null;
 }): void {
   currentMatchUuid = r.matchUuid; currentJoinCode = r.joinCode;
   currentRulesetId = r.rulesetId; currentMatchFormat = r.matchFormat;
@@ -1259,7 +1313,7 @@ function connectToMatch(r: {
   sessionStorage.setItem(SESSION_KEY, JSON.stringify({
     matchUuid: r.matchUuid, joinCode: r.joinCode, seat: r.seat, creator: isCreatorOfCurrentTable,
   }));
-  snap = null; directory = null; lastSeq = -1; curLegal = null; pending = null;
+  snap = null; directory = null; seatPlan = r.seatPlan ?? null; lastSeq = -1; curLegal = null; pending = null;
   overlay = null; matchEndInfo = null; matchAgreement = undefined;
   pileTiles = []; handSig = ""; landingMeld = null; feed.length = 0;
   sessionHands.length = 0; coachTally.graded = 0; coachTally.matched = 0;
@@ -1279,7 +1333,13 @@ function connectToMatch(r: {
       syncVeil();
       ts?.resync(lastSeq);
     },
-    onRestore(events, snapshot) { applyBatch(events, snapshot); },
+    onRestore(events, snapshot, dir) {
+      // Who sits where may have changed (seats filled or shuffled) since this
+      // seat's own `welcome` — `restore`'s directory is the fresh truth,
+      // wholesale, same as `welcome`'s (never patched field-by-field).
+      directory = dir;
+      applyBatch(events, snapshot);
+    },
     onEvents(events, snapshot) { applyBatch(events, snapshot); },
     onPrompt(payload: PromptPayload) {
       curLegal = payload.legal;
@@ -1290,6 +1350,21 @@ function connectToMatch(r: {
     },
     onPresence(payload: PresencePayload) {
       presence[payload.seat] = { connected: payload.connected, botActing: payload.botActing };
+      // A player who joins AFTER this seat's own `welcome` is otherwise
+      // nameless here forever — `directory` used to ride on `welcome` only.
+      // `presence` now carries enough (playerId/displayName/bot) to keep
+      // this seat's directory current too; update it in place (one seat,
+      // not a wholesale replace like `welcome`/`restore` do) so nameplates
+      // and the waiting room pick up the name on the very next render.
+      if (directory) {
+        directory[payload.seat] = {
+          seat: payload.seat,
+          playerId: payload.playerId,
+          displayName: payload.displayName,
+          bot: payload.bot,
+          connected: payload.connected,
+        };
+      }
       render();
       syncVeil();
     },
@@ -1495,13 +1570,28 @@ function recentRowHtml(m: LobbyRecentMatchSafe): string {
  *  from net.ts to one line above; identical shape. */
 type LobbyRecentMatchSafe = LobbyPayload["recent"][number];
 
+/** `joinTable`'s response carries no seat layout (unlike `createTable`, this
+ *  client never chose it) — best-effort recover one from this match's row in
+ *  the last lobby poll, if it's still cached. Missing entirely (a stale
+ *  cache, or a code typed straight from an invite link with no lobby fetch
+ *  yet) just means the waiting room falls back to `directory` only, same as
+ *  before this seed existed. */
+function seatPlanFromLobby(matchUuid: string): FourSeats<SeatPlanEntry> | null {
+  const t = lobbyData?.tables.find((x) => x.matchId === matchUuid);
+  if (!t) return null;
+  return ([0, 1, 2, 3] as const).map((i): SeatPlanEntry => {
+    const seat = t.seats.find((s) => s.seat === i);
+    return seat ? { bot: seat.kind === "bot", displayName: seat.displayName } : { bot: false };
+  }) as FourSeats<SeatPlanEntry>;
+}
+
 async function sitDownByCode(code: string): Promise<void> {
   if (!identity) return;
   try {
     const r = await joinTable(identity.deviceToken, code);
     connectToMatch({
       matchUuid: r.matchUuid, joinCode: code, seat: r.seat, seatToken: r.seatToken,
-      rulesetId: r.rulesetId, matchFormat: r.matchFormat,
+      rulesetId: r.rulesetId, matchFormat: r.matchFormat, seatPlan: seatPlanFromLobby(r.matchUuid),
     });
   } catch (e) {
     flashHudNote(describeError(e));
@@ -1509,7 +1599,13 @@ async function sitDownByCode(code: string): Promise<void> {
   }
 }
 
-function wireLobbyPanel(): void {
+/** Handlers for the lobby's STATIC furniture — title, rename link, the five
+ *  navigation cards, "what is this?" — wired exactly once per `lobbyScreen()`
+ *  entry, never on a poll tick (bug fix, task item 1: the old `wireLobbyPanel`
+ *  re-queried and re-bound all of this every 5s, which is also when a tap
+ *  landing mid-rebind could miss — see `paintLobbyPanel` below for the part
+ *  that actually needs to redraw on a schedule). */
+function wireLobbyStatic(): void {
   (document.getElementById("goNew") as HTMLElement).onclick = () => { beforeScreen(); newTableScreen(); };
   (document.getElementById("goJoin") as HTMLElement).onclick = () => { beforeScreen(); joinScreen(); };
   (document.getElementById("goStats") as HTMLElement).onclick = () => { beforeScreen(); statsScreen(); };
@@ -1517,49 +1613,25 @@ function wireLobbyPanel(): void {
   (document.getElementById("goLeaderboard") as HTMLElement).onclick = () => { beforeScreen(); leaderboardScreen("ranked"); };
   (document.getElementById("btnRename") as HTMLElement).onclick = (e) => { e.preventDefault(); beforeScreen(); nameScreen(lobbyScreen); };
   (document.getElementById("btnAbout2") as HTMLElement).onclick = (e) => { e.preventDefault(); beforeScreen(); aboutScreen(lobbyScreen); };
-  for (const el of Array.from($("panel").querySelectorAll<HTMLElement>(".row.clickable[data-code]"))) {
-    el.onclick = () => { const code = el.dataset.code!; beforeScreen(); void sitDownByCode(code); };
-  }
-  for (const el of Array.from($("panel").querySelectorAll<HTMLButtonElement>("button.sitdown"))) {
-    el.onclick = () => { const code = el.dataset.code!; beforeScreen(); void sitDownByCode(code); };
-  }
-  for (const el of Array.from($("panel").querySelectorAll<HTMLElement>(".pname[data-player]"))) {
-    el.onclick = (e) => {
-      e.stopPropagation();
-      const id = el.dataset.player!;
-      beforeScreen();
-      playerScreen(id, lobbyScreen);
-    };
-  }
 }
 
-/** Redraws from `lobbyData` only — never fetches. `lobbyData` starts `null`
- *  ("reading…") and, per the task brief ("degrade gracefully… rather than
- *  faking data"), simply stays whatever it last was on a failed poll — an
- *  empty array once the first successful read comes back empty, never a
- *  fabricated row. */
-function renderLobby(): void {
-  const data = lobbyData;
-  const here = data?.here ?? [];
-  const tables = data?.tables ?? [];
-  const recent = data?.recent ?? [];
-  const reading = data === null;
-  $("panel").innerHTML = `
+/** The lobby's static shell — everything `wireLobbyStatic` wires, plus three
+ *  EMPTY panel containers (`#lobbyHere`/`#lobbyTables`/`#lobbyRecent`) that
+ *  `paintLobbyPanel` fills in and keeps current. Built once per
+ *  `lobbyScreen()` entry; a poll tick never touches this HTML again. */
+function lobbyShellHtml(): string {
+  return `
     <h1>香港麻雀 · MJRC</h1>
     <p class="mut">Playing as <b>${esc(identity?.displayName ?? "—")}</b> ·
       <a href="#" id="btnRename" style="color:var(--gold)">change name</a></p>
     <div class="lobbygrid">
       <div class="lobbycol">
         <h2>Here now</h2>
-        <div class="rows">${here.length === 0
-          ? `<p class="mut">${reading ? "reading…" : "nobody else is around right now"}</p>`
-          : here.map((e) => hereRowHtml(e, tables)).join("")}</div>
+        <div class="rows" id="lobbyHere"></div>
       </div>
       <div class="lobbycol">
         <h2>Open tables</h2>
-        <div class="tablelist">${tables.length === 0
-          ? `<p class="mut">${reading ? "reading…" : "no tables right now — start one"}</p>`
-          : tables.map(tableRowHtml).join("")}</div>
+        <div class="tablelist" id="lobbyTables"></div>
       </div>
       <div class="lobbycol">
         <div class="choices lobby">
@@ -1572,25 +1644,144 @@ function renderLobby(): void {
       </div>
     </div>
     <h2 style="margin-top:16px">Recent results</h2>
-    <div class="rows">${recent.length === 0
-      ? `<p class="mut">${reading ? "reading…" : "nothing finished yet"}</p>`
-      : recent.map(recentRowHtml).join("")}</div>
+    <div class="rows" id="lobbyRecent"></div>
     <p class="mut" style="margin-top:10px"><a href="#" id="btnAbout2" style="color:var(--gold)">what is this?</a></p>`;
-  wireLobbyPanel();
 }
 
-/** GET /api/lobby every 5s while this screen is up (§3, §7.2). Not yet
- *  implemented server-side as of this build — a failed poll is swallowed and
- *  the panels stay on whatever they last showed (or "reading…" on the very
- *  first attempt), never a fake row. */
+function hereHtml(data: LobbyPayload | null): string {
+  const here = data?.here ?? [];
+  const tables = data?.tables ?? [];
+  if (here.length === 0) return `<p class="mut">${data === null ? "reading…" : "nobody else is around right now"}</p>`;
+  return here.map((e) => hereRowHtml(e, tables)).join("");
+}
+function tablesHtml(data: LobbyPayload | null): string {
+  const tables = data?.tables ?? [];
+  if (tables.length === 0) return `<p class="mut">${data === null ? "reading…" : "no tables right now — start one"}</p>`;
+  return tables.map(tableRowHtml).join("");
+}
+function recentHtml(data: LobbyPayload | null): string {
+  const recent = data?.recent ?? [];
+  if (recent.length === 0) return `<p class="mut">${data === null ? "reading…" : "nothing finished yet"}</p>`;
+  return recent.map(recentRowHtml).join("");
+}
+function wireHerePanel(container: HTMLElement): void {
+  for (const el of Array.from(container.querySelectorAll<HTMLElement>(".row.clickable[data-code]"))) {
+    el.onclick = () => { const code = el.dataset.code!; beforeScreen(); void sitDownByCode(code); };
+  }
+  for (const el of Array.from(container.querySelectorAll<HTMLElement>(".pname[data-player]"))) {
+    el.onclick = (e) => { e.stopPropagation(); const id = el.dataset.player!; beforeScreen(); playerScreen(id, lobbyScreen); };
+  }
+}
+function wireTablesPanel(container: HTMLElement): void {
+  for (const el of Array.from(container.querySelectorAll<HTMLButtonElement>("button.sitdown"))) {
+    el.onclick = () => { const code = el.dataset.code!; beforeScreen(); void sitDownByCode(code); };
+  }
+}
+
+/** The three panels that actually change on a poll (task item 1) — "Here
+ *  now", "Open tables", "Recent results". Everything else in the lobby
+ *  (title, the five nav cards) is the STATIC shell above and is never
+ *  touched again once `lobbyScreen()` builds it.
+ *
+ *  `sig` is the "serialized snapshot" the task brief asks for: a panel only
+ *  repaints when its slice of `lobbyData` actually serializes differently
+ *  from last time, not on every 5s tick regardless. "Here now" reads both
+ *  `here` and `tables` (a row's click target and its "waiting at a table
+ *  N/4" label both depend on the matching table), so its signature covers
+ *  both. */
+type LobbyPanelKey = "here" | "tables" | "recent";
+const LOBBY_PANELS: Record<LobbyPanelKey, {
+  containerId: string;
+  sig: (d: LobbyPayload | null) => string;
+  html: (d: LobbyPayload | null) => string;
+  wire: (c: HTMLElement) => void;
+}> = {
+  here: {
+    containerId: "lobbyHere",
+    sig: (d) => JSON.stringify([d?.here ?? [], d?.tables ?? []]),
+    html: hereHtml, wire: wireHerePanel,
+  },
+  tables: {
+    containerId: "lobbyTables",
+    sig: (d) => JSON.stringify(d?.tables ?? []),
+    html: tablesHtml, wire: wireTablesPanel,
+  },
+  recent: {
+    containerId: "lobbyRecent",
+    sig: (d) => JSON.stringify(d?.recent ?? []),
+    html: recentHtml, wire: () => {},
+  },
+};
+/** `down`: a pointer is currently down somewhere inside this panel's
+ *  container — see `wireLobbyPanelDownTracking`/`ensureLobbyPointerGuard`
+ *  below (task item 1: "never re-render a panel while a pointer is down
+ *  inside it"). `dirty`: fresh data arrived while `down` was true, so the
+ *  repaint this panel owes is deferred to the next pointerup/pointercancel. */
+const lobbyPanelState: Record<LobbyPanelKey, { sig: string | null; down: boolean; dirty: boolean }> = {
+  here: { sig: null, down: false, dirty: false },
+  tables: { sig: null, down: false, dirty: false },
+  recent: { sig: null, down: false, dirty: false },
+};
+/** Repaints one panel from the current `lobbyData` — but only if its
+ *  signature actually changed (or `force`, used once on a fresh
+ *  `lobbyScreen()` entry to fill the empty shell), and never mid-tap. */
+function paintLobbyPanel(key: LobbyPanelKey, force = false): void {
+  const def = LOBBY_PANELS[key];
+  const st = lobbyPanelState[key];
+  const container = document.getElementById(def.containerId);
+  if (!container) return;
+  const sig = def.sig(lobbyData);
+  if (!force) {
+    if (sig === st.sig) return;
+    if (st.down) { st.dirty = true; return; }
+  }
+  container.innerHTML = def.html(lobbyData);
+  def.wire(container);
+  st.sig = sig;
+  st.dirty = false;
+}
+/** Fresh `pointerdown` listeners on this visit's (fresh) panel containers —
+ *  cheap to re-wire every `lobbyScreen()` entry since the old containers,
+ *  and their listeners, are thrown away with the old shell. */
+function wireLobbyPanelDownTracking(): void {
+  for (const key of Object.keys(LOBBY_PANELS) as LobbyPanelKey[]) {
+    const container = document.getElementById(LOBBY_PANELS[key].containerId);
+    container?.addEventListener("pointerdown", () => { lobbyPanelState[key].down = true; });
+  }
+}
+/** The release side is wired to `document`, ONCE ever (not per lobby visit —
+ *  unlike the containers above, `document` never gets thrown away, so
+ *  re-adding this every visit would leak one listener per visit). A drag can
+ *  end outside the container it started in, so catching the release at the
+ *  document is what makes this reliable rather than merely usually-true. */
+let lobbyPointerGuardWired = false;
+function ensureLobbyPointerGuard(): void {
+  if (lobbyPointerGuardWired) return;
+  lobbyPointerGuardWired = true;
+  const release = (): void => {
+    for (const key of Object.keys(LOBBY_PANELS) as LobbyPanelKey[]) {
+      const st = lobbyPanelState[key];
+      if (!st.down) continue;
+      st.down = false;
+      if (st.dirty) paintLobbyPanel(key);
+    }
+  };
+  document.addEventListener("pointerup", release);
+  document.addEventListener("pointercancel", release);
+}
+
+/** GET /api/lobby every 5s while this screen is up (§3, §7.2). A failed poll
+ *  is swallowed and the panels stay on whatever they last showed (or
+ *  "reading…" on the very first attempt), never a fake row. */
 async function refreshLobby(gen: number): Promise<void> {
   if (!identity || gen !== lobbyGen) return;
   try {
     lobbyData = await getLobby(identity.deviceToken);
   } catch {
-    /* degrade gracefully — see renderLobby's doc comment */
+    /* degrade gracefully — see refreshLobby's/hereHtml's "reading…" fallback */
   }
-  if (gen === lobbyGen) renderLobby();
+  if (gen !== lobbyGen) return;
+  for (const key of Object.keys(LOBBY_PANELS) as LobbyPanelKey[]) paintLobbyPanel(key);
 }
 
 function lobbyScreen(): void {
@@ -1599,7 +1790,12 @@ function lobbyScreen(): void {
   $("veil").style.display = "flex";
   $("panel").classList.remove("about");
   $("panel").classList.add("lobby3");
-  renderLobby();
+  $("panel").innerHTML = lobbyShellHtml();
+  wireLobbyStatic();
+  for (const key of Object.keys(LOBBY_PANELS) as LobbyPanelKey[]) lobbyPanelState[key] = { sig: null, down: false, dirty: false };
+  wireLobbyPanelDownTracking();
+  ensureLobbyPointerGuard();
+  for (const key of Object.keys(LOBBY_PANELS) as LobbyPanelKey[]) paintLobbyPanel(key, true);
   void refreshLobby(gen);
   lobbyPollTimer = window.setInterval(() => void refreshLobby(gen), 5000);
 }
@@ -1673,12 +1869,12 @@ function newTableScreen(): void {
     </div>
     <h2>Access</h2>
     <div class="seg">
-      <button class="${newTableDraft.access === "open" ? "on" : ""}" data-access="open"><b>Open</b><span>listed in the lobby</span></button>
-      <button class="${newTableDraft.access === "private" ? "on" : ""}" data-access="private"><b>Private</b><span>code only</span></button>
+      <button class="${newTableDraft.access === "open" ? "on" : ""}" data-access="open"><b>Open</b><span>anyone can sit down</span></button>
+      <button class="${newTableDraft.access === "private" ? "on" : ""}" data-access="private"><b>Private</b><span>needs the code to sit down</span></button>
     </div>
     <p class="segcap">${newTableDraft.access === "open"
-      ? "Everyone can see this table in the lobby and sit down."
-      : "Private — only people with the code can join."}</p>
+      ? "Open — every table is listed in the lobby; access only controls sitting down. Anyone in the lobby can sit down."
+      : "Private — visible in the lobby like any table; the code is needed to sit down."}</p>
     <div class="setrow"><label style="width:auto;flex:1">Randomize seats at start</label>
       <input type="checkbox" id="setRandomize" ${newTableDraft.randomizeSeats ? "checked" : ""}></div>
     <h2>Seats</h2>
@@ -1757,9 +1953,16 @@ async function doCreateTable(): Promise<void> {
       mode: newTableDraft.mode, access: newTableDraft.access, randomizeSeats: newTableDraft.randomizeSeats,
       seats,
     });
+    // The server's CreateTableResult doesn't echo the seat layout back, but
+    // this client is the one that just SENT it — the request body already
+    // says who's a bot and which one. (Randomizing happens at /start, not at
+    // creation, so this is still accurate for the waiting room.)
+    const plan = newTableDraft.seats.map((s): SeatPlanEntry =>
+      s.kind === "bot" ? { bot: true, displayName: botDisplayName(s.bot) } : { bot: false },
+    ) as FourSeats<SeatPlanEntry>;
     connectToMatch({
       matchUuid: r.matchUuid, joinCode: r.joinCode, seat: r.seat, seatToken: r.seatToken,
-      rulesetId: r.rulesetId, matchFormat: r.matchFormat, creator: true,
+      rulesetId: r.rulesetId, matchFormat: r.matchFormat, creator: true, seatPlan: plan,
     });
   } catch (e) {
     if (btn) { btn.disabled = false; btn.textContent = "create table ▸"; }
@@ -1795,7 +1998,7 @@ function joinScreen(prefill = ""): void {
       const r = await joinTable(identity.deviceToken, code);
       connectToMatch({
         matchUuid: r.matchUuid, joinCode: code, seat: r.seat, seatToken: r.seatToken,
-        rulesetId: r.rulesetId, matchFormat: r.matchFormat,
+        rulesetId: r.rulesetId, matchFormat: r.matchFormat, seatPlan: seatPlanFromLobby(r.matchUuid),
       });
     } catch (e) {
       btn.disabled = false; btn.textContent = "join ▸";

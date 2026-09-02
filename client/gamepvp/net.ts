@@ -22,11 +22,12 @@ import type {
   RejectCode,
   RejectedPayload,
   RestorePayload,
+  SeatDirectoryEntry,
   ServerToSeat,
   WelcomePayload,
 } from "../../protocol/src/messages.js";
 import { PROTOCOL_VERSION } from "../../protocol/src/messages.js";
-import type { RedactedGameEvent, SeatSnapshot, SeatVisible } from "../../protocol/src/events.js";
+import type { FourSeats, RedactedGameEvent, SeatSnapshot, SeatVisible } from "../../protocol/src/events.js";
 
 /* ── identity ──────────────────────────────────────────────────────────── */
 
@@ -439,8 +440,14 @@ interface EventsPayloadWire {
 export interface TableSocketCallbacks {
   onWelcome(payload: WelcomePayload): void;
   /** `restore` carries the SAME contract as `events`: a batch to animate, plus
-   *  the snapshot to snap to afterward — see the top of game.ts's consume(). */
-  onRestore(events: SeatVisible<RedactedGameEvent>[], snapshot: SeatVisible<SeatSnapshot>): void;
+   *  the snapshot to snap to afterward — see the top of game.ts's consume().
+   *  It also re-sends `directory`: who sits where may have changed (seats
+   *  filled or shuffled) since this seat's own `welcome`. */
+  onRestore(
+    events: SeatVisible<RedactedGameEvent>[],
+    snapshot: SeatVisible<SeatSnapshot>,
+    directory: FourSeats<SeatDirectoryEntry>,
+  ): void;
   onEvents(events: SeatVisible<RedactedGameEvent>[], snapshot: SeatVisible<SeatSnapshot> | null): void;
   onPrompt(payload: PromptPayload): void;
   onPresence(payload: PresencePayload): void;
@@ -623,7 +630,7 @@ export class TableSocket {
         break;
       case "restore": {
         const p = msg.payload as RestorePayload;
-        this.cb.onRestore(p.events, p.snapshot);
+        this.cb.onRestore(p.events, p.snapshot, p.directory);
         break;
       }
       case "events": {
