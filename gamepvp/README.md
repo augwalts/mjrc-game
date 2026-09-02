@@ -48,6 +48,32 @@ connected, before the next hand is dealt; default 10s, `.dev.vars` sets it to
 disables the intermission — the table advances the instant a hand ends, same
 as before the feature existed.
 
+### Claim window and turn clock timing (§8a)
+
+`claimWindowMs` scales with the decision instead of being one fixed number:
+`{ pung, chow, win }` (default 6000/9000/15000ms; kong counts as pung). A
+`TABLE_CONFIG` var may still set it to a single number — applied to all three,
+same as before this existed — or the object, partial or complete (an omitted
+kind keeps the default). `.dev.vars`' fast line uses the object form at a
+tenth of the real scale.
+
+A window's `closesAt` is the longest duration among the options offered to a
+**human** seat in it. Once every human offered has answered, the window
+closes at once — the duration is only how long it waits while one is still
+pending. A window offered to no human at all (every seat in it bot, an
+auto-played disconnect, or `requestAuto`) ignores `claimWindowMs` entirely and
+resolves as soon as the last bot's answer lands; a bot still answers off its
+own paced `botPace` deadline, never synchronously, so the window still runs
+roughly one bot pace (`botMinPaceMs`-`botMaxPaceMs`, default 250-900ms) rather
+than closing at zero. `botWindowMarginMs` (default 400ms, keeps a bot's
+answer strictly inside a window a human might still be reading) does not
+apply to a bot-only window for the same reason.
+
+A table with exactly one human seat (by the header's `players`, not live
+connection) never arms the turn clock — that seat's own turn waits
+indefinitely; the disconnect grace and auto-play still cover an absent
+player. A table with more than one human seat keeps `turnMs` as before.
+
 ## Prove a match end to end
 
 ```sh
@@ -179,4 +205,84 @@ Migration file: `migrations/remote-2026-09-02-chat.sql`.
 
 ```sh
 npx wrangler d1 execute mjrc-scoring --remote --file migrations/remote-2026-09-02-chat.sql
+```
+
+## Rooms (§8b, 2026-09-02)
+
+`PVP-LOBBY-PROPOSAL-2026-09-02.md` §8b is the contract; §9 is the why. A room
+is the Almanac's, not the game's: `rooms` and `room_players` already exist in
+the remote `mjrc-scoring` database, created by
+`mjrc-app/web/migrations/0004_rooms.sql`, `0008_room_builder.sql` and
+`0011_room_codes.sql`. The game reads `rooms.settings`/`admin_code_hash` and
+writes only the `game` key of `settings`
+(`{ "game": { "rulesetId", "matchFormat", "access" } }`,
+`worker/src/db.ts` `roomGameSettingsOf`/`withRoomGameSettings`) and its own
+`room_players` rows (the game's `players.id` as `player_id`, display name as
+free-text `name`). It never touches `password_hash` or any other Almanac key.
+
+**Routes** (all behind the same device-token `authenticate` as everything
+else in `worker/src/index.ts`): `POST /api/rooms` (create + auto-join the
+creator, `{ name, rulesetId?, matchFormat?, access?, adminCode }` →
+`{ code }`, 6-char Crockford, retried on collision), `GET /api/rooms/:code`
+(→ `{ code, name, game, memberCount, tables }`), `POST /api/rooms/:code/join`
+(membership, idempotent), `GET /api/rooms/mine` (rooms the caller has
+joined), `POST /api/rooms/:code/settings` (admin-only, changes `game`
+only — see below), `POST /api/rooms/:code/tables/:matchId/close` (admin-only,
+phase 2: abandons a still-waiting table; never touches the Table DO, since a
+waiting table's clocks never started).
+
+`POST /api/tables` accepts `roomCode`: the caller must already be a room
+member (`not_room_member` 403 otherwise), `rulesetId`/`matchFormat` are taken
+from the room's `settings.game` — the request's own values are ignored — and
+`access` defaults from the room's `game.access` but an explicit `access` in
+the request still overrides it. `matches.room_code` is set to the room's
+code and the response echoes `roomCode`. `GET /r/:code` serves the app the
+same way `GET /j/:code` does.
+
+**The admin code, and why there is no master code on the game side.** A
+room's `admin_code_hash` (0011) gates `POST /api/rooms/:code/settings` and
+the table-close route via the `x-mjrc-admin-code` header, hashed and compared
+exactly the way the Almanac's own `mjrc-app/web/functions/api/scoring/
+room-admin/_middleware.ts` compares its own `x-room-code` header. That
+middleware ALSO accepts a hardcoded master code (`8888`) on every route. This
+Worker does not replicate it: that constant is scoped to the Almanac's own
+`/api/scoring/room-admin/*` surface, is not passed to this Worker in any
+config, and copying it here would let anyone who has read that file's source
+administer every game room in every room in the database — a much bigger
+blast radius than the Almanac ever accepted for its own surface. A room with
+no `admin_code_hash` at all (impossible through `POST /api/rooms`, but
+possible for an Almanac-created room nobody has configured) simply has no
+admin on the game side until one is set.
+
+**`GET /api/lobby?room=CODE`** scopes `here`, `tables`, `recent` and `chat`
+to the room. `here` is presence rows for players who are ALSO a room member
+(joined through `room_players`, since `presence` itself carries no room
+column — same "keep the derived state out of the canonical table"
+discipline `presence`'s own schema.sql comment states) or seated at the
+room's own tables. Without `room`, the global lobby's `tables`/`recent`/`chat`
+all exclude every room-scoped row (`room_code IS NULL`) — a room's traffic
+does not leak into the general list — with ONE deliberate exception: the
+global `here` still shows a member who is seated at a room's table, tagged
+with `roomCode`, on the recorded call that hiding a friend entirely because
+they wandered into a room is worse than a harmless tag. `POST
+/api/lobby/chat` takes an optional `roomCode`; global if omitted.
+
+**Local dev.** Local D1 never replays the Almanac's own migrations, so
+`rooms`/`room_players` do not exist there unless created separately —
+`migrations/local-almanac-rooms.sql` does that, **local only, never against
+remote** (the Almanac's tables already exist there):
+
+```sh
+cd gamepvp && npx wrangler d1 execute mjrc-scoring --local --file migrations/local-almanac-rooms.sql
+```
+
+**Schema change not yet applied remotely.** `lobby_messages.room_code`
+(nullable; `NULL` = the global lobby) is new — folded into
+`../worker/schema.sql` and applied to local D1 already; someone with remote
+access needs to run the same against remote before a build that reads/writes
+room-scoped chat reaches production. Migration file:
+`migrations/remote-2026-09-02-rooms.sql`.
+
+```sh
+npx wrangler d1 execute mjrc-scoring --remote --file migrations/remote-2026-09-02-rooms.sql
 ```

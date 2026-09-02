@@ -536,6 +536,17 @@ export const SQL = Object.freeze({
       JOIN players p ON p.id = pr.player_id
      WHERE pr.seen_at >= ? AND p.deleted_at IS NULL`,
 
+  /** The room-scoped `here` source (§8b: "members seen recently ... at the
+   *  room's tables"). `presence` carries no room column — deliberately, see
+   *  schema.sql — so scoping by room means joining through `room_players`
+   *  instead of filtering `presence` itself. */
+  presenceInRoom: `
+    SELECT pr.player_id, pr.state, pr.seen_at, p.display_name
+      FROM presence pr
+      JOIN players p ON p.id = pr.player_id
+      JOIN room_players rp ON rp.room_code = ? AND rp.player_id = pr.player_id AND rp.archived_at IS NULL
+     WHERE pr.seen_at >= ? AND p.deleted_at IS NULL`,
+
   /** One row per player per heartbeat — presence is current state, not
    *  history, so this is always exactly one row before and after. */
   upsertPresence: `
@@ -546,21 +557,52 @@ export const SQL = Object.freeze({
   /** The open-table panel: every match still looking for humans or still
    *  playing, newest first. Bounded defensively — the lobby lists "every"
    *  such table, and at P0 scale that is never near this many, but an
-   *  unbounded read here is the one query on this screen with no natural cap. */
+   *  unbounded read here is the one query on this screen with no natural cap.
+   *
+   *  UNFILTERED by room, on purpose (§8b, "the global lobby's `here`"): the
+   *  global `GET /api/lobby` reads every waiting/playing table, room-scoped
+   *  ones included, so a seated room member still shows up in `here` (tagged
+   *  with their room code) even though `tables[]` renders only the rows
+   *  whose `room_code IS NULL` — that filter happens in index.ts, not here,
+   *  because `here` needs the rows this query's room-scoped sibling below
+   *  would throw away. */
   matchesWaitingOrPlaying: `
     SELECT id, match_format, ruleset_id, access, mode, lobby_status,
            current_hand, hands_base, seat_plan, bot_seats, created_by,
-           started_at, join_code
+           started_at, join_code, room_code
       FROM matches
      WHERE lobby_status IN ('waiting', 'playing')
      ORDER BY started_at DESC
      LIMIT ?`,
 
-  /** The recent-results strip: last N finished, newest first. */
+  /** The same panel, scoped to one room (§8b `GET /api/lobby?room=CODE`) —
+   *  a separate constant rather than a predicate spliced into the one above,
+   *  per rule 1 at the top of this file. */
+  matchesWaitingOrPlayingInRoom: `
+    SELECT id, match_format, ruleset_id, access, mode, lobby_status,
+           current_hand, hands_base, seat_plan, bot_seats, created_by,
+           started_at, join_code, room_code
+      FROM matches
+     WHERE lobby_status IN ('waiting', 'playing') AND room_code = ?
+     ORDER BY started_at DESC
+     LIMIT ?`,
+
+  /** The recent-results strip: last N finished, newest first. `room_code IS
+   *  NULL` (§8b decision 3): the global lobby's `recent` excludes room
+   *  matches, same as `tables[]` — a room's own results belong to
+   *  `matchesDoneInRoom`, read through `GET /api/lobby?room=CODE`. */
   matchesDone: `
     SELECT id, mode, ended_at
       FROM matches
-     WHERE lobby_status = 'done'
+     WHERE lobby_status = 'done' AND room_code IS NULL
+     ORDER BY ended_at DESC
+     LIMIT ?`,
+
+  /** The room-scoped sibling of the above. */
+  matchesDoneInRoom: `
+    SELECT id, mode, ended_at
+      FROM matches
+     WHERE lobby_status = 'done' AND room_code = ?
      ORDER BY ended_at DESC
      LIMIT ?`,
 
@@ -591,11 +633,13 @@ export const SQL = Object.freeze({
    */
 
   insertLobbyMessage: `
-    INSERT INTO lobby_messages (player_id, display_name, text, created_at)
-    VALUES (?, ?, ?, ?)`,
+    INSERT INTO lobby_messages (player_id, display_name, text, room_code, created_at)
+    VALUES (?, ?, ?, ?, ?)`,
 
   /** The one row the 1-per-2s rate check needs — this player's newest
-   *  message, via idx_lobby_messages_player. */
+   *  message, via idx_lobby_messages_player. One shared rate limit across
+   *  global and every room's chat, deliberately: it is a per-player flood
+   *  guard, not a per-surface budget. */
   lastLobbyMessageForPlayer: `
     SELECT created_at
       FROM lobby_messages
@@ -603,10 +647,20 @@ export const SQL = Object.freeze({
      ORDER BY id DESC
      LIMIT 1`,
 
-  /** Newest `limit` messages; the caller reverses to chronological order. */
+  /** Newest `limit` GLOBAL messages (`room_code IS NULL`, §8b decision 3);
+   *  the caller reverses to chronological order. */
   recentLobbyMessages: `
     SELECT id, player_id, display_name, text, created_at
       FROM lobby_messages
+     WHERE room_code IS NULL
+     ORDER BY id DESC
+     LIMIT ?`,
+
+  /** The room-scoped sibling of the above. */
+  recentLobbyMessagesInRoom: `
+    SELECT id, player_id, display_name, text, created_at
+      FROM lobby_messages
+     WHERE room_code = ?
      ORDER BY id DESC
      LIMIT ?`,
 
@@ -722,6 +776,68 @@ export const SQL = Object.freeze({
      GROUP BY p.id
      ORDER BY wins DESC, matches DESC
      LIMIT ?`,
+
+  /* ── rooms (§8b) — `rooms`/`room_players`, not this schema's tables; see
+   * schema.sql's "rooms" note and this file's own note above `RoomRow`. */
+
+  roomByCode: `
+    SELECT code, name, settings, admin_code_hash, created_at, updated_at
+      FROM rooms
+     WHERE code = ?`,
+
+  /* `password_hash`/`password_attempts`/`password_locked_until` are the
+   * Almanac's own fields (0004, reserved for a future password flow the game
+   * does not use) — left at their column defaults (NULL / 0 / NULL) exactly
+   * as an Almanac-created room would start out. */
+  insertRoom: `
+    INSERT INTO rooms (code, name, password_hash, password_attempts, settings, admin_code_hash, created_at, updated_at)
+    VALUES (?, ?, NULL, 0, ?, ?, ?, ?)`,
+
+  /* The one write path that may touch `settings` after creation
+   * (`postRoomSettings`) — always the WHOLE column, via
+   * `withRoomGameSettings`, never a partial JSON patch: SQLite has no JSON1
+   * guarantee here and D1's dialect stays "dialect-identical to the
+   * Almanac's" (schema.sql, "Conventions"), which rules out relying on it. */
+  updateRoomSettings: `
+    UPDATE rooms SET settings = ?, updated_at = ? WHERE code = ?`,
+
+  /* OR IGNORE: `room_players` PRIMARY KEY (room_code, player_id) makes a
+   * repeat join a no-op, same doctrine as `claimSeat`. A rename does not
+   * update this row — same "denormalized at write time, never rewritten"
+   * rule `lobby_messages.display_name` follows; the game's own player
+   * identity is the freshness source, this row is just room membership. */
+  insertRoomPlayer: `
+    INSERT OR IGNORE INTO room_players (room_code, player_id, name, seed_rating, archived_at)
+    VALUES (?, ?, ?, NULL, NULL)`,
+
+  roomMember: `
+    SELECT 1 AS present
+      FROM room_players
+     WHERE room_code = ? AND player_id = ? AND archived_at IS NULL`,
+
+  roomMemberCount: `
+    SELECT COUNT(*) AS n
+      FROM room_players
+     WHERE room_code = ? AND archived_at IS NULL`,
+
+  /* "My rooms" (`GET /api/rooms/mine`), most recently touched first. */
+  roomsForPlayer: `
+    SELECT r.code, r.name, r.settings, r.admin_code_hash, r.created_at, r.updated_at
+      FROM room_players rp
+      JOIN rooms r ON r.code = rp.room_code
+     WHERE rp.player_id = ? AND rp.archived_at IS NULL
+     ORDER BY r.updated_at DESC`,
+
+  /* `POST /api/rooms/:code/tables/:matchId/close` (admin, phase 2): a
+   * WAITING table only — a playing or done table has nothing this route
+   * should touch, and the caller checks `lobby_status` before calling this,
+   * same doctrine as `postStart`'s D1-read-then-DO-call ordering. Does not
+   * touch the Table DO: a waiting table's clocks never started, so there is
+   * no live match state to reach for. */
+  abandonWaitingMatch: `
+    UPDATE matches
+       SET status = 'abandoned', lobby_status = 'done', ended_at = ?
+     WHERE id = ? AND lobby_status = 'waiting'`,
 });
 
 /* ── identity ─────────────────────────────────────────────────────────────── */
@@ -933,6 +1049,77 @@ export async function handsOfMatch(db: D1Like, matchId: string): Promise<HandRow
   return results;
 }
 
+/* ── rooms (PVP-LOBBY-PROPOSAL-2026-09-02.md §8b) ────────────────────────────
+ * `rooms`/`room_players` are NOT this schema's tables — see schema.sql's
+ * "rooms" note. These helpers read and write them anyway, over the same `db`
+ * every other query in this file uses (one D1 database, `mjrc-scoring`), with
+ * the same discipline: parameterised, frozen statements, rows are rows.
+ */
+
+export interface RoomRow {
+  code: string;
+  name: string;
+  /** JSON. The game reads/writes only the `game` key — see
+   *  `roomGameSettingsOf`/`withRoomGameSettings`. Never round-tripped through
+   *  a narrower type: the Almanac's own keys (rulesetPresetId, purpose,
+   *  leaderboard, notes) must survive a game write untouched. */
+  settings: string;
+  /** sha256 hex, or null when the room has no code of its own (0011). Never
+   *  serve this column to a client — same rule the Almanac's own
+   *  room-admin middleware states. */
+  admin_code_hash: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** The game's own corner of `rooms.settings`, exactly `{ rulesetId,
+ *  matchFormat, access }` per §8b. */
+export interface RoomGameSettings {
+  rulesetId: string;
+  matchFormat: string; // east | full
+  access: string; // open | private
+}
+
+/** `rooms.settings` round-trips through this, never through a bare
+ *  `JSON.parse` at a call site — same doctrine as `parseSeatPlan`. Malformed
+ *  or absent JSON degrades to `{}` rather than throwing: a room row this
+ *  file cannot parse must still be readable, just with no `game` key. */
+export function parseRoomSettings(raw: string): Record<string, unknown> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return {};
+  }
+  return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
+    ? (parsed as Record<string, unknown>)
+    : {};
+}
+
+/** Pull `settings.game` out, or null when the room has never had one set —
+ *  the state every room is in until `POST /api/rooms` or `POST
+ *  /api/rooms/:code/settings` writes it. */
+export function roomGameSettingsOf(settings: Record<string, unknown>): RoomGameSettings | null {
+  const game = settings.game;
+  if (game === null || typeof game !== "object" || Array.isArray(game)) return null;
+  const g = game as Record<string, unknown>;
+  if (typeof g.rulesetId !== "string" || typeof g.matchFormat !== "string") return null;
+  return {
+    rulesetId: g.rulesetId,
+    matchFormat: g.matchFormat,
+    access: typeof g.access === "string" ? g.access : "open",
+  };
+}
+
+/** Replace `settings.game`, leaving every other key — the Almanac's own —
+ *  exactly as it was. The one write path `postRoomSettings` uses. */
+export function withRoomGameSettings(
+  settings: Record<string, unknown>,
+  game: RoomGameSettings,
+): Record<string, unknown> {
+  return { ...settings, game };
+}
+
 /* ── the lobby ────────────────────────────────────────────────────────────── */
 
 export interface PresenceRow {
@@ -964,6 +1151,17 @@ export async function presenceSince(db: D1Like, sinceIso: string): Promise<Prese
   return results;
 }
 
+/** The room-scoped `here` source — presence rows for players who are ALSO a
+ *  member of this room (SQL.presenceInRoom's doc comment). */
+export async function presenceInRoom(
+  db: D1Like,
+  roomCode: string,
+  sinceIso: string,
+): Promise<PresenceRow[]> {
+  const { results } = await db.prepare(SQL.presenceInRoom).bind(roomCode, sinceIso).all<PresenceRow>();
+  return results;
+}
+
 export interface LobbyMatchRow {
   id: string;
   match_format: string;
@@ -978,16 +1176,32 @@ export interface LobbyMatchRow {
   created_by: string | null;
   started_at: string;
   join_code: string | null;
+  room_code: string | null;
 }
 
-/** Every table still looking for humans or still playing, newest first.
- *  `limit` is the defensive cap (SQL.matchesWaitingOrPlaying), not a page
- *  size the client controls — the lobby lists "every" such table. */
+/** Every table still looking for humans or still playing, newest first,
+ *  UNFILTERED by room (SQL.matchesWaitingOrPlaying's doc comment — the
+ *  global `here` needs these rows even for tables `tables[]` will drop).
+ *  `limit` is the defensive cap, not a page size the client controls — the
+ *  lobby lists "every" such table. */
 export async function matchesWaitingOrPlaying(
   db: D1Like,
   limit: number,
 ): Promise<LobbyMatchRow[]> {
   const { results } = await db.prepare(SQL.matchesWaitingOrPlaying).bind(limit).all<LobbyMatchRow>();
+  return results;
+}
+
+/** The same panel, scoped to one room (§8b `GET /api/lobby?room=CODE`). */
+export async function matchesWaitingOrPlayingInRoom(
+  db: D1Like,
+  roomCode: string,
+  limit: number,
+): Promise<LobbyMatchRow[]> {
+  const { results } = await db
+    .prepare(SQL.matchesWaitingOrPlayingInRoom)
+    .bind(roomCode, limit)
+    .all<LobbyMatchRow>();
   return results;
 }
 
@@ -997,9 +1211,20 @@ export interface DoneMatchRow {
   ended_at: string | null;
 }
 
-/** The last `limit` finished matches, newest first — the recent-results strip. */
+/** The last `limit` finished GLOBAL matches, newest first — the
+ *  recent-results strip. `room_code IS NULL` (§8b decision 3). */
 export async function matchesDone(db: D1Like, limit: number): Promise<DoneMatchRow[]> {
   const { results } = await db.prepare(SQL.matchesDone).bind(limit).all<DoneMatchRow>();
+  return results;
+}
+
+/** The room-scoped sibling of the above. */
+export async function matchesDoneInRoom(
+  db: D1Like,
+  roomCode: string,
+  limit: number,
+): Promise<DoneMatchRow[]> {
+  const { results } = await db.prepare(SQL.matchesDoneInRoom).bind(roomCode, limit).all<DoneMatchRow>();
   return results;
 }
 
@@ -1011,13 +1236,18 @@ export interface LobbyMessageRow {
   created_at: string;
 }
 
-/** Append one lobby chat message (§8). `displayName` is denormalized at
- *  write time — see schema.sql `lobby_messages`'s header comment. */
+/** Append one lobby chat message (§8, §8b). `displayName` is denormalized at
+ *  write time — see schema.sql `lobby_messages`'s header comment.
+ *  `roomCode` null = the global lobby, same convention `matches.room_code`
+ *  already uses. */
 export async function insertLobbyMessage(
   db: D1Like,
-  m: { playerId: string; displayName: string; text: string; now: string },
+  m: { playerId: string; displayName: string; text: string; roomCode: string | null; now: string },
 ): Promise<void> {
-  await db.prepare(SQL.insertLobbyMessage).bind(m.playerId, m.displayName, m.text, m.now).run();
+  await db
+    .prepare(SQL.insertLobbyMessage)
+    .bind(m.playerId, m.displayName, m.text, m.roomCode, m.now)
+    .run();
 }
 
 /** This player's most recent message time, or null if they have never sent
@@ -1028,11 +1258,24 @@ export async function lastLobbyMessageAt(db: D1Like, playerId: string): Promise<
   return row === null ? null : row.created_at;
 }
 
-/** Newest `limit` lobby messages, NEWEST FIRST — the caller (`getLobby`)
- *  reverses this into chronological order for display, same shape the
- *  table's own K_CHAT ring already presents to a client. */
+/** Newest `limit` GLOBAL lobby messages, NEWEST FIRST — the caller
+ *  (`getLobby`) reverses this into chronological order for display, same
+ *  shape the table's own K_CHAT ring already presents to a client. */
 export async function recentLobbyMessages(db: D1Like, limit: number): Promise<LobbyMessageRow[]> {
   const { results } = await db.prepare(SQL.recentLobbyMessages).bind(limit).all<LobbyMessageRow>();
+  return results;
+}
+
+/** The room-scoped sibling of the above. */
+export async function recentLobbyMessagesInRoom(
+  db: D1Like,
+  roomCode: string,
+  limit: number,
+): Promise<LobbyMessageRow[]> {
+  const { results } = await db
+    .prepare(SQL.recentLobbyMessagesInRoom)
+    .bind(roomCode, limit)
+    .all<LobbyMessageRow>();
   return results;
 }
 
@@ -1162,4 +1405,72 @@ export interface CasualLeaderboardRow {
 export async function leaderboardCasual(db: D1Like, limit: number): Promise<CasualLeaderboardRow[]> {
   const { results } = await db.prepare(SQL.leaderboardCasual).bind(limit).all<CasualLeaderboardRow>();
   return results;
+}
+
+/* ── rooms (§8b) ──────────────────────────────────────────────────────────── */
+
+export function roomByCode(db: D1Like, code: string): Promise<RoomRow | null> {
+  return db.prepare(SQL.roomByCode).bind(code).first<RoomRow>();
+}
+
+export interface NewRoom {
+  code: string;
+  name: string;
+  /** Pre-serialized — always `{ game: {...} }` for a room the game creates
+   *  (`postRooms`), so callers hold the `JSON.stringify` at the boundary,
+   *  same convention `NewMatch.seatPlan` uses. */
+  settings: string;
+  adminCodeHash: string;
+  now: string;
+}
+
+export async function insertRoom(db: D1Like, r: NewRoom): Promise<void> {
+  await db
+    .prepare(SQL.insertRoom)
+    .bind(r.code, r.name, r.settings, r.adminCodeHash, r.now, r.now)
+    .run();
+}
+
+export async function updateRoomSettings(
+  db: D1Like,
+  code: string,
+  settingsJson: string,
+  now: string,
+): Promise<void> {
+  await db.prepare(SQL.updateRoomSettings).bind(settingsJson, now, code).run();
+}
+
+export async function insertRoomPlayer(
+  db: D1Like,
+  m: { roomCode: string; playerId: string; name: string },
+): Promise<void> {
+  await db.prepare(SQL.insertRoomPlayer).bind(m.roomCode, m.playerId, m.name).run();
+}
+
+export async function isRoomMember(db: D1Like, roomCode: string, playerId: string): Promise<boolean> {
+  const row = await db.prepare(SQL.roomMember).bind(roomCode, playerId).first<{ present: number }>();
+  return row !== null;
+}
+
+export async function roomMemberCount(db: D1Like, roomCode: string): Promise<number> {
+  const row = await db.prepare(SQL.roomMemberCount).bind(roomCode).first<{ n: number }>();
+  return row?.n ?? 0;
+}
+
+/** "My rooms" — every room this player has joined (`POST
+ *  /api/rooms/:code/join`, or was the creator of, since creation also joins). */
+export async function roomsForPlayer(db: D1Like, playerId: string): Promise<RoomRow[]> {
+  const { results } = await db.prepare(SQL.roomsForPlayer).bind(playerId).all<RoomRow>();
+  return results;
+}
+
+/** `POST /api/rooms/:code/tables/:matchId/close` (admin, phase 2). Returns
+ *  false when the match was not, at the moment of the UPDATE, a waiting
+ *  match — the caller has already read the row and knows why (not found, not
+ *  in this room, already started) and turns that into the right status code;
+ *  this function only reports whether ITS OWN write happened, same
+ *  `meta.changes` doctrine `claimSeat` uses for its own race. */
+export async function abandonWaitingMatch(db: D1Like, matchId: string, now: string): Promise<boolean> {
+  const res = await db.prepare(SQL.abandonWaitingMatch).bind(now, matchId).run();
+  return res.meta.changes > 0;
 }

@@ -64,6 +64,8 @@ import type {
   RankedLeaderboardRow,
   RatingHistoryPointRow,
   RecentMatchRow,
+  RoomGameSettings,
+  RoomRow,
   SeatSpec,
   StatsTotalsRow,
 } from "./db.js";
@@ -74,6 +76,7 @@ export type { SeatSpec } from "./db.js";
 import {
   ID_LENGTH,
   JOIN_CODE_LENGTH,
+  abandonWaitingMatch,
   archiveRuleset,
   avgFaanForPlayer,
   claimSeat,
@@ -83,6 +86,9 @@ import {
   insertLobbyMessage,
   insertMatch,
   insertPlayer,
+  insertRoom,
+  insertRoomPlayer,
+  isRoomMember,
   lastLobbyMessageAt,
   leaderboardCasual,
   leaderboardRanked,
@@ -90,18 +96,27 @@ import {
   matchByJoinCode,
   matchLogById,
   matchesDone,
+  matchesDoneInRoom,
   matchesForPlayer,
   matchesWaitingOrPlaying,
+  matchesWaitingOrPlayingInRoom,
   netChipsForPlayer,
+  parseRoomSettings,
   parseSeatPlan,
   playerById,
   playerForCredential,
+  presenceInRoom,
   presenceSince,
   randomId,
   ratingHistoryForPlayer,
   recentLobbyMessages,
+  recentLobbyMessagesInRoom,
   recentMatchesForPlayer,
   renamePlayer,
+  roomByCode,
+  roomGameSettingsOf,
+  roomMemberCount,
+  roomsForPlayer,
   rulesetHash,
   seatOf,
   seatPlanOf,
@@ -111,7 +126,9 @@ import {
   statsTotalsForPlayer,
   toHex,
   touchCredential,
+  updateRoomSettings,
   upsertPresence,
+  withRoomGameSettings,
 } from "./db.js";
 
 /* ── the Table DO seam ────────────────────────────────────────────────────────
@@ -462,9 +479,11 @@ const MAX_PAGE = 100;
 /**
  * Codes are read off a screen and typed into a phone. Crockford base32 already
  * drops I, L, O and U from the alphabet; folding the look-alikes on the way in
- * means "1" typed for a shown "I" still finds the table.
+ * means "1" typed for a shown "I" still finds the table. Shared by join codes
+ * (8 chars) and room codes (6, §8b) — the folding rule does not depend on
+ * length.
  */
-function normaliseJoinCode(raw: string): string {
+function normaliseCode(raw: string): string {
   return raw
     .toUpperCase()
     .replace(/[\s-]/g, "")
@@ -807,6 +826,17 @@ async function getReplay(token: string, p: Platform): Promise<Response> {
   return serveLog(p, row.log_key, "public, max-age=31536000, immutable");
 }
 
+/** `access` unspecified in the request body falls back to the room's own
+ *  default when the table is in a room (§8b: "access defaults from the
+ *  room"), else "open" — same "unknown degrades to the safe default"
+ *  doctrine `matchFormat`/`mode` already use. An EXPLICIT `access` in the
+ *  body still wins over the room's default; only its absence defers. */
+function resolveAccess(bodyAccess: unknown, roomDefault: string | undefined): string {
+  if (bodyAccess === "open" || bodyAccess === "private") return bodyAccess;
+  if (roomDefault === "open" || roomDefault === "private") return roomDefault;
+  return "open";
+}
+
 /**
  * POST /api/tables — create a table and take the creator's seat.
  *
@@ -819,12 +849,31 @@ async function getReplay(token: string, p: Platform): Promise<Response> {
  * always seat 0, now that a bot may sit anywhere. A plan with no human seat at
  * all has nowhere for the creator to sit and is refused before any row is
  * written, same as every other malformed `seats`.
+ *
+ * §8b: an optional `roomCode` scopes the table to a room. The room, not the
+ * request, owns `rulesetId`/`matchFormat` once it is configured — a request
+ * value is silently ignored, the same "the room is the source of truth, not
+ * the client" doctrine `postStart`'s D1-read-before-DO-call already follows
+ * for who may start a table. The caller must already be a member (`POST
+ * /api/rooms/:code/join`) — creating a table is not itself a join, so a
+ * stranger cannot summon a table into a room they were never let into.
  */
 async function postTable(req: Request, p: Platform, player: PlayerRow): Promise<Response> {
   const body = await readJsonObject(req);
   if (body === null) return fail("bad_json", 400);
 
-  const rulesetId = str(body.rulesetId) ?? DEFAULT_RULESET_ID;
+  let room: RoomRow | null = null;
+  let roomGame: RoomGameSettings | null = null;
+  const roomCodeRaw = str(body.roomCode);
+  if (roomCodeRaw !== null) {
+    room = await roomByCode(p.db, normaliseCode(roomCodeRaw));
+    if (room === null) return fail("not_found", 404);
+    if (!(await isRoomMember(p.db, room.code, player.id))) return fail("not_room_member", 403);
+    roomGame = roomGameSettingsOf(parseRoomSettings(room.settings));
+    if (roomGame === null) return fail("room_not_configured", 409);
+  }
+
+  const rulesetId = roomGame?.rulesetId ?? str(body.rulesetId) ?? DEFAULT_RULESET_ID;
   const rules = ruleset(rulesetId);
   if (rules === undefined) return fail("unknown_ruleset", 400);
   try {
@@ -835,9 +884,9 @@ async function postTable(req: Request, p: Platform, player: PlayerRow): Promise<
     return fail("server_misconfigured", 500);
   }
 
-  const matchFormat = body.matchFormat === "full" ? "full" : "east";
+  const matchFormat = roomGame !== null ? roomGame.matchFormat : (body.matchFormat === "full" ? "full" : "east");
   const mode = body.mode === "ranked" ? "ranked" : "casual";
-  const access = body.access === "private" ? "private" : "open";
+  const access = resolveAccess(body.access, roomGame?.access);
   const randomizeSeats = body.randomizeSeats === true;
 
   const seatPlan = seatPlanFromBody(body, p.isBotKey);
@@ -867,7 +916,7 @@ async function postTable(req: Request, p: Platform, player: PlayerRow): Promise<
     rulesetId: rules.id,
     engineVersion: p.engineVersion,
     logSchemaVersion: EVENT_SCHEMA_VERSION,
-    roomCode: str(body.roomCode),
+    roomCode: room !== null ? room.code : null,
     joinCode,
     /* Ranked is rated at creation and frozen (schema.sql, matches.rated) — the
      * ranked/bot check above already guarantees every seat is human. */
@@ -911,6 +960,7 @@ async function postTable(req: Request, p: Platform, player: PlayerRow): Promise<
       matchFormat,
       mode,
       access,
+      roomCode: room !== null ? room.code : null,
     },
     201,
   );
@@ -961,7 +1011,7 @@ async function openAndSeat(
  * new token without the UNIQUE (match_id, player_id) constraint refusing it.
  */
 async function postJoin(code: string, p: Platform, player: PlayerRow): Promise<Response> {
-  const joinCode = normaliseJoinCode(code);
+  const joinCode = normaliseCode(code);
   if (joinCode.length < 6) return fail("not_found", 404);
 
   const match = await matchByJoinCode(p.db, joinCode);
@@ -1212,6 +1262,12 @@ interface HereEntry {
   joinCode?: string | null;
   hand?: number;
   handsBase?: number;
+  /** §8b decision 3: the global lobby's `here` still shows a member seated at
+   *  a room's table, tagged with which room — even though `tables[]` itself
+   *  omits that room's tables. Absent for a room-scoped `here` entry (the
+   *  room is already the whole context) and for a bare "in the lobby"
+   *  heartbeat with no table at all. */
+  roomCode?: string;
 }
 
 /** `access === 'private'` hides the code from every lobby view, same rule for
@@ -1228,24 +1284,132 @@ function botSeatLabel(p: Platform, key: string | undefined, seat: SeatIndex): st
 }
 
 /**
- * GET /api/lobby — three panels, three queries (proposal §3.3), merged here
- * rather than in SQL: `here` is a union of two sources that mean the same
- * thing (a player who showed up), and building that union in application code
- * keeps every query in `db.ts` a single, obvious statement.
+ * One lobby-listed match, resolved into `tables[]`'s shape — shared by
+ * `GET /api/lobby` and `GET /api/rooms/:code` (§8b's `tables: [...]`), so the
+ * seat-plan/human-seat merge lives in exactly one place. When `here` is
+ * given, every human seat found also updates it — `GET /api/lobby`'s way of
+ * folding "seated at a table" into the richer state, without a second pass
+ * over the same rows; `GET /api/rooms/:code` has no `here` panel and passes
+ * `null`.
  */
-async function getLobby(p: Platform): Promise<Response> {
+async function tableViewOf(p: Platform, m: LobbyMatchRow, here: Map<string, HereEntry> | null) {
+  const plan = seatPlanOf(m.seat_plan, m.bot_seats);
+  const humanSeats = await humanSeatsOfMatch(p.db, m.id);
+  const bySeat = new Map(humanSeats.map((s) => [s.seat, s]));
+  const joinCode = codeIfOpen(m.access, m.join_code);
+  const state: "waiting" | "playing" = m.lobby_status === "playing" ? "playing" : "waiting";
+
+  const seats = plan.map((spec, seat) => {
+    if (spec.kind === "bot") {
+      return {
+        seat,
+        kind: "bot" as const,
+        displayName: botSeatLabel(p, spec.bot, seat as SeatIndex),
+        connected: false,
+      };
+    }
+    const row = bySeat.get(seat);
+    if (row !== undefined && here !== null) {
+      here.set(row.player_id, {
+        playerId: row.player_id,
+        displayName: row.display_name,
+        state,
+        matchId: m.id,
+        joinCode,
+        hand: m.current_hand,
+        handsBase: m.hands_base,
+        roomCode: m.room_code ?? undefined,
+      });
+    }
+    return {
+      seat,
+      kind: "human" as const,
+      displayName: row?.display_name,
+      connected: row !== undefined && row.connected !== 0,
+    };
+  });
+
+  return {
+    matchId: m.id,
+    joinCode,
+    access: m.access,
+    mode: m.mode,
+    rulesetId: m.ruleset_id,
+    matchFormat: m.match_format,
+    lobbyStatus: m.lobby_status,
+    hand: m.current_hand,
+    handsBase: m.hands_base,
+    seats,
+    createdBy: m.created_by,
+    startedAt: m.started_at,
+    roomCode: m.room_code,
+  };
+}
+
+async function recentView(p: Platform, m: DoneMatchRow) {
+  const seats = await seatsOfMatch(p.db, m.id);
+  return {
+    matchId: m.id,
+    endedAt: m.ended_at,
+    mode: m.mode,
+    /* Standings for the seats `match_players` actually has rows for — every
+     * human that was ever seated. A seat that was a bot from creation and
+     * never claimed by a human has no row to read a name from (schema.sql
+     * match_players: nothing ever inserts one for a bot seat) and is omitted
+     * rather than guessed at. */
+    standings: seats.map((s) => ({ displayName: s.display_name, chips: s.final_chips, place: s.place })),
+  };
+}
+
+const chatView = (r: LobbyMessageRow) => ({
+  id: r.id,
+  playerId: r.player_id,
+  displayName: r.display_name,
+  text: r.text,
+  at: r.created_at,
+});
+
+/**
+ * GET /api/lobby, optionally `?room=CODE` (§8b) — four panels, four query
+ * groups (proposal §3.3's "three queries" plus chat), merged here rather than
+ * in SQL: `here` is a union of sources that mean the same thing (a player who
+ * showed up), and building that union in application code keeps every query
+ * in `db.ts` a single, obvious statement.
+ *
+ * Room-scoped: every panel reads only that room's rows (db.ts's `*InRoom`
+ * statements) — `here` is members seen recently (joined through
+ * `room_players`) or seated at the room's own tables.
+ *
+ * Unscoped (`roomCode === null`): `tables`/`recent`/`chat` exclude every
+ * room-scoped row (`room_code IS NULL`, §8b decision 3) — a room's traffic
+ * does not leak into the general list. `here` is the one deliberate
+ * exception: it is read from the SAME unfiltered `matchesWaitingOrPlaying`
+ * query `roomCode !== null` would otherwise use filtered, so a member seated
+ * at a room's table still shows up in the global "who's around" list, tagged
+ * with `roomCode` — the recorded decision (§8b) is "yes, tag it", on the
+ * grounds that hiding a friend entirely because they wandered into a room is
+ * worse than a harmless tag.
+ */
+async function getLobby(p: Platform, roomCode: string | null): Promise<Response> {
   // Authenticated caller only, checked by the router; the lobby view itself
   // has no per-viewer filtering (§6 decision 1: "everyone sees everyone").
   const now = p.now();
   const sinceIso = new Date(Date.parse(now) - HERE_WINDOW_MS).toISOString();
 
+  if (roomCode !== null && (await roomByCode(p.db, roomCode)) === null) return fail("not_found", 404);
+
   const [presenceRows, openRows, doneRows, chatRows] = await Promise.all([
-    presenceSince(p.db, sinceIso),
-    matchesWaitingOrPlaying(p.db, LOBBY_TABLE_LIMIT),
-    matchesDone(p.db, RECENT_LIMIT),
+    roomCode === null ? presenceSince(p.db, sinceIso) : presenceInRoom(p.db, roomCode, sinceIso),
+    roomCode === null
+      ? matchesWaitingOrPlaying(p.db, LOBBY_TABLE_LIMIT)
+      : matchesWaitingOrPlayingInRoom(p.db, roomCode, LOBBY_TABLE_LIMIT),
+    roomCode === null ? matchesDone(p.db, RECENT_LIMIT) : matchesDoneInRoom(p.db, roomCode, RECENT_LIMIT),
     // Fail soft: a lobby without chat is a lobby; a lobby that 500s because
     // the chat table is missing on a deployment is not.
-    recentLobbyMessages(p.db, LOBBY_CHAT_LIMIT).catch((err: unknown) => {
+    (roomCode === null
+      ? recentLobbyMessages(p.db, LOBBY_CHAT_LIMIT)
+      : recentLobbyMessagesInRoom(p.db, roomCode, LOBBY_CHAT_LIMIT)
+    ).catch((err: unknown) => {
       console.error("lobby chat unavailable", err);
       return [] as Awaited<ReturnType<typeof recentLobbyMessages>>;
     }),
@@ -1259,90 +1423,23 @@ async function getLobby(p: Platform): Promise<Response> {
     here.set(row.player_id, { playerId: row.player_id, displayName: row.display_name, state: "lobby" });
   }
 
-  const tables = await Promise.all(
-    openRows.map(async (m: LobbyMatchRow) => {
-      const plan = seatPlanOf(m.seat_plan, m.bot_seats);
-      const humanSeats = await humanSeatsOfMatch(p.db, m.id);
-      const bySeat = new Map(humanSeats.map((s) => [s.seat, s]));
-      const joinCode = codeIfOpen(m.access, m.join_code);
-      const state: "waiting" | "playing" = m.lobby_status === "playing" ? "playing" : "waiting";
+  const tables: Awaited<ReturnType<typeof tableViewOf>>[] = [];
+  for (const m of openRows) {
+    const view = await tableViewOf(p, m, here);
+    /* Global only: `openRows` here is UNFILTERED (matchesWaitingOrPlaying),
+     * on purpose, so `here` above gets tagged for a room-seated player; the
+     * room-scoped call already filtered its own `openRows` in SQL, so every
+     * row here belongs in `tables[]`. */
+    if (roomCode === null && m.room_code !== null) continue;
+    tables.push(view);
+  }
 
-      const seats = plan.map((spec, seat) => {
-        if (spec.kind === "bot") {
-          return {
-            seat,
-            kind: "bot" as const,
-            displayName: botSeatLabel(p, spec.bot, seat as SeatIndex),
-            connected: false,
-          };
-        }
-        const row = bySeat.get(seat);
-        if (row !== undefined) {
-          here.set(row.player_id, {
-            playerId: row.player_id,
-            displayName: row.display_name,
-            state,
-            matchId: m.id,
-            joinCode,
-            hand: m.current_hand,
-            handsBase: m.hands_base,
-          });
-        }
-        return {
-          seat,
-          kind: "human" as const,
-          displayName: row?.display_name,
-          connected: row !== undefined && row.connected !== 0,
-        };
-      });
-
-      return {
-        matchId: m.id,
-        joinCode,
-        access: m.access,
-        mode: m.mode,
-        rulesetId: m.ruleset_id,
-        matchFormat: m.match_format,
-        lobbyStatus: m.lobby_status,
-        hand: m.current_hand,
-        handsBase: m.hands_base,
-        seats,
-        createdBy: m.created_by,
-        startedAt: m.started_at,
-      };
-    }),
-  );
-
-  const recent = await Promise.all(
-    doneRows.map(async (m: DoneMatchRow) => {
-      const seats = await seatsOfMatch(p.db, m.id);
-      return {
-        matchId: m.id,
-        endedAt: m.ended_at,
-        mode: m.mode,
-        /* Standings for the seats `match_players` actually has rows for —
-         * every human that was ever seated. A seat that was a bot from
-         * creation and never claimed by a human has no row to read a name
-         * from (schema.sql match_players: nothing ever inserts one for a bot
-         * seat) and is omitted rather than guessed at. */
-        standings: seats.map((s) => ({ displayName: s.display_name, chips: s.final_chips, place: s.place })),
-      };
-    }),
-  );
+  const recent = await Promise.all(doneRows.map((m) => recentView(p, m)));
 
   // Chat rows come back newest-first (idx_lobby_messages_player's sibling
   // ordering — see recentLobbyMessages' doc comment); the lobby renders
   // oldest-first, same convention the table's own K_CHAT ring already uses.
-  const chat = chatRows
-    .slice()
-    .reverse()
-    .map((r: LobbyMessageRow) => ({
-      id: r.id,
-      playerId: r.player_id,
-      displayName: r.display_name,
-      text: r.text,
-      at: r.created_at,
-    }));
+  const chat = chatRows.slice().reverse().map(chatView);
 
   return json({ now, here: [...here.values()], tables, recent, chat });
 }
@@ -1358,12 +1455,21 @@ async function postPresence(req: Request, p: Platform, player: PlayerRow): Promi
 }
 
 /**
- * POST /api/lobby/chat — the lobby's chat (§8). Length-capped like table
- * chat, rate-limited per player off the newest row's OWN `created_at` — no
- * second table for "when did this player last post", same doctrine
- * `postLobbyChat`'s sibling `postPresence` uses for presence. 204, same as
- * `postPresence`: the row itself is read back through `GET /api/lobby`, not
- * echoed here.
+ * POST /api/lobby/chat — the lobby's chat (§8), optionally scoped to a room
+ * by `roomCode` (§8b) — `null`/absent posts to the global lobby, same
+ * convention `matches.room_code` and `lobby_messages.room_code` already use.
+ * Length-capped like table chat, rate-limited per player off the newest
+ * row's OWN `created_at` — no second table for "when did this player last
+ * post", same doctrine `postPresence` uses for presence, and ONE limit
+ * shared across every surface (db.ts `SQL.lastLobbyMessageForPlayer`'s doc
+ * comment) rather than a per-room budget. 204, same as `postPresence`: the
+ * row itself is read back through `GET /api/lobby`, not echoed here.
+ *
+ * No membership check: rooms are public and destructible until real accounts
+ * exist (the Almanac's own room-admin doctrine, `room-admin/_middleware.ts`),
+ * and §6 decision 1 already makes the platform "everyone sees everyone" —
+ * gating who may TALK in a room more tightly than who may SEE it would be a
+ * new, unrequested restriction, not this brief's.
  */
 async function postLobbyChat(req: Request, p: Platform, player: PlayerRow): Promise<Response> {
   const body = await readJsonObject(req);
@@ -1372,14 +1478,223 @@ async function postLobbyChat(req: Request, p: Platform, player: PlayerRow): Prom
   const text = str(body.text);
   if (text === null || text.length > LOBBY_CHAT_TEXT_MAX_LENGTH) return fail("bad_text", 400);
 
+  const roomCodeRaw = str(body.roomCode);
+  let roomCode: string | null = null;
+  if (roomCodeRaw !== null) {
+    roomCode = normaliseCode(roomCodeRaw);
+    if ((await roomByCode(p.db, roomCode)) === null) return fail("not_found", 404);
+  }
+
   const now = p.now();
   const last = await lastLobbyMessageAt(p.db, player.id);
   if (last !== null && Date.parse(now) - Date.parse(last) < LOBBY_CHAT_MIN_INTERVAL_MS) {
     return fail("rate_limited", 429);
   }
 
-  await insertLobbyMessage(p.db, { playerId: player.id, displayName: player.display_name, text, now });
+  await insertLobbyMessage(p.db, { playerId: player.id, displayName: player.display_name, text, roomCode, now });
   return new Response(null, { status: 204, headers: BASE_HEADERS });
+}
+
+/* ── rooms (PVP-LOBBY-PROPOSAL-2026-09-02.md §8b) ────────────────────────────
+ * `rooms`/`room_players` belong to the Almanac (schema.sql's "rooms" note);
+ * the game reads them and writes only its own `game` settings key and its
+ * own membership rows. No route here ever touches `password_hash` — that is
+ * the Almanac's own future flow, untouched by this file.
+ */
+
+const MAX_ROOM_NAME = 60;
+/** 6 Crockford characters, per §8b — shorter than a join code (8, §5.3's
+ *  abuse posture) because a room code is read aloud across a table far more
+ *  than it is guessed at; the admin code, not the room code, is the real
+ *  gate on anything destructive. */
+const ROOM_CODE_LENGTH = 6;
+const ROOM_CODE_MAX_ATTEMPTS = 10;
+
+/** Draw a fresh room code, retried on collision with an existing `rooms.code`
+ *  (§8b: "not colliding with Almanac codes" — this IS that check, since
+ *  Almanac-created codes live in the same `rooms` table this reads). At
+ *  6 Crockford symbols (30 bits) a collision inside `ROOM_CODE_MAX_ATTEMPTS`
+ *  tries is astronomically unlikely at any scale this beta will ever reach;
+ *  exhausting the budget is treated as a deploy-level anomaly, not a client
+ *  error. */
+async function generateRoomCode(p: Platform): Promise<string> {
+  for (let attempt = 0; attempt < ROOM_CODE_MAX_ATTEMPTS; attempt += 1) {
+    const code = randomId(p.random, ROOM_CODE_LENGTH);
+    if ((await roomByCode(p.db, code)) === null) return code;
+  }
+  throw new Error("room code space exhausted");
+}
+
+function roomView(room: RoomRow, game: RoomGameSettings | null, memberCount: number, tables: unknown[]) {
+  return { code: room.code, name: room.name, game, memberCount, tables };
+}
+
+/**
+ * POST /api/rooms — create a room, online-first (§8b, §9's "an online room is
+ * the same `rooms` row"). Sets `settings.game` and hashes `adminCode` into
+ * `admin_code_hash` (0011's column, same sha256 treatment the Almanac's own
+ * room-admin middleware reads) — that hash is the ONLY gate on
+ * `POST /api/rooms/:code/settings` and the table-close route below; there is
+ * deliberately no master-code fallback on the game side (see
+ * gamepvp/README.md's Rooms section for why). The creator is also the room's
+ * first member (`insertRoomPlayer`), same as `postTable` seating its creator.
+ */
+async function postRooms(req: Request, p: Platform, player: PlayerRow): Promise<Response> {
+  const body = await readJsonObject(req);
+  if (body === null) return fail("bad_json", 400);
+
+  const name = str(body.name);
+  if (name === null || name.length > MAX_ROOM_NAME) return fail("bad_name", 400);
+
+  const rulesetId = str(body.rulesetId) ?? DEFAULT_RULESET_ID;
+  const rules = ruleset(rulesetId);
+  if (rules === undefined) return fail("unknown_ruleset", 400);
+
+  const matchFormat = body.matchFormat === "full" ? "full" : "east";
+  const access = body.access === "private" ? "private" : "open";
+
+  const adminCode = str(body.adminCode);
+  if (adminCode === null) return fail("bad_admin_code", 400);
+
+  let code: string;
+  try {
+    code = await generateRoomCode(p);
+  } catch (e) {
+    console.error("room code generation failed", e);
+    return fail("server_misconfigured", 500);
+  }
+
+  const now = p.now();
+  const game: RoomGameSettings = { rulesetId: rules.id, matchFormat, access };
+  await insertRoom(p.db, {
+    code,
+    name,
+    settings: JSON.stringify({ game }),
+    adminCodeHash: await sha256Hex(adminCode),
+    now,
+  });
+  await insertRoomPlayer(p.db, { roomCode: code, playerId: player.id, name: player.display_name });
+
+  return json({ code }, 201);
+}
+
+/** GET /api/rooms/:code — public read (§6 decision 1: everyone sees
+ *  everyone), same "browsable by design" doctrine the Almanac's own room GETs
+ *  already follow (`room-admin/_middleware.ts`'s header comment). */
+async function getRoom(codeRaw: string, p: Platform): Promise<Response> {
+  const code = normaliseCode(codeRaw);
+  const room = await roomByCode(p.db, code);
+  if (room === null) return fail("not_found", 404);
+
+  const [memberCount, openRows] = await Promise.all([
+    roomMemberCount(p.db, room.code),
+    matchesWaitingOrPlayingInRoom(p.db, room.code, LOBBY_TABLE_LIMIT),
+  ]);
+  const tables = await Promise.all(openRows.map((m) => tableViewOf(p, m, null)));
+  const game = roomGameSettingsOf(parseRoomSettings(room.settings));
+
+  return json(roomView(room, game, memberCount, tables));
+}
+
+/** GET /api/rooms/mine — every room the caller has joined, most recently
+ *  touched first (creating a room joins it too — `postRooms`). */
+async function getRoomsMine(p: Platform, player: PlayerRow): Promise<Response> {
+  const rooms = await roomsForPlayer(p.db, player.id);
+  return json({
+    rooms: rooms.map((r) => ({
+      code: r.code,
+      name: r.name,
+      game: roomGameSettingsOf(parseRoomSettings(r.settings)),
+    })),
+  });
+}
+
+/** POST /api/rooms/:code/join — membership, idempotent (`insertRoomPlayer`'s
+ *  OR IGNORE) — the same reconnect-safe shape `postJoin`'s "already seated"
+ *  path uses for a table. */
+async function postRoomJoin(codeRaw: string, p: Platform, player: PlayerRow): Promise<Response> {
+  const code = normaliseCode(codeRaw);
+  const room = await roomByCode(p.db, code);
+  if (room === null) return fail("not_found", 404);
+  await insertRoomPlayer(p.db, { roomCode: room.code, playerId: player.id, name: player.display_name });
+  return json({ code: room.code });
+}
+
+/** The room-admin gate (§8b): the room's OWN `admin_code_hash` (0011),
+ *  compared exactly as the Almanac's `room-admin/_middleware.ts` compares its
+ *  room-scoped code — sha256 hex, constant-time. Deliberately NOT the
+ *  Almanac's master code (`MASTER_CODE = "8888"` in that middleware): that
+ *  constant is scoped to the Almanac's OWN `/api/scoring/room-admin/*`
+ *  surface, is not exposed to this Worker in any config, and hardcoding it
+ *  here would let anyone who has read that file's source administer every
+ *  game room — a much bigger blast radius than the Almanac ever accepted for
+ *  its own surface. A room with no `admin_code_hash` at all (never possible
+ *  through `postRooms`, but an Almanac-created room might have none) simply
+ *  has no admin on the game side. */
+async function verifyRoomAdmin(req: Request, room: RoomRow): Promise<boolean> {
+  const given = req.headers.get("x-mjrc-admin-code") ?? "";
+  if (given === "" || room.admin_code_hash === null) return false;
+  return constantTimeEqual(await sha256Hex(given), room.admin_code_hash);
+}
+
+/**
+ * POST /api/rooms/:code/settings — admin-only change to `settings.game`
+ * (§8b). Unspecified fields keep their current value; every other key of
+ * `settings` (the Almanac's own) round-trips untouched via
+ * `withRoomGameSettings`. A room with no `game` yet (an Almanac-created room
+ * that has never been configured for online play) defaults to the platform's
+ * own defaults before this write establishes it for the first time.
+ */
+async function postRoomSettings(req: Request, codeRaw: string, p: Platform): Promise<Response> {
+  const code = normaliseCode(codeRaw);
+  const room = await roomByCode(p.db, code);
+  if (room === null) return fail("not_found", 404);
+  if (!(await verifyRoomAdmin(req, room))) return fail("unauthorized", 401);
+
+  const body = await readJsonObject(req);
+  if (body === null) return fail("bad_json", 400);
+
+  const settings = parseRoomSettings(room.settings);
+  const current = roomGameSettingsOf(settings) ?? {
+    rulesetId: DEFAULT_RULESET_ID,
+    matchFormat: "east",
+    access: "open",
+  };
+
+  const rulesetIdRaw = str(body.rulesetId);
+  if (rulesetIdRaw !== null && ruleset(rulesetIdRaw) === undefined) return fail("unknown_ruleset", 400);
+
+  const game: RoomGameSettings = {
+    rulesetId: rulesetIdRaw ?? current.rulesetId,
+    matchFormat: body.matchFormat === undefined ? current.matchFormat : body.matchFormat === "full" ? "full" : "east",
+    access: body.access === undefined ? current.access : body.access === "private" ? "private" : "open",
+  };
+
+  await updateRoomSettings(p.db, room.code, JSON.stringify(withRoomGameSettings(settings, game)), p.now());
+  return json({ code: room.code, game });
+}
+
+/**
+ * POST /api/rooms/:code/tables/:matchId/close — admin-only (§8b phase 2): a
+ * still-waiting table is abandoned. Does not touch the Table DO — a waiting
+ * table's clocks never started, so there is nothing live to reach
+ * (`abandonWaitingMatch`'s own doc comment). `matchById` first, not the
+ * UPDATE's own `meta.changes`, so the response can tell "no such table" from
+ * "that table is not in this room" from "already started" apart — the same
+ * "read the row, THEN decide" ordering `postStart` uses for the same reason.
+ */
+async function postRoomTableClose(codeRaw: string, matchId: string, req: Request, p: Platform): Promise<Response> {
+  const code = normaliseCode(codeRaw);
+  const room = await roomByCode(p.db, code);
+  if (room === null) return fail("not_found", 404);
+  if (!(await verifyRoomAdmin(req, room))) return fail("unauthorized", 401);
+
+  const match = await matchById(p.db, matchId);
+  if (match === null || match.room_code !== room.code) return fail("not_found", 404);
+  if (match.lobby_status !== "waiting") return fail("not_waiting", 409);
+
+  await abandonWaitingMatch(p.db, matchId, p.now());
+  return json({ ok: true });
 }
 
 /* ── router ───────────────────────────────────────────────────────────────── */
@@ -1472,7 +1787,10 @@ export async function handle(request: Request, p: Platform): Promise<Response> {
   if (seg[1] === "lobby") {
     if (seg.length === 2) {
       if (method !== "GET") return fail("method_not_allowed", 405);
-      return getLobby(p);
+      /* §8b: ?room=CODE scopes every panel; absent/empty is the global lobby. */
+      const roomParam = url.searchParams.get("room");
+      const roomCode = roomParam === null || roomParam.trim() === "" ? null : normaliseCode(roomParam);
+      return getLobby(p, roomCode);
     }
     if (seg.length === 3 && seg[2] === "chat") {
       if (method !== "POST") return fail("method_not_allowed", 405);
@@ -1483,6 +1801,36 @@ export async function handle(request: Request, p: Platform): Promise<Response> {
   if (seg[1] === "presence" && seg.length === 2) {
     if (method !== "POST") return fail("method_not_allowed", 405);
     return postPresence(request, p, player);
+  }
+
+  /* §8b: rooms. `mine` is checked before the generic `/:code` GET below —
+   * otherwise a room happened to be coded "mine" would be unreachable, and a
+   * caller asking for their own rooms would hit `getRoom("mine")` instead. */
+  if (seg[1] === "rooms") {
+    if (seg.length === 2) {
+      if (method !== "POST") return fail("method_not_allowed", 405);
+      return postRooms(request, p, player);
+    }
+    if (seg.length === 3 && seg[2] === "mine") {
+      if (method !== "GET") return fail("method_not_allowed", 405);
+      return getRoomsMine(p, player);
+    }
+    if (seg.length === 3) {
+      if (method !== "GET") return fail("method_not_allowed", 405);
+      return getRoom(seg[2], p);
+    }
+    if (seg.length === 4 && seg[3] === "join") {
+      if (method !== "POST") return fail("method_not_allowed", 405);
+      return postRoomJoin(seg[2], p, player);
+    }
+    if (seg.length === 4 && seg[3] === "settings") {
+      if (method !== "POST") return fail("method_not_allowed", 405);
+      return postRoomSettings(request, seg[2], p);
+    }
+    if (seg.length === 6 && seg[3] === "tables" && seg[5] === "close") {
+      if (method !== "POST") return fail("method_not_allowed", 405);
+      return postRoomTableClose(seg[2], seg[4], request, p);
+    }
   }
 
   return fail("not_found", 404);

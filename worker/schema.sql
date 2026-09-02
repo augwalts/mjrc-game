@@ -610,15 +610,47 @@ CREATE INDEX idx_presence_seen ON presence(seen_at);
 -- not a game fact (table.ts's own K_CHAT ring makes the identical decision for
 -- table chat). Append-only; no edit or delete path exists at P0, on purpose —
 -- the gate password is the moderation (proposal §8).
+--
+-- room_code (§8b, added 2026-09-02): NULL = the global lobby, non-NULL scopes
+-- a message to one Almanac room (`rooms.code` — see "rooms" below). Same
+-- opaque cross-database reference as `matches.room_code`; no FOREIGN KEY is
+-- possible, for the same reason. `GET /api/lobby?room=CODE` reads only rows
+-- with that room_code; the unscoped lobby reads only `room_code IS NULL`.
 -- ─────────────────────────────────────────────────────────────────────────────
 CREATE TABLE lobby_messages (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
   player_id    TEXT NOT NULL REFERENCES players(id),
   display_name TEXT NOT NULL,
   text         TEXT NOT NULL,
+  room_code    TEXT,
   created_at   TEXT NOT NULL
 );
 
 -- The per-player rate check reads this player's newest row; the "last 50"
 -- read is the table's own rowid order and needs no extra index.
 CREATE INDEX idx_lobby_messages_player ON lobby_messages(player_id, id DESC);
+
+-- The room-scoped "last 50" read (and, via `room_code IS NULL`, the global
+-- one too — SQLite can range-scan a NULL group of a multi-column index).
+CREATE INDEX idx_lobby_messages_room ON lobby_messages(room_code, id DESC);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- rooms (§8b, added 2026-09-02) — NOT owned by this schema. `rooms` and
+-- `room_players` are the Almanac's tables, created by
+-- mjrc-app/web/migrations/0004_rooms.sql, 0008_room_builder.sql and
+-- 0011_room_codes.sql in the SAME remote `mjrc-scoring` database this file
+-- targets. No CREATE TABLE for either lives here — writing one would either
+-- collide with the Almanac's real migration history or silently diverge from
+-- it. The game reads `rooms.settings`/`admin_code_hash` and writes only the
+-- `game` key of `settings` (`{ "game": { "rulesetId", "matchFormat", "access"
+-- } }`) and its own `room_players` rows (game player id as `player_id`,
+-- display name as free-text `name` — see PVP-LOBBY-PROPOSAL-2026-09-02.md
+-- §8b). `matches.room_code` above already references `rooms.code` the same
+-- opaque way.
+--
+-- Local D1 has no Almanac migrations to replay, so `rooms`/`room_players`
+-- do not exist there unless created separately —
+-- gamepvp/migrations/local-almanac-rooms.sql does that, LOCAL ONLY, with the
+-- exact column set those three Almanac migrations produce. Never run it
+-- against remote.
+-- ─────────────────────────────────────────────────────────────────────────────

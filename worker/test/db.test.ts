@@ -47,6 +47,8 @@ interface Store {
   presence: Row[];
   lobby_messages: Row[];
   rating_history: Row[];
+  rooms: Row[];
+  room_players: Row[];
 }
 
 const emptyStore = (): Store => ({
@@ -59,6 +61,8 @@ const emptyStore = (): Store => ({
   presence: [],
   lobby_messages: [],
   rating_history: [],
+  rooms: [],
+  room_players: [],
 });
 
 type Handler = (s: Store, a: SqlValue[]) => { rows: Row[]; changes: number };
@@ -237,6 +241,21 @@ const HANDLERS = new Map<string, Handler>([
         .filter((r): r is Row => r !== null),
     )],
 
+  [SQL.presenceInRoom, (s, [roomCode, since]) =>
+    rows(
+      s.presence
+        .filter((r) => String(r.seen_at) >= String(since))
+        .filter((r) =>
+          s.room_players.some(
+            (rp) => rp.room_code === roomCode && rp.player_id === r.player_id && rp.archived_at === null,
+          ))
+        .map((r) => {
+          const p = s.players.find((row) => row.id === r.player_id && row.deleted_at === null);
+          return p === undefined ? null : ({ ...r, display_name: p.display_name } as Row);
+        })
+        .filter((r): r is Row => r !== null),
+    )],
+
   [SQL.matchesWaitingOrPlaying, (s, [limit]) =>
     rows(
       s.matches
@@ -246,14 +265,36 @@ const HANDLERS = new Map<string, Handler>([
         .map((m) => pick(m, [
           "id", "match_format", "ruleset_id", "access", "mode", "lobby_status",
           "current_hand", "hands_base", "seat_plan", "bot_seats", "created_by",
-          "started_at", "join_code",
+          "started_at", "join_code", "room_code",
+        ])),
+    )],
+
+  [SQL.matchesWaitingOrPlayingInRoom, (s, [roomCode, limit]) =>
+    rows(
+      s.matches
+        .filter((m) => (m.lobby_status === "waiting" || m.lobby_status === "playing") && m.room_code === roomCode)
+        .sort((a, b) => String(b.started_at).localeCompare(String(a.started_at)))
+        .slice(0, Number(limit))
+        .map((m) => pick(m, [
+          "id", "match_format", "ruleset_id", "access", "mode", "lobby_status",
+          "current_hand", "hands_base", "seat_plan", "bot_seats", "created_by",
+          "started_at", "join_code", "room_code",
         ])),
     )],
 
   [SQL.matchesDone, (s, [limit]) =>
     rows(
       s.matches
-        .filter((m) => m.lobby_status === "done")
+        .filter((m) => m.lobby_status === "done" && m.room_code === null)
+        .sort((a, b) => String(b.ended_at).localeCompare(String(a.ended_at)))
+        .slice(0, Number(limit))
+        .map((m) => pick(m, ["id", "mode", "ended_at"])),
+    )],
+
+  [SQL.matchesDoneInRoom, (s, [roomCode, limit]) =>
+    rows(
+      s.matches
+        .filter((m) => m.lobby_status === "done" && m.room_code === roomCode)
         .sort((a, b) => String(b.ended_at).localeCompare(String(a.ended_at)))
         .slice(0, Number(limit))
         .map((m) => pick(m, ["id", "mode", "ended_at"])),
@@ -277,10 +318,10 @@ const HANDLERS = new Map<string, Handler>([
 
   /* ── lobby chat (§8) ──────────────────────────────────────────────────── */
 
-  [SQL.insertLobbyMessage, (s, [playerId, displayName, text, createdAt]) => {
+  [SQL.insertLobbyMessage, (s, [playerId, displayName, text, roomCode, createdAt]) => {
     const id = s.lobby_messages.reduce((max, r) => Math.max(max, Number(r.id)), 0) + 1;
     s.lobby_messages.push({
-      id, player_id: playerId, display_name: displayName, text, created_at: createdAt,
+      id, player_id: playerId, display_name: displayName, text, room_code: roomCode, created_at: createdAt,
     });
     return wrote(1);
   }],
@@ -295,6 +336,17 @@ const HANDLERS = new Map<string, Handler>([
   [SQL.recentLobbyMessages, (s, [limit]) =>
     rows(
       s.lobby_messages
+        .filter((r) => (r.room_code ?? null) === null)
+        .slice()
+        .sort((a, b) => Number(b.id) - Number(a.id))
+        .slice(0, Number(limit))
+        .map((r) => pick(r, ["id", "player_id", "display_name", "text", "created_at"])),
+    )],
+
+  [SQL.recentLobbyMessagesInRoom, (s, [roomCode, limit]) =>
+    rows(
+      s.lobby_messages
+        .filter((r) => r.room_code === roomCode)
         .slice()
         .sort((a, b) => Number(b.id) - Number(a.id))
         .slice(0, Number(limit))
@@ -420,6 +472,67 @@ const HANDLERS = new Map<string, Handler>([
       .sort((a, b) => b.wins - a.wins || b.matches - a.matches)
       .slice(0, Number(limit));
     return rows(list);
+  }],
+
+  /* ── rooms (§8b) ────────────────────────────────────────────────────────── */
+
+  [SQL.roomByCode, (s, [code]) => {
+    const r = s.rooms.find((row) => row.code === code);
+    return rows(r === undefined ? [] : [pick(r, ["code", "name", "settings", "admin_code_hash", "created_at", "updated_at"])]);
+  }],
+
+  // Bind order matches SQL.insertRoom exactly: `password_hash`/`password_attempts`
+  // are literal NULL/0 in the statement itself, not placeholders — see db.ts.
+  [SQL.insertRoom, (s, [code, name, settings, adminCodeHash, createdAt, updatedAt]) => {
+    if (s.rooms.some((r) => r.code === code)) return wrote(0);
+    s.rooms.push({
+      code, name, password_hash: null, password_attempts: 0,
+      password_locked_until: null, settings, admin_code_hash: adminCodeHash,
+      created_at: createdAt, updated_at: updatedAt,
+    });
+    return wrote(1);
+  }],
+
+  [SQL.updateRoomSettings, (s, [settings, updatedAt, code]) => {
+    const r = s.rooms.find((row) => row.code === code);
+    if (r === undefined) return wrote(0);
+    r.settings = settings;
+    r.updated_at = updatedAt;
+    return wrote(1);
+  }],
+
+  [SQL.insertRoomPlayer, (s, [roomCode, playerId, name]) => {
+    if (s.room_players.some((r) => r.room_code === roomCode && r.player_id === playerId)) return wrote(0);
+    s.room_players.push({ room_code: roomCode, player_id: playerId, name, seed_rating: null, archived_at: null });
+    return wrote(1);
+  }],
+
+  [SQL.roomMember, (s, [roomCode, playerId]) => {
+    const present = s.room_players.some(
+      (r) => r.room_code === roomCode && r.player_id === playerId && r.archived_at === null,
+    );
+    return rows(present ? [{ present: 1 }] : []);
+  }],
+
+  [SQL.roomMemberCount, (s, [roomCode]) =>
+    rows([{ n: s.room_players.filter((r) => r.room_code === roomCode && r.archived_at === null).length }])],
+
+  [SQL.roomsForPlayer, (s, [playerId]) => {
+    const mine = s.room_players
+      .filter((rp) => rp.player_id === playerId && rp.archived_at === null)
+      .map((rp) => s.rooms.find((r) => r.code === rp.room_code))
+      .filter((r): r is Row => r !== undefined)
+      .sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)));
+    return rows(mine.map((r) => pick(r, ["code", "name", "settings", "admin_code_hash", "created_at", "updated_at"])));
+  }],
+
+  [SQL.abandonWaitingMatch, (s, [endedAt, matchId]) => {
+    const m = s.matches.find((r) => r.id === matchId && r.lobby_status === "waiting");
+    if (m === undefined) return wrote(0);
+    m.status = "abandoned";
+    m.lobby_status = "done";
+    m.ended_at = endedAt;
+    return wrote(1);
   }],
 ]);
 
@@ -643,6 +756,7 @@ function seedMatch(
     createdBy?: string | null;
     currentHand?: number;
     handsBase?: number;
+    roomCode?: string | null;
   },
 ): void {
   const status = opts.status ?? "complete";
@@ -655,7 +769,7 @@ function seedMatch(
     ruleset_id: "hkos-standard",
     engine_version: "engine-0.1.0-test",
     log_schema_version: 1,
-    room_code: null,
+    room_code: opts.roomCode ?? null,
     join_code: null,
     rated: 0,
     bot_seats: 0,
@@ -703,7 +817,7 @@ describe("the query surface", () => {
     /* The only single-quoted literals allowed anywhere in the statement set are
      * closed-vocabulary constants. A quoted value would mean something was
      * concatenated in, which is the thing db.ts exists to make impossible. */
-    const allowed = new Set(["running", "waiting", "playing", "done", "complete", "ranked", "casual", "human"]);
+    const allowed = new Set(["running", "waiting", "playing", "done", "abandoned", "complete", "ranked", "casual", "human"]);
     for (const [name, sql] of Object.entries(SQL)) {
       for (const [, literal] of sql.matchAll(/'([^']*)'/g)) {
         expect(allowed.has(literal), `${name} embeds '${literal}'`).toBe(true);
@@ -1765,5 +1879,367 @@ describe("GET /api/leaderboard", () => {
     expect(((await noMode.json()) as { mode: string }).mode).toBe("ranked");
     const badMode = await handle(get("/api/leaderboard?mode=nonsense", TOKEN_A), h.platform);
     expect(((await badMode.json()) as { mode: string }).mode).toBe("ranked");
+  });
+});
+
+/* ── rooms (PVP-LOBBY-PROPOSAL-2026-09-02.md §8b) ─────────────────────────── */
+
+/** `post()` carries only a bearer token; the admin routes gate on a SEPARATE
+ *  header (`x-mjrc-admin-code`), so those tests build the Request by hand. */
+const postAdmin = (path: string, body: unknown, token: string, adminCode: string): Request =>
+  new Request(`https://game.mahjongresearch.com${path}`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${token}`,
+      "x-mjrc-admin-code": adminCode,
+    },
+    body: JSON.stringify(body),
+  });
+
+describe("POST /api/rooms", () => {
+  it("creates a room, joins the creator, and returns a 6-char code — never storing the admin code in the clear", async () => {
+    const h = harness();
+    const alice = await identify(h, TOKEN_A, "Alice");
+
+    const res = await handle(
+      post("/api/rooms", { name: "Tuesday Night", matchFormat: "full", adminCode: "1234" }, TOKEN_A),
+      h.platform,
+    );
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { code: string };
+    expect(body.code).toMatch(/^[0-9A-HJKMNP-TV-Z]{6}$/);
+
+    expect(h.store.rooms).toHaveLength(1);
+    const room = h.store.rooms[0];
+    expect(room.code).toBe(body.code);
+    expect(JSON.parse(String(room.settings))).toEqual({
+      game: { rulesetId: "hkos-standard", matchFormat: "full", access: "open" },
+    });
+    expect(JSON.stringify(h.store)).not.toContain("1234");
+
+    expect(h.store.room_players).toEqual([
+      { room_code: body.code, player_id: alice, name: "Alice", seed_rating: null, archived_at: null },
+    ]);
+  });
+
+  it("refuses an unknown ruleset and a missing admin code, before writing a row", async () => {
+    const h = harness();
+    await identify(h, TOKEN_A, "Alice");
+
+    const badRuleset = await handle(post("/api/rooms", { name: "Room", rulesetId: "nope", adminCode: "1234" }, TOKEN_A), h.platform);
+    expect(badRuleset.status).toBe(400);
+
+    const noAdminCode = await handle(post("/api/rooms", { name: "Room" }, TOKEN_A), h.platform);
+    expect(noAdminCode.status).toBe(400);
+
+    expect(h.store.rooms).toHaveLength(0);
+  });
+});
+
+describe("POST /api/rooms/:code/join", () => {
+  it("adds membership, idempotently", async () => {
+    const h = harness();
+    await identify(h, TOKEN_A, "Alice");
+    const created = await handle(post("/api/rooms", { name: "Room", adminCode: "1234" }, TOKEN_A), h.platform);
+    const { code } = (await created.json()) as { code: string };
+
+    await identify(h, TOKEN_B, "Bob");
+    const joined = await handle(post(`/api/rooms/${code}/join`, {}, TOKEN_B), h.platform);
+    expect(joined.status).toBe(200);
+    expect(h.store.room_players.filter((r) => r.room_code === code)).toHaveLength(2);
+
+    // A repeat join is a no-op, not a second row or an error.
+    const again = await handle(post(`/api/rooms/${code}/join`, {}, TOKEN_B), h.platform);
+    expect(again.status).toBe(200);
+    expect(h.store.room_players.filter((r) => r.room_code === code)).toHaveLength(2);
+  });
+
+  it("404s for an unknown room code", async () => {
+    const h = harness();
+    await identify(h, TOKEN_A, "Alice");
+    const res = await handle(post("/api/rooms/ZZZZZZ/join", {}, TOKEN_A), h.platform);
+    expect(res.status).toBe(404);
+  });
+});
+
+describe("GET /api/rooms/mine and GET /api/rooms/:code", () => {
+  it("GET /api/rooms/mine lists only the caller's rooms", async () => {
+    const h = harness();
+    await identify(h, TOKEN_A, "Alice");
+    const createdA = await handle(post("/api/rooms", { name: "Alice's Room", adminCode: "1111" }, TOKEN_A), h.platform);
+    const { code: codeA } = (await createdA.json()) as { code: string };
+    await identify(h, TOKEN_B, "Bob");
+    await handle(post("/api/rooms", { name: "Bob's Room", adminCode: "2222" }, TOKEN_B), h.platform);
+
+    const res = await handle(get("/api/rooms/mine", TOKEN_A), h.platform);
+    const body = (await res.json()) as { rooms: { code: string; name: string }[] };
+    expect(body.rooms.map((r) => r.code)).toEqual([codeA]);
+  });
+
+  it("GET /api/rooms/:code returns the room's game settings, member count, and its open tables", async () => {
+    const h = harness();
+    const alice = await identify(h, TOKEN_A, "Alice");
+    const created = await handle(
+      post("/api/rooms", { name: "Room", matchFormat: "east", adminCode: "1234" }, TOKEN_A),
+      h.platform,
+    );
+    const { code } = (await created.json()) as { code: string };
+    await identify(h, TOKEN_B, "Bob");
+    await handle(post(`/api/rooms/${code}/join`, {}, TOKEN_B), h.platform);
+
+    seedMatch(h, {
+      id: "M-ROOM", seats: [alice], status: "running", lobbyStatus: "waiting", access: "open", roomCode: code,
+    });
+
+    const res = await handle(get(`/api/rooms/${code}`, TOKEN_A), h.platform);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      code: string;
+      name: string;
+      game: { rulesetId: string; matchFormat: string; access: string };
+      memberCount: number;
+      tables: { matchId: string; roomCode: string | null }[];
+    };
+    expect(body.code).toBe(code);
+    expect(body.game).toEqual({ rulesetId: "hkos-standard", matchFormat: "east", access: "open" });
+    expect(body.memberCount).toBe(2); // Alice (creator) + Bob
+    expect(body.tables.map((t) => t.matchId)).toEqual(["M-ROOM"]);
+    expect(body.tables[0].roomCode).toBe(code);
+  });
+
+  it("404s for an unknown room code", async () => {
+    const h = harness();
+    await identify(h, TOKEN_A, "Alice");
+    const res = await handle(get("/api/rooms/ZZZZZZ", TOKEN_A), h.platform);
+    expect(res.status).toBe(404);
+  });
+});
+
+describe("POST /api/rooms/:code/settings", () => {
+  it("needs the room's own admin code — wrong or missing both refuse, the right one applies", async () => {
+    const h = harness();
+    await identify(h, TOKEN_A, "Alice");
+    const created = await handle(
+      post("/api/rooms", { name: "Room", matchFormat: "east", adminCode: "8899" }, TOKEN_A),
+      h.platform,
+    );
+    const { code } = (await created.json()) as { code: string };
+
+    const noHeader = await handle(post(`/api/rooms/${code}/settings`, { matchFormat: "full" }, TOKEN_A), h.platform);
+    expect(noHeader.status).toBe(401);
+
+    const wrongCode = await handle(postAdmin(`/api/rooms/${code}/settings`, { matchFormat: "full" }, TOKEN_A, "0000"), h.platform);
+    expect(wrongCode.status).toBe(401);
+    expect(JSON.parse(String(h.store.rooms[0].settings)).game.matchFormat).toBe("east"); // unchanged
+
+    const rightCode = await handle(postAdmin(`/api/rooms/${code}/settings`, { matchFormat: "full" }, TOKEN_A, "8899"), h.platform);
+    expect(rightCode.status).toBe(200);
+    const body = (await rightCode.json()) as { game: { matchFormat: string; rulesetId: string; access: string } };
+    expect(body.game.matchFormat).toBe("full");
+    // rulesetId/access, unspecified in this request, are carried over.
+    expect(body.game.rulesetId).toBe("hkos-standard");
+    expect(body.game.access).toBe("open");
+    expect(JSON.parse(String(h.store.rooms[0].settings)).game.matchFormat).toBe("full");
+  });
+
+  it("preserves the Almanac's own settings keys — the game touches only `game`", async () => {
+    const h = harness();
+    await identify(h, TOKEN_A, "Alice");
+    const now = "2026-09-02T00:00:00.000Z";
+    h.store.rooms.push({
+      code: "PHYS9K", name: "Physical Room", password_hash: null, password_attempts: 0,
+      password_locked_until: null,
+      settings: JSON.stringify({ purpose: "friend night", notes: "bring snacks" }),
+      admin_code_hash: await sha256Hex("5150"),
+      created_at: now, updated_at: now,
+    });
+
+    const res = await handle(
+      postAdmin("/api/rooms/PHYS9K/settings", { rulesetId: "hkos-standard", matchFormat: "east" }, TOKEN_A, "5150"),
+      h.platform,
+    );
+    expect(res.status).toBe(200);
+    const settings = JSON.parse(String(h.store.rooms[0].settings));
+    expect(settings.purpose).toBe("friend night");
+    expect(settings.notes).toBe("bring snacks");
+    expect(settings.game).toEqual({ rulesetId: "hkos-standard", matchFormat: "east", access: "open" });
+  });
+});
+
+describe("POST /api/tables — rooms (§8b)", () => {
+  it("takes rulesetId/matchFormat from the room, ignoring the request's, and lets an explicit access override the room's default", async () => {
+    const h = harness();
+    await identify(h, TOKEN_A, "Alice");
+    const created = await handle(
+      post("/api/rooms", { name: "Room", matchFormat: "full", access: "private", adminCode: "1234" }, TOKEN_A),
+      h.platform,
+    );
+    const { code } = (await created.json()) as { code: string };
+
+    const res = await handle(
+      post("/api/tables", { roomCode: code, matchFormat: "east", access: "open" }, TOKEN_A),
+      h.platform,
+    );
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { matchFormat: string; access: string; roomCode: string | null };
+    expect(body.matchFormat).toBe("full"); // the room's, not the request's "east"
+    expect(body.roomCode).toBe(code);
+    expect(body.access).toBe("open"); // explicit in the request, overriding the room's "private" default
+
+    const match = h.store.matches[0];
+    expect(match.room_code).toBe(code);
+    expect(match.hands_base).toBe(16);
+  });
+
+  it("defaults access from the room when the request omits it", async () => {
+    const h = harness();
+    await identify(h, TOKEN_A, "Alice");
+    const created = await handle(
+      post("/api/rooms", { name: "Room", access: "private", adminCode: "1234" }, TOKEN_A),
+      h.platform,
+    );
+    const { code } = (await created.json()) as { code: string };
+
+    await handle(post("/api/tables", { roomCode: code }, TOKEN_A), h.platform);
+    expect(h.store.matches[0].access).toBe("private");
+  });
+
+  it("refuses a caller who is not a room member, before writing a row", async () => {
+    const h = harness();
+    await identify(h, TOKEN_A, "Alice");
+    const created = await handle(post("/api/rooms", { name: "Room", adminCode: "1234" }, TOKEN_A), h.platform);
+    const { code } = (await created.json()) as { code: string };
+
+    await identify(h, TOKEN_B, "Bob");
+    const res = await handle(post("/api/tables", { roomCode: code }, TOKEN_B), h.platform);
+    expect(res.status).toBe(403);
+    expect((await res.json()) as unknown).toEqual({ error: "not_room_member" });
+    expect(h.store.matches).toHaveLength(0);
+  });
+
+  it("404s for an unknown room code", async () => {
+    const h = harness();
+    await identify(h, TOKEN_A, "Alice");
+    const res = await handle(post("/api/tables", { roomCode: "ZZZZZZ" }, TOKEN_A), h.platform);
+    expect(res.status).toBe(404);
+  });
+});
+
+describe("GET /api/lobby — room scoping (§8b)", () => {
+  it("?room=CODE scopes here, tables, recent, and chat to the room's own rows", async () => {
+    const h = harness();
+    const alice = await identify(h, TOKEN_A, "Alice");
+    const bob = await identify(h, TOKEN_B, "Bob");
+    await identify(h, TOKEN_C, "Carol");
+    const created = await handle(post("/api/rooms", { name: "Room", adminCode: "1234" }, TOKEN_A), h.platform);
+    const { code } = (await created.json()) as { code: string };
+    await handle(post(`/api/rooms/${code}/join`, {}, TOKEN_B), h.platform);
+    // Carol never joins — her heartbeat must not leak into the room's `here`.
+
+    await handle(post("/api/presence", {}, TOKEN_A), h.platform);
+    await handle(post("/api/presence", {}, TOKEN_B), h.platform);
+    await handle(post("/api/presence", {}, TOKEN_C), h.platform);
+
+    seedMatch(h, { id: "M-IN-ROOM", seats: [], status: "running", lobbyStatus: "waiting", access: "open", roomCode: code });
+    seedMatch(h, { id: "M-GLOBAL", seats: [], status: "running", lobbyStatus: "waiting", access: "open" });
+    seedMatch(h, { id: "M-DONE-ROOM", seats: [alice], status: "complete", lobbyStatus: "done", roomCode: code });
+    seedMatch(h, { id: "M-DONE-GLOBAL", seats: [alice], status: "complete", lobbyStatus: "done" });
+
+    await handle(post("/api/lobby/chat", { text: "room chat", roomCode: code }, TOKEN_A), h.platform);
+    await handle(post("/api/lobby/chat", { text: "global chat" }, TOKEN_B), h.platform);
+
+    const res = await handle(get(`/api/lobby?room=${code}`, TOKEN_A), h.platform);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      here: { playerId: string }[];
+      tables: { matchId: string }[];
+      recent: { matchId: string }[];
+      chat: { text: string }[];
+    };
+
+    expect(body.here.map((e) => e.playerId).sort()).toEqual([alice, bob].sort());
+    expect(body.tables.map((t) => t.matchId)).toEqual(["M-IN-ROOM"]);
+    expect(body.recent.map((r) => r.matchId)).toEqual(["M-DONE-ROOM"]);
+    expect(body.chat.map((c) => c.text)).toEqual(["room chat"]);
+  });
+
+  it("404s for an unknown room code", async () => {
+    const h = harness();
+    await identify(h, TOKEN_A, "Alice");
+    const res = await handle(get("/api/lobby?room=ZZZZZZ", TOKEN_A), h.platform);
+    expect(res.status).toBe(404);
+  });
+
+  it("without room, excludes room-scoped tables/recent/chat, but tags a room-seated player in the global here", async () => {
+    const h = harness();
+    const alice = await identify(h, TOKEN_A, "Alice");
+    const bob = await identify(h, TOKEN_B, "Bob");
+    const created = await handle(post("/api/rooms", { name: "Room", adminCode: "1234" }, TOKEN_A), h.platform);
+    const { code } = (await created.json()) as { code: string };
+
+    seedMatch(h, { id: "M-IN-ROOM", seats: [bob], status: "running", lobbyStatus: "waiting", access: "open", roomCode: code });
+    seedMatch(h, { id: "M-GLOBAL", seats: [], status: "running", lobbyStatus: "waiting", access: "open" });
+    seedMatch(h, { id: "M-DONE-ROOM", seats: [alice], status: "complete", lobbyStatus: "done", roomCode: code });
+
+    await handle(post("/api/lobby/chat", { text: "room chat", roomCode: code }, TOKEN_A), h.platform);
+    await handle(post("/api/lobby/chat", { text: "global chat" }, TOKEN_B), h.platform);
+
+    const res = await handle(get("/api/lobby", TOKEN_A), h.platform);
+    const body = (await res.json()) as {
+      here: { playerId: string; matchId?: string; roomCode?: string }[];
+      tables: { matchId: string }[];
+      recent: { matchId: string }[];
+      chat: { text: string }[];
+    };
+
+    expect(body.tables.map((t) => t.matchId)).toEqual(["M-GLOBAL"]);
+    expect(body.recent.map((r) => r.matchId)).toEqual([]);
+    expect(body.chat.map((c) => c.text)).toEqual(["global chat"]);
+
+    const bobHere = body.here.find((e) => e.playerId === bob);
+    expect(bobHere).toMatchObject({ matchId: "M-IN-ROOM", roomCode: code });
+  });
+});
+
+describe("POST /api/rooms/:code/tables/:matchId/close", () => {
+  it("admin-only: abandons a waiting table without touching the DO", async () => {
+    const h = harness();
+    const alice = await identify(h, TOKEN_A, "Alice");
+    const created = await handle(post("/api/rooms", { name: "Room", adminCode: "1234" }, TOKEN_A), h.platform);
+    const { code } = (await created.json()) as { code: string };
+    seedMatch(h, {
+      id: "M-WAITING", seats: [alice], status: "running", lobbyStatus: "waiting", access: "open", roomCode: code,
+    });
+
+    const noHeader = await handle(post(`/api/rooms/${code}/tables/M-WAITING/close`, {}, TOKEN_A), h.platform);
+    expect(noHeader.status).toBe(401);
+
+    const res = await handle(postAdmin(`/api/rooms/${code}/tables/M-WAITING/close`, {}, TOKEN_A, "1234"), h.platform);
+    expect(res.status).toBe(200);
+    const match = h.store.matches.find((m) => m.id === "M-WAITING")!;
+    expect(match.status).toBe("abandoned");
+    expect(match.lobby_status).toBe("done");
+    expect(h.tables.filled).toEqual([]);
+    expect(h.tables.left).toEqual([]);
+  });
+
+  it("refuses a table that already started or belongs to a different room", async () => {
+    const h = harness();
+    const alice = await identify(h, TOKEN_A, "Alice");
+    const created = await handle(post("/api/rooms", { name: "Room", adminCode: "1234" }, TOKEN_A), h.platform);
+    const { code } = (await created.json()) as { code: string };
+    seedMatch(h, {
+      id: "M-PLAYING", seats: [alice], status: "running", lobbyStatus: "playing", access: "open", roomCode: code,
+    });
+    seedMatch(h, {
+      id: "M-OTHER-ROOM", seats: [alice], status: "running", lobbyStatus: "waiting", access: "open", roomCode: "OTHRRM",
+    });
+
+    const started = await handle(postAdmin(`/api/rooms/${code}/tables/M-PLAYING/close`, {}, TOKEN_A, "1234"), h.platform);
+    expect(started.status).toBe(409);
+
+    const wrongRoom = await handle(postAdmin(`/api/rooms/${code}/tables/M-OTHER-ROOM/close`, {}, TOKEN_A, "1234"), h.platform);
+    expect(wrongRoom.status).toBe(404);
   });
 });

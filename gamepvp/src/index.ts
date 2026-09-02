@@ -423,6 +423,19 @@ export default {
       );
     }
 
+    /* GET /r/:code — the room link (PVP-LOBBY-PROPOSAL-2026-09-02.md §8b).
+     * Same doctrine as `/j/:code` above, room code instead of join code: the
+     * SPA reads `location.pathname` itself and opens straight into the room's
+     * lobby. */
+    if (seg[0] === "r" && seg.length === 2) {
+      const rootUrl = new URL(request.url);
+      rootUrl.pathname = "/";
+      return withCookie(
+        await env.ASSETS.fetch(new Request(rootUrl.toString(), { headers: request.headers })),
+        admitted.setCookie,
+      );
+    }
+
     return withCookie(await env.ASSETS.fetch(request), admitted.setCookie);
   },
 };
