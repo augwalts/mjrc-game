@@ -28,7 +28,11 @@
     click   a CSS selector to press in both panes, after the page paints
     then    a second selector, pressed shortly after `click`
     hold    how long to sit there (ms) — a freeze suspends this
+    close   (INTERLUDE only) the selector that shuts the panel again
     do      "match" — the one stop that plays a whole game
+
+  REEL runs around the match; INTERLUDE runs during it, and is where the
+  chat overlay and the in-match settings sheet live.
 
   A new screen that is reachable by URL needs only `route`. One that opens
   from a button needs `click` with that button's selector. `playtest.ts`, the
@@ -368,6 +372,39 @@ function setStatus(step) {
   el.innerHTML = `<b>${currentStep}</b>${looping ? " · looping" : ""}`;
 }
 
+/* ── the in-match interlude ─────────────────────────────────────────────
+ * The chat overlay and the in-match settings sheet only exist while a match
+ * is live, so the shell tour can never reach them. This runs once, a little
+ * way into the first hand, alongside play rather than instead of it —
+ * clicking a button under an open veil still works, which is itself worth
+ * seeing: the table must keep running while a panel is up.
+ *
+ * Same shape as a REEL entry, so adding one is the same edit.
+ */
+const INTERLUDE = [
+  { name: "table chat",     click: "#chatBtn",     hold: 4500, close: "#chatBtn" },
+  { name: "table settings", click: "#btnSettings", hold: 4500, close: "#btnBack" },
+];
+
+let matchLive = false;
+async function runInterlude() {
+  await hold(14000);                 // let a hand get going first
+  if (!matchLive || stopRequested) return;
+  // Something for the chat overlay to actually show.
+  send("a", "chat", { text: "playtest: chat overlay" });
+  await sleep(600);
+  send("b", "chat", { text: "and a reply, for two rows" });
+  for (const stop of INTERLUDE) {
+    if (!matchLive || stopRequested) return;
+    log("step", `▸ ${stop.name} (in match)`);
+    both("click", { selector: stop.click });
+    await hold(stop.hold);
+    if (!matchLive || stopRequested) return;
+    both("click", { selector: stop.close });
+    await hold(1500);
+  }
+}
+
 async function playMatch() {
   const speed = document.getElementById("selSpeed").value;
   const matchFormat = document.getElementById("selFormat").value;
@@ -395,13 +432,26 @@ async function playMatch() {
 
   applyTrap();
   log("sys", "— playing —");
+  matchLive = true;
+  void runInterlude();
   // Generous on purpose: a 全莊 at a slow speed with a long think time is a
   // legitimately long match, and a reel that gave up on its own would look
   // exactly like a bug in the thing being demonstrated.
-  await waitFor("a", "matchEnd", 90 * 60 * 1000);
+  try {
+    await waitFor("a", "matchEnd", 90 * 60 * 1000);
+  } finally {
+    matchLive = false;              // stops the interlude poking at a scoreboard
+  }
   log("sys", "— match over —");
   // The scoreboard is the last thing the reel shows before it goes round.
   await hold(9000);
+  // Then leave it the way a player does. This is not tidiness: the
+  // scoreboard lives in `#veil`, which sits OUTSIDE `#tableRoot` and so
+  // stays on top of the shell after the reel routes away — the next lap
+  // would run its whole shell tour behind a scoreboard nobody dismissed.
+  // `#btnBackLobby` is the match-end screen's own button.
+  both("click", { selector: "#btnBackLobby" });
+  await hold(1500);
 }
 
 function applyTrap() {

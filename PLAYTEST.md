@@ -84,6 +84,12 @@ needs `click` with that button's selector. Neither needs `playtest.ts` to
 change — go there only when a pane needs to *do* something new (a new kind of
 request, a new thing to watch for), not when it needs to *show* something new.
 
+**`REEL` runs around the match; `INTERLUDE` runs during it.** The chat overlay
+and the in-match settings sheet only exist while a match is live, so they sit
+in `INTERLUDE`, which fires once a little way into the first hand and takes an
+extra `close` selector to shut the panel again. Play carries on underneath a
+panel — which is itself worth watching.
+
 Then `./gamepvp/build.sh` and reload. (Only `playtest.html` is copied by the
 build; `playtest.ts` is bundled into `game.js` with the rest of the client.)
 
