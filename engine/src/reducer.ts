@@ -594,6 +594,42 @@ function winContext(
 }
 
 /**
+ * What a declaration WOULD score, without taking it.
+ *
+ * `legalActions` offers a win on SHAPE alone, and `doDeclareWin` then refuses
+ * it visibly if it falls under the floor — correct for the table, but it means
+ * a client cannot tell a payable win from a shape until after the player has
+ * committed to pressing the button. This answers that question first, using
+ * the same winContext and the same scorer, so the two can never disagree.
+ *
+ * Pure: it reads the state and returns a score. Nothing is mutated.
+ */
+export function previewWin(
+  state: MatchState,
+  seat: SeatIndex,
+  win: { selfDraw: boolean; tile: TileId; from: SeatIndex | null; robbedKong?: boolean },
+): ScoreResult {
+  const st = state.seats[seat]!;
+  /* The two paths build DIFFERENT contexts, and the difference is worth faan.
+     A self-draw can be 槓上開花 or 海底撈月; a claim on a discard can be
+     neither — doClaims passes onLastTile:false — and can be 搶槓 instead.
+     Collapsing them awarded 海底撈月 to discard wins and made this preview
+     read 3 faan on a hand the reducer then refused at 2. */
+  const ctx = win.selfDraw
+    ? winContext(state, seat, win.tile, true, null, {
+        onKongReplacement: state.onKongReplacement,
+        onLastTile: liveTilesLeft(state) === 0,
+      })
+    : winContext(state, seat, win.tile, false, win.from, {
+        ...(win.robbedKong ? { robbedKong: true } : {}),
+        onLastTile: false,
+      });
+  // scoreDeclaration passes the hand as-is for both paths
+  return score(st.hand.slice(), st.melds.slice(), st.flowers.slice(), win.tile, ctx,
+    resolveRuleset(state.rulesetId));
+}
+
+/**
  * Score a declaration. Returns the result whether or not it clears the floor;
  * the caller decides between a win and a visible refusal.
  */

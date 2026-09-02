@@ -10,7 +10,7 @@
  * Build: esbuild client/game/game.ts --bundle --platform=browser --format=iife
  *        --outfile=client/game/game.js
  */
-import { startMatch, startNextHand, applyAction, legalActions } from "../../engine/src/reducer.js";
+import { startMatch, startNextHand, applyAction, legalActions, previewWin } from "../../engine/src/reducer.js";
 import type { MatchRounds } from "../../engine/src/reducer.js";
 import type { MatchState } from "../../engine/src/reducer.js";
 import { decideAction, DEFAULT_PROFILE, assessRoutes, shapeOf, rankDiscards, scoreAdjust,
@@ -1570,7 +1570,10 @@ function seatBox(seat: SeatIndex): string {
     <div class="meldrow">${s.melds.map((m, i) => m.tiles.map((t) => tileHtml(t,
         `sm ${landingMeld && landingMeld.seat === seat && landingMeld.index === i ? "claimed" : ""}`)).join(""))
         .join('<span style="width:6px"></span>')}
-      ${s.flowers.map((t) => tileHtml(t, "fl")).join("")}</div>`;
+      ${/* `sm` so a flower is the same size as the melds beside it — the
+           tiles in this row carry it, and a flower without it came out a
+           quarter larger than its neighbours. */""}
+      ${s.flowers.map((t) => tileHtml(t, "fl sm")).join("")}</div>`;
 }
 
 function render(): void {
@@ -1783,11 +1786,41 @@ function render(): void {
         + parts.map((p) => tileHtml(p.t, p.got ? "got" : "")).join("") + `</span>`;
     };
     const inPlay = state.lastDiscard?.tile ?? null;
+    /**
+     * A win offered on SHAPE is not always a win you may take.
+     *
+     * legalActions offers declareWin the moment the tiles form a hand, and the
+     * reducer then refuses it visibly if it falls under the faan floor — you
+     * keep playing and still owe a discard. Correct at a real table, but the
+     * button used to say "WIN 食糊" either way, so the only way to find out was
+     * to press it and be turned down. Worse once the button grew rays.
+     *
+     * previewWin runs the same scorer the reducer will run, so the two cannot
+     * disagree. Under the floor, the button says so and says by how much, and
+     * loses the win styling entirely — it is still pressable, because the
+     * refusal is part of the game and the log explains it.
+     */
+    const winButton = (i: number, selfDraw: boolean): void => {
+      const tile = selfDraw ? state.seats[HUMAN]!.drawn : inPlay;
+      const r = tile === null || tile === undefined ? null
+        : previewWin(state, HUMAN, {
+            selfDraw, tile, from: selfDraw ? null : (state.lastDiscard?.from ?? null),
+          });
+      if (r && !r.legal) {
+        const min = rules().minimumFaan;
+        btns.push(`<button class="short" data-i="${i}">`
+          + `<span class="lb">winning shape</span>`
+          + `<span class="sb">${r.faan} faan · needs ${min}</span></button>`);
+        return;
+      }
+      btns.push(`<button class="win" data-i="${i}"><span class="lb">WIN 食糊</span>`
+        + (r ? `<span class="sb">${r.faan} faan</span>` : "") + `</button>`);
+    };
     pending.forEach((a, i) => {
       if (a.type === "discard") return;
       const mk = (label: string, cls = "", tiles = "") =>
         btns.push(`<button class="${cls}" data-i="${i}"><span class="lb">${label}</span>${tiles}</button>`);
-      if (a.type === "declareWin") mk("WIN 食糊", "win");
+      if (a.type === "declareWin") winButton(i, a.selfDraw);
       else if (a.type === "pass") mk("pass", "pass");
       // a concealed or added kong is made from your OWN hand — nothing is in
       // play to ring, so all four tiles are drawn plain
@@ -1795,7 +1828,7 @@ function render(): void {
       else if (a.type === "addedKong") mk("kong 加槓", "kong", strip([a.tile, a.tile, a.tile, a.tile], null));
       else if (a.type === "claim") {
         const o = a.option;
-        if (o.kind === "win") mk("WIN 食糊", "win");
+        if (o.kind === "win") winButton(i, false);
         else if (o.kind === "chow") mk("chow 上", "chow", strip(o.with ?? [], inPlay));
         else if (o.kind === "pung") mk("pung 碰", "pung",
           inPlay === null ? "" : strip([inPlay, inPlay], inPlay));

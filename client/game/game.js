@@ -1526,6 +1526,16 @@
       wallEmpty: liveTilesLeft(s) === 0
     };
   }
+  function previewWin(state2, seat, win) {
+    const st = state2.seats[seat];
+    const ctx = winContext(state2, seat, win.tile, win.selfDraw, win.from, {
+      ...win.robbedKong ? { robbedKong: true } : {},
+      onKongReplacement: state2.onKongReplacement,
+      onLastTile: liveTilesLeft(state2) === 0
+    });
+    const concealed = win.selfDraw ? st.hand : [...st.hand];
+    return score(concealed, st.melds, st.flowers, win.tile, ctx, resolveRuleset(state2.rulesetId));
+  }
   function scoreDeclaration(d, seat, ctx) {
     const st = d.s.seats[seat];
     return score(st.hand.slice(), st.melds.slice(), st.flowers.slice(), ctx.winningTile, ctx, d.ruleset);
@@ -4482,7 +4492,11 @@
       t,
       `sm ${landingMeld && landingMeld.seat === seat && landingMeld.index === i ? "claimed" : ""}`
     )).join("")).join('<span style="width:6px"></span>')}
-      ${s.flowers.map((t) => tileHtml(t, "fl")).join("")}</div>`;
+      ${/* `sm` so a flower is the same size as the melds beside it — the
+       tiles in this row carry it, and a flower without it came out a
+       quarter larger than its neighbours. */
+    ""}
+      ${s.flowers.map((t) => tileHtml(t, "fl sm")).join("")}</div>`;
   }
   function render() {
     const me = state.seats[HUMAN];
@@ -4609,16 +4623,30 @@
         return `<span class="tw">` + parts.map((p) => tileHtml(p.t, p.got ? "got" : "")).join("") + `</span>`;
       };
       const inPlay = state.lastDiscard?.tile ?? null;
+      const winButton = (i, selfDraw) => {
+        const tile = selfDraw ? state.seats[HUMAN].drawn : inPlay;
+        const r = tile === null || tile === void 0 ? null : previewWin(state, HUMAN, {
+          selfDraw,
+          tile,
+          from: selfDraw ? null : state.lastDiscard?.from ?? null
+        });
+        if (r && !r.legal) {
+          const min = rules().minimumFaan;
+          btns.push(`<button class="short" data-i="${i}"><span class="lb">winning shape</span><span class="sb">${r.faan} faan \xB7 needs ${min}</span></button>`);
+          return;
+        }
+        btns.push(`<button class="win" data-i="${i}"><span class="lb">WIN \u98DF\u7CCA</span>` + (r ? `<span class="sb">${r.faan} faan</span>` : "") + `</button>`);
+      };
       pending2.forEach((a, i) => {
         if (a.type === "discard") return;
         const mk = (label, cls = "", tiles = "") => btns.push(`<button class="${cls}" data-i="${i}"><span class="lb">${label}</span>${tiles}</button>`);
-        if (a.type === "declareWin") mk("WIN \u98DF\u7CCA", "win");
+        if (a.type === "declareWin") winButton(i, a.selfDraw);
         else if (a.type === "pass") mk("pass", "pass");
         else if (a.type === "concealedKong") mk("kong \u6697\u69D3", "kong", strip([a.tile, a.tile, a.tile, a.tile], null));
         else if (a.type === "addedKong") mk("kong \u52A0\u69D3", "kong", strip([a.tile, a.tile, a.tile, a.tile], null));
         else if (a.type === "claim") {
           const o = a.option;
-          if (o.kind === "win") mk("WIN \u98DF\u7CCA", "win");
+          if (o.kind === "win") winButton(i, false);
           else if (o.kind === "chow") mk("chow \u4E0A", "chow", strip(o.with ?? [], inPlay));
           else if (o.kind === "pung") mk(
             "pung \u78B0",
