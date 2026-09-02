@@ -47,11 +47,11 @@ export async function identify(displayName: string): Promise<Identity> {
 
 export async function bootIdentity(): Promise<Identity | null> {
   const stored = storedIdentity();
-  if (!stored.deviceToken || !stored.displayName) return null;
+  if (!stored.deviceToken) return null;
   try {
-    identity = await apiIdentify(stored.displayName, tzOffsetMin());
+    identity = await apiIdentify(null, tzOffsetMin());
   } catch {
-    identity = { playerId: "", displayName: stored.displayName, rating: null, deviceToken: stored.deviceToken };
+    identity = { playerId: "", displayName: stored.displayName ?? "", rating: null, deviceToken: stored.deviceToken };
   }
   return identity;
 }

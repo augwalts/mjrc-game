@@ -80,8 +80,8 @@
 /* ── section headers, cards ────────────────────────────────────────────── */
 #shell .sec{font-size:11px; letter-spacing:.12em; color:var(--dim); text-transform:uppercase; margin:16px 0 8px}
 #shell .sec.in{margin:0 0 8px}
-#shell .card{background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:12px 14px; margin-top:10px}
-#shell .card:first-child{margin-top:0}
+#shell .card{background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:12px 14px; margin:0 0 12px}
+#shell .cta{margin-bottom:12px}
 #shell .more{display:block; margin-top:8px; color:var(--blue); font-size:12px; text-decoration:none; background:none; border:0; font:inherit; cursor:pointer; padding:0}
 
 /* ── CTA tiles (Play now / Join by code) ──────────────────────────────── */
@@ -184,9 +184,10 @@
 /* ── desktop (≥1100px): two/three column dashboards, top nav row ───────── */
 @media (min-width:1100px){
   #shell .view{padding:20px 28px 28px; max-width:1320px; margin:0 auto; width:100%}
-  #shell .nav{position:static; background:none; border:0; justify-content:flex-start; gap:14px; padding:0 0 16px; width:auto}
+  /* The bar becomes a top row: #shell is a flex column (view, nav), so order:-1 puts it first. */
+  #shell .nav{position:static; order:-1; background:var(--bg); border:0; border-bottom:1px solid var(--line); justify-content:flex-start; gap:14px; padding:12px 28px; width:100%; max-width:1320px; margin:0 auto}
   #shell .nav button{flex:0 0 auto; flex-direction:row; font-size:13px; gap:6px}
-  #shell .cols{display:grid; grid-template-columns:1.4fr 1fr; gap:20px}
+  #shell .cols{display:grid; grid-template-columns:1.4fr 1fr; gap:0 20px; align-items:start}
   #shell .dash{display:grid; grid-template-columns:repeat(3,1fr); gap:18px 22px; align-items:start}
   #shell .dash > .cell{min-width:0}
   #shell .dash .span3{grid-column:1 / -1}

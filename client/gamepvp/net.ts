@@ -110,11 +110,15 @@ async function apiFetch<T>(
  *  convention (positive west of UTC) — the server folds this into streak/
  *  "today" counting. Optional so an older caller of this module still
  *  compiles; every caller in this client now sends one. */
-export async function identify(displayName: string, tzOffsetMin?: number): Promise<Identity> {
+/** `displayName` null = re-identify with the stored token and take the
+ *  server's name; never let a stale local copy rename the player. */
+export async function identify(displayName: string | null, tzOffsetMin?: number): Promise<Identity> {
   const token = localStorage.getItem(LS_TOKEN) ?? mintDeviceToken();
+  const body: Record<string, unknown> = { deviceToken: token, tzOffsetMin };
+  if (displayName !== null) body.displayName = displayName;
   const data = await apiFetch<{ playerId: string; displayName: string; rating: number | null }>(
     "identity",
-    { method: "POST", body: { deviceToken: token, displayName, tzOffsetMin } },
+    { method: "POST", body },
   );
   localStorage.setItem(LS_TOKEN, token);
   localStorage.setItem(LS_NAME, data.displayName);

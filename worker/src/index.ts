@@ -780,8 +780,12 @@ async function postIdentity(req: Request, p: Platform): Promise<Response> {
   const body = await readJsonObject(req);
   if (body === null) return fail("bad_json", 400);
 
+  /* Optional on a re-identify: a client booting with a stored token must not
+   * rename the player from whatever its local copy of the name says (the
+   * "logged in as somebody else" bug, 2026-09-03). A name is required only
+   * to mint a new player. */
   const displayName = str(body.displayName);
-  if (displayName === null || displayName.length > MAX_DISPLAY_NAME) {
+  if (displayName !== null && displayName.length > MAX_DISPLAY_NAME) {
     return fail("bad_display_name", 400);
   }
 
@@ -802,14 +806,16 @@ async function postIdentity(req: Request, p: Platform): Promise<Response> {
   if (existing !== null) {
     await touchCredential(p.db, credentialId, existing.id, now);
     /* A rename is a real edit and gets its own statement; touching is not. */
-    if (existing.display_name !== displayName) {
+    if (displayName !== null && existing.display_name !== displayName) {
       await renamePlayer(p.db, existing.id, displayName, now);
     }
+    const name = displayName ?? existing.display_name;
     if (tzOffsetMin !== null) await updateTzOffset(p.db, existing.id, tzOffsetMin);
-    await ensureOpenMembership(p, existing.id, displayName);
-    return json({ playerId: existing.id, displayName, rating: existing.rating, created: false });
+    await ensureOpenMembership(p, existing.id, name);
+    return json({ playerId: existing.id, displayName: name, rating: existing.rating, created: false });
   }
 
+  if (displayName === null) return fail("bad_display_name", 400);
   const playerId = randomId(p.random, ID_LENGTH);
   await insertPlayer(p.db, { id: playerId, kind: "human", displayName, now });
   await insertCredential(p.db, {
