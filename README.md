@@ -14,10 +14,14 @@ bots, and two clients.
 | Cloudflare | Pages project `mjrc-game` → game.mahjongresearch.com | Worker `mjrc-gamepvp` → gamepvp.mahjongresearch.com |
 | Status | Live; pinned at tag `demo-2026-09-01` | In build — see `../PVP-MULTIPLAYER-PLAN-2026-09-01.md` |
 
-The demo is pinned at a tag on purpose: its action logs replay through the reducer, so a
-rebuild against a newer engine would silently change what old records mean. A
-demo fix is built from the tag in a worktree, and `deploy/` is never rebuilt
-from a newer engine. gamepvp work never touches `client/game/` or `deploy/`.
+The two are developed in parallel. The demo is where gameplay and the mobile
+layout get tested; gamepvp is where the online-specific pieces get tested, and
+every game feature the demo proves is meant to end up in gamepvp. Engine,
+ruleset and protocol changes flow to both by merging `engine-v1` into `pvp`;
+client changes are ported by hand from `client/game/` to `client/gamepvp/`,
+because the two clients share DOM, CSS and tile art but not their core loop.
+The tag `demo-2026-09-01` marks where gamepvp branched, and the demo's action
+logs replay through the engine build that recorded them (DESIGN.md §5.5).
 
 ## Packages
 
