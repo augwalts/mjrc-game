@@ -3546,8 +3546,42 @@ export function bindingArchive(env: TableEnv): Archive {
           .run();
       }
       await settleRatedMatch(env, summary);
+      await writeResultInboxItems(env, summary);
     },
   };
+}
+
+/**
+ * §8's "result" inbox kind: one notice per human seat when a match finishes
+ * — casual and ranked alike, unlike `settleRatedMatch`. `INSERT OR IGNORE`
+ * on a DETERMINISTIC id (`result:<matchId>:<seat>`, schema.sql
+ * `inbox_items`' header comment) makes this idempotent under `finishMatch`'s
+ * own retry (`flushOutbox`'s doc comment: this whole close-out can run more
+ * than once for the same match), the same doctrine `settleRatedMatch` uses
+ * its own way (a read-before-write check) for the same reason.
+ */
+async function writeResultInboxItems(env: TableEnv, summary: MatchSummaryRow): Promise<void> {
+  if (!env.DB) return;
+  const now = new Date(summary.endedAt).toISOString();
+  const { results } = await env.DB.prepare(
+    `SELECT mp.seat AS seat, mp.player_id AS player_id, p.kind AS kind
+       FROM match_players mp
+       JOIN players p ON p.id = mp.player_id
+      WHERE mp.match_id = ?`,
+  )
+    .bind(summary.matchId)
+    .all<{ seat: number; player_id: string; kind: string }>();
+
+  for (const row of results) {
+    if (row.kind !== "human") continue;
+    await env.DB.prepare(
+      `INSERT OR IGNORE INTO inbox_items
+         (id, player_id, kind, match_id, room_code, from_player_id, text, created_at)
+       VALUES (?, ?, 'result', ?, NULL, NULL, NULL, ?)`,
+    )
+      .bind(`result:${summary.matchId}:${row.seat}`, row.player_id, summary.matchId, now)
+      .run();
+  }
 }
 
 /** P0's rating season (schema.sql `rating_history.season`, `players.rating_season`). */

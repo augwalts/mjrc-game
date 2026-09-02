@@ -144,6 +144,14 @@ CREATE TABLE players (
   almanac_link_source TEXT,                  -- sign_in | admin — see README
   almanac_linked_at   TEXT,
 
+  -- The client's UTC offset in minutes (PVP-LOBBY-PROPOSAL-2026-09-02.md §11
+  -- build decision 5), set from `POST /api/identity` and `POST /api/presence`
+  -- whenever the body carries `tzOffsetMin`. Streak days and "today" (stats
+  -- record's streakDays/bestStreak, §10) are counted in this offset, not UTC
+  -- — a streak is a fact about the PLAYER's calendar, and a device that never
+  -- sends one plays every day in UTC, which is the safe default.
+  tz_offset_min  INTEGER NOT NULL DEFAULT 0,
+
   created_at     TEXT NOT NULL,
   updated_at     TEXT NOT NULL,
   last_seen_at   TEXT NOT NULL,
@@ -659,4 +667,109 @@ CREATE INDEX idx_lobby_messages_room ON lobby_messages(room_code, id DESC);
 -- gamepvp/migrations/local-almanac-rooms.sql does that, LOCAL ONLY, with the
 -- exact column set those three Almanac migrations produce. Never run it
 -- against remote.
+--
+-- The Open Hall (PVP-LOBBY-PROPOSAL-2026-09-02.md §11.2, §11 build decision
+-- 2) is not a new table either: it is a `rooms` row with code = 'OPEN',
+-- inserted the same way `POST /api/rooms` inserts any other room (lazily, on
+-- first use — `ensureOpenRoom` in worker/src/index.ts), with `settings` =
+-- `{}` (no `game` key at all, which is what "no presets" means everywhere
+-- else `roomGameSettingsOf` reads that key) and `admin_code_hash = NULL` —
+-- nobody administers it, so `POST /api/rooms/OPEN/settings` refuses the same
+-- way it would for any room with no admin code. Every player is joined to it
+-- (a `room_players` row) the moment they first authenticate.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- friend_stars — a player's own pin on a friend (PVP-LOBBY-PROPOSAL-2026-09-02.md
+-- §11 build decision 1: "star to pin"). One row per (player, friend); "friends"
+-- itself is not a table — it is `GET /api/friends`' read-time fold over
+-- `match_players`/`matches` (everyone the caller has ever finished a match
+-- with, schema.sql "Regenerable vs stateful" doctrine). Starring is the one
+-- piece of that screen that is a real preference and has to persist.
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE friend_stars (
+  player_id  TEXT NOT NULL REFERENCES players(id),
+  friend_id  TEXT NOT NULL REFERENCES players(id),
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (player_id, friend_id)
+);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- dm_messages — direct messages, one thread per unordered (from, to) pair
+-- (PVP-LOBBY-PROPOSAL-2026-09-02.md §8 "Direct messages and the inbox").
+-- Never a game fact, same rule `lobby_messages` states for lobby chat: no
+-- edit or delete path, append-only, polled with the lobby's 5s cadence until
+-- a push transport exists.
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE dm_messages (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  from_player_id TEXT NOT NULL REFERENCES players(id),
+  to_player_id   TEXT NOT NULL REFERENCES players(id),
+  text           TEXT NOT NULL,
+  created_at     TEXT NOT NULL,
+  read_at        TEXT                 -- set when the recipient's GET /api/dm/:playerId reads it
+);
+
+-- A thread is read in both directions ("who did I send to / receive from"),
+-- so both orderings of the pair get their own covering index rather than one
+-- query doing a UNION.
+CREATE INDEX idx_dm_messages_from ON dm_messages(from_player_id, to_player_id, id DESC);
+CREATE INDEX idx_dm_messages_to   ON dm_messages(to_player_id, from_player_id, id DESC);
+
+-- The rate check (1 per 2s, same doctrine as lobby_messages' own per-player
+-- limit) reads this sender's newest row; partial so a long-settled thread
+-- never enters it.
+CREATE INDEX idx_dm_messages_sender ON dm_messages(from_player_id, id DESC);
+
+-- The inbox's unread DM count and badge sum. Partial: read messages never
+-- enter this index, so it stays small regardless of a thread's history.
+CREATE INDEX idx_dm_messages_unread
+  ON dm_messages(to_player_id, id DESC)
+  WHERE read_at IS NULL;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- inbox_items — the envelope's contents (PVP-LOBBY-PROPOSAL-2026-09-02.md §8):
+-- table invites, a table opened in a room the player belongs to, and a
+-- completed game of the player's own. Real, append-only rows rather than a
+-- read-time fold over `matches`, because dismissal is a per-viewer fact
+-- ("I have seen this") that nothing else in this schema records — a
+-- completed match itself never changes, but whether THIS player has cleared
+-- it from their inbox is exactly the kind of per-viewer state that belongs
+-- on its own row (contrast `match_players`, which is per-SEAT canonical
+-- fact, not per-viewer preference).
+--
+-- `id` is TEXT and, for `room`/`result`, chosen DETERMINISTICALLY by the
+-- writer (`room:<matchId>:<playerId>`, `result:<matchId>:<seat>` —
+-- worker/src/index.ts, worker/src/table.ts) rather than randomly generated,
+-- so the insert is `INSERT OR IGNORE` and idempotent under a retry (the
+-- match-finish close-out that writes `result` rows can itself retry, table.ts
+-- `flushOutbox`'s own doc comment) without a second lookup. `invite` rows get
+-- a random id (§8's action is a one-off human choice, not a retry-prone
+-- system write, so idempotency does not matter and a guessable id would).
+--
+-- DM threads are NOT rows here — `GET /api/dm/:playerId` and `dm_messages`
+-- are their own read (kind = 'dm' in `GET /api/inbox`'s response is
+-- synthesized from `dm_messages` at read time, per counterpart), because a
+-- thread's unread state is already exactly `dm_messages.read_at`, and a
+-- second copy of that state here could disagree with it.
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE inbox_items (
+  id             TEXT PRIMARY KEY,
+  player_id      TEXT NOT NULL REFERENCES players(id),
+  kind           TEXT NOT NULL,   -- invite | room | result (code-enforced)
+  match_id       TEXT,            -- invite, result
+  room_code      TEXT,            -- room
+  from_player_id TEXT,            -- invite: who sent it
+  text           TEXT,            -- reserved; unused at P0
+  created_at     TEXT NOT NULL,
+  read_at        TEXT,
+  dismissed_at   TEXT
+);
+
+-- The inbox list and unread badge: this player's live (un-dismissed) items,
+-- newest first. Partial, so a player who clears their inbox keeps this index
+-- empty for them.
+CREATE INDEX idx_inbox_items_player
+  ON inbox_items(player_id, created_at DESC)
+  WHERE dismissed_at IS NULL;
 -- ─────────────────────────────────────────────────────────────────────────────

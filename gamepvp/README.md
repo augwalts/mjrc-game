@@ -358,3 +358,108 @@ and `GET /api/matches/:id` all depend on it. Migration file:
 ```sh
 npx wrangler d1 execute mjrc-scoring --remote --file migrations/remote-2026-09-02-speed.sql
 ```
+
+## The lobby shell's server side (§8, §8b, §10, §11, 2026-09-03)
+
+`PVP-LOBBY-PROPOSAL-2026-09-02.md` §10 (the stats standard), §8 (DMs and the
+inbox), §11 (build decisions) and §8b (rooms) implemented on the server —
+`worker/src/index.ts`, `worker/src/db.ts`, `worker/src/table.ts`. The client
+shell (real URL paths, the four-tab bottom bar) is a separate, concurrent
+piece of work; this section is the API it talks to.
+
+**Stats (§10).** Three datasets, one scope grammar, shared by every stats
+surface and by the leaderboard:
+
+- `GET /api/stats/record?scope` — Dataset A, one row per player
+  (`{ playerId, displayName, games, hands, wins, winPct, ins, inPct, handsW,
+  handsL, ptsW, ptsL, netPerHand, worthPerHand, selfDraws, avgWinFan,
+  placements, rating, ratingGames, provisional, streakDays, bestStreak,
+  movesGraded, agreement }`). `players=leaderboard` returns the same rows the
+  leaderboard would, for the same scope.
+- `GET /api/stats/histograms?scope` — Dataset B: `fan.byRuleset` (14 faan
+  buckets, 13+ last), `fanByGame`, `handType`, `seatByRound`, `outcomes`,
+  `ins` and `feeds` (per-opponent, §10's "who you win the most points off").
+  Fan/handType/seatByRound are the CALLER's own wins in scope; `outcomes` is
+  every hand in scope regardless of winner.
+- `GET /api/stats/series?scope` — Dataset C: `progressionAvg` (cumulative
+  chip total after each hand, one array per game plus the mean), `worthByGame`,
+  `rating` (from `rating_history`), `activity` (densified, one row per day).
+
+**Scope**, identical query params on all three plus `GET /api/leaderboard`:
+`player` (default caller), `players=leaderboard`, `room`, `mode`
+(`ranked`|`casual`), `rulesetId`, `style` (only `hk` exists; anything else is
+400 `unknown_style`), `since`, `lastN`, `source` (`all`|`online`|`offline`;
+every value queries the same online data today — `offline`/`all` add
+`sourceNote: "almanac_link_missing"` until the Almanac account link exists,
+per §10). `worthPerHand` is net chips per hand divided by that match's own
+average winning-hand value, averaged over games — the ratio that makes
+different rulesets' chip scales comparable.
+
+`GET /api/leaderboard?mode=ranked|casual[&rulesetId=&room=&since=]` is now a
+view over Dataset A: candidates need ≥5 completed matches in scope
+(`SQL.leaderboardCandidates`), sorted by rating (`ranked`) or `worthPerHand`
+(anything else), limit 50.
+
+`GET /api/games/:id` is `GET /api/matches/:id` plus `progression` (each
+seat's cumulative chip total after every hand) and `grading` (the caller's
+own seat's move-grading numbers, pulled out of `seats[]`). `/api/matches/:id`
+keeps working — same handler, two paths. `GET /api/games/:id/log` mirrors
+`GET /api/matches/:id/log`.
+
+**Friends (§11 build decision 1).** `GET /api/friends` — everyone the caller
+has finished a match with (folded from `match_players`/`matches` at read
+time, no table of its own), online first then starred then most games
+together. `POST /api/friends/:id/star` / `.../unstar` — `friend_stars`, the
+one real row this feature needs.
+
+**Direct messages and the inbox (§8).** `GET /api/dm/:playerId` (last 100,
+marks the thread read), `POST /api/dm/:playerId` (≤500 chars, 1 per 2s).
+`GET /api/inbox` → `{ unread, items }`, merging real `inbox_items` rows
+(`invite`, `room`, `result`) with DM thread summaries folded from
+`dm_messages` at read time. `POST /api/tables/:matchId/invite { playerId }`
+(participant-only) creates an `invite` item; `POST /api/inbox/:id/accept`
+seats the invitee through the same seat-claim path `POST
+/api/tables/:code/join` uses (factored out as `claimFreeHumanSeat`) and
+returns the same handoff shape; `POST /api/inbox/:id/dismiss` clears any
+kind. A `room` item fires for every OTHER member of a REAL room (never the
+Open Hall — every player belongs to it, so that would notify everyone on
+every table) when a table opens in it. A `result` item fires per human seat
+when a match finishes (`worker/src/table.ts` `writeResultInboxItems`, called
+from `bindingArchive.finishMatch` — casual and ranked alike, unlike rating
+settlement). `room`/`result` ids are deterministic
+(`room:<matchId>:<playerId>`, `result:<matchId>:<seat>`) and `INSERT OR
+IGNORE`, so a retried write is a no-op rather than a duplicate notice.
+
+**The Open Hall (§11.2, build decision 2).** A `rooms` row with code `OPEN`,
+created lazily (`ensureOpenRoom`) the first time anything needs it — at the
+latest, the caller's own `POST /api/identity`, which also joins them to it.
+No `game` key in its `settings` at all ("no presets": any ruleset, any
+length, any speed — `postTable` already treats a room with no `game` key
+exactly like no room, which is the point) and no `admin_code_hash` (nobody
+administers it). **`POST /api/tables` with no `roomCode` now defaults to
+`OPEN`** rather than leaving `matches.room_code` null — every table lands
+somewhere in the rooms system. `GET /api/rooms/mine` pins it first,
+unconditionally. Room codes fold look-alikes the same way join codes do
+(`normaliseCode`) EXCEPT the literal `OPEN`, checked before that fold —
+otherwise `normaliseCode("OPEN")` would corrupt it to `"0PEN"` (Crockford
+excludes `O`) and `/r/OPEN`, `/rooms/OPEN`, and a client-sent `roomCode:
+"OPEN"` would all 404. `normaliseRoomCode` is the fix, and every room-code
+call site uses it, not `normaliseCode` directly.
+
+**`GET /api/rooms/:code`** gains `players[]` — members who are
+online/waiting/playing right now (not the whole roster; `memberCount` is
+that), built the same way `GET /api/lobby`'s room-scoped `here` is.
+
+**Schema change not yet applied remotely.** `players.tz_offset_min`
+(`INTEGER NOT NULL DEFAULT 0`, §11 build decision 5 — set from `POST
+/api/identity`/`POST /api/presence` when the body carries `tzOffsetMin`;
+streak days and "today" are counted in it), and three new tables
+(`friend_stars`, `dm_messages`, `inbox_items`) — folded into
+`../worker/schema.sql` and applied to local D1 already; someone with remote
+access needs to run the same against remote before a build that reads/writes
+any of stats/friends/DMs/inbox reaches production. Migration file:
+`migrations/remote-2026-09-03-shell.sql`.
+
+```sh
+npx wrangler d1 execute mjrc-scoring --remote --file migrations/remote-2026-09-03-shell.sql
+```

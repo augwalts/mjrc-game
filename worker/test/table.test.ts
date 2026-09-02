@@ -2567,6 +2567,11 @@ class FakeRatingDB implements D1Like {
       }
       return;
     }
+    /* §8's "result" inbox item (`writeResultInboxItems`) — this fake does not
+     * model `inbox_items` at all, it only needs to accept the write so
+     * `finishMatch`'s close-out completes; the route-level fake in
+     * db.test.ts is what actually asserts inbox behaviour. */
+    if (sql.startsWith("INSERT OR IGNORE INTO inbox_items")) return;
     throw new Error(`FakeRatingDB: unrecognised write: ${sql}`);
   }
 }

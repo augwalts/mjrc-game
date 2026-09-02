@@ -50,10 +50,13 @@ import { EVENT_SCHEMA_VERSION, isSpeed, type Speed } from "@mjrc/protocol";
 import { DEFAULT_RULESET_ID, assertRulesetSound, ruleset } from "@mjrc/rulesets";
 import { isProvisional } from "../../engine/src/rating.js";
 import type {
-  CasualLeaderboardRow,
   D1Like,
+  DmMessageRow,
   DoneMatchRow,
+  FriendRow,
   HandRow,
+  InboxItemRow,
+  LeaderboardCandidateRow,
   LobbyMatchRow,
   LobbyMessageRow,
   MatchListRow,
@@ -61,12 +64,15 @@ import type {
   MatchSeatRow,
   PlayerRow,
   R2Like,
-  RankedLeaderboardRow,
   RatingHistoryPointRow,
   RecentMatchRow,
   RoomGameSettings,
   RoomRow,
+  ScopedHandRow,
+  ScopedMatchRow,
+  ScopedSeatRow,
   SeatSpec,
+  StatsScope,
   StatsTotalsRow,
 } from "./db.js";
 /* Re-exported: `TableSpec.seatPlan` and `postTable` both speak this type, and
@@ -76,28 +82,42 @@ export type { SeatSpec } from "./db.js";
 import {
   ID_LENGTH,
   JOIN_CODE_LENGTH,
+  STATS_SCOPE_LIMIT,
   abandonWaitingMatch,
   archiveRuleset,
   avgFaanForPlayer,
   claimSeat,
+  dismissInboxItem,
+  dmMessagesInvolving,
+  dmThread,
+  friendStarsOfPlayer,
+  friendsOfPlayer,
+  handsForMatchIds,
   handsOfMatch,
   humanSeatsOfMatch,
+  inboxItemById,
+  inboxItemsForPlayer,
   insertCredential,
+  insertDmMessage,
+  insertInboxItem,
   insertLobbyMessage,
   insertMatch,
   insertPlayer,
   insertRoom,
   insertRoomPlayer,
   isRoomMember,
+  lastDmMessageAt,
   lastLobbyMessageAt,
-  leaderboardCasual,
-  leaderboardRanked,
+  leaderboardCandidates,
+  markDmThreadRead,
   matchById,
   matchByJoinCode,
   matchLogById,
+  matchPlayersForMatchIds,
   matchesDone,
   matchesDoneInRoom,
   matchesForPlayer,
+  matchesForPlayerScoped,
   matchesWaitingOrPlaying,
   matchesWaitingOrPlayingInRoom,
   netChipsForPlayer,
@@ -116,6 +136,7 @@ import {
   roomByCode,
   roomGameSettingsOf,
   roomMemberCount,
+  roomPlayerIdsOf,
   roomsForPlayer,
   rulesetHash,
   seatOf,
@@ -123,10 +144,13 @@ import {
   seatsOfMatch,
   serializeSeatPlan,
   sha256Hex,
+  starFriend,
   statsTotalsForPlayer,
   toHex,
   touchCredential,
+  unstarFriend,
   updateRoomSettings,
+  updateTzOffset,
   upsertPresence,
   withRoomGameSettings,
 } from "./db.js";
@@ -495,6 +519,21 @@ function normaliseCode(raw: string): string {
     .replace(/O/g, "0");
 }
 
+/**
+ * `normaliseCode`, except the Open Hall's literal sentinel (§11.2's
+ * `OPEN_ROOM_CODE`) is checked FIRST, before the O→0 fold that would
+ * otherwise corrupt it into `0PEN` — 'OPEN' is a name a client sends or a
+ * URL segment (`/r/OPEN`, `/rooms/OPEN`), never a code someone typed off a
+ * screen, so it is exempt from the look-alike folding that exists for typed
+ * codes. Every room-code call site uses this, not `normaliseCode` directly;
+ * `postJoin`'s join code is the one exception — a match's join code is never
+ * the Open Hall and always wants the plain fold.
+ */
+function normaliseRoomCode(raw: string): string {
+  const upper = raw.trim().toUpperCase();
+  return upper === OPEN_ROOM_CODE ? OPEN_ROOM_CODE : normaliseCode(raw);
+}
+
 /* ── row → JSON views ─────────────────────────────────────────────────────────
  * SQL is snake_case and stores booleans as 0/1 (schema.sql, "Conventions"); the
  * HTTP surface is camelCase with real booleans, matching the engine and
@@ -674,7 +713,59 @@ async function serveLog(
   });
 }
 
+/* ── the Open Hall (PVP-LOBBY-PROPOSAL-2026-09-02.md §11 build decision 2,
+ * §11.2) ─────────────────────────────────────────────────────────────────── */
+
+/** A room code Crockford can never generate (`generateRoomCode` draws from
+ *  `CROCKFORD`, which excludes 'O' entirely) — so no collision check is
+ *  needed before this constant is used as a real `rooms.code`. */
+export const OPEN_ROOM_CODE = "OPEN";
+const OPEN_ROOM_NAME = "Open Hall";
+
+/**
+ * Lazily create the Open Hall — `INSERT OR IGNORE` on `rooms.code = 'OPEN'`,
+ * so every caller can assume it exists without a migration seeding it up
+ * front (schema.sql's "rooms" note). `settings = '{}'`: no `game` key at
+ * all, which is what "no presets" means to every reader of
+ * `roomGameSettingsOf` — `postTable` already treats a room with no `game`
+ * key exactly like no room at all for ruleset/format/access/speed (falls
+ * through to the request's own values, or the platform default), which is
+ * precisely what the Open Hall wants. `adminCodeHash: null`: nobody
+ * administers it — `verifyRoomAdmin` refuses outright when a room has no
+ * admin code hash.
+ */
+async function ensureOpenRoom(p: Platform): Promise<void> {
+  await insertRoom(p.db, {
+    code: OPEN_ROOM_CODE,
+    name: OPEN_ROOM_NAME,
+    settings: "{}",
+    adminCodeHash: null,
+    now: p.now(),
+  });
+}
+
+/** Every player is a member of the Open Hall (§11 build decision 2) — called
+ *  from `POST /api/identity` for every sign-in, and defensively wherever a
+ *  caller might reach the Open Hall before that (a room whose membership row
+ *  predates this feature). Both writes are `OR IGNORE`, so this is cheap and
+ *  idempotent on a repeat call. */
+async function ensureOpenMembership(p: Platform, playerId: string, displayName: string): Promise<void> {
+  await ensureOpenRoom(p);
+  await insertRoomPlayer(p.db, { roomCode: OPEN_ROOM_CODE, playerId, name: displayName });
+}
+
 /* ── handlers ─────────────────────────────────────────────────────────────── */
+
+/** §11 build decision 5: minutes east of UTC, `-720..840` (UTC-12..UTC+14) —
+ *  the full range any real timezone offset can take, including the half-
+ *  and quarter-hour zones. Out-of-range or non-integer is ignored rather
+ *  than refused: a malformed value from a future client build must not
+ *  break `POST /api/identity`/`POST /api/presence`, which do real work
+ *  besides this. */
+function parseTzOffsetMin(v: unknown): number | null {
+  if (typeof v !== "number" || !Number.isInteger(v)) return null;
+  return v >= -720 && v <= 840 ? v : null;
+}
 
 /**
  * POST /api/identity — establish or re-present a device identity.
@@ -705,6 +796,8 @@ async function postIdentity(req: Request, p: Platform): Promise<Response> {
   const credentialId = await sha256Hex(token);
   const now = p.now();
 
+  const tzOffsetMin = parseTzOffsetMin(body.tzOffsetMin);
+
   const existing = await playerForCredential(p.db, credentialId);
   if (existing !== null) {
     await touchCredential(p.db, credentialId, existing.id, now);
@@ -712,6 +805,8 @@ async function postIdentity(req: Request, p: Platform): Promise<Response> {
     if (existing.display_name !== displayName) {
       await renamePlayer(p.db, existing.id, displayName, now);
     }
+    if (tzOffsetMin !== null) await updateTzOffset(p.db, existing.id, tzOffsetMin);
+    await ensureOpenMembership(p, existing.id, displayName);
     return json({ playerId: existing.id, displayName, rating: existing.rating, created: false });
   }
 
@@ -724,6 +819,10 @@ async function postIdentity(req: Request, p: Platform): Promise<Response> {
     label: str(body.label),
     now,
   });
+  if (tzOffsetMin !== null) await updateTzOffset(p.db, playerId, tzOffsetMin);
+  /* §11 build decision 2: every player is a member of the Open Hall the
+   * moment they first authenticate — not a separate onboarding step. */
+  await ensureOpenMembership(p, playerId, displayName);
   return json(
     { playerId, displayName, rating: null, created: true, deviceToken: minted },
     201,
@@ -753,7 +852,28 @@ async function getMatches(url: URL, p: Platform, player: PlayerRow): Promise<Res
  * match on the platform; a caller who is not in the match has no legitimate way
  * to tell the two apart, so it is told nothing.
  */
-async function getMatchDetail(
+/** `hands.delta_seat<N>` read by seat index, rather than four separate
+ *  column reads at every call site — shared by progression folding here and
+ *  by the stats datasets below (`deltaOf`). */
+function handSeatDelta(h: { delta_seat0: number; delta_seat1: number; delta_seat2: number; delta_seat3: number }, seat: number): number {
+  switch (seat) {
+    case 0: return h.delta_seat0;
+    case 1: return h.delta_seat1;
+    case 2: return h.delta_seat2;
+    default: return h.delta_seat3;
+  }
+}
+
+/**
+ * GET /api/matches/:id and GET /api/games/:id (§11.3: `/games/ID` is the
+ * real URL path; `/api/matches/:id` keeps working as an alias — the same
+ * detail, never two shapes). Adds `progression` (each seat's cumulative
+ * chip total after every hand, folded from `hands.delta_seat<N>` — the
+ * per-game view §10 asks for) and `grading`, the caller's own seat's move
+ * grading pulled out of `seats[]` so a client does not have to search for
+ * its own seat twice.
+ */
+async function getGameDetail(
   matchId: string,
   p: Platform,
   player: PlayerRow,
@@ -777,11 +897,28 @@ async function getMatchDetail(
     ? await mintReplayToken(p.replayTokenSecret, match.id)
     : null;
 
+  const progression: [number[], number[], number[], number[]] = [[], [], [], []];
+  const cumulative: [number, number, number, number] = [0, 0, 0, 0];
+  for (const h of hands) {
+    for (let s = 0; s < 4; s += 1) {
+      cumulative[s] += handSeatDelta(h, s);
+      progression[s]!.push(cumulative[s]!);
+    }
+  }
+
+  const seatViews = seats.map(seatView);
+  const mine = seatViews.find((s) => s.seat === seat) ?? null;
+  const grading = mine === null
+    ? null
+    : { movesGraded: mine.movesGraded, movesMatched: mine.movesMatched, gapSum: mine.gapSum, agreement: mine.agreement };
+
   return json({
     match: matchView(match),
     viewerSeat: seat,
-    seats: seats.map(seatView),
+    seats: seatViews,
     hands: hands.map(handView),
+    progression,
+    grading,
     replayToken,
   });
 }
@@ -888,13 +1025,19 @@ async function postTable(req: Request, p: Platform, player: PlayerRow): Promise<
   const body = await readJsonObject(req);
   if (body === null) return fail("bad_json", 400);
 
-  let room: RoomRow | null = null;
+  /* §11.2: "tables created without roomCode go to OPEN" — the Open Hall is
+   * the default room, not the absence of one, so an omitted `roomCode`
+   * resolves to it rather than leaving `matches.room_code` null. */
+  const normalizedRoomCode = normaliseRoomCode(str(body.roomCode) ?? OPEN_ROOM_CODE);
+  if (normalizedRoomCode === OPEN_ROOM_CODE) await ensureOpenMembership(p, player.id, player.display_name);
+  const room = await roomByCode(p.db, normalizedRoomCode);
+  if (room === null) return fail("not_found", 404);
+  if (!(await isRoomMember(p.db, room.code, player.id))) return fail("not_room_member", 403);
+  /* The Open Hall has no `game` settings by construction (`ensureOpenRoom`'s
+   * doc comment: "no presets") — every other room must be configured before
+   * a table opens in it, same rule as before this change. */
   let roomGame: RoomGameSettings | null = null;
-  const roomCodeRaw = str(body.roomCode);
-  if (roomCodeRaw !== null) {
-    room = await roomByCode(p.db, normaliseCode(roomCodeRaw));
-    if (room === null) return fail("not_found", 404);
-    if (!(await isRoomMember(p.db, room.code, player.id))) return fail("not_room_member", 403);
+  if (room.code !== OPEN_ROOM_CODE) {
     roomGame = roomGameSettingsOf(parseRoomSettings(room.settings));
     if (roomGame === null) return fail("room_not_configured", 409);
   }
@@ -944,7 +1087,7 @@ async function postTable(req: Request, p: Platform, player: PlayerRow): Promise<
     rulesetId: rules.id,
     engineVersion: p.engineVersion,
     logSchemaVersion: EVENT_SCHEMA_VERSION,
-    roomCode: room !== null ? room.code : null,
+    roomCode: room.code,
     joinCode,
     /* Ranked is rated at creation and frozen (schema.sql, matches.rated) — the
      * ranked/bot check above already guarantees every seat is human. */
@@ -976,6 +1119,27 @@ async function postTable(req: Request, p: Platform, player: PlayerRow): Promise<
   });
   if (handoff === null) return fail("table_unavailable", 503);
 
+  /* §8's "room" inbox kind: every OTHER member of a real (non-Open-Hall)
+   * room the creator just opened a table in gets one notice. Skipped for
+   * the Open Hall on purpose — everyone is a member of it, so this would
+   * otherwise fire on every single table this build creates. Deterministic
+   * id (schema.sql `inbox_items`' header comment): a retried request after
+   * a flaky response writes the same rows, not a duplicate. */
+  if (room.code !== OPEN_ROOM_CODE) {
+    const memberIds = await roomPlayerIdsOf(p.db, room.code);
+    for (const memberId of memberIds) {
+      if (memberId === player.id) continue;
+      await insertInboxItem(p.db, {
+        id: `room:${matchId}:${memberId}`,
+        playerId: memberId,
+        kind: "room",
+        matchId,
+        roomCode: room.code,
+        now,
+      });
+    }
+  }
+
   return json(
     {
       tableId: handoff.tableId,
@@ -990,7 +1154,7 @@ async function postTable(req: Request, p: Platform, player: PlayerRow): Promise<
       matchFormat,
       mode,
       access,
-      roomCode: room !== null ? room.code : null,
+      roomCode: room.code,
       speed,
     },
     201,
@@ -1048,50 +1212,65 @@ async function postJoin(code: string, p: Platform, player: PlayerRow): Promise<R
   const match = await matchByJoinCode(p.db, joinCode);
   if (match === null) return fail("not_found", 404);
 
-  let seat = await seatOf(p.db, match.id, player.id);
-  if (seat === null) {
-    /* A bot seat may be at ANY seat index now (§7.2 `seats`), not only the
-     * high ones — the free-seat search must consult the plan seat by seat
-     * rather than the old single `firstBotSeat` cutoff. */
-    const humanSeats = seatPlanOf(match.seat_plan, match.bot_seats)
-      .map((s, i) => ({ spec: s, seat: i as SeatIndex }))
-      .filter((s) => s.spec.kind === "human")
-      .map((s) => s.seat);
+  const claimed = await claimFreeHumanSeat(p, match, player);
+  if (claimed === "full") return fail("table_full", 409);
+  if (claimed === "conflict") return fail("conflict", 409);
 
-    /* Bounded retry rather than a lock: seat assignment reads then writes, and
-     * PRIMARY KEY (match_id, seat) is the arbiter. One attempt per human seat
-     * is the most contention this table can produce. */
-    for (let attempt = 0; attempt < humanSeats.length && seat === null; attempt += 1) {
-      const seats = await seatsOfMatch(p.db, match.id);
-      /* A concurrent duplicate of this very request may have seated us between
-       * the check above and now. UNIQUE (match_id, player_id) would refuse every
-       * remaining attempt, so read our own seat back rather than burning the
-       * retries and answering 409 to a player who is in fact seated. */
-      const own = seats.find((s) => s.player_id === player.id);
-      if (own !== undefined) {
-        seat = own.seat;
-        break;
-      }
-      const taken = new Set(seats.map((s) => s.seat));
-      const free = humanSeats.find((s) => !taken.has(s));
-      if (free === undefined) return fail("table_full", 409);
-      if (await claimSeat(p.db, match.id, free, player.id)) seat = free;
-    }
-    if (seat === null) return fail("conflict", 409);
-  }
-
-  const handoff = await openAndSeat(p, match.id, seat as SeatIndex, player, null);
+  const handoff = await openAndSeat(p, match.id, claimed, player, null);
   if (handoff === null) return fail("table_unavailable", 503);
 
   return json({
     tableId: handoff.tableId,
     matchUuid: match.id,
-    seat,
+    seat: claimed,
     seatToken: handoff.seatToken,
     seatTokenExpiresAt: handoff.expiresAt,
     rulesetId: match.ruleset_id,
     matchFormat: match.match_format,
   });
+}
+
+/**
+ * Claim `player`'s seat at `match`: their own seat if they already hold one
+ * (the reconnect path, `postJoin`'s own doc comment), else the next free
+ * human seat in the plan. Shared by `postJoin` (arrives by join code) and
+ * `postInboxAccept` (an invite already names the match, no code needed) so
+ * the seat-assignment retry loop exists in exactly one place.
+ *
+ * A bot seat may be at ANY seat index (§7.2 `seats`), not only the high
+ * ones, so the free-seat search consults the plan seat by seat.  Bounded
+ * retry rather than a lock: seat assignment reads then writes, and PRIMARY
+ * KEY (match_id, seat) is the arbiter; one attempt per human seat is the
+ * most contention this table can produce.
+ */
+async function claimFreeHumanSeat(
+  p: Platform,
+  match: MatchRow,
+  player: PlayerRow,
+): Promise<SeatIndex | "full" | "conflict"> {
+  const already = await seatOf(p.db, match.id, player.id);
+  if (already !== null) return already as SeatIndex;
+
+  const humanSeats = seatPlanOf(match.seat_plan, match.bot_seats)
+    .map((s, i) => ({ spec: s, seat: i as SeatIndex }))
+    .filter((s) => s.spec.kind === "human")
+    .map((s) => s.seat);
+
+  for (let attempt = 0; attempt < humanSeats.length; attempt += 1) {
+    const seats = await seatsOfMatch(p.db, match.id);
+    /* A concurrent duplicate of this very request may have seated us between
+     * the check above and now. UNIQUE (match_id, player_id) would refuse
+     * every remaining attempt, so read our own seat back rather than
+     * burning the retries and answering 409 to a player who is in fact
+     * seated. */
+    const own = seats.find((s) => s.player_id === player.id);
+    if (own !== undefined) return own.seat as SeatIndex;
+    const taken = new Set(seats.map((s) => s.seat));
+    const free = humanSeats.find((s) => !taken.has(s));
+    if (free === undefined) return "full";
+    if (await claimSeat(p.db, match.id, free, player.id)) return free;
+  }
+  return "conflict";
 }
 
 /** A table stub for a match this file already knows exists — `/start` and
@@ -1145,6 +1324,40 @@ async function postLeave(matchId: string, p: Platform, player: PlayerRow): Promi
     return fail("table_unavailable", 503);
   }
   return json({ ok: true });
+}
+
+/**
+ * POST /api/tables/:matchId/invite — §8's "invite" inbox kind. Only a
+ * participant may invite (the same `seatOf` authorisation primitive every
+ * match-scoped route uses: not seated reads as 404, not a bare 403, exactly
+ * `postLeave`'s doctrine), so a stranger cannot spam an invite for a table
+ * they were never part of. A random id, not the deterministic
+ * `kind:matchId:playerId` shape `room`/`result` items use — an invite is a
+ * one-off human action, not a system write that might retry, so idempotency
+ * does not matter here and a guessable id would (schema.sql `inbox_items`'
+ * header comment).
+ */
+async function postTableInvite(matchId: string, req: Request, p: Platform, player: PlayerRow): Promise<Response> {
+  const seat = await seatOf(p.db, matchId, player.id);
+  if (seat === null) return fail("not_found", 404);
+
+  const body = await readJsonObject(req);
+  if (body === null) return fail("bad_json", 400);
+  const targetId = str(body.playerId);
+  if (targetId === null) return fail("bad_player_id", 400);
+  const target = await playerById(p.db, targetId);
+  if (target === null) return fail("not_found", 404);
+
+  const id = randomId(p.random, ID_LENGTH);
+  await insertInboxItem(p.db, {
+    id,
+    playerId: targetId,
+    kind: "invite",
+    matchId,
+    fromPlayerId: player.id,
+    now: p.now(),
+  });
+  return json({ id }, 201);
 }
 
 /* ── stats and leaderboards (PVP-LOBBY-PROPOSAL-2026-09-02.md §7.2's last two
@@ -1231,38 +1444,817 @@ async function getStatsFor(playerId: string, p: Platform): Promise<Response> {
   });
 }
 
-/** GET /api/leaderboard?mode=ranked|casual — defaults to ranked on anything
- *  else, same "unknown value degrades to the safe default" doctrine as
- *  `postTable`'s `matchFormat`/`access` parsing above. */
-async function getLeaderboard(url: URL, p: Platform): Promise<Response> {
-  const mode = url.searchParams.get("mode") === "casual" ? "casual" : "ranked";
+/* ── stats: scope parsing (PVP-LOBBY-PROPOSAL-2026-09-02.md §10) ─────────────
+ * One scope grammar off the query string, shared by every dataset below and
+ * by the leaderboard — parsed once, here, so a bad `mode`/`style`/
+ * `rulesetId`/`since`/`lastN`/`source` is refused identically everywhere.
+ */
 
-  if (mode === "casual") {
-    const rows = await leaderboardCasual(p.db, LEADERBOARD_LIMIT);
-    return json({
-      mode,
-      entries: rows.map((r: CasualLeaderboardRow) => ({
-        playerId: r.player_id,
-        displayName: r.display_name,
-        matches: r.matches,
-        wins: r.wins,
-        places: [r.place1, r.place2, r.place3, r.place4],
-        agreement: agreementOf(r.moves_graded, r.moves_matched),
-      })),
-    });
+interface StatsScopeParsed {
+  playerId: string;
+  mode: string | null;
+  rulesetId: string | null;
+  roomCode: string | null;
+  sinceIso: string | null;
+  lastN: number | null;
+  source: "all" | "online" | "offline";
+  playersLeaderboard: boolean;
+}
+
+type ScopeParseResult = { ok: true; scope: StatsScopeParsed } | { ok: false; error: string };
+
+function parseStatsScope(url: URL, callerId: string): ScopeParseResult {
+  /* Unrecognised `mode` degrades to "no mode filter" rather than a 400 —
+   * the same "unknown value degrades to the safe default" doctrine
+   * `postTable`'s `matchFormat`/`access`/`speed` parsing already uses, and
+   * what lets `GET /api/leaderboard?mode=<anything else>` fall back to its
+   * own `ranked` default rather than erroring. */
+  const modeParam = url.searchParams.get("mode");
+  const modeRaw = modeParam === "ranked" || modeParam === "casual" ? modeParam : null;
+
+  /* §10: "style (hk|tw; only hk exists — reject others with 400)" — every
+   * ruleset this deployment ships is HK Old Style (TERMINOLOGY.md), so `hk`
+   * (or absent) is the only value that can mean anything here. */
+  const styleRaw = url.searchParams.get("style");
+  if (styleRaw !== null && styleRaw !== "hk") return { ok: false, error: "unknown_style" };
+
+  const rulesetIdRaw = url.searchParams.get("rulesetId");
+  if (rulesetIdRaw !== null && ruleset(rulesetIdRaw) === undefined) return { ok: false, error: "unknown_ruleset" };
+
+  const roomRaw = url.searchParams.get("room");
+  const roomCode = roomRaw === null || roomRaw.trim() === "" ? null : normaliseRoomCode(roomRaw);
+
+  const sinceRaw = url.searchParams.get("since");
+  let sinceIso: string | null = null;
+  if (sinceRaw !== null) {
+    const t = Date.parse(sinceRaw);
+    if (!Number.isFinite(t)) return { ok: false, error: "bad_since" };
+    sinceIso = new Date(t).toISOString();
   }
 
-  const rows = await leaderboardRanked(p.db, LEADERBOARD_LIMIT);
+  const lastNRaw = url.searchParams.get("lastN");
+  let lastN: number | null = null;
+  if (lastNRaw !== null) {
+    const n = Number.parseInt(lastNRaw, 10);
+    if (!Number.isInteger(n) || n <= 0) return { ok: false, error: "bad_lastN" };
+    lastN = Math.min(n, STATS_SCOPE_LIMIT);
+  }
+
+  const sourceRaw = url.searchParams.get("source");
+  const source = sourceRaw ?? "online";
+  if (source !== "all" && source !== "online" && source !== "offline") return { ok: false, error: "bad_source" };
+
+  const playerRaw = str(url.searchParams.get("player"));
+  const playersRaw = url.searchParams.get("players");
+
+  return {
+    ok: true,
+    scope: {
+      playerId: playerRaw ?? callerId,
+      mode: modeRaw,
+      rulesetId: rulesetIdRaw,
+      roomCode,
+      sinceIso,
+      lastN,
+      source,
+      playersLeaderboard: playersRaw === "leaderboard",
+    },
+  };
+}
+
+const dbScopeOf = (scope: StatsScopeParsed): StatsScope => ({
+  mode: scope.mode,
+  rulesetId: scope.rulesetId,
+  roomCode: scope.roomCode,
+  sinceIso: scope.sinceIso,
+});
+
+/** §10: "offline and all return online-only data plus sourceNote ... until
+ *  the Almanac link exists" — every dataset route spreads this once, at the
+ *  end of its response, rather than branching its own arithmetic on `source`. */
+const sourceNoteOf = (scope: StatsScopeParsed): { sourceNote: string } | Record<string, never> =>
+  scope.source === "online" ? {} : { sourceNote: "almanac_link_missing" };
+
+/* ── stats: shared folds over a scoped match+hand set ────────────────────── */
+
+async function loadScopedMatches(
+  p: Platform,
+  playerId: string,
+  scope: StatsScopeParsed,
+): Promise<{ matches: ScopedMatchRow[]; hands: ScopedHandRow[] }> {
+  let matches = await matchesForPlayerScoped(p.db, playerId, dbScopeOf(scope));
+  if (scope.lastN !== null) matches = matches.slice(0, scope.lastN);
+  const hands = await handsForMatchIds(p.db, matches.map((m) => m.id));
+  return { matches, hands };
+}
+
+function handsByMatch(hands: readonly ScopedHandRow[]): Map<string, ScopedHandRow[]> {
+  const out = new Map<string, ScopedHandRow[]>();
+  for (const h of hands) {
+    const list = out.get(h.match_id);
+    if (list === undefined) out.set(h.match_id, [h]);
+    else list.push(h);
+  }
+  return out;
+}
+
+/** 14-bucket faan index, "13+ last" (§10 Dataset B): faan 0-12 at their own
+ *  index, 13 and up all fall into index 13. */
+const faanBucket = (faan: number): number => (faan >= 13 ? 13 : Math.max(0, Math.min(12, faan)));
+
+/**
+ * A match's own "worth" — this player's net chips per hand, priced in that
+ * match's average winning-hand value (§10 Dataset A `worthPerHand`: "net per
+ * hand priced in that game's average winning hand value, so rulesets
+ * compare"). `null` when the match had no priceable win (every hand a draw,
+ * or every win a zero/negative-value oddity), so callers average over games
+ * that HAD a price rather than dividing by zero.
+ */
+function gameWorth(mh: readonly ScopedHandRow[], seat: number): number | null {
+  if (mh.length === 0) return null;
+  let net = 0;
+  let winSum = 0;
+  let winCount = 0;
+  for (const h of mh) {
+    net += handSeatDelta(h, seat);
+    if (h.outcome === "win" && h.winner_seat !== null) {
+      const winnerDelta = handSeatDelta(h, h.winner_seat);
+      if (winnerDelta > 0) {
+        winSum += winnerDelta;
+        winCount += 1;
+      }
+    }
+  }
+  if (winCount === 0) return null;
+  const avgWinningHandValue = winSum / winCount;
+  return avgWinningHandValue > 0 ? net / mh.length / avgWinningHandValue : null;
+}
+
+/** Calendar days (in `tzOffsetMin`'s local time) with at least one match, as
+ *  epoch-day integers so "consecutive" is `+1` — shared by `streakDays`/
+ *  `bestStreak` and `buildActivity`. */
+function localDaysOf(matches: readonly ScopedMatchRow[], tzOffsetMin: number): Set<number> {
+  const dayMs = 86_400_000;
+  const days = new Set<number>();
+  for (const m of matches) {
+    const at = m.ended_at ?? m.started_at;
+    days.add(Math.floor((Date.parse(at) + tzOffsetMin * 60_000) / dayMs));
+  }
+  return days;
+}
+
+function computeStreaks(
+  matches: readonly ScopedMatchRow[],
+  tzOffsetMin: number,
+  nowIso: string,
+): { streakDays: number; bestStreak: number } {
+  const days = localDaysOf(matches, tzOffsetMin);
+  const sorted = [...days].sort((a, b) => a - b);
+
+  let bestStreak = 0;
+  let run = 0;
+  let prev: number | null = null;
+  for (const d of sorted) {
+    run = prev !== null && d === prev + 1 ? run + 1 : 1;
+    bestStreak = Math.max(bestStreak, run);
+    prev = d;
+  }
+
+  const dayMs = 86_400_000;
+  const today = Math.floor((Date.parse(nowIso) + tzOffsetMin * 60_000) / dayMs);
+  let streakDays = 0;
+  /* "Alive" only if the most recent active day is today or yesterday — a
+   * streak with no game in the last two days is broken, not paused. */
+  let cursor = days.has(today) ? today : today - 1;
+  while (days.has(cursor)) {
+    streakDays += 1;
+    cursor -= 1;
+  }
+  return { streakDays, bestStreak };
+}
+
+/** Densified day-by-day activity, every day present from the scope's
+ *  `since` (or the earliest match in scope, or today) through today, in the
+ *  player's own calendar. Capped so a scope with no matches and no `since`
+ *  cannot walk an unbounded range. */
+const ACTIVITY_MAX_DAYS = 366;
+
+function buildActivity(
+  matches: readonly ScopedMatchRow[],
+  tzOffsetMin: number,
+  sinceIso: string | null,
+  nowIso: string,
+): { day: string; games: number }[] {
+  const dayKey = (iso: string): string =>
+    new Date(Date.parse(iso) + tzOffsetMin * 60_000).toISOString().slice(0, 10);
+  const counts = new Map<string, number>();
+  for (const m of matches) {
+    const key = dayKey(m.ended_at ?? m.started_at);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  const today = dayKey(nowIso);
+  const startKey =
+    sinceIso !== null ? dayKey(sinceIso) : counts.size > 0 ? [...counts.keys()].sort()[0]! : today;
+
+  const out: { day: string; games: number }[] = [];
+  let cursor = new Date(`${startKey}T00:00:00.000Z`);
+  const end = new Date(`${today}T00:00:00.000Z`);
+  for (let i = 0; cursor.getTime() <= end.getTime() && i < ACTIVITY_MAX_DAYS; i += 1) {
+    const key = cursor.toISOString().slice(0, 10);
+    out.push({ day: key, games: counts.get(key) ?? 0 });
+    cursor = new Date(cursor.getTime() + 86_400_000);
+  }
+  return out;
+}
+
+/* ── stats: Dataset A — record (§10) ─────────────────────────────────────── */
+
+interface RecordRow {
+  playerId: string;
+  displayName: string;
+  games: number;
+  hands: number;
+  wins: number;
+  winPct: number | null;
+  ins: number;
+  inPct: number | null;
+  handsW: number;
+  handsL: number;
+  ptsW: number;
+  ptsL: number;
+  netPerHand: number | null;
+  worthPerHand: number | null;
+  selfDraws: number;
+  avgWinFan: number | null;
+  placements: [number, number, number, number];
+  rating: number | null;
+  ratingGames: number;
+  provisional: boolean;
+  streakDays: number;
+  bestStreak: number;
+  movesGraded: number;
+  agreement: number | null;
+}
+
+/** Dataset A for one player — the shared computation behind `GET
+ *  /api/stats/record`, `GET /api/leaderboard`, and `players=leaderboard` on
+ *  the former. `null` only when `playerId` does not resolve at all (a typo,
+ *  a soft-deleted player); a player with zero matches in scope still gets a
+ *  row of zeros/nulls, same "`?? 0` at read time" doctrine `getStatsFor`
+ *  already uses for `statsTotalsForPlayer`. */
+async function computeRecordRow(p: Platform, playerId: string, scope: StatsScopeParsed): Promise<RecordRow | null> {
+  const player = await playerById(p.db, playerId);
+  if (player === null) return null;
+
+  const { matches, hands } = await loadScopedMatches(p, playerId, scope);
+  const byMatch = handsByMatch(hands);
+
+  let handsTotal = 0;
+  let handsWithWinner = 0;
+  let wins = 0;
+  let ins = 0;
+  let selfDraws = 0;
+  let netChips = 0;
+  let ptsW = 0;
+  let ptsL = 0;
+  let worthSum = 0;
+  let worthCount = 0;
+  let winFaanSum = 0;
+  let winFaanCount = 0;
+  const placements: [number, number, number, number] = [0, 0, 0, 0];
+  let movesGraded = 0;
+  let movesMatched = 0;
+
+  for (const m of matches) {
+    const mh = byMatch.get(m.id) ?? [];
+    handsTotal += mh.length;
+    wins += m.hands_won;
+    ins += m.deal_ins;
+    selfDraws += m.self_draws;
+    movesGraded += m.moves_graded;
+    movesMatched += m.moves_matched;
+    if (m.place !== null) placements[(m.place - 1) as 0 | 1 | 2 | 3] += 1;
+
+    for (const h of mh) {
+      const delta = handSeatDelta(h, m.seat);
+      netChips += delta;
+      if (delta > 0) ptsW += delta;
+      else if (delta < 0) ptsL += -delta;
+      if (h.outcome === "win") {
+        handsWithWinner += 1;
+        if (h.winner_seat === m.seat) {
+          winFaanSum += h.faan;
+          winFaanCount += 1;
+        }
+      }
+    }
+
+    const worth = gameWorth(mh, m.seat);
+    if (worth !== null) {
+      worthSum += worth;
+      worthCount += 1;
+    }
+  }
+
+  const { streakDays, bestStreak } = computeStreaks(matches, player.tz_offset_min, p.now());
+
+  return {
+    playerId: player.id,
+    displayName: player.display_name,
+    games: matches.length,
+    hands: handsTotal,
+    wins,
+    winPct: handsTotal > 0 ? wins / handsTotal : null,
+    ins,
+    inPct: handsTotal > 0 ? ins / handsTotal : null,
+    handsW: wins,
+    handsL: handsWithWinner - wins,
+    ptsW,
+    ptsL,
+    netPerHand: handsTotal > 0 ? netChips / handsTotal : null,
+    worthPerHand: worthCount > 0 ? worthSum / worthCount : null,
+    selfDraws,
+    avgWinFan: winFaanCount > 0 ? winFaanSum / winFaanCount : null,
+    placements,
+    rating: player.rating,
+    ratingGames: player.rating_games,
+    provisional: isProvisional(player.rating_games),
+    streakDays,
+    bestStreak,
+    movesGraded,
+    agreement: agreementOf(movesGraded, movesMatched),
+  };
+}
+
+/** GET /api/stats/record?scope — Dataset A. One row for the scope's own
+ *  player unless `players=leaderboard`, which reuses the exact leaderboard
+ *  candidate set and sort (§10: "the caller alone unless players=leaderboard"). */
+async function getStatsRecord(url: URL, p: Platform, caller: PlayerRow): Promise<Response> {
+  const parsed = parseStatsScope(url, caller.id);
+  if (!parsed.ok) return fail(parsed.error, 400);
+  const scope = parsed.scope;
+
+  if (scope.playersLeaderboard) {
+    const rows = await recordRowsForLeaderboard(p, scope);
+    return json({ players: rows, ...sourceNoteOf(scope) });
+  }
+
+  const row = await computeRecordRow(p, scope.playerId, scope);
+  if (row === null) return fail("not_found", 404);
+  return json({ players: [row], ...sourceNoteOf(scope) });
+}
+
+/** GET /api/stats/histograms?scope — Dataset B. `fan`/`fanByGame`/
+ *  `handType`/`seatByRound` are the CALLER's own winning hands within the
+ *  scope (`avgWinFan`'s sibling in Dataset A); `outcomes` is every hand in
+ *  scope regardless of who won; `ins`/`feeds` are per-opponent and need
+ *  every OTHER seat's identity, hence `matchPlayersForMatchIds`. */
+async function getStatsHistograms(url: URL, p: Platform, caller: PlayerRow): Promise<Response> {
+  const parsed = parseStatsScope(url, caller.id);
+  if (!parsed.ok) return fail(parsed.error, 400);
+  const scope = parsed.scope;
+
+  if ((await playerById(p.db, scope.playerId)) === null) return fail("not_found", 404);
+
+  const { matches, hands } = await loadScopedMatches(p, scope.playerId, scope);
+  const matchIds = matches.map((m) => m.id);
+  const seats = await matchPlayersForMatchIds(p.db, matchIds);
+
+  const seatsByMatch = new Map<string, Map<number, ScopedSeatRow>>();
+  const nameOf = new Map<string, string>();
+  for (const s of seats) {
+    let m = seatsByMatch.get(s.match_id);
+    if (m === undefined) {
+      m = new Map();
+      seatsByMatch.set(s.match_id, m);
+    }
+    m.set(s.seat, s);
+    nameOf.set(s.player_id, s.display_name);
+  }
+  const byMatch = handsByMatch(hands);
+
+  const fanByRuleset: Record<string, number[]> = {};
+  const fanByGame: number[][] = [];
+  const handTypeAgg = new Map<string, { count: number; faanSum: number; pointsSum: number }>();
+  const seatByRound: number[][] = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]];
+  let outWin = 0;
+  let outSelfDraw = 0;
+  let outDraw = 0;
+  const insAgg = new Map<string, { ins: number; hands: number }>();
+  const feedsFrom = new Map<string, { points: number; hands: number }>();
+  const feedsTo = new Map<string, { points: number; hands: number }>();
+
+  for (const m of matches) {
+    const mySeat = m.seat;
+    const mh = byMatch.get(m.id) ?? [];
+    const seatMap = seatsByMatch.get(m.id) ?? new Map<number, ScopedSeatRow>();
+    const gameFanRow = new Array(14).fill(0) as number[];
+
+    for (const [seatIdx, seatRow] of seatMap) {
+      if (seatIdx === mySeat) continue;
+      const agg = insAgg.get(seatRow.player_id) ?? { ins: 0, hands: 0 };
+      agg.hands += mh.length;
+      insAgg.set(seatRow.player_id, agg);
+    }
+
+    for (const h of mh) {
+      if (h.outcome !== "win") {
+        outDraw += 1;
+        continue;
+      }
+      outWin += 1;
+      if (h.self_draw) outSelfDraw += 1;
+      const winnerSeat = h.winner_seat;
+      if (winnerSeat === null) continue;
+      const winnerId = seatMap.get(winnerSeat)?.player_id;
+
+      if (winnerSeat === mySeat) {
+        const bucket = faanBucket(h.faan);
+        gameFanRow[bucket] += 1;
+        const arr = fanByRuleset[m.ruleset_id] ?? (new Array(14).fill(0) as number[]);
+        arr[bucket] += 1;
+        fanByRuleset[m.ruleset_id] = arr;
+        seatByRound[mySeat]![h.round_wind] += 1;
+        for (const award of parseAwards(h.awards)) {
+          const agg = handTypeAgg.get(award.id) ?? { count: 0, faanSum: 0, pointsSum: 0 };
+          agg.count += 1;
+          agg.faanSum += award.faan;
+          agg.pointsSum += handSeatDelta(h, mySeat);
+          handTypeAgg.set(award.id, agg);
+        }
+      }
+
+      if (h.self_draw || h.win_from_seat === null) continue;
+      const fromSeat = h.win_from_seat;
+      const fromId = seatMap.get(fromSeat)?.player_id;
+      const points = handSeatDelta(h, winnerSeat);
+      if (winnerSeat === mySeat && fromId !== undefined) {
+        const agg = feedsFrom.get(fromId) ?? { points: 0, hands: 0 };
+        agg.points += points;
+        agg.hands += 1;
+        feedsFrom.set(fromId, agg);
+      }
+      if (fromSeat === mySeat && winnerId !== undefined) {
+        const agg = feedsTo.get(winnerId) ?? { points: 0, hands: 0 };
+        agg.points += points;
+        agg.hands += 1;
+        feedsTo.set(winnerId, agg);
+        const insA = insAgg.get(winnerId) ?? { ins: 0, hands: 0 };
+        insA.ins += 1;
+        insAgg.set(winnerId, insA);
+      }
+    }
+    fanByGame.push(gameFanRow);
+  }
+
   return json({
-    mode,
-    entries: rows.map((r: RankedLeaderboardRow) => ({
-      playerId: r.id,
+    fan: { byRuleset: fanByRuleset },
+    fanByGame,
+    handType: [...handTypeAgg.entries()].map(([id, v]) => ({
+      id,
+      count: v.count,
+      avgFan: v.faanSum / v.count,
+      points: v.pointsSum,
+    })),
+    seatByRound,
+    outcomes: { win: outWin, selfDraw: outSelfDraw, draw: outDraw },
+    ins: [...insAgg.entries()].map(([playerId, v]) => ({
+      playerId, displayName: nameOf.get(playerId) ?? "", ins: v.ins, hands: v.hands,
+    })),
+    feeds: {
+      from: [...feedsFrom.entries()].map(([playerId, v]) => ({
+        playerId, displayName: nameOf.get(playerId) ?? "", points: v.points, hands: v.hands,
+      })),
+      to: [...feedsTo.entries()].map(([playerId, v]) => ({
+        playerId, displayName: nameOf.get(playerId) ?? "", points: v.points, hands: v.hands,
+      })),
+    },
+    ...sourceNoteOf(scope),
+  });
+}
+
+/** GET /api/stats/series?scope — Dataset C. */
+async function getStatsSeries(url: URL, p: Platform, caller: PlayerRow): Promise<Response> {
+  const parsed = parseStatsScope(url, caller.id);
+  if (!parsed.ok) return fail(parsed.error, 400);
+  const scope = parsed.scope;
+
+  const target = await playerById(p.db, scope.playerId);
+  if (target === null) return fail("not_found", 404);
+
+  const { matches, hands } = await loadScopedMatches(p, scope.playerId, scope);
+  const byMatch = handsByMatch(hands);
+  const chronological = [...matches].sort((a, b) => a.started_at.localeCompare(b.started_at));
+
+  const games: number[][] = [];
+  const worthByGame: { matchId: string; at: string; worth: number }[] = [];
+  for (const m of chronological) {
+    const mh = (byMatch.get(m.id) ?? []).slice().sort((a, b) => a.hand_index - b.hand_index);
+    let cum = 0;
+    const arr: number[] = [];
+    for (const h of mh) {
+      cum += handSeatDelta(h, m.seat);
+      arr.push(cum);
+    }
+    games.push(arr);
+    const worth = gameWorth(mh, m.seat);
+    if (worth !== null) worthByGame.push({ matchId: m.id, at: m.ended_at ?? m.started_at, worth });
+  }
+
+  const maxLen = games.reduce((mx, g) => Math.max(mx, g.length), 0);
+  const handsAxis = Array.from({ length: maxLen }, (_, i) => i);
+  const mean: number[] = [];
+  for (let i = 0; i < maxLen; i += 1) {
+    const vals = games.filter((g) => g.length > i).map((g) => g[i]!);
+    mean.push(vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : 0);
+  }
+
+  const ratingHistory = await ratingHistoryForPlayer(p.db, scope.playerId, RATING_HISTORY_LIMIT);
+  const activity = buildActivity(matches, target.tz_offset_min, scope.sinceIso, p.now());
+
+  return json({
+    progressionAvg: { hands: handsAxis, mean, games },
+    worthByGame,
+    rating: ratingHistory.map((h: RatingHistoryPointRow) => ({
+      at: h.at, before: h.before, after: h.after, matchId: h.match_id,
+    })),
+    activity,
+    ...sourceNoteOf(scope),
+  });
+}
+
+/* ── leaderboard (§10, superseding the pre-standard ranked/casual split) ─── */
+
+/** Candidate players for the scope (≥5 games, `SQL.leaderboardCandidates`'
+ *  `HAVING`), folded into full Dataset A rows and sorted — rating for
+ *  `mode=ranked`, `worthPerHand` for anything else (§10: "sorted by rating
+ *  (ranked) or worthPerHand (otherwise)"). Shared by `GET /api/leaderboard`
+ *  and `GET /api/stats/record?players=leaderboard`, the same read by two
+ *  names. */
+async function recordRowsForLeaderboard(p: Platform, scope: StatsScopeParsed): Promise<RecordRow[]> {
+  const candidates = await leaderboardCandidates(p.db, dbScopeOf(scope));
+  const rows: RecordRow[] = [];
+  for (const c of candidates) {
+    const row = await computeRecordRow(p, c.player_id, scope);
+    if (row !== null) rows.push(row);
+  }
+  const byRating = scope.mode !== "casual";
+  rows.sort((a, b) =>
+    byRating
+      ? (b.rating ?? Number.NEGATIVE_INFINITY) - (a.rating ?? Number.NEGATIVE_INFINITY)
+      : (b.worthPerHand ?? Number.NEGATIVE_INFINITY) - (a.worthPerHand ?? Number.NEGATIVE_INFINITY),
+  );
+  return rows.slice(0, LEADERBOARD_LIMIT);
+}
+
+/** GET /api/leaderboard?mode=ranked|casual[&rulesetId=&room=&since=] —
+ *  Dataset A rows for the scope (§10: "the existing /api/leaderboard as a
+ *  view over A"). Unknown/absent `mode` degrades to `ranked`, same "unknown
+ *  value degrades to the safe default" doctrine `postTable`'s
+ *  `matchFormat`/`access` parsing uses. */
+async function getLeaderboard(url: URL, p: Platform, caller: PlayerRow): Promise<Response> {
+  const parsed = parseStatsScope(url, caller.id);
+  if (!parsed.ok) return fail(parsed.error, 400);
+  const mode = url.searchParams.get("mode") === "casual" ? "casual" : "ranked";
+  const scope: StatsScopeParsed = { ...parsed.scope, mode, playersLeaderboard: true };
+  const rows = await recordRowsForLeaderboard(p, scope);
+  return json({ mode, entries: rows });
+}
+
+/* ── friends (§11 build decision 1) ──────────────────────────────────────── */
+
+/** Global "who is here" — the same fold `GET /api/lobby`'s own `here` panel
+ *  performs, duplicated here (rather than refactored out of `getLobby`) so
+ *  this addition cannot disturb that route's existing behaviour or tests.
+ *  A friend absent from this map is offline. */
+async function buildGlobalHere(p: Platform): Promise<Map<string, HereEntry>> {
+  const now = p.now();
+  const sinceIso = new Date(Date.parse(now) - HERE_WINDOW_MS).toISOString();
+  const [presenceRows, openRows] = await Promise.all([
+    presenceSince(p.db, sinceIso),
+    matchesWaitingOrPlaying(p.db, LOBBY_TABLE_LIMIT),
+  ]);
+  const here = new Map<string, HereEntry>();
+  for (const row of presenceRows) {
+    here.set(row.player_id, { playerId: row.player_id, displayName: row.display_name, state: "lobby" });
+  }
+  for (const m of openRows) await tableViewOf(p, m, here);
+  return here;
+}
+
+/** GET /api/friends — everyone the caller has finished a match with (§11
+ *  build decision 1), online first, then starred, then most games together.
+ *  `lastSeen` is "now" for anyone currently in `here`, else `players.
+ *  last_seen_at` (touched on every authenticated request, schema.sql). */
+async function getFriends(p: Platform, player: PlayerRow): Promise<Response> {
+  const [rows, stars, here] = await Promise.all([
+    friendsOfPlayer(p.db, player.id),
+    friendStarsOfPlayer(p.db, player.id),
+    buildGlobalHere(p),
+  ]);
+
+  const friends = rows.map((r: FriendRow) => {
+    const presence = here.get(r.friend_id);
+    return {
+      playerId: r.friend_id,
       displayName: r.display_name,
       rating: r.rating,
-      games: r.rating_games,
-      provisional: isProvisional(r.rating_games),
-    })),
+      games: r.games,
+      starred: stars.has(r.friend_id),
+      state: presence?.state ?? "offline",
+      matchId: presence?.matchId ?? null,
+      joinCode: presence?.joinCode ?? null,
+      hand: presence?.hand ?? null,
+      handsBase: presence?.handsBase ?? null,
+      roomCode: presence?.roomCode ?? null,
+      lastSeen: presence !== undefined ? p.now() : r.last_seen_at,
+    };
   });
+
+  friends.sort((a, b) => {
+    const aOnline = a.state === "offline" ? 0 : 1;
+    const bOnline = b.state === "offline" ? 0 : 1;
+    if (aOnline !== bOnline) return bOnline - aOnline;
+    if (a.starred !== b.starred) return a.starred ? -1 : 1;
+    return b.games - a.games;
+  });
+
+  return json({ friends });
+}
+
+async function postFriendStar(friendId: string, p: Platform, player: PlayerRow): Promise<Response> {
+  const friend = await playerById(p.db, friendId);
+  if (friend === null) return fail("not_found", 404);
+  await starFriend(p.db, player.id, friendId, p.now());
+  return new Response(null, { status: 204, headers: BASE_HEADERS });
+}
+
+/** Unstarring a friend the caller never starred is a no-op, not an error —
+ *  the same idempotent shape `insertRoomPlayer`'s repeat-join doctrine uses. */
+async function postFriendUnstar(friendId: string, p: Platform, player: PlayerRow): Promise<Response> {
+  await unstarFriend(p.db, player.id, friendId);
+  return new Response(null, { status: 204, headers: BASE_HEADERS });
+}
+
+/* ── direct messages (§8) ─────────────────────────────────────────────────── */
+
+const DM_TEXT_MAX_LENGTH = 500;
+const DM_MIN_INTERVAL_MS = 2_000;
+const DM_THREAD_LIMIT = 100;
+const DM_INBOX_SCAN_LIMIT = 300;
+
+const dmView = (r: DmMessageRow) => ({
+  id: r.id,
+  fromPlayerId: r.from_player_id,
+  toPlayerId: r.to_player_id,
+  text: r.text,
+  at: r.created_at,
+  read: r.read_at !== null,
+});
+
+/** GET /api/dm/:playerId — the thread, last 100, marks it read (§8). */
+async function getDmThread(otherId: string, p: Platform, player: PlayerRow): Promise<Response> {
+  const other = await playerById(p.db, otherId);
+  if (other === null) return fail("not_found", 404);
+  /* Mark read BEFORE the read, not after: against a real database (unlike
+   * an in-memory fake that happens to share row references) a query issued
+   * before the UPDATE commits would still report `read_at IS NULL` for the
+   * very messages this same call is marking read, which is not what a
+   * caller opening the thread should see. */
+  await markDmThreadRead(p.db, player.id, otherId, p.now());
+  const rows = await dmThread(p.db, player.id, otherId, DM_THREAD_LIMIT);
+  return json({
+    playerId: other.id,
+    displayName: other.display_name,
+    messages: rows.slice().reverse().map(dmView),
+  });
+}
+
+/** POST /api/dm/:playerId — ≤500 chars, 1 per 2s (§8), same off-the-sender's-
+ *  own-newest-row rate-limit doctrine `postLobbyChat` uses for lobby chat. */
+async function postDmMessage(otherId: string, req: Request, p: Platform, player: PlayerRow): Promise<Response> {
+  const other = await playerById(p.db, otherId);
+  if (other === null) return fail("not_found", 404);
+
+  const body = await readJsonObject(req);
+  if (body === null) return fail("bad_json", 400);
+  const text = str(body.text);
+  if (text === null || text.length > DM_TEXT_MAX_LENGTH) return fail("bad_text", 400);
+
+  const now = p.now();
+  const last = await lastDmMessageAt(p.db, player.id);
+  if (last !== null && Date.parse(now) - Date.parse(last) < DM_MIN_INTERVAL_MS) return fail("rate_limited", 429);
+
+  await insertDmMessage(p.db, { fromPlayerId: player.id, toPlayerId: otherId, text, now });
+  return new Response(null, { status: 204, headers: BASE_HEADERS });
+}
+
+/* ── inbox (§8) ───────────────────────────────────────────────────────────── */
+
+const INBOX_ITEM_LIMIT = 100;
+
+const inboxItemView = (it: InboxItemRow, names: Map<string, string>) => ({
+  kind: it.kind,
+  id: it.id,
+  matchId: it.match_id,
+  roomCode: it.room_code,
+  fromPlayerId: it.from_player_id,
+  fromDisplayName: it.from_player_id !== null ? names.get(it.from_player_id) ?? null : null,
+  at: it.created_at,
+  read: it.read_at !== null,
+});
+
+/** GET /api/inbox — invites, room notices and results (real `inbox_items`
+ *  rows, §8) merged with DM thread summaries (folded from `dm_messages` in
+ *  application code, same "union built in JS" doctrine `getLobby`'s `here`
+ *  map already follows) — newest first, one `unread` badge sum. */
+async function getInbox(p: Platform, player: PlayerRow): Promise<Response> {
+  const [items, dmRows] = await Promise.all([
+    inboxItemsForPlayer(p.db, player.id, INBOX_ITEM_LIMIT),
+    dmMessagesInvolving(p.db, player.id, DM_INBOX_SCAN_LIMIT),
+  ]);
+
+  const otherIds = new Set<string>();
+  for (const it of items) if (it.from_player_id !== null) otherIds.add(it.from_player_id);
+  for (const r of dmRows) otherIds.add(r.from_player_id === player.id ? r.to_player_id : r.from_player_id);
+  const names = new Map<string, string>();
+  await Promise.all(
+    [...otherIds].map(async (id) => {
+      const other = await playerById(p.db, id);
+      if (other !== null) names.set(id, other.display_name);
+    }),
+  );
+
+  const itemViews = items.map((it) => inboxItemView(it, names));
+
+  /* `dmRows` is newest-first, so the FIRST row seen per counterpart below is
+   * that thread's latest message — the loop relies on that ordering. */
+  const threads = new Map<string, { text: string; at: string; unread: number }>();
+  for (const r of dmRows) {
+    const counterpart = r.from_player_id === player.id ? r.to_player_id : r.from_player_id;
+    let t = threads.get(counterpart);
+    if (t === undefined) {
+      t = { text: r.text, at: r.created_at, unread: 0 };
+      threads.set(counterpart, t);
+    }
+    if (r.to_player_id === player.id && r.read_at === null) t.unread += 1;
+  }
+  const dmViews = [...threads.entries()].map(([counterpart, t]) => ({
+    kind: "dm" as const,
+    id: `dm:${counterpart}`,
+    playerId: counterpart,
+    displayName: names.get(counterpart) ?? "",
+    text: t.text,
+    at: t.at,
+    unread: t.unread,
+  }));
+
+  const unread = itemViews.filter((v) => !v.read).length + dmViews.reduce((sum, v) => sum + v.unread, 0);
+  const merged = [...itemViews, ...dmViews].sort((a, b) => b.at.localeCompare(a.at));
+
+  return json({ unread, items: merged });
+}
+
+/**
+ * POST /api/inbox/:id/accept — an `invite` item only: seats the caller
+ * through the normal join path (`claimFreeHumanSeat`, the same primitive
+ * `postJoin` uses) and returns the same handoff shape `POST
+ * /api/tables/:code/join` does, then dismisses the item.
+ */
+async function postInboxAccept(id: string, p: Platform, player: PlayerRow): Promise<Response> {
+  const item = await inboxItemById(p.db, id);
+  if (item === null || item.player_id !== player.id || item.dismissed_at !== null) return fail("not_found", 404);
+  if (item.kind !== "invite" || item.match_id === null) return fail("not_an_invite", 400);
+
+  const match = await matchById(p.db, item.match_id);
+  if (match === null) return fail("not_found", 404);
+
+  const claimed = await claimFreeHumanSeat(p, match, player);
+  if (claimed === "full") return fail("table_full", 409);
+  if (claimed === "conflict") return fail("conflict", 409);
+
+  const handoff = await openAndSeat(p, match.id, claimed, player, null);
+  if (handoff === null) return fail("table_unavailable", 503);
+
+  await dismissInboxItem(p.db, id, player.id, p.now());
+
+  return json({
+    tableId: handoff.tableId,
+    matchUuid: match.id,
+    seat: claimed,
+    seatToken: handoff.seatToken,
+    seatTokenExpiresAt: handoff.expiresAt,
+    rulesetId: match.ruleset_id,
+    matchFormat: match.match_format,
+  });
+}
+
+/** POST /api/inbox/:id/dismiss — any kind, participant-only (checked inside
+ *  `dismissInboxItem`'s own `player_id = ?`). */
+async function postInboxDismiss(id: string, p: Platform, player: PlayerRow): Promise<Response> {
+  const ok = await dismissInboxItem(p.db, id, player.id, p.now());
+  if (!ok) return fail("not_found", 404);
+  return new Response(null, { status: 204, headers: BASE_HEADERS });
 }
 
 /* ── the lobby ────────────────────────────────────────────────────────────── */
@@ -1483,6 +2475,8 @@ async function postPresence(req: Request, p: Platform, player: PlayerRow): Promi
   if (body === null) return fail("bad_json", 400);
   const state = body.state === "away" ? "away" : "lobby";
   await upsertPresence(p.db, player.id, state, p.now());
+  const tzOffsetMin = parseTzOffsetMin(body.tzOffsetMin);
+  if (tzOffsetMin !== null) await updateTzOffset(p.db, player.id, tzOffsetMin);
   return new Response(null, { status: 204, headers: BASE_HEADERS });
 }
 
@@ -1513,7 +2507,7 @@ async function postLobbyChat(req: Request, p: Platform, player: PlayerRow): Prom
   const roomCodeRaw = str(body.roomCode);
   let roomCode: string | null = null;
   if (roomCodeRaw !== null) {
-    roomCode = normaliseCode(roomCodeRaw);
+    roomCode = normaliseRoomCode(roomCodeRaw);
     if ((await roomByCode(p.db, roomCode)) === null) return fail("not_found", 404);
   }
 
@@ -1613,42 +2607,68 @@ async function postRooms(req: Request, p: Platform, player: PlayerRow): Promise<
   return json({ code }, 201);
 }
 
-/** GET /api/rooms/:code — public read (§6 decision 1: everyone sees
- *  everyone), same "browsable by design" doctrine the Almanac's own room GETs
- *  already follow (`room-admin/_middleware.ts`'s header comment). */
+/**
+ * GET /api/rooms/:code — public read (§6 decision 1: everyone sees
+ * everyone), same "browsable by design" doctrine the Almanac's own room GETs
+ * already follow (`room-admin/_middleware.ts`'s header comment).
+ *
+ * `players[]` (§11.2) is members who are online/waiting/playing right now —
+ * NOT the whole roster (`memberCount` is that count) — built the same way
+ * `getLobby`'s room-scoped `here` is: presence rows for members seen
+ * recently, richened by any of them found seated at one of the room's own
+ * open tables.
+ */
 async function getRoom(codeRaw: string, p: Platform): Promise<Response> {
-  const code = normaliseCode(codeRaw);
+  const code = normaliseRoomCode(codeRaw);
+  if (code === OPEN_ROOM_CODE) await ensureOpenRoom(p);
   const room = await roomByCode(p.db, code);
   if (room === null) return fail("not_found", 404);
 
-  const [memberCount, openRows] = await Promise.all([
+  const now = p.now();
+  const sinceIso = new Date(Date.parse(now) - HERE_WINDOW_MS).toISOString();
+  const [memberCount, memberIds, openRows, presenceRows] = await Promise.all([
     roomMemberCount(p.db, room.code),
+    roomPlayerIdsOf(p.db, room.code),
     matchesWaitingOrPlayingInRoom(p.db, room.code, LOBBY_TABLE_LIMIT),
+    presenceInRoom(p.db, room.code, sinceIso),
   ]);
-  const tables = await Promise.all(openRows.map((m) => tableViewOf(p, m, null)));
+
+  const here = new Map<string, HereEntry>();
+  for (const row of presenceRows) {
+    here.set(row.player_id, { playerId: row.player_id, displayName: row.display_name, state: "lobby" });
+  }
+  const tables: Awaited<ReturnType<typeof tableViewOf>>[] = [];
+  for (const m of openRows) tables.push(await tableViewOf(p, m, here));
+
+  const memberIdSet = new Set(memberIds);
+  const players = [...here.values()].filter((e) => memberIdSet.has(e.playerId));
   const game = roomGameSettingsOf(parseRoomSettings(room.settings));
 
-  return json(roomView(room, game, memberCount, tables));
+  return json({ ...roomView(room, game, memberCount, tables), players });
 }
 
 /** GET /api/rooms/mine — every room the caller has joined, most recently
- *  touched first (creating a room joins it too — `postRooms`). */
+ *  touched first (creating a room joins it too — `postRooms`). The Open
+ *  Hall (§11.2) is pinned first regardless — every player is a member of it
+ *  by construction, so it is prepended rather than relying on its own
+ *  `updated_at` to sort there. */
 async function getRoomsMine(p: Platform, player: PlayerRow): Promise<Response> {
+  await ensureOpenMembership(p, player.id, player.display_name);
   const rooms = await roomsForPlayer(p.db, player.id);
-  return json({
-    rooms: rooms.map((r) => ({
-      code: r.code,
-      name: r.name,
-      game: roomGameSettingsOf(parseRoomSettings(r.settings)),
-    })),
-  });
+  const mapped = rooms.map((r) => ({
+    code: r.code,
+    name: r.name,
+    game: roomGameSettingsOf(parseRoomSettings(r.settings)),
+  }));
+  mapped.sort((a, b) => (a.code === OPEN_ROOM_CODE ? -1 : b.code === OPEN_ROOM_CODE ? 1 : 0));
+  return json({ rooms: mapped });
 }
 
 /** POST /api/rooms/:code/join — membership, idempotent (`insertRoomPlayer`'s
  *  OR IGNORE) — the same reconnect-safe shape `postJoin`'s "already seated"
  *  path uses for a table. */
 async function postRoomJoin(codeRaw: string, p: Platform, player: PlayerRow): Promise<Response> {
-  const code = normaliseCode(codeRaw);
+  const code = normaliseRoomCode(codeRaw);
   const room = await roomByCode(p.db, code);
   if (room === null) return fail("not_found", 404);
   await insertRoomPlayer(p.db, { roomCode: room.code, playerId: player.id, name: player.display_name });
@@ -1681,7 +2701,7 @@ async function verifyRoomAdmin(req: Request, room: RoomRow): Promise<boolean> {
  * own defaults before this write establishes it for the first time.
  */
 async function postRoomSettings(req: Request, codeRaw: string, p: Platform): Promise<Response> {
-  const code = normaliseCode(codeRaw);
+  const code = normaliseRoomCode(codeRaw);
   const room = await roomByCode(p.db, code);
   if (room === null) return fail("not_found", 404);
   if (!(await verifyRoomAdmin(req, room))) return fail("unauthorized", 401);
@@ -1724,7 +2744,7 @@ async function postRoomSettings(req: Request, codeRaw: string, p: Platform): Pro
  * "read the row, THEN decide" ordering `postStart` uses for the same reason.
  */
 async function postRoomTableClose(codeRaw: string, matchId: string, req: Request, p: Platform): Promise<Response> {
-  const code = normaliseCode(codeRaw);
+  const code = normaliseRoomCode(codeRaw);
   const room = await roomByCode(p.db, code);
   if (room === null) return fail("not_found", 404);
   if (!(await verifyRoomAdmin(req, room))) return fail("unauthorized", 401);
@@ -1782,7 +2802,20 @@ export async function handle(request: Request, p: Platform): Promise<Response> {
     }
     if (seg.length === 3) {
       if (method !== "GET") return fail("method_not_allowed", 405);
-      return getMatchDetail(seg[2], p, player);
+      return getGameDetail(seg[2], p, player);
+    }
+    if (seg.length === 4 && seg[3] === "log") {
+      if (method !== "GET") return fail("method_not_allowed", 405);
+      return getMatchLog(seg[2], p, player);
+    }
+  }
+
+  /* §11.3: `/games/:id` is the real URL path; `/api/matches/:id` above stays
+   * a working alias to the same handler, never a second shape. */
+  if (seg[1] === "games") {
+    if (seg.length === 3) {
+      if (method !== "GET") return fail("method_not_allowed", 405);
+      return getGameDetail(seg[2], p, player);
     }
     if (seg.length === 4 && seg[3] === "log") {
       if (method !== "GET") return fail("method_not_allowed", 405);
@@ -1807,11 +2840,29 @@ export async function handle(request: Request, p: Platform): Promise<Response> {
       if (method !== "POST") return fail("method_not_allowed", 405);
       return postLeave(seg[2], p, player);
     }
+    if (seg.length === 4 && seg[3] === "invite") {
+      if (method !== "POST") return fail("method_not_allowed", 405);
+      return postTableInvite(seg[2], request, p, player);
+    }
   }
 
-  if (seg[1] === "stats" && seg[2] === "me" && seg.length === 3) {
-    if (method !== "GET") return fail("method_not_allowed", 405);
-    return getStatsFor(player.id, p);
+  if (seg[1] === "stats") {
+    if (seg[2] === "me" && seg.length === 3) {
+      if (method !== "GET") return fail("method_not_allowed", 405);
+      return getStatsFor(player.id, p);
+    }
+    if (seg[2] === "record" && seg.length === 3) {
+      if (method !== "GET") return fail("method_not_allowed", 405);
+      return getStatsRecord(url, p, player);
+    }
+    if (seg[2] === "histograms" && seg.length === 3) {
+      if (method !== "GET") return fail("method_not_allowed", 405);
+      return getStatsHistograms(url, p, player);
+    }
+    if (seg[2] === "series" && seg.length === 3) {
+      if (method !== "GET") return fail("method_not_allowed", 405);
+      return getStatsSeries(url, p, player);
+    }
   }
 
   if (seg[1] === "players" && seg.length === 4 && seg[3] === "stats") {
@@ -1821,15 +2872,55 @@ export async function handle(request: Request, p: Platform): Promise<Response> {
 
   if (seg[1] === "leaderboard" && seg.length === 2) {
     if (method !== "GET") return fail("method_not_allowed", 405);
-    return getLeaderboard(url, p);
+    return getLeaderboard(url, p, player);
+  }
+
+  if (seg[1] === "friends") {
+    if (seg.length === 2) {
+      if (method !== "GET") return fail("method_not_allowed", 405);
+      return getFriends(p, player);
+    }
+    if (seg.length === 4 && seg[3] === "star") {
+      if (method !== "POST") return fail("method_not_allowed", 405);
+      return postFriendStar(seg[2], p, player);
+    }
+    if (seg.length === 4 && seg[3] === "unstar") {
+      if (method !== "POST") return fail("method_not_allowed", 405);
+      return postFriendUnstar(seg[2], p, player);
+    }
+  }
+
+  if (seg[1] === "dm" && seg.length === 3) {
+    if (method === "GET") return getDmThread(seg[2], p, player);
+    if (method === "POST") return postDmMessage(seg[2], request, p, player);
+    return fail("method_not_allowed", 405);
+  }
+
+  if (seg[1] === "inbox") {
+    if (seg.length === 2) {
+      if (method !== "GET") return fail("method_not_allowed", 405);
+      return getInbox(p, player);
+    }
+    if (seg.length === 4 && seg[3] === "accept") {
+      if (method !== "POST") return fail("method_not_allowed", 405);
+      return postInboxAccept(seg[2], p, player);
+    }
+    if (seg.length === 4 && seg[3] === "dismiss") {
+      if (method !== "POST") return fail("method_not_allowed", 405);
+      return postInboxDismiss(seg[2], p, player);
+    }
   }
 
   if (seg[1] === "lobby") {
     if (seg.length === 2) {
       if (method !== "GET") return fail("method_not_allowed", 405);
-      /* §8b: ?room=CODE scopes every panel; absent/empty is the global lobby. */
+      /* §8b: ?room=CODE scopes every panel; absent/empty is the global lobby.
+       * §11.2: the Open Hall may not exist yet for a caller who registered
+       * before this feature — ensure it rather than 404ing on the one room
+       * everyone is nominally already a member of. */
       const roomParam = url.searchParams.get("room");
-      const roomCode = roomParam === null || roomParam.trim() === "" ? null : normaliseCode(roomParam);
+      const roomCode = roomParam === null || roomParam.trim() === "" ? null : normaliseRoomCode(roomParam);
+      if (roomCode === OPEN_ROOM_CODE) await ensureOpenMembership(p, player.id, player.display_name);
       return getLobby(p, roomCode);
     }
     if (seg.length === 3 && seg[2] === "chat") {

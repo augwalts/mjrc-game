@@ -199,6 +199,9 @@ export interface PlayerRow {
   rating: number | null;
   rating_games: number;
   rating_season: string | null;
+  /** §11 build decision 5 — the client's last-reported UTC offset, minutes.
+   *  Defaults to 0 (UTC) for a device that has never sent one. */
+  tz_offset_min: number;
 }
 
 /* ── the lobby (PVP-LOBBY-PROPOSAL-2026-09-02.md §7) ─────────────────────────
@@ -393,7 +396,7 @@ export interface HandRow {
 export const SQL = Object.freeze({
   /* identity */
   playerForCredential: `
-    SELECT p.id, p.kind, p.display_name, p.rating, p.rating_games, p.rating_season
+    SELECT p.id, p.kind, p.display_name, p.rating, p.rating_games, p.rating_season, p.tz_offset_min
       FROM player_credentials c
       JOIN players p ON p.id = c.player_id
      WHERE c.id = ? AND c.revoked_at IS NULL AND p.deleted_at IS NULL`,
@@ -672,9 +675,14 @@ export const SQL = Object.freeze({
    * two bullets) ────────────────────────────────────────────────────────── */
 
   playerById: `
-    SELECT id, kind, display_name, rating, rating_games, rating_season
+    SELECT id, kind, display_name, rating, rating_games, rating_season, tz_offset_min
       FROM players
      WHERE id = ? AND deleted_at IS NULL`,
+
+  /** §11 build decision 5: the client's UTC offset, minutes, set on identity
+   *  and on every presence heartbeat that carries one. */
+  updatePlayerTzOffset: `
+    UPDATE players SET tz_offset_min = ? WHERE id = ?`,
 
   /** Every completed match this player was ever seated at, folded into one
    *  row — `match_players`/`matches` are canonical, this is a read-time fold
@@ -794,7 +802,7 @@ export const SQL = Object.freeze({
    * does not use) — left at their column defaults (NULL / 0 / NULL) exactly
    * as an Almanac-created room would start out. */
   insertRoom: `
-    INSERT INTO rooms (code, name, password_hash, password_attempts, settings, admin_code_hash, created_at, updated_at)
+    INSERT OR IGNORE INTO rooms (code, name, password_hash, password_attempts, settings, admin_code_hash, created_at, updated_at)
     VALUES (?, ?, NULL, 0, ?, ?, ?, ?)`,
 
   /* The one write path that may touch `settings` after creation
@@ -824,6 +832,14 @@ export const SQL = Object.freeze({
       FROM room_players
      WHERE room_code = ? AND archived_at IS NULL`,
 
+  /** Every member's id — the room-notice fan-out (`postTable`'s §8 "room"
+   *  inbox items) and `GET /api/rooms/:code`'s `players[]` membership
+   *  filter both need the plain id list, not the display-name join. */
+  roomPlayerIds: `
+    SELECT player_id
+      FROM room_players
+     WHERE room_code = ? AND archived_at IS NULL`,
+
   /* "My rooms" (`GET /api/rooms/mine`), most recently touched first. */
   roomsForPlayer: `
     SELECT r.code, r.name, r.settings, r.admin_code_hash, r.created_at, r.updated_at
@@ -842,6 +858,158 @@ export const SQL = Object.freeze({
     UPDATE matches
        SET status = 'abandoned', lobby_status = 'done', ended_at = ?
      WHERE id = ? AND lobby_status = 'waiting'`,
+
+  /* ── friends (PVP-LOBBY-PROPOSAL-2026-09-02.md §11 build decision 1) ──────
+   * "Friends" is not a table: everyone the caller has ever finished a match
+   * with, folded at read time over `match_players`/`matches`, same doctrine
+   * as `statsTotalsForPlayer`. `DISTINCT` is not needed — `GROUP BY` already
+   * collapses repeats — but the join's second `match_players` alias (`mp2`)
+   * is: every OTHER human seat of every match `mp`'s player finished. */
+  friendsOfPlayer: `
+    SELECT mp2.player_id AS friend_id, p.display_name AS display_name,
+           p.rating AS rating, p.rating_games AS rating_games, p.last_seen_at AS last_seen_at,
+           COUNT(DISTINCT mp.match_id) AS games
+      FROM match_players mp
+      JOIN matches m ON m.id = mp.match_id AND m.status = 'complete'
+      JOIN match_players mp2 ON mp2.match_id = mp.match_id AND mp2.player_id <> mp.player_id
+      JOIN players p ON p.id = mp2.player_id AND p.kind = 'human' AND p.deleted_at IS NULL
+     WHERE mp.player_id = ?
+     GROUP BY mp2.player_id`,
+
+  insertFriendStar: `
+    INSERT OR IGNORE INTO friend_stars (player_id, friend_id, created_at)
+    VALUES (?, ?, ?)`,
+
+  deleteFriendStar: `
+    DELETE FROM friend_stars WHERE player_id = ? AND friend_id = ?`,
+
+  friendStarsOfPlayer: `
+    SELECT friend_id FROM friend_stars WHERE player_id = ?`,
+
+  /* ── direct messages (§8) ─────────────────────────────────────────────── */
+
+  insertDmMessage: `
+    INSERT INTO dm_messages (from_player_id, to_player_id, text, created_at)
+    VALUES (?, ?, ?, ?)`,
+
+  /** One thread, either direction, oldest-first read by the caller reversing
+   *  (same convention `recentLobbyMessages` uses) — newest 100 read here,
+   *  newest-first, via `idx_dm_messages_from`/`idx_dm_messages_to`'s shared
+   *  shape (both columns of the pair, id DESC). */
+  dmThread: `
+    SELECT id, from_player_id, to_player_id, text, created_at, read_at
+      FROM dm_messages
+     WHERE (from_player_id = ? AND to_player_id = ?)
+        OR (from_player_id = ? AND to_player_id = ?)
+     ORDER BY id DESC
+     LIMIT ?`,
+
+  /** Mark every message TO the caller FROM this counterpart read, in one
+   *  statement — `GET /api/dm/:playerId`'s own read is what triggers this. */
+  markDmThreadRead: `
+    UPDATE dm_messages
+       SET read_at = ?
+     WHERE to_player_id = ? AND from_player_id = ? AND read_at IS NULL`,
+
+  /** This sender's newest message, for the 1-per-2s rate check — same
+   *  doctrine as `lastLobbyMessageForPlayer`. */
+  lastDmMessageAt: `
+    SELECT created_at FROM dm_messages
+     WHERE from_player_id = ?
+     ORDER BY id DESC
+     LIMIT 1`,
+
+  /** Every message touching the caller, newest first, bounded — the raw feed
+   *  `GET /api/inbox` folds into per-counterpart thread summaries in
+   *  application code (index.ts), the same "union built in JS, not SQL"
+   *  doctrine `getLobby`'s `here` map already follows. */
+  dmMessagesInvolving: `
+    SELECT id, from_player_id, to_player_id, text, created_at, read_at
+      FROM dm_messages
+     WHERE from_player_id = ? OR to_player_id = ?
+     ORDER BY id DESC
+     LIMIT ?`,
+
+  /* ── inbox (§8) ───────────────────────────────────────────────────────── */
+
+  insertInboxItem: `
+    INSERT OR IGNORE INTO inbox_items
+      (id, player_id, kind, match_id, room_code, from_player_id, text, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+
+  inboxItemsForPlayer: `
+    SELECT id, player_id, kind, match_id, room_code, from_player_id, text,
+           created_at, read_at, dismissed_at
+      FROM inbox_items
+     WHERE player_id = ? AND dismissed_at IS NULL
+     ORDER BY created_at DESC
+     LIMIT ?`,
+
+  inboxItemById: `
+    SELECT id, player_id, kind, match_id, room_code, from_player_id, text,
+           created_at, read_at, dismissed_at
+      FROM inbox_items
+     WHERE id = ?`,
+
+  /** Accept and dismiss both end with this — the item leaves the live list
+   *  either way (§8's `POST /api/inbox/:id/accept` and `.../dismiss`). */
+  dismissInboxItem: `
+    UPDATE inbox_items
+       SET dismissed_at = ?, read_at = COALESCE(read_at, ?)
+     WHERE id = ? AND player_id = ? AND dismissed_at IS NULL`,
+
+  /* ── stats (§10) ──────────────────────────────────────────────────────── */
+
+  /**
+   * Every completed match the caller played that matches the scope, newest
+   * first, bounded defensively (`STATS_SCOPE_LIMIT`, index.ts) — `lastN`
+   * narrows this further by SLICING the (already newest-first) result in
+   * application code rather than a second bound parameter, same "the cheap
+   * knob lives in JS" doctrine `GET /api/matches`' `limit` clamp uses.
+   *
+   * Each optional filter is `(? IS NULL OR col = ?)`, the same value bound
+   * twice — SQLite has no named parameters here (rule 1 at the top of this
+   * file: `?` only), so an absent filter costs one redundant `IS NULL` check
+   * rather than a second frozen statement per filter combination, which
+   * would be 2^4 constants for four optional filters.
+   */
+  matchesForPlayerScoped: `
+    SELECT m.id AS id, m.started_at AS started_at, m.ended_at AS ended_at,
+           m.mode AS mode, m.ruleset_id AS ruleset_id, m.room_code AS room_code,
+           m.hand_count AS hand_count,
+           mp.seat AS seat, mp.place AS place, mp.final_chips AS final_chips,
+           mp.hands_won AS hands_won, mp.self_draws AS self_draws, mp.deal_ins AS deal_ins,
+           mp.moves_graded AS moves_graded, mp.moves_matched AS moves_matched,
+           mp.rating_before AS rating_before, mp.rating_after AS rating_after
+      FROM match_players mp
+      JOIN matches m ON m.id = mp.match_id
+     WHERE mp.player_id = ? AND m.status = 'complete'
+       AND (? IS NULL OR m.mode = ?)
+       AND (? IS NULL OR m.ruleset_id = ?)
+       AND (? IS NULL OR m.room_code = ?)
+       AND (? IS NULL OR m.started_at >= ?)
+     ORDER BY m.started_at DESC
+     LIMIT ?`,
+
+  /** Candidate players for a leaderboard under the same scope shape as
+   *  `matchesForPlayerScoped` — "minimum 5 games" (§10) is `HAVING`, not a
+   *  post-filter, so the LIMIT above it is meaningful. Sorting (by rating or
+   *  by worthPerHand) happens in index.ts once each candidate's Dataset A
+   *  row is folded — worth/hand is not a SQL-aggregable quantity (it is a
+   *  per-game ratio averaged across games, see `computeRecordRow`). */
+  leaderboardCandidates: `
+    SELECT p.id AS player_id, p.rating AS rating, p.rating_games AS rating_games,
+           COUNT(*) AS games
+      FROM match_players mp
+      JOIN matches m ON m.id = mp.match_id
+      JOIN players p ON p.id = mp.player_id
+     WHERE m.status = 'complete' AND p.kind = 'human' AND p.deleted_at IS NULL
+       AND (? IS NULL OR m.mode = ?)
+       AND (? IS NULL OR m.ruleset_id = ?)
+       AND (? IS NULL OR m.room_code = ?)
+       AND (? IS NULL OR m.started_at >= ?)
+     GROUP BY p.id
+    HAVING COUNT(*) >= 5`,
 });
 
 /* ── identity ─────────────────────────────────────────────────────────────── */
@@ -1431,9 +1599,12 @@ export interface NewRoom {
   name: string;
   /** Pre-serialized — always `{ game: {...} }` for a room the game creates
    *  (`postRooms`), so callers hold the `JSON.stringify` at the boundary,
-   *  same convention `NewMatch.seatPlan` uses. */
+   *  same convention `NewMatch.seatPlan` uses. `'{}'` for the Open Hall
+   *  (§11 build decision 2) — no `game` key at all, "no presets". */
   settings: string;
-  adminCodeHash: string;
+  /** `null` for the Open Hall: nobody administers it, and `verifyRoomAdmin`
+   *  already refuses outright when this column is null. */
+  adminCodeHash: string | null;
   now: string;
 }
 
@@ -1470,6 +1641,11 @@ export async function roomMemberCount(db: D1Like, roomCode: string): Promise<num
   return row?.n ?? 0;
 }
 
+export async function roomPlayerIdsOf(db: D1Like, roomCode: string): Promise<string[]> {
+  const { results } = await db.prepare(SQL.roomPlayerIds).bind(roomCode).all<{ player_id: string }>();
+  return results.map((r) => r.player_id);
+}
+
 /** "My rooms" — every room this player has joined (`POST
  *  /api/rooms/:code/join`, or was the creator of, since creation also joins). */
 export async function roomsForPlayer(db: D1Like, playerId: string): Promise<RoomRow[]> {
@@ -1486,4 +1662,310 @@ export async function roomsForPlayer(db: D1Like, playerId: string): Promise<Room
 export async function abandonWaitingMatch(db: D1Like, matchId: string, now: string): Promise<boolean> {
   const res = await db.prepare(SQL.abandonWaitingMatch).bind(now, matchId).run();
   return res.meta.changes > 0;
+}
+
+/* ── players ──────────────────────────────────────────────────────────────── */
+
+export async function updateTzOffset(db: D1Like, playerId: string, minutes: number): Promise<void> {
+  await db.prepare(SQL.updatePlayerTzOffset).bind(minutes, playerId).run();
+}
+
+/* ── friends (§11 build decision 1) ──────────────────────────────────────── */
+
+export interface FriendRow {
+  friend_id: string;
+  display_name: string;
+  rating: number | null;
+  rating_games: number;
+  last_seen_at: string;
+  games: number;
+}
+
+export async function friendsOfPlayer(db: D1Like, playerId: string): Promise<FriendRow[]> {
+  const { results } = await db.prepare(SQL.friendsOfPlayer).bind(playerId).all<FriendRow>();
+  return results;
+}
+
+export async function starFriend(db: D1Like, playerId: string, friendId: string, now: string): Promise<void> {
+  await db.prepare(SQL.insertFriendStar).bind(playerId, friendId, now).run();
+}
+
+export async function unstarFriend(db: D1Like, playerId: string, friendId: string): Promise<void> {
+  await db.prepare(SQL.deleteFriendStar).bind(playerId, friendId).run();
+}
+
+export async function friendStarsOfPlayer(db: D1Like, playerId: string): Promise<Set<string>> {
+  const { results } = await db
+    .prepare(SQL.friendStarsOfPlayer)
+    .bind(playerId)
+    .all<{ friend_id: string }>();
+  return new Set(results.map((r) => r.friend_id));
+}
+
+/* ── direct messages (§8) ─────────────────────────────────────────────────── */
+
+export interface DmMessageRow {
+  id: number;
+  from_player_id: string;
+  to_player_id: string;
+  text: string;
+  created_at: string;
+  read_at: string | null;
+}
+
+export async function insertDmMessage(
+  db: D1Like,
+  m: { fromPlayerId: string; toPlayerId: string; text: string; now: string },
+): Promise<void> {
+  await db.prepare(SQL.insertDmMessage).bind(m.fromPlayerId, m.toPlayerId, m.text, m.now).run();
+}
+
+/** One thread, either direction, newest first — the caller reverses for
+ *  chronological display (same convention `recentLobbyMessages` uses). */
+export async function dmThread(
+  db: D1Like,
+  playerA: string,
+  playerB: string,
+  limit: number,
+): Promise<DmMessageRow[]> {
+  const { results } = await db
+    .prepare(SQL.dmThread)
+    .bind(playerA, playerB, playerB, playerA, limit)
+    .all<DmMessageRow>();
+  return results;
+}
+
+export async function markDmThreadRead(
+  db: D1Like,
+  toPlayerId: string,
+  fromPlayerId: string,
+  now: string,
+): Promise<void> {
+  await db.prepare(SQL.markDmThreadRead).bind(now, toPlayerId, fromPlayerId).run();
+}
+
+export async function lastDmMessageAt(db: D1Like, fromPlayerId: string): Promise<string | null> {
+  const row = await db.prepare(SQL.lastDmMessageAt).bind(fromPlayerId).first<{ created_at: string }>();
+  return row === null ? null : row.created_at;
+}
+
+export async function dmMessagesInvolving(db: D1Like, playerId: string, limit: number): Promise<DmMessageRow[]> {
+  const { results } = await db.prepare(SQL.dmMessagesInvolving).bind(playerId, playerId, limit).all<DmMessageRow>();
+  return results;
+}
+
+/* ── inbox (§8) ───────────────────────────────────────────────────────────── */
+
+export type InboxKind = "invite" | "room" | "result";
+
+export interface InboxItemRow {
+  id: string;
+  player_id: string;
+  kind: string;
+  match_id: string | null;
+  room_code: string | null;
+  from_player_id: string | null;
+  text: string | null;
+  created_at: string;
+  read_at: string | null;
+  dismissed_at: string | null;
+}
+
+export interface NewInboxItem {
+  id: string;
+  playerId: string;
+  kind: InboxKind;
+  matchId?: string | null;
+  roomCode?: string | null;
+  fromPlayerId?: string | null;
+  text?: string | null;
+  now: string;
+}
+
+/** `OR IGNORE` on the primary key — every writer of a `room`/`result` item
+ *  uses a DETERMINISTIC id precisely so a retried write is a no-op rather
+ *  than a duplicate notification (schema.sql `inbox_items`' header comment). */
+export async function insertInboxItem(db: D1Like, item: NewInboxItem): Promise<void> {
+  await db
+    .prepare(SQL.insertInboxItem)
+    .bind(
+      item.id,
+      item.playerId,
+      item.kind,
+      item.matchId ?? null,
+      item.roomCode ?? null,
+      item.fromPlayerId ?? null,
+      item.text ?? null,
+      item.now,
+    )
+    .run();
+}
+
+export async function inboxItemsForPlayer(db: D1Like, playerId: string, limit: number): Promise<InboxItemRow[]> {
+  const { results } = await db.prepare(SQL.inboxItemsForPlayer).bind(playerId, limit).all<InboxItemRow>();
+  return results;
+}
+
+export function inboxItemById(db: D1Like, id: string): Promise<InboxItemRow | null> {
+  return db.prepare(SQL.inboxItemById).bind(id).first<InboxItemRow>();
+}
+
+/** Returns false when the item was, at the moment of the UPDATE, already
+ *  dismissed or did not belong to this player — same `meta.changes` doctrine
+ *  `abandonWaitingMatch` uses for the same reason. */
+export async function dismissInboxItem(db: D1Like, id: string, playerId: string, now: string): Promise<boolean> {
+  const res = await db.prepare(SQL.dismissInboxItem).bind(now, now, id, playerId).run();
+  return res.meta.changes > 0;
+}
+
+/* ── stats (§10) ──────────────────────────────────────────────────────────── */
+
+export interface ScopedMatchRow {
+  id: string;
+  started_at: string;
+  ended_at: string | null;
+  mode: string;
+  ruleset_id: string;
+  room_code: string | null;
+  hand_count: number;
+  seat: number;
+  place: number | null;
+  final_chips: number;
+  hands_won: number;
+  self_draws: number;
+  deal_ins: number;
+  moves_graded: number;
+  moves_matched: number;
+  rating_before: number | null;
+  rating_after: number | null;
+}
+
+/** A stats scope, already resolved to SQL-ready values — `null` in any field
+ *  below means "no filter", the value `matchesForPlayerScoped`'s `(? IS NULL
+ *  OR ...)` clauses expect. Resolving the raw query-string scope into this
+ *  shape (validating `mode`/`style`, parsing `since`) is index.ts's job; this
+ *  file only ever sees values it can bind directly. */
+export interface StatsScope {
+  mode: string | null;
+  rulesetId: string | null;
+  roomCode: string | null;
+  sinceIso: string | null;
+}
+
+/** Defensive cap, same role `LOBBY_TABLE_LIMIT` plays for the lobby: a scope
+ *  with no `since`/`lastN` still gets a bounded read. `lastN` narrows this
+ *  further in application code (SQL.matchesForPlayerScoped's doc comment). */
+export const STATS_SCOPE_LIMIT = 500;
+
+export async function matchesForPlayerScoped(
+  db: D1Like,
+  playerId: string,
+  scope: StatsScope,
+): Promise<ScopedMatchRow[]> {
+  const { results } = await db
+    .prepare(SQL.matchesForPlayerScoped)
+    .bind(
+      playerId,
+      scope.mode, scope.mode,
+      scope.rulesetId, scope.rulesetId,
+      scope.roomCode, scope.roomCode,
+      scope.sinceIso, scope.sinceIso,
+      STATS_SCOPE_LIMIT,
+    )
+    .all<ScopedMatchRow>();
+  return results;
+}
+
+export interface LeaderboardCandidateRow {
+  player_id: string;
+  rating: number | null;
+  rating_games: number;
+  games: number;
+}
+
+export async function leaderboardCandidates(
+  db: D1Like,
+  scope: StatsScope,
+): Promise<LeaderboardCandidateRow[]> {
+  const { results } = await db
+    .prepare(SQL.leaderboardCandidates)
+    .bind(
+      scope.mode, scope.mode,
+      scope.rulesetId, scope.rulesetId,
+      scope.roomCode, scope.roomCode,
+      scope.sinceIso, scope.sinceIso,
+    )
+    .all<LeaderboardCandidateRow>();
+  return results;
+}
+
+export interface ScopedHandRow {
+  match_id: string;
+  hand_index: number;
+  outcome: string;
+  round_wind: number;
+  winner_seat: number | null;
+  win_from_seat: number | null;
+  self_draw: number;
+  faan: number;
+  awards: string;
+  delta_seat0: number;
+  delta_seat1: number;
+  delta_seat2: number;
+  delta_seat3: number;
+}
+
+const SCOPED_HAND_COLUMNS =
+  "match_id, hand_index, outcome, round_wind, winner_seat, win_from_seat, self_draw, faan, awards, " +
+  "delta_seat0, delta_seat1, delta_seat2, delta_seat3";
+
+/**
+ * DOCUMENTED EXCEPTION to rule 1 at the top of this file, the second one
+ * (the first is `SQL.matchByJoinCode`'s doc comment) — a genuinely
+ * variable-length `IN (...)` over a match id list this file's own caller
+ * already fetched (`matchesForPlayerScoped`, bounded by `STATS_SCOPE_LIMIT`).
+ * Every placeholder is still bound, never interpolated; only the STATEMENT
+ * TEXT varies with the count of ids, which is why this is a function and not
+ * a frozen `SQL` entry. Returns `[]` without a query for an empty list —
+ * `IN ()` is invalid SQL, and an empty scope is a real, common case (a new
+ * player, an over-narrow filter).
+ */
+export async function handsForMatchIds(db: D1Like, matchIds: readonly string[]): Promise<ScopedHandRow[]> {
+  if (matchIds.length === 0) return [];
+  const placeholders = matchIds.map(() => "?").join(",");
+  const { results } = await db
+    .prepare(
+      `SELECT ${SCOPED_HAND_COLUMNS} FROM hands WHERE match_id IN (${placeholders}) ORDER BY match_id, hand_index`,
+    )
+    .bind(...matchIds)
+    .all<ScopedHandRow>();
+  return results;
+}
+
+export interface ScopedSeatRow {
+  match_id: string;
+  seat: number;
+  player_id: string;
+  display_name: string;
+  kind: string;
+}
+
+/** All four seats of every match in `matchIds` — the same documented
+ *  exception `handsForMatchIds` states, for the same reason (feeds and the
+ *  seat×round histogram need every OTHER seat's identity, not just the
+ *  caller's own). */
+export async function matchPlayersForMatchIds(db: D1Like, matchIds: readonly string[]): Promise<ScopedSeatRow[]> {
+  if (matchIds.length === 0) return [];
+  const placeholders = matchIds.map(() => "?").join(",");
+  const { results } = await db
+    .prepare(
+      `SELECT mp.match_id AS match_id, mp.seat AS seat, mp.player_id AS player_id,
+              p.display_name AS display_name, p.kind AS kind
+         FROM match_players mp
+         JOIN players p ON p.id = mp.player_id
+        WHERE mp.match_id IN (${placeholders})`,
+    )
+    .bind(...matchIds)
+    .all<ScopedSeatRow>();
+  return results;
 }

@@ -380,6 +380,18 @@ function tableSocket(request: Request, env: Env, matchId: string): Promise<Respo
   return stub.fetch(request);
 }
 
+/* ── the SPA's real URL paths (§11.3) ────────────────────────────────────── */
+
+const SPA_ROUTE_PREFIXES = new Set(["rooms", "friends", "stats", "games", "players", "messages", "me"]);
+
+/** A dotted final segment means a real file (`/game.js`, `/favicon.ico`) —
+ *  the one cheap signal that distinguishes a page navigation from an asset
+ *  fetch without a route table naming every asset the client ships. */
+function looksLikeAssetPath(seg: readonly string[]): boolean {
+  const last = seg[seg.length - 1] ?? "";
+  return last.includes(".");
+}
+
 /* ── the router ────────────────────────────────────────────────────────── */
 
 const withCookie = (res: Response, setCookie: string | null): Response => {
@@ -457,6 +469,33 @@ export default {
      * SPA reads `location.pathname` itself and opens straight into the room's
      * lobby. */
     if (seg[0] === "r" && seg.length === 2) {
+      const rootUrl = new URL(request.url);
+      rootUrl.pathname = "/";
+      return withCookie(
+        await env.ASSETS.fetch(new Request(rootUrl.toString(), { headers: request.headers })),
+        admitted.setCookie,
+      );
+    }
+
+    /* GET /rooms, /friends, /stats, /games, /players, /messages, /me and
+     * anything nested under them — the new lobby shell's real URL paths
+     * (PVP-LOBBY-PROPOSAL-2026-09-02.md §11 build decision 3: "every page is
+     * shareable"). Same doctrine as `/j/:code` and `/r/:code` above: serve
+     * the SPA's index.html unchanged and let the client render the right
+     * screen from `location.pathname` itself, rather than adding a route per
+     * screen to a Worker that has no idea what a screen is.
+     *
+     * Restricted to requests that look like page navigation — no dotted
+     * extension on the final path segment, and an Accept header that offers
+     * HTML — so a same-named asset (`/game.js`), `/api/*`, `/table/*` and
+     * every real static file fall through to `ASSETS` untouched below. */
+    if (
+      request.method === "GET" &&
+      seg.length >= 1 &&
+      SPA_ROUTE_PREFIXES.has(seg[0]!) &&
+      !looksLikeAssetPath(seg) &&
+      (request.headers.get("accept") ?? "").includes("text/html")
+    ) {
       const rootUrl = new URL(request.url);
       rootUrl.pathname = "/";
       return withCookie(
