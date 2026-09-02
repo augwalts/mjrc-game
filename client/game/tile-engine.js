@@ -658,7 +658,11 @@ const fglyph = (ch, cx, cy, size, color) => glyph({ ch, cx, cy, size, color });
 // stems, and top-left is what R2 of the locked rules asks for. The halo lets it
 // survive a branch; bonusTile() below does the other half by painting it LAST.
 function fIndexNum(n, color){
-  return `<text x="7" y="47" font-family="Helvetica,Arial" font-weight="bold" font-size="52" fill="${PAL[color]}" stroke="${PAL.face}" stroke-width="4.2" stroke-linejoin="round" paint-order="stroke">${n}</text>`;
+  // `fidx` is the OPTICAL-SIZE HOOK — a presentation attribute loses to any
+  // CSS rule, so a surface that draws tiles small can enlarge the numeral
+  // without a second copy of the art. recenterGlyphs is delta-based and
+  // re-centres correctly after a CSS resize.
+  return `<text class="fidx" x="7" y="47" font-family="Helvetica,Arial" font-weight="bold" font-size="52" fill="${PAL[color]}" stroke="${PAL.face}" stroke-width="4.2" stroke-linejoin="round" paint-order="stroke">${n}</text>`;
 }
 function fBloom(cx, cy, r, k, color, ctr){
   const parts = [];
