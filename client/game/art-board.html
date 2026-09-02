@@ -237,7 +237,8 @@ const THEMES = [
     "av-1":"#3c8f5e","av-2":"#152a1e",
     "panel-1":"#17110d","panel-2":"#0a0806","veil":"rgba(3,2,2,.88)",
     "gold":"#f0c414","gold-rgb":"240,196,20","gold-hi":"#ffe95c","on-gold":"#1a1400",
-    "accent":"#2f7cf5","danger":"#f5321c" },
+    "accent":"#2f7cf5","danger":"#f5321c",
+    "tile-face":"#0a0c11","tile-shade":"#000000" },
   css:`/* ── NEON IS THE LETTERFORM ──────────────────────────────────────
           The first pass treated neon as ambient wash and coloured keylines
           and left every glyph white, which is a room lit BY neon rather than
@@ -332,7 +333,50 @@ const THEMES = [
          text-shadow:0 0 2px #fff, 0 0 9px #f0c414, 0 0 22px rgba(240,196,20,.95)}
        .st .m{color:#7f8894}
        .st .m b{color:#e6f4ff;text-shadow:0 0 7px rgba(47,124,245,.9)}
-       .tile{border-radius:3px}
+       /* ── THE TILES BECOME SIGNS TOO ──────────────────────────────
+          This sheet argued the opposite a commit ago: leave the tiles as
+          ordinary bone, because one physical thing on a screen made of light
+          is what makes the light read as light. Owner's call, and the
+          argument does not survive seeing it — a rack of thirteen little
+          signs beats the principle.
+
+          Nothing in tile-engine.js changes. Its colours are presentation
+          ATTRIBUTES (fill="#D42222"), and a presentation attribute loses to
+          any CSS rule at all — so the art is recoloured by matching the
+          attribute and setting the property, scoped to this plate. Every
+          other room keeps the painted tiles.
+
+          Each hue lights ITSELF: the filter sits on the elements carrying
+          that colour, not on the tile, which is the only way one 三筒 gets a
+          green glow and a red glow on the same face. Blur radii are in the
+          SVG's own user units — the viewBox is 100 wide, so 4 is four percent
+          of a tile and holds at every size the tile is drawn.
+
+          The tile is DARK GLASS: face to the room's black, engraved edge to a
+          dim blue-grey, so an unlit tile still reads as an object and the
+          glyph is the only thing emitting. */
+       .tile{background:#0a0c11;
+         box-shadow:0 0 0 1px rgba(120,150,200,.14), 0 2px 6px rgba(0,0,0,.7)}
+       .tile svg [fill="#FAFAF8"]{fill:#0a0c11}
+       .tile svg [stroke="#FAFAF8"]{stroke:#0a0c11}
+       .tile svg [stroke="#CCCCCC"]{stroke:#243044}
+       .tile svg [stroke="#888"]{stroke:#48536a}
+       .tile svg [fill="#D42222"]{fill:#ff3347;
+         filter:drop-shadow(0 0 1.6px #ff3347) drop-shadow(0 0 4.5px rgba(255,51,71,.75))}
+       .tile svg [stroke="#D42222"]{stroke:#ff3347;
+         filter:drop-shadow(0 0 1.6px #ff3347) drop-shadow(0 0 4.5px rgba(255,51,71,.75))}
+       .tile svg [fill="#1A8B3A"]{fill:#22ff90;
+         filter:drop-shadow(0 0 1.6px #22ff90) drop-shadow(0 0 4.5px rgba(34,255,144,.7))}
+       .tile svg [stroke="#1A8B3A"]{stroke:#22ff90;
+         filter:drop-shadow(0 0 1.6px #22ff90) drop-shadow(0 0 4.5px rgba(34,255,144,.7))}
+       .tile svg [fill="#1845A5"]{fill:#45a8ff;
+         filter:drop-shadow(0 0 1.6px #45a8ff) drop-shadow(0 0 4.5px rgba(69,168,255,.72))}
+       .tile svg [stroke="#1845A5"]{stroke:#45a8ff;
+         filter:drop-shadow(0 0 1.6px #45a8ff) drop-shadow(0 0 4.5px rgba(69,168,255,.72))}
+       .tile svg [fill="#B07020"]{fill:#ffae2e;
+         filter:drop-shadow(0 0 1.4px #ffae2e) drop-shadow(0 0 4px rgba(255,174,46,.7))}
+       .tile svg [stroke="#B07020"]{stroke:#ffae2e;
+         filter:drop-shadow(0 0 1.4px #ffae2e) drop-shadow(0 0 4px rgba(255,174,46,.7))}
        /* the grain. A parlour is not a clean room. */
        .room::after{content:"";position:absolute;inset:0;pointer-events:none;opacity:.5;
          background:repeating-linear-gradient(0deg,rgba(255,255,255,.035) 0 1px,transparent 1px 3px);
