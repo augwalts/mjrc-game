@@ -14,6 +14,9 @@
  */
 import type {
   AcceptedPayload,
+  ChatMessagePayload,
+  ChatPhrase,
+  ChatRequestPayload,
   ClientRequest,
   ClientRequestType,
   PresencePayload,
@@ -248,11 +251,24 @@ export interface LobbyRecentMatch {
   standings: LobbyRecentStanding[];
 }
 
+/** One row of the lobby chat (§8) — `GET /api/lobby`'s `chat[]`, last 50,
+ *  oldest first. Unlike table chat's `ChatMessagePayload` this carries a
+ *  `playerId` directly (no seat/directory indirection to resolve it through),
+ *  which is what the mute feature keys on. */
+export interface LobbyChatEntry {
+  id: string;
+  playerId: string;
+  displayName: string;
+  text: string;
+  at: number;
+}
+
 export interface LobbyPayload {
   now: number;
   here: LobbyHereEntry[];
   tables: LobbyTable[];
   recent: LobbyRecentMatch[];
+  chat: LobbyChatEntry[];
 }
 
 export async function getLobby(token: string): Promise<LobbyPayload> {
@@ -263,6 +279,13 @@ export async function getLobby(token: string): Promise<LobbyPayload> {
  *  and once more on `visibilitychange` back to visible. */
 export async function postPresence(token: string, state: PresenceState): Promise<void> {
   await apiFetch<void>("presence", { method: "POST", token, body: { state } });
+}
+
+/** POST /api/lobby/chat { text } → 204 (§8). 400 `bad_text`/429 `rate_limited`
+ *  surface as `ApiError` like any other call — the caller (game.ts's lobby
+ *  chat panel) reads `.code` to show "slow down" on a 429. */
+export async function postLobbyChat(token: string, text: string): Promise<void> {
+  await apiFetch<void>("lobby/chat", { method: "POST", token, body: { text } });
 }
 
 /** One row of GET /api/matches — see worker/src/index.ts matchListView. */
@@ -451,6 +474,16 @@ export interface TableSocketCallbacks {
   onEvents(events: SeatVisible<RedactedGameEvent>[], snapshot: SeatVisible<SeatSnapshot> | null): void;
   onPrompt(payload: PromptPayload): void;
   onPresence(payload: PresencePayload): void;
+  /** One new chat message, live off the socket (§8) — a bot-fill seat never
+   *  produces one server-side, so this never fires for a bot. */
+  onChat(payload: ChatMessagePayload): void;
+  /** The table's last 50 chat messages, oldest first — handed over whole on
+   *  `welcome` (a fresh join) and again on `restore` (a reconnect), same ring
+   *  both times (messages.ts `WelcomePayload`/`RestorePayload`.`chat`). Fired
+   *  in addition to `onWelcome`/`onRestore`, not instead of — this is just the
+   *  chat slice of the same payload, pulled out so the caller's chat state
+   *  doesn't have to reach into `onWelcome`'s/`onRestore`'s arguments too. */
+  onChatHistory(list: ChatMessagePayload[]): void;
   onFault(payload: ProtocolFaultPayload): void;
   /** The `join` itself was refused — a dead seat token, most likely. The
    *  caller's job is to fetch a fresh one (joinTable) and call setSeatToken. */
@@ -564,6 +597,15 @@ export class TableSocket {
    *  `RequestRejected` on `rejected`, or on a timeout if the socket drops
    *  the exchange entirely (a retry after reconnect is the caller's job —
    *  the UI's job is only to re-enable the control). */
+  /** `chat { text }` or `chat { phrase }` — exactly one, never both
+   *  (`ChatRequestPayload`'s doc comment in messages.ts). Just a typed
+   *  wrapper over `request("chat", …)`: the server answers `accepted`, or
+   *  `rejected` with `chatRefused` (game.ts's `REJECT_NOTES`), through the
+   *  same requestId map every other request uses. */
+  sendChat(payload: { text: string } | { phrase: ChatPhrase }): Promise<AcceptedPayload> {
+    return this.request("chat", payload as ChatRequestPayload);
+  }
+
   request<T extends AckRequestType>(type: T, payload: PayloadFor<T>): Promise<AcceptedPayload> {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       return Promise.reject(new Error("not connected"));
@@ -627,10 +669,12 @@ export class TableSocket {
         this.backoffMs = BASE_BACKOFF_MS;
         this.cb.onOpen?.();
         this.cb.onWelcome(msg.payload);
+        this.cb.onChatHistory(msg.payload.chat);
         break;
       case "restore": {
         const p = msg.payload as RestorePayload;
         this.cb.onRestore(p.events, p.snapshot, p.directory);
+        this.cb.onChatHistory(p.chat);
         break;
       }
       case "events": {
@@ -638,6 +682,9 @@ export class TableSocket {
         this.cb.onEvents(p.events, p.snapshot ?? null);
         break;
       }
+      case "chat":
+        this.cb.onChat(msg.payload);
+        break;
       case "prompt":
         this.cb.onPrompt(msg.payload);
         break;

@@ -31,16 +31,17 @@ import type {
 } from "../../protocol/src/events.js";
 import { actionsOf, seatViewOf } from "../../protocol/src/seatview.js";
 import type {
-  LegalRequests, PromptPayload, PresencePayload, ProtocolFaultPayload,
+  ChatMessagePayload, ChatPhrase, LegalRequests, PromptPayload, PresencePayload, ProtocolFaultPayload,
   RejectCode, RejectedPayload, SeatDirectoryEntry, WelcomePayload,
 } from "../../protocol/src/messages.js";
+import { CHAT_PHRASES, CHAT_TEXT_MAX_LENGTH } from "../../protocol/src/messages.js";
 import {
   ApiError, RequestRejected, TableSocket,
   createTable, getLeaderboard, getLobby, getMyStats, getPlayerStats, identify, joinTable,
   leaveTable as apiLeaveTable, listBots, listMatches,
-  matchDetail, postPresence, startTable as apiStartTable, storedIdentity,
+  matchDetail, postLobbyChat, postPresence, startTable as apiStartTable, storedIdentity,
   type BotCatalogueEntry, type CasualLeaderboardEntry, type CreateTableResult, type Identity,
-  type LeaderboardMode, type LobbyHereEntry, type LobbyPayload,
+  type LeaderboardMode, type LobbyChatEntry, type LobbyHereEntry, type LobbyPayload,
   type LobbyTable, type LobbyTableSeat, type MatchFormat, type MatchListItem,
   type PlayerStats, type PlayerStatsRecentMatch, type PlayerStatsTotals,
   type RankedLeaderboardEntry, type SeatSpec, type TableAccess, type TableMode,
@@ -144,6 +145,53 @@ const fmtChips = (n: number): string => `${n > 0 ? "+" : ""}${n}`;
 const esc = (s: string): string =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
+/* ── chat (PVP-LOBBY-PROPOSAL §8) ─────────────────────────────────────────
+ * Two chats (table, lobby), one client-side mute list, shared by both. Chat
+ * is never a game event: it never touches `snap`, `pending`, or the reducer
+ * — it is pure transport + a couple of small local rings, same discipline as
+ * `feed` (decorative). Quick phrases: 好牌 nice · 快啲 hurry · 唔好意思 sorry ·
+ * 再嚟 again · 👍 thumbs — `CHAT_PHRASES`/`ChatPhrase` are the wire's stable
+ * ids (messages.ts); this is the only place they get Chinese/English prose. */
+const CHAT_PHRASE_LABELS: Record<ChatPhrase, [string, string]> = {
+  nice: ["好牌", "nice"], hurry: ["快啲", "hurry"], sorry: ["唔好意思", "sorry"],
+  again: ["再嚟", "again"], thumbs: ["👍", "thumbs"],
+};
+
+/** Local-only, `localStorage`, a set of muted `playerId`s — never sent to the
+ *  server (task spec item 4: "local"). Applies to both chats: table chat
+ *  resolves a message's seat to a playerId via `directory` at the moment the
+ *  message arrives (`chatEntry()` below); lobby chat's rows already carry one. */
+const MUTE_KEY = "mjrc.gamepvp.mutedPlayers";
+function mutedSet(): Set<string> {
+  try { return new Set(JSON.parse(localStorage.getItem(MUTE_KEY) ?? "[]") as string[]); }
+  catch { return new Set(); }
+}
+function setMuted(playerId: string, muted: boolean): void {
+  const s = mutedSet();
+  if (muted) s.add(playerId); else s.delete(playerId);
+  localStorage.setItem(MUTE_KEY, JSON.stringify([...s]));
+}
+/** Wired onto any `.cname[data-player][data-name]` element in either chat's
+ *  rows — a plain `confirm()` (same pattern as the in-game "leave table"
+ *  confirm) rather than a custom widget, since this is a rare, low-stakes
+ *  toggle. Never offered on your own name (`data-player` is empty for it —
+ *  see `chatEntry()`/`LobbyChatEntry` render sites). */
+function wireMuteTaps(container: ParentNode): void {
+  for (const el of Array.from(container.querySelectorAll<HTMLElement>(".cname[data-player]"))) {
+    const id = el.dataset.player;
+    if (!id) continue;
+    el.onclick = (e) => {
+      e.stopPropagation();
+      const nm = el.dataset.name ?? "this player";
+      const already = mutedSet().has(id);
+      if (!window.confirm(already ? `Unmute ${nm}?` : `Mute ${nm}? You won't see their chat messages.`)) return;
+      setMuted(id, !already);
+      renderTableChat();
+      paintLobbyPanel("chat", true);
+    };
+  }
+}
+
 /* ── identity + session ───────────────────────────────────────────────── */
 let identity: Identity | null = null;
 const SESSION_KEY = "mjrc.gamepvp.activeMatch";
@@ -209,6 +257,28 @@ let currentMatchUuid: string | null = null;
 let currentJoinCode: string | null = null;
 let currentRulesetId = "mjrc-standard";
 let currentMatchFormat: MatchFormat = "east";
+
+/* ── table chat state (§8) ─────────────────────────────────────────────
+ * `tableChat` mirrors the table's own last-50 ring (server-side, table.ts) —
+ * replaced whole on `welcome`/`restore` (`onChatHistory`), appended to on a
+ * live `chat` (`onChat`), capped at 50 here too so a long-running reconnect
+ * never grows it past what the server itself would show. `playerId` is
+ * resolved from `directory` AT ARRIVAL TIME (the wire's `ChatMessagePayload`
+ * carries only `seat`) — see `chatEntry()`. */
+interface ChatEntry extends ChatMessagePayload { playerId: string; }
+let tableChat: ChatEntry[] = [];
+/** "Messages of the current hand shown by default" (task spec item 2) — the
+ *  timestamp of the most recent `deal` this session has animated, or 0 (the
+ *  dawn of time) before the first one, so a cold join's whole history counts
+ *  as "this hand" until a real deal is seen. */
+let handStartTs = 0;
+let chatShowAll = false;
+/** Mobile-only drawer state; always true (and irrelevant to the badge) on
+ *  desktop, where the panel is open beside the table by CSS alone. */
+let chatOpen = false;
+let chatUnread = 0;
+const chatEntry = (p: ChatMessagePayload): ChatEntry =>
+  ({ ...p, playerId: directory?.[p.seat]?.playerId ?? "" });
 
 let curLegal: LegalRequests | null = null;
 let pending: Action[] | null = null;
@@ -682,6 +752,10 @@ function consume(events: readonly RedactedGameEvent[]): void {
         pileTiles = []; handSig = ""; landingMeld = null;
         $("say").className = "";
         buildWall();
+        // "this hand"'s chat filter (§8 task item 2) anchors here — a fresh
+        // deal is the one unambiguous hand boundary a seat socket ever sees.
+        handStartTs = e.ts;
+        renderTableChat();
         break;
       case "flowerReplacement":
         feed.push(`${seatName(p.seat as SeatIndex)} reveals ${name(p.flower as TileId)} 花`);
@@ -1005,6 +1079,7 @@ function showMatchEndScreen(): void {
     matchEndInfo = null; ts?.close(); ts = null; snap = null; directory = null;
     sessionHands.length = 0; coachTally.graded = 0; coachTally.matched = 0; matchAgreement = undefined;
     currentMatchUuid = null; currentJoinCode = null; isCreatorOfCurrentTable = false;
+    updateChatVisibility();
     lobbyScreen();
   };
   for (const el of Array.from($("panel").querySelectorAll<HTMLElement>(".pname[data-player]"))) {
@@ -1027,6 +1102,7 @@ function leaveTable(): void {
   matchAgreement = undefined;
   currentMatchUuid = null; currentJoinCode = null; isCreatorOfCurrentTable = false;
   stopClock();
+  updateChatVisibility();
   lobbyScreen();
 }
 
@@ -1285,6 +1361,144 @@ function hits(a: { x: number; y: number; rot: number }, b: { x: number; y: numbe
   return true;
 }
 
+/* ── table chat (§8) ──────────────────────────────────────────────────────
+ * The drawer's own DOM (#chatBtn/#chatDrawer/…) is static furniture in
+ * index.html, wired ONCE at boot (below) — unlike a screen's `.panel`, this
+ * survives every screen change, since it only makes sense while a match
+ * exists. `updateChatVisibility()` is what shows/hides it, keyed on
+ * `currentMatchUuid`, not on which screen happens to be up. */
+const CHAT_BUBBLE_MS = 2500;
+let chatBubbleTimer = 0;
+/** A phrase from another seat, near their nameplate — same TIMED CLASS SWAP
+ *  mechanism as `sayDiscard`/`announce` (no rAF, nothing continuous), on its
+ *  own element (`#chatbubble`) so it never fights a discard's own `#say` for
+ *  the same slot. `screenPos` is already `rel()`-converted by the caller. */
+function showChatBubble(html: string, screenPos: 0 | 1 | 2 | 3): void {
+  const el = document.getElementById("chatbubble");
+  if (!el) return;
+  el.innerHTML = `<div class="inner">${html}</div>`;
+  el.className = "";
+  void el.offsetWidth;
+  el.style.setProperty("--bubblems", `${CHAT_BUBBLE_MS}ms`);
+  el.className = `show s${screenPos}`;
+  clearTimeout(chatBubbleTimer);
+  chatBubbleTimer = window.setTimeout(() => { el.className = ""; }, CHAT_BUBBLE_MS);
+}
+
+function chatRowHtml(m: ChatEntry): string {
+  const mine = m.seat === mySeat;
+  const body = m.phrase
+    ? `${CHAT_PHRASE_LABELS[m.phrase][0]} <span class="mut">${CHAT_PHRASE_LABELS[m.phrase][1]}</span>`
+    : esc(m.text ?? "");
+  // Your own name is never a mute target — `data-player=""` (empty) makes
+  // `wireMuteTaps`'s selector skip it, same convention `playerScreen`'s
+  // `.pname` rows already use elsewhere in this file.
+  return `<div class="crow ${mine ? "mine" : ""}">
+    <span class="cname" data-player="${mine ? "" : esc(m.playerId)}" data-name="${esc(m.displayName)}">${esc(m.displayName)}</span>
+    <span class="ctext">${body}</span></div>`;
+}
+
+/** Repaints the drawer's message list AND the FAB badge — called on every
+ *  chat-relevant change (a new message, `chatShowAll`/mute toggling, a
+ *  fresh match). Cheap and small (≤50 rows), so no diffing needed. */
+function renderTableChat(): void {
+  const box = document.getElementById("chatMsgs");
+  if (box) {
+    const muted = mutedSet();
+    const visible = tableChat.filter((m) => !muted.has(m.playerId) && (chatShowAll || m.ts >= handStartTs));
+    box.innerHTML = visible.length === 0
+      ? `<p class="mut">${chatShowAll ? "no messages yet" : "nothing this hand yet — try “show all”"}</p>`
+      : visible.map(chatRowHtml).join("");
+    wireMuteTaps(box);
+    box.scrollTop = box.scrollHeight;
+  }
+  // Owned here, not just the click handler — `chatShowAll` is also reset
+  // programmatically (a fresh `connectToMatch`), which must not leave the
+  // link reading "this hand only" while behaviour has already gone back to
+  // filtering.
+  const showAll = document.getElementById("chatShowAll");
+  if (showAll) showAll.textContent = chatShowAll ? "this hand only" : "show all";
+  updateChatBadge();
+}
+function updateChatBadge(): void {
+  const badge = document.getElementById("chatBadge");
+  if (!badge) return;
+  const show = !isDesktop() && !chatOpen && chatUnread > 0;
+  badge.hidden = !show;
+  if (show) badge.textContent = chatUnread > 99 ? "99+" : String(chatUnread);
+}
+/** Mobile: toggles the bottom-sheet drawer. Desktop: a no-op on the drawer
+ *  itself (CSS keeps it open, see index.html), but still clears the badge —
+ *  harmless since the badge is already hidden on desktop either way. */
+function setChatOpen(open: boolean): void {
+  chatOpen = open;
+  document.getElementById("chatDrawer")?.classList.toggle("open", open);
+  if (open) chatUnread = 0;
+  updateChatBadge();
+}
+/** Shown only while a table exists at all — waiting room through the
+ *  post-match scoreboard — never in the lobby or any other screen (the lobby
+ *  has its own chat column instead). Desktop hides the FAB outright (the
+ *  panel is always open by CSS); mobile shows the FAB and keeps the drawer
+ *  closed until tapped. */
+function updateChatVisibility(): void {
+  const btn = document.getElementById("chatBtn");
+  const drawer = document.getElementById("chatDrawer");
+  const show = currentMatchUuid !== null;
+  if (btn) btn.style.display = show && !isDesktop() ? "flex" : "none";
+  if (drawer) drawer.style.display = show ? "flex" : "none";
+  updateChatBadge();
+}
+async function sendTableChatText(): Promise<void> {
+  const input = document.getElementById("chatInput") as HTMLInputElement | null;
+  if (!input || !ts) return;
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = "";
+  try { await ts.sendChat({ text }); }
+  catch (e) { flashHudNote(e instanceof RequestRejected ? (REJECT_NOTES[e.code] ?? e.code) : "message not sent"); }
+}
+async function sendTableChatPhrase(phrase: ChatPhrase): Promise<void> {
+  if (!ts) return;
+  try { await ts.sendChat({ phrase }); }
+  catch (e) { flashHudNote(e instanceof RequestRejected ? (REJECT_NOTES[e.code] ?? e.code) : "message not sent"); }
+}
+/** Wired exactly once at boot (the drawer's HTML is static furniture, not
+ *  rebuilt per screen/match) — mirrors how `#btnFeedback`/`#btnSettings`/
+ *  `#btnQuit` are wired at the bottom of this file. */
+function wireChatDrawer(): void {
+  const phrases = document.getElementById("chatPhrases");
+  if (phrases) {
+    phrases.innerHTML = CHAT_PHRASES.map((p) => {
+      const [ch, en] = CHAT_PHRASE_LABELS[p];
+      return `<button class="phrasebtn" data-p="${p}">${ch}<span>${en}</span></button>`;
+    }).join("");
+    for (const el of Array.from(phrases.querySelectorAll<HTMLButtonElement>(".phrasebtn"))) {
+      el.onclick = () => void sendTableChatPhrase(el.dataset.p as ChatPhrase);
+    }
+  }
+  const btn = document.getElementById("chatBtn");
+  if (btn) btn.onclick = () => setChatOpen(!chatOpen);
+  const close = document.getElementById("chatClose");
+  if (close) close.onclick = () => setChatOpen(false);
+  const send = document.getElementById("chatSend");
+  if (send) send.onclick = () => void sendTableChatText();
+  const input = document.getElementById("chatInput") as HTMLInputElement | null;
+  if (input) {
+    input.maxLength = CHAT_TEXT_MAX_LENGTH;
+    input.onkeydown = (e) => { if (e.key === "Enter") void sendTableChatText(); };
+  }
+  const showAll = document.getElementById("chatShowAll");
+  if (showAll) {
+    showAll.onclick = (e) => {
+      e.preventDefault();
+      chatShowAll = !chatShowAll;
+      renderTableChat(); // also syncs this link's own label
+    };
+  }
+  DESKTOP.addEventListener("change", () => { updateChatVisibility(); setChatOpen(chatOpen); });
+}
+
 /* ── hud notes / connection badge ─────────────────────────────────────── */
 let noteTimer = 0;
 function flashHudNote(msg: string, ms = 2600): void {
@@ -1317,6 +1531,8 @@ function connectToMatch(r: {
   overlay = null; matchEndInfo = null; matchAgreement = undefined;
   pileTiles = []; handSig = ""; landingMeld = null; feed.length = 0;
   sessionHands.length = 0; coachTally.graded = 0; coachTally.matched = 0;
+  tableChat = []; handStartTs = 0; chatShowAll = false; chatUnread = 0;
+  renderTableChat();
   for (const k of Object.keys(presence)) delete presence[Number(k) as SeatIndex];
   ts?.close();
   ts = new TableSocket(r.matchUuid, r.seatToken, {
@@ -1331,6 +1547,7 @@ function connectToMatch(r: {
       setConnBadge("");
       render();
       syncVeil();
+      updateChatVisibility();
       ts?.resync(lastSeq);
     },
     onRestore(events, snapshot, dir) {
@@ -1368,6 +1585,28 @@ function connectToMatch(r: {
       render();
       syncVeil();
     },
+    onChat(payload: ChatMessagePayload) {
+      const entry = chatEntry(payload);
+      tableChat.push(entry);
+      if (tableChat.length > 50) tableChat.splice(0, tableChat.length - 50);
+      const mine = payload.seat === mySeat;
+      if (!mine && !mutedSet().has(entry.playerId)) {
+        if (!isDesktop() && !chatOpen) chatUnread++;
+        // Phrases only (task spec item 2) — free text never bubbles, it only
+        // ever shows inside the drawer/panel. Reuses the announce/sayDiscard
+        // STYLE (a timed CSS class swap, no rAF loop) via its own element so
+        // it never collides with a discard's own #say.
+        if (payload.phrase) {
+          const [ch, en] = CHAT_PHRASE_LABELS[payload.phrase];
+          showChatBubble(`${ch} <span class="mut">${en}</span>`, rel(payload.seat));
+        }
+      }
+      renderTableChat();
+    },
+    onChatHistory(list: ChatMessagePayload[]) {
+      tableChat = list.map(chatEntry);
+      renderTableChat();
+    },
     onFault(payload: ProtocolFaultPayload) {
       if (payload.code === "unsupportedProtocolVersion") {
         fatalScreen("This build is out of date — please reload the page.");
@@ -1391,6 +1630,7 @@ function connectToMatch(r: {
     onClose(info) { setConnBadge(info.willRetry ? "reconnecting…" : ""); },
   });
   ts.connect();
+  updateChatVisibility();
   waitingRoomScreen();
 }
 
@@ -1613,12 +1853,50 @@ function wireLobbyStatic(): void {
   (document.getElementById("goLeaderboard") as HTMLElement).onclick = () => { beforeScreen(); leaderboardScreen("ranked"); };
   (document.getElementById("btnRename") as HTMLElement).onclick = (e) => { e.preventDefault(); beforeScreen(); nameScreen(lobbyScreen); };
   (document.getElementById("btnAbout2") as HTMLElement).onclick = (e) => { e.preventDefault(); beforeScreen(); aboutScreen(lobbyScreen); };
+  wireLobbyChatInput();
 }
 
-/** The lobby's static shell — everything `wireLobbyStatic` wires, plus three
- *  EMPTY panel containers (`#lobbyHere`/`#lobbyTables`/`#lobbyRecent`) that
- *  `paintLobbyPanel` fills in and keeps current. Built once per
- *  `lobbyScreen()` entry; a poll tick never touches this HTML again. */
+/** The lobby chat panel's own input row (§8) — rebuilt fresh every
+ *  `lobbyScreen()` entry along with the rest of the static shell, so this is
+ *  wired from `wireLobbyStatic()` rather than living inside `LOBBY_PANELS`
+ *  (whose `wire()` re-runs on every repaint of the MESSAGE rows only). */
+function wireLobbyChatInput(): void {
+  const btn = document.getElementById("lobbyChatSend") as HTMLButtonElement | null;
+  const input = document.getElementById("lobbyChatIn") as HTMLInputElement | null;
+  const note = document.getElementById("lobbyChatNote");
+  if (!btn || !input) return;
+  input.maxLength = CHAT_TEXT_MAX_LENGTH;
+  const send = async (): Promise<void> => {
+    if (!identity) return;
+    const text = input.value.trim();
+    if (!text) return;
+    btn.disabled = true;
+    try {
+      await postLobbyChat(identity.deviceToken, text);
+      input.value = "";
+      if (note) note.textContent = "";
+      void refreshLobby(lobbyGen);
+    } catch (e) {
+      // §8/task item 3: a 429 reads as "slow down", not the raw ApiError code.
+      if (note) note.textContent = e instanceof ApiError && e.code === "rate_limited" ? "slow down" : describeError(e);
+    }
+    // "disable the send button for 2s after a send" (task item 3) — from the
+    // attempt, success or failure, not just a successful one: a 429 is
+    // exactly the case a cooldown exists to prevent hammering through.
+    window.setTimeout(() => { btn.disabled = false; }, 2000);
+  };
+  btn.onclick = () => void send();
+  input.onkeydown = (e) => { if (e.key === "Enter") void send(); };
+}
+
+/** The lobby's static shell — everything `wireLobbyStatic` wires, plus four
+ *  EMPTY panel containers (`#lobbyHere`/`#lobbyTables`/`#lobbyRecent`/
+ *  `#lobbyChat`) that `paintLobbyPanel` fills in and keeps current. Built
+ *  once per `lobbyScreen()` entry; a poll tick never touches this HTML again.
+ *  Four `.lobbycol`s share the same `.lobbygrid` layout (stacked on a phone,
+ *  a row at ≥900px) — task item 3 asks for Chat as "a fourth panel…below
+ *  the three on phones, a right-hand column on desktop", which its DOM order
+ *  (last) already gives it for free under that existing rule. */
 function lobbyShellHtml(): string {
   return `
     <h1>香港麻雀 · MJRC</h1>
@@ -1642,6 +1920,15 @@ function lobbyShellHtml(): string {
           <div class="choice" id="goLeaderboard"><b>Leaderboard</b><span>Ranked by rating, casual by record.</span></div>
         </div>
       </div>
+      <div class="lobbycol">
+        <h2>Chat</h2>
+        <div class="rows chatrows" id="lobbyChat"></div>
+        <div class="chat-input-row lobby">
+          <input id="lobbyChatIn" type="text" placeholder="say something…">
+          <button id="lobbyChatSend">send</button>
+        </div>
+        <p class="mut" id="lobbyChatNote"></p>
+      </div>
     </div>
     <h2 style="margin-top:16px">Recent results</h2>
     <div class="rows" id="lobbyRecent"></div>
@@ -1663,6 +1950,22 @@ function recentHtml(data: LobbyPayload | null): string {
   const recent = data?.recent ?? [];
   if (recent.length === 0) return `<p class="mut">${data === null ? "reading…" : "nothing finished yet"}</p>`;
   return recent.map(recentRowHtml).join("");
+}
+function lobbyChatRowHtml(m: LobbyChatEntry): string {
+  const mine = identity?.playerId === m.playerId;
+  return `<div class="row"><span class="c1">
+    <span class="cname" data-player="${mine ? "" : esc(m.playerId)}" data-name="${esc(m.displayName)}">${esc(m.displayName)}</span>
+    ${esc(m.text)}</span></div>`;
+}
+function lobbyChatHtml(data: LobbyPayload | null): string {
+  const muted = mutedSet();
+  const chat = (data?.chat ?? []).filter((m) => !muted.has(m.playerId));
+  if (chat.length === 0) return `<p class="mut">${data === null ? "reading…" : "quiet in here — say something"}</p>`;
+  return chat.map(lobbyChatRowHtml).join("");
+}
+function wireLobbyChatPanel(container: HTMLElement): void {
+  wireMuteTaps(container);
+  container.scrollTop = container.scrollHeight;
 }
 function wireHerePanel(container: HTMLElement): void {
   for (const el of Array.from(container.querySelectorAll<HTMLElement>(".row.clickable[data-code]"))) {
@@ -1689,7 +1992,7 @@ function wireTablesPanel(container: HTMLElement): void {
  *  `here` and `tables` (a row's click target and its "waiting at a table
  *  N/4" label both depend on the matching table), so its signature covers
  *  both. */
-type LobbyPanelKey = "here" | "tables" | "recent";
+type LobbyPanelKey = "here" | "tables" | "recent" | "chat";
 const LOBBY_PANELS: Record<LobbyPanelKey, {
   containerId: string;
   sig: (d: LobbyPayload | null) => string;
@@ -1711,6 +2014,11 @@ const LOBBY_PANELS: Record<LobbyPanelKey, {
     sig: (d) => JSON.stringify(d?.recent ?? []),
     html: recentHtml, wire: () => {},
   },
+  chat: {
+    containerId: "lobbyChat",
+    sig: (d) => JSON.stringify(d?.chat ?? []),
+    html: lobbyChatHtml, wire: wireLobbyChatPanel,
+  },
 };
 /** `down`: a pointer is currently down somewhere inside this panel's
  *  container — see `wireLobbyPanelDownTracking`/`ensureLobbyPointerGuard`
@@ -1721,6 +2029,7 @@ const lobbyPanelState: Record<LobbyPanelKey, { sig: string | null; down: boolean
   here: { sig: null, down: false, dirty: false },
   tables: { sig: null, down: false, dirty: false },
   recent: { sig: null, down: false, dirty: false },
+  chat: { sig: null, down: false, dirty: false },
 };
 /** Repaints one panel from the current `lobbyData` — but only if its
  *  signature actually changed (or `force`, used once on a fresh
@@ -2303,6 +2612,8 @@ async function copyDiagnostic(): Promise<void> {
 };
 saveSettings();
 wireHover();
+wireChatDrawer();
+updateChatVisibility();
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible" && ts && lastSeq >= 0) ts.resync(lastSeq);
 });

@@ -15,9 +15,10 @@ for *this seat only*; it is replaced whole, never patched.
 
 - `net.ts` — the wire layer. Identity + lobby HTTP calls (`identify`,
   `createTable`, `joinTable`, `listMatches`, `matchDetail`, `getLobby`,
-  `postPresence`, `startTable`, `leaveTable`), and `TableSocket`: connect,
-  `join`, reconnect with backoff, `resync`, heartbeat echo, and a typed
-  callback per server message. Holds no game state.
+  `postPresence`, `startTable`, `leaveTable`, `postLobbyChat`), and
+  `TableSocket`: connect, `join`, reconnect with backoff, `resync`, heartbeat
+  echo, `sendChat`, and a typed callback per server message (`onChat`/
+  `onChatHistory` included). Holds no game state.
 - `game.ts` — the client: DOM rendering, tile art, animations, screens, and
   the coach. Everything it knows about the match comes from `net.ts`'s
   callbacks.
@@ -138,6 +139,27 @@ for *this seat only*; it is replaced whole, never patched.
     not "the lobby screen is showing" — `GET /api/lobby` derives the richer
     waiting/playing state server-side from match participation, which is
     why this keeps sending during a live match too.
+14. **Chat** (PVP-LOBBY-PROPOSAL §8) — two independent chats, one client-side
+    mute list. *Table chat* rides `TableSocket.sendChat({text} | {phrase})`
+    over the seat socket; `welcome`/`restore` hand their last-50 ring to
+    `onChatHistory`, a live message arrives via `onChat`. The drawer
+    (`#chatBtn`/`#chatDrawer` in `index.html`, wired once in
+    `wireChatDrawer()`) is a phone FAB-and-bottom-sheet, pinned open as a
+    sidebar on desktop (same `DESKTOP` breakpoint as the coach panels); it is
+    shown only while `currentMatchUuid` is set (`updateChatVisibility()`),
+    independent of which screen/veil is up. Messages default to "this hand"
+    (`handStartTs`, set from the last `deal` event's `ts`) with a "show all"
+    toggle. A phrase from another seat also pops a 2.5s bubble near their
+    nameplate (`#chatbubble`, the same timed-class-swap trick as
+    `sayDiscard`/`announce` — no new rAF loop). *Lobby chat* is a fourth
+    `lobbyScreen()` panel (`postLobbyChat()`, `GET /api/lobby`'s new `chat[]`)
+    painted by the same signature-diffed `LOBBY_PANELS` rule as the other
+    three; its send button disables for 2s after a send, and a 429 reads as
+    "slow down". *Mute* (`mutedSet()`/`setMuted()`, `localStorage`, task item
+    4) is local-only and keys on `playerId` — table chat resolves one from
+    `directory` at the moment a message arrives (the wire payload only
+    carries a seat), lobby chat's rows already have one. Bots never chat
+    (server-enforced), so there is no bot-chat affordance to build.
 
 ## What was removed from Solo, and why
 
