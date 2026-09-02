@@ -238,49 +238,101 @@ const THEMES = [
     "panel-1":"#17110d","panel-2":"#0a0806","veil":"rgba(3,2,2,.88)",
     "gold":"#f0c414","gold-rgb":"240,196,20","gold-hi":"#ffe95c","on-gold":"#1a1400",
     "accent":"#2f7cf5","danger":"#f5321c" },
-  css:`.pnl{border-width:2px;border-radius:4px;
-         box-shadow:0 0 0 1px rgba(0,0,0,.9), 0 0 34px -6px rgba(240,196,20,.5),
-           0 20px 50px rgba(0,0,0,.7)}
-       /* the tube over the sign */
+  css:`/* ── NEON IS THE LETTERFORM ──────────────────────────────────────
+          The first pass treated neon as ambient wash and coloured keylines
+          and left every glyph white, which is a room lit BY neon rather than
+          a room made OF it. On a real street the character is the tube: the
+          sign is line art in coloured light, and the only white on it is the
+          hot core running down the middle of the glass.
+
+          So two rules. Anything that is TYPE glows in its own tube colour —
+          title, wind, count, label. Anything that is an OBJECT is merely lit
+          by them. The tile art is deliberately left alone: the tiles are the
+          one physical thing on the screen, and letting them stay ordinary
+          bone is what makes everything else read as light.
+
+          A tube is a white-hot core plus three widening haloes of one hue.
+          Two haloes reads as a drop shadow; four is soup. And the sign needs
+          UNLIT parts — the dim grey-blue glass below — or every element
+          shouts and none of them land. */
+       .pnl{border-width:2px;border-radius:4px;position:relative;
+         box-shadow:0 0 0 1px rgba(0,0,0,.9), 0 0 34px -6px rgba(240,196,20,.45),
+           0 20px 50px rgba(0,0,0,.75)}
        .pnl::before{content:"";position:absolute;left:12%;right:12%;top:-1px;height:2px;
          background:linear-gradient(90deg,transparent,var(--gold-hi),transparent);
          box-shadow:0 0 14px 2px rgba(240,196,20,.7)}
-       .pnl{position:relative}
-       .pnl h1{letter-spacing:.1em;text-shadow:0 0 18px rgba(240,196,20,.55)}
-       .pnl .sub{color:#f5321c;letter-spacing:.22em}
-       .play{border-radius:3px;background:var(--gold);
-         box-shadow:0 0 22px -3px rgba(240,196,20,.75)}
-       .card{border-radius:3px;background:rgba(255,255,255,.05)}
-       .card:nth-child(1){border-color:rgba(47,124,245,.55)}
-       .card:nth-child(2){border-color:rgba(18,217,74,.5)}
-       .chips b{border-radius:2px}
-       .chips b:nth-child(1){color:#f5321c}
-       .chips b:nth-child(2){color:#12d94a}
-       .chips b:nth-child(3){color:#2f7cf5}
-       .felt{border-radius:6px;border-width:8px}
-       .np{border-radius:3px;background:rgba(0,0,0,.6);
-         border:1px solid rgba(255,255,255,.16)}
-       .np.turn{outline-color:#f0c414;box-shadow:0 0 16px rgba(240,196,20,.6)}
-       .st{border-radius:3px;background:rgba(0,0,0,.65);border-color:rgba(240,196,20,.35)}
-       .tile{border-radius:3px}
-       /* THE SIGNS REACH THE TABLE. This is the whole finding applied: the
-          room is black and lit by colours it does not own, so the felt
-          catches a red wash from one side and a green one from the other,
-          and a tube reflects off the top of it. Without this the table is
-          just a green rectangle with a neon lobby in front of it. */
-       .felt{background:
+       /* the shop name: the biggest tube on the front */
+       .pnl h1{color:#fff2f0;letter-spacing:.12em;font-weight:700;
+         text-shadow:0 0 1px #fff, 0 0 7px #ff4a2a, 0 0 18px #f5321c,
+                     0 0 40px rgba(245,50,28,.75)}
+       /* the second line, a cooler tube under it */
+       /* the core must stay a HINT of white, not white — at #e8fbff the core
+          swallowed the hue and the line read as grey type with a blur behind
+          it. A tube is its colour first. */
+       .pnl .sub{color:#9ee9ff;letter-spacing:.22em;
+         text-shadow:0 0 1px rgba(255,255,255,.7), 0 0 7px #4fd6ff,
+                     0 0 18px rgba(47,124,245,.95);
+         animation:tubeFlicker 9s steps(1,end) infinite}
+       /* ONE DYING TUBE. Every 麻雀館 front has one, and nothing else sells
+          the room this cheaply. Strictly one element — a sign where several
+          things flicker reads as a broken screen, not a worn sign. */
+       @keyframes tubeFlicker{
+         0%,41%,43%,46%,92%,94%,100%{opacity:1}
+         42%,45%,93%{opacity:.28}}
+       /* the door: an OUTLINED tube, not a filled block. Neon has no fill. */
+       .play{background:rgba(240,196,20,.05);border:2px solid var(--gold);
+         border-radius:3px;color:#fffbe4;font-weight:800;
+         box-shadow:0 0 16px -2px rgba(240,196,20,.75),
+           inset 0 0 22px -8px rgba(240,196,20,.85);
+         text-shadow:0 0 1px rgba(255,255,255,.8), 0 0 9px #ffd83f,
+           0 0 24px rgba(240,196,20,.95)}
+       .play span{color:#ffdf7a;opacity:.8;text-shadow:0 0 8px rgba(240,196,20,.8)}
+       /* two smaller tubes, each its own colour, the way a front never
+          settles on one */
+       .card{border-radius:3px;background:rgba(255,255,255,.04)}
+       .card:nth-child(1){border-color:rgba(47,124,245,.5);color:#dbe9ff;
+         text-shadow:0 0 6px #2f7cf5, 0 0 16px rgba(47,124,245,.75)}
+       .card:nth-child(2){border-color:rgba(18,217,74,.45);color:#dcffe6;
+         text-shadow:0 0 6px #12d94a, 0 0 16px rgba(18,217,74,.7)}
+       /* UNLIT GLASS. The armature the tubes are mounted on — if this glows
+          too, nothing on the sign has any hierarchy left. */
+       .card i{color:#6f7a86;text-shadow:none}
+       .chips b{border-radius:2px;background:rgba(255,255,255,.04)}
+       .chips b:nth-child(1) em{color:#ffd9d2;text-shadow:0 0 6px #f5321c,0 0 14px rgba(245,50,28,.8)}
+       .chips b:nth-child(2) em{color:#d9ffe4;text-shadow:0 0 6px #12d94a,0 0 14px rgba(18,217,74,.8)}
+       .chips b:nth-child(3) em{color:#d9e8ff;text-shadow:0 0 6px #2f7cf5,0 0 14px rgba(47,124,245,.8)}
+
+       /* ── the table ── */
+       /* the signs reach the felt: a red wash from one side, green from the
+          other, and a tube reflecting off the top of it */
+       .felt{position:relative;border-radius:6px;border-width:8px;
+         background:
            radial-gradient(ellipse at 12% 8%, rgba(245,50,28,.3) 0%, transparent 46%),
            radial-gradient(ellipse at 88% 92%, rgba(18,217,74,.22) 0%, transparent 44%),
            radial-gradient(ellipse at 50% 42%, var(--felt) 0%, var(--felt-dk) 72%, var(--felt-edge) 100%)}
        .felt::before{content:"";position:absolute;left:8%;right:8%;top:4px;height:2px;
-         border-radius:2px;background:linear-gradient(90deg,transparent,rgba(255,247,200,.5),transparent);
-         filter:blur(1px);pointer-events:none;z-index:5}
-       .felt{position:relative}
-       /* each seat under a different sign */
+         border-radius:2px;z-index:5;pointer-events:none;filter:blur(1px);
+         background:linear-gradient(90deg,transparent,rgba(255,247,200,.5),transparent)}
+       /* every seat under a different sign, and its WIND is that sign */
+       .np{border-radius:3px;background:rgba(0,0,0,.62);border:1px solid rgba(255,255,255,.14)}
+       .np .wd{color:#fff}
        .np.n{border-color:rgba(47,124,245,.6)}
+       .np.n .wd{text-shadow:0 0 6px #2f7cf5,0 0 16px rgba(47,124,245,.9)}
        .np.e{border-color:rgba(18,217,74,.55)}
+       .np.e .wd{text-shadow:0 0 6px #12d94a,0 0 16px rgba(18,217,74,.9)}
        .np.w{border-color:rgba(238,57,99,.55)}
+       .np.w .wd{text-shadow:0 0 6px #ee3963,0 0 16px rgba(238,57,99,.9)}
        .np.s{border-color:rgba(240,196,20,.6)}
+       .np.s .wd{text-shadow:0 0 6px #f0c414,0 0 16px rgba(240,196,20,.95)}
+       .np.turn{outline-color:#f0c414;box-shadow:0 0 16px rgba(240,196,20,.55)}
+       /* the round wind is the loudest tube on the table, because it is the
+          one number you look up mid-hand */
+       .st{border-radius:3px;background:rgba(0,0,0,.68);border-color:rgba(240,196,20,.3)}
+       .st .w{color:#fffbe4;font-size:17px;
+         text-shadow:0 0 2px #fff, 0 0 9px #f0c414, 0 0 22px rgba(240,196,20,.95)}
+       .st .m{color:#7f8894}
+       .st .m b{color:#e6f4ff;text-shadow:0 0 7px rgba(47,124,245,.9)}
+       .tile{border-radius:3px}
        /* the grain. A parlour is not a clean room. */
        .room::after{content:"";position:absolute;inset:0;pointer-events:none;opacity:.5;
          background:repeating-linear-gradient(0deg,rgba(255,255,255,.035) 0 1px,transparent 1px 3px);
