@@ -654,10 +654,10 @@ describe("omniscient data cannot reach a seat socket", () => {
 
   it("refuses an unredacted snapshot on a welcome message", () => {
     const directory: FourSeats<SeatDirectoryEntry> = [
-      { ...HEADER.players[0], connected: true },
-      { ...HEADER.players[1], connected: true },
-      { ...HEADER.players[2], connected: true },
-      { ...HEADER.players[3], connected: false },
+      { ...HEADER.players[0], connected: true, auto: false },
+      { ...HEADER.players[1], connected: true, auto: false },
+      { ...HEADER.players[2], connected: true, auto: false },
+      { ...HEADER.players[3], connected: false, auto: false },
     ];
     // Annotating away the brand is the realistic mistake — a helper that types
     // its parameter as the plain snapshot and passes it straight through.
@@ -671,6 +671,7 @@ describe("omniscient data cannot reach a seat socket", () => {
       // @ts-expect-error a snapshot must carry the seat brand from snapshotFor
       snapshot: stripped,
       chat: [],
+      paused: null,
     };
     expect(bad.seat).toBe(0);
 
@@ -682,6 +683,7 @@ describe("omniscient data cannot reach a seat socket", () => {
       directory,
       snapshot: snapshotFor(0, STATE, { matchId: MATCH, seq: 0 }),
       chat: [],
+      paused: null,
     };
     expect(good.snapshot.seat).toBe(0);
   });

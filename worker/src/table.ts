@@ -335,6 +335,15 @@ export interface TableConfig {
   maxRequestsPerWindow: number;
   outboxBackoffMs: number;
   outboxMaxBackoffMs: number;
+  /** A pause auto-resumes after this long (`dispatch("pauseTimeout")`). */
+  pauseMaxMs: number;
+  /**
+   * How long a `handEnd` is held before the next hand is dealt, when a human
+   * seat is connected — so a win does not "snap" straight into the next deal
+   * with nothing to look at. 0 disables the intermission: the table advances
+   * at once, same as before this field existed.
+   */
+  handEndIntermissionMs: number;
 }
 
 export const DEFAULT_TABLE_CONFIG: TableConfig = {
@@ -348,6 +357,8 @@ export const DEFAULT_TABLE_CONFIG: TableConfig = {
   maxRequestsPerWindow: 40,
   outboxBackoffMs: 1_000,
   outboxMaxBackoffMs: 60_000,
+  pauseMaxMs: 10 * 60_000,
+  handEndIntermissionMs: 10_000,
 };
 
 export interface TableDeps {
@@ -441,7 +452,12 @@ export type DeadlineName =
   | "claimWindow"
   | "outboxFlush"
   | `disconnectGrace:${SeatIndex}`
-  | `botPace:${SeatIndex}`;
+  | `botPace:${SeatIndex}`
+  /** Auto-resumes a pause (`TableConfig.pauseMaxMs`). The one deadline that
+   *  keeps ticking, and firing, while the table is paused — see `rearm`. */
+  | "pauseTimeout"
+  /** Fires the held next deal at the end of the hand-end intermission. */
+  | "nextHand";
 
 interface DeadlineEntry {
   at: number;
@@ -506,6 +522,34 @@ interface BookKeeping {
   /** Move grading against the champion, per seat (owner: web-only feature,
    *  computed here regardless — §BotBrain.grade). */
   grading: FourSeats<SeatGrading>;
+  /**
+   * `null` unless the table is paused. `bySeat` is who paused it; `at` is the
+   * wall clock `deps.clock()` returned at that moment — `resumeNow`'s shift
+   * (`now - at`) is what every other deadline moves by on resume.
+   */
+  paused: { bySeat: SeatIndex; at: number } | null;
+  /**
+   * Player-toggled auto-play (`RequestAutoPayload`), one flag per seat.
+   * Deliberately separate from `presence.botActing`: a reconnect resets
+   * `botActing` (`handleJoin`) but must NOT touch this — auto-play is a
+   * standing choice, not a symptom of the socket being down.
+   */
+  auto: FourSeats<boolean>;
+  /**
+   * The `handEnd` this table is holding for the intermission (`afterCommit`),
+   * or `null` when nothing is held. The next deal is one `dispatchNextHand`
+   * away — either the `nextHand` deadline, or every connected human sending
+   * `requestNextHand`.
+   */
+  pendingHandEnd: {
+    handIndex: number;
+    payload: HandEndPayload;
+    row: { dealerRepeat: number; startedAt: number };
+  } | null;
+  /** Which connected human seats have asked to skip the rest of the
+   *  intermission (`requestNextHand`). Reset every time a new `handEnd` is
+   *  held. */
+  nextHandRequests: FourSeats<boolean>;
 }
 
 interface SeatGrading {
@@ -676,6 +720,9 @@ const isRejectCode = (x: unknown): x is RejectCode =>
     "rateLimited",
     "matchOver",
     "chatRefused",
+    "pauseRefused",
+    "paused",
+    "autoRefused",
   ].includes(x);
 
 const hasAnyRequest = (l: LegalRequests): boolean =>
@@ -697,6 +744,17 @@ function stampWindowDeadline(e: GameEvent, at: number): GameEvent {
   if (e.type === "claimOffered") return { ...e, payload: { ...e.payload, deadlineTs: at } };
   if (e.type === "robKongWindow") return { ...e, payload: { ...e.payload, deadlineTs: at } };
   return e;
+}
+
+/**
+ * Stamps `HandEndPayload.nextHandTs` when the table is about to hold this
+ * hand's end for the intermission — `undefined` (the field's default state,
+ * meaning "advances at once") otherwise. Same shape as `stampWindowDeadline`:
+ * a coordination fact the reducer never sets, filled in on the way out.
+ */
+function stampHandEndDeadline(e: GameEvent, nextHandTs: number | undefined): GameEvent {
+  if (e.type !== "handEnd" || nextHandTs === undefined) return e;
+  return { ...e, payload: { ...e.payload, nextHandTs } };
 }
 
 const isHandEnd = (e: GameEvent): e is Extract<GameEvent, { type: "handEnd" }> =>
@@ -724,6 +782,10 @@ function emptyBook(): BookKeeping {
     handLogKeys: [],
     clients: [null, null, null, null],
     grading: four(() => ({ graded: 0, matched: 0, gapSum: 0 })),
+    paused: null,
+    auto: [false, false, false, false],
+    pendingHandEnd: null,
+    nextHandRequests: [false, false, false, false],
   };
 }
 
@@ -806,6 +868,14 @@ export class TableCore {
     if (!Array.isArray(this.book.clients)) this.book.clients = [null, null, null, null];
     if (!Array.isArray(this.book.grading) || this.book.grading.length !== 4) {
       this.book.grading = four(() => ({ graded: 0, matched: 0, gapSum: 0 }));
+    }
+    if (this.book.paused === undefined) this.book.paused = null;
+    if (!Array.isArray(this.book.auto) || this.book.auto.length !== 4) {
+      this.book.auto = [false, false, false, false];
+    }
+    if (this.book.pendingHandEnd === undefined) this.book.pendingHandEnd = null;
+    if (!Array.isArray(this.book.nextHandRequests) || this.book.nextHandRequests.length !== 4) {
+      this.book.nextHandRequests = [false, false, false, false];
     }
     this.chat = (await st.get<ChatMessagePayload[]>(K_CHAT)) ?? [];
     if (!Array.isArray(this.chat)) this.chat = [];
@@ -1400,6 +1470,7 @@ export class TableCore {
         directory: this.directory(),
         snapshot: this.viewFor(seat),
         chat: [...this.chat],
+        paused: this.pausedInfo(),
       },
     });
     this.send(ws, accepted(msg.requestId, this.seq));
@@ -1417,7 +1488,19 @@ export class TableCore {
       displayName: players[seat].displayName,
       bot: players[seat].bot,
       connected: this.presence[seat].connected,
+      auto: this.book.auto[seat],
     }));
+  }
+
+  /** `null` unless the table is currently paused — `welcome`/`restore`'s shape. */
+  private pausedInfo(): { bySeat: SeatIndex; displayName: string; since: number } | null {
+    const p = this.book.paused;
+    if (!p) return null;
+    return {
+      bySeat: p.bySeat,
+      displayName: this.requireMeta().header.players[p.bySeat].displayName,
+      since: p.at,
+    };
   }
 
   private attachmentOf(ws: SeatSocket): SocketAttachment | null {
@@ -1495,6 +1578,7 @@ export class TableCore {
             events: redactEventsFor(seat, events),
             directory: this.directory(),
             chat: [...this.chat],
+            paused: this.pausedInfo(),
           },
         });
         return;
@@ -1546,6 +1630,21 @@ export class TableCore {
         }
         const win: Action = { type: "claim", seat, option: { kind: "win" } };
         return this.submit(seat, win, ws, msg.requestId);
+      }
+
+      case "requestPause":
+        return this.handlePause(seat, ws, msg.requestId);
+
+      case "requestResume":
+        return this.handleResume(seat, ws, msg.requestId);
+
+      case "requestNextHand":
+        return this.handleRequestNextHand(seat, ws, msg.requestId);
+
+      case "requestAuto": {
+        const on = msg.payload?.on;
+        if (typeof on !== "boolean") return this.send(ws, protocolFault("malformedMessage"));
+        return this.handleAuto(seat, on, ws, msg.requestId);
       }
     }
   }
@@ -1625,6 +1724,26 @@ export class TableCore {
     ws?: SeatSocket,
     requestId?: string,
   ): Promise<void> {
+    // Every game action stops here while the table is paused (§requestPause) —
+    // `ws` is only set for a genuine client request; a bot/auto decision never
+    // reaches this branch because `rearm` never arms `botPace` while paused
+    // (see `nextDue`), so there is nothing to guard on that side.
+    if (this.book.paused) {
+      if (ws && requestId) this.send(ws, rejected(requestId, "paused"));
+      return;
+    }
+    // A human move is the one thing that turns auto-play off on its own
+    // (`RequestAutoPayload`'s doc comment): switch it off FIRST, durably, then
+    // fall through and validate the move as normal. `ws` is the same "this is
+    // a real client request, not a bot/auto decision" signal used above —
+    // `actAsBot` never passes one, so this can never turn itself off.
+    if (ws && this.book.auto[seat]) {
+      this.book.auto[seat] = false;
+      this.armDerived(this.deps.clock());
+      await this.persistCore();
+      this.broadcastPresence(seat);
+      await this.rearm();
+    }
     if (!this.book.started) {
       if (ws && requestId) this.send(ws, rejected(requestId, "notALegalMove", "table is not full"));
       return;
@@ -1722,11 +1841,18 @@ export class TableCore {
     const meta = this.requireMeta();
     const ts = this.deps.clock();
 
+    // Decided ONCE per commit, before any event is stamped, so the value we
+    // tell `afterCommit` to hold for is EXACTLY the `nextHandTs` the wire
+    // already carries — never a second, possibly different, evaluation.
+    const nextHandTs = this.handEndIntermissionActive() ? ts + this.config.handEndIntermissionMs : undefined;
+
     const events: GameEvent[] = [];
     for (const draft of applied.events) {
       const seq = this.seq++;
-      const stamped = stampEvent(draft, meta.matchId, seq, ts);
-      events.push(stampWindowDeadline(stamped, ts + this.config.claimWindowMs));
+      let stamped = stampEvent(draft, meta.matchId, seq, ts);
+      stamped = stampWindowDeadline(stamped, ts + this.config.claimWindowMs);
+      stamped = stampHandEndDeadline(stamped, nextHandTs);
+      events.push(stamped);
     }
 
     const previous = this.state;
@@ -1840,6 +1966,16 @@ export class TableCore {
     if (phase !== "claimWindow" && phase !== "robKongWindow") this.window = null;
   }
 
+  /** `TableConfig.handEndIntermissionMs` doc comment: on, unless disabled or
+   *  nobody would see it happen — a bot-only table, or one every human has
+   *  left, advances at once, same as before this feature existed. */
+  private handEndIntermissionActive(): boolean {
+    if (this.config.handEndIntermissionMs <= 0) return false;
+    const meta = this.meta;
+    if (!meta) return false;
+    return SEATS.some((s) => !meta.header.players[s].bot && this.presence[s].connected);
+  }
+
   private async afterCommit(events: readonly GameEvent[]): Promise<void> {
     const dealt = events.find((e) => e.type === "deal");
     if (dealt) await this.writeCurrentHand(dealt.handIndex);
@@ -1848,15 +1984,67 @@ export class TableCore {
       // The row's facts are read off the book BEFORE advancing, because the
       // next deal resets them.
       const row = { dealerRepeat: this.book.dealerRepeat, startedAt: this.book.handStartedAt };
-      // Advance FIRST. `startNextHand` either deals the next hand or emits the
-      // `matchEnd`, and a matchEnd carries the ENDING hand's index — sealing
-      // before it lands would archive a hand missing its last event.
-      await this.advance(ended.payload);
-      await this.sealHand(ended.handIndex, ended.payload, row);
+      if (ended.payload.nextHandTs !== undefined) {
+        // Hold: `commit` already stamped `nextHandTs` on the wire event, so
+        // this is the SAME deadline the client was told about — never a
+        // freshly computed one. Neither `advance` nor `sealHand` runs until
+        // `dispatchNextHand` (the `nextHand` deadline, or every connected
+        // human's `requestNextHand`).
+        this.book.pendingHandEnd = { handIndex: ended.handIndex, payload: ended.payload, row };
+        this.book.nextHandRequests = [false, false, false, false];
+        this.setDeadline("nextHand", ended.payload.nextHandTs, `hand:${ended.handIndex}`);
+      } else {
+        // Advance FIRST. `startNextHand` either deals the next hand or emits
+        // the `matchEnd`, and a matchEnd carries the ENDING hand's index —
+        // sealing before it lands would archive a hand missing its last event.
+        await this.advance(ended.payload);
+        await this.sealHand(ended.handIndex, ended.payload, row);
+      }
     }
     if (this.book.matchOver) this.setDeadline("outboxFlush", this.deps.clock(), "flush");
     await this.persistCore();
     await this.rearm();
+  }
+
+  /**
+   * Ends the hand-end intermission: deals the next hand (or ends the match),
+   * then seals the just-ended one — exactly the order `afterCommit` ran them
+   * in before this feature existed, just deferred. Reached from the
+   * `nextHand` deadline (`dispatch`) or early, once every connected human has
+   * sent `requestNextHand` (`handleRequestNextHand`).
+   */
+  private async dispatchNextHand(): Promise<void> {
+    const pending = this.book.pendingHandEnd;
+    if (!pending) return;
+    await this.advance(pending.payload);
+    await this.sealHand(pending.handIndex, pending.payload, pending.row);
+    this.book.pendingHandEnd = null;
+    this.book.nextHandRequests = [false, false, false, false];
+    this.clearDeadline("nextHand");
+    await this.persistCore();
+    await this.rearm();
+  }
+
+  /** Every connected human seat has sent `requestNextHand` — a bot seat, or a
+   *  human seat with no open socket right now, is not in the way. */
+  private allConnectedHumansRequestedNextHand(): boolean {
+    const meta = this.requireMeta();
+    return SEATS.every((s) => {
+      if (meta.header.players[s].bot) return true;
+      if (!this.presence[s].connected) return true;
+      return this.book.nextHandRequests[s];
+    });
+  }
+
+  private async handleRequestNextHand(seat: SeatIndex, ws: SeatSocket, requestId: string): Promise<void> {
+    if (!this.book.pendingHandEnd) {
+      this.send(ws, rejected(requestId, "notALegalMove", "no hand-end intermission is open"));
+      return;
+    }
+    this.book.nextHandRequests[seat] = true;
+    await this.persistCore();
+    this.send(ws, accepted(requestId, this.seq));
+    if (this.allConnectedHumansRequestedNextHand()) await this.dispatchNextHand();
   }
 
   /**
@@ -1943,6 +2131,7 @@ export class TableCore {
         playerId: this.meta?.header.players[seat].playerId ?? "",
         displayName: this.meta?.header.players[seat].displayName ?? "",
         bot: this.meta?.header.players[seat].bot ?? false,
+        auto: this.book.auto[seat],
       },
     };
     for (const ws of this.ctx.getWebSockets()) this.send(ws, msg);
@@ -2077,6 +2266,21 @@ export class TableCore {
    */
   private async rearm(): Promise<void> {
     if (this.tombstone) return;
+    if (this.book.paused) {
+      // Time stops: every other deadline's `at` sits untouched in the map
+      // (`resumeNow` shifts them all at once) but NONE of them may fire while
+      // paused, so the alarm is pinned to `pauseTimeout` alone — the one
+      // deadline that must still go off on schedule (§requestPause).
+      const pt = this.deadlines["pauseTimeout"];
+      if (!pt) {
+        await this.ctx.storage.deleteAlarm();
+        return;
+      }
+      const current = await this.ctx.storage.getAlarm();
+      if (current === pt.at) return;
+      await this.ctx.storage.setAlarm(pt.at);
+      return;
+    }
     const names = sortedKeys(this.deadlines);
     let earliest = Number.POSITIVE_INFINITY;
     for (const name of names) earliest = Math.min(earliest, this.deadlines[name].at);
@@ -2109,8 +2313,17 @@ export class TableCore {
     await this.rearm();
   }
 
-  /** Earliest due entry, ties broken by name — deterministic, never map order. */
+  /** Earliest due entry, ties broken by name — deterministic, never map order.
+   *  While paused, ONLY `pauseTimeout` may come due: every other entry sits
+   *  frozen with its pre-pause `at`, which by the time `pauseMaxMs` elapses is
+   *  almost certainly also "due" by the clock — surfacing it here would
+   *  dispatch (and so, one line up in `alarm`, PERMANENTLY DELETE) a turn
+   *  clock or a claim window that `resumeNow` still needs to shift. */
   private nextDue(now: number): DeadlineName | null {
+    if (this.book.paused) {
+      const pt = this.deadlines["pauseTimeout"];
+      return pt && pt.at <= now ? "pauseTimeout" : null;
+    }
     let best: DeadlineName | null = null;
     let bestAt = Number.POSITIVE_INFINITY;
     for (const name of sortedKeys(this.deadlines)) {
@@ -2126,8 +2339,10 @@ export class TableCore {
 
   private async dispatch(name: DeadlineName): Promise<void> {
     if (name === "outboxFlush") return this.flushOutbox();
+    if (name === "pauseTimeout") return this.autoResume();
     if (this.book.matchOver) return;
     if (name === "claimWindow") return this.closeWindow();
+    if (name === "nextHand") return this.dispatchNextHand();
     if (name === "turnClock") {
       // The seat's clock ran out. Handing the move to the bot immediately leaks
       // nothing: the window already ran its full length, which is the maximum
@@ -2155,9 +2370,129 @@ export class TableCore {
     this.broadcastPresence(seat);
   }
 
+  /* ── pause / resume ──────────────────────────────────────────────────── */
+
+  /** Any human seat may pause the table — simplest form, no confirmation. */
+  private async handlePause(seat: SeatIndex, ws: SeatSocket, requestId: string): Promise<void> {
+    const meta = this.requireMeta();
+    if (meta.header.players[seat].bot) {
+      this.send(ws, rejected(requestId, "pauseRefused", "bots do not pause"));
+      return;
+    }
+    if (!this.book.started) {
+      this.send(ws, rejected(requestId, "pauseRefused", "table is not full"));
+      return;
+    }
+    if (this.book.paused) {
+      this.send(ws, rejected(requestId, "pauseRefused", "already paused"));
+      return;
+    }
+    const now = this.deps.clock();
+    this.book.paused = { bySeat: seat, at: now };
+    // The one deadline `rearm` still arms while paused (§DeadlineName).
+    this.setDeadline("pauseTimeout", now + this.config.pauseMaxMs, `pause:${this.seq}`);
+    await this.persistCore();
+    await this.rearm();
+    this.send(ws, accepted(requestId, this.seq));
+    this.broadcastPaused(true, seat, meta.header.players[seat].displayName);
+  }
+
+  /** Any human seat may resume — not only the one that paused it. */
+  private async handleResume(seat: SeatIndex, ws: SeatSocket, requestId: string): Promise<void> {
+    const meta = this.requireMeta();
+    if (meta.header.players[seat].bot) {
+      this.send(ws, rejected(requestId, "pauseRefused", "bots do not resume"));
+      return;
+    }
+    if (!this.book.paused) {
+      this.send(ws, rejected(requestId, "pauseRefused", "not paused"));
+      return;
+    }
+    await this.resumeNow(seat, meta.header.players[seat].displayName);
+    this.send(ws, accepted(requestId, this.seq));
+  }
+
+  /** `dispatch("pauseTimeout")`: `TableConfig.pauseMaxMs` elapsed with nobody
+   *  resuming. `bySeat`/`displayName` fall back to the original pauser's —
+   *  nobody else acted, so there is no other seat to credit the resume to. */
+  private async autoResume(): Promise<void> {
+    const paused = this.book.paused;
+    if (!paused) return;
+    const player = this.requireMeta().header.players[paused.bySeat];
+    await this.resumeNow(paused.bySeat, player.displayName);
+  }
+
+  /**
+   * Shared by an explicit `requestResume` and `autoResume`: shift every
+   * deadline (except `pauseTimeout`, which is about to be cleared) and the
+   * open window's `closesAt`, if any, by however long the pause actually
+   * lasted — `now - paused.at` — so a clock that had 7s left when it froze
+   * has exactly 7s left once time moves again. `armDerived` runs nowhere in
+   * here on purpose: shifting is the whole story, and re-deriving from
+   * scratch (a fresh `turnMs`) is exactly the bug this function exists to
+   * avoid.
+   */
+  private async resumeNow(bySeat: SeatIndex, displayName: string): Promise<void> {
+    const paused = this.book.paused;
+    if (!paused) return;
+    const shift = this.deps.clock() - paused.at;
+    for (const name of sortedKeys(this.deadlines)) {
+      if (name === "pauseTimeout") continue;
+      const entry = this.deadlines[name];
+      this.deadlines[name] = { ...entry, at: entry.at + shift };
+    }
+    if (this.window) this.window = { ...this.window, closesAt: this.window.closesAt + shift };
+    this.clearDeadline("pauseTimeout");
+    this.book.paused = null;
+    await this.persistCore();
+    await this.rearm();
+    // Every seat's `deadlineTs` just moved — tell them, the same way a fresh
+    // commit does.
+    this.sendPrompts();
+    this.broadcastPaused(false, bySeat, displayName);
+  }
+
+  private broadcastPaused(on: boolean, bySeat: SeatIndex, displayName: string): void {
+    const msg: ServerToSeat = {
+      p: PROTOCOL_VERSION,
+      type: "paused",
+      payload: { on, bySeat, displayName, ts: this.deps.clock() },
+    };
+    for (const ws of this.ctx.getWebSockets()) this.send(ws, msg);
+  }
+
+  /* ── auto-play ───────────────────────────────────────────────────────── */
+
+  /**
+   * `requestAuto { on }`: while on, this seat plays exactly like a disconnect
+   * takeover (`isBotControlled` folds `book.auto` in), until it is turned off
+   * here or `submit` turns it off on the seat's own next game request.
+   */
+  private async handleAuto(seat: SeatIndex, on: boolean, ws: SeatSocket, requestId: string): Promise<void> {
+    const meta = this.requireMeta();
+    if (meta.header.players[seat].bot) {
+      this.send(ws, rejected(requestId, "autoRefused", "bots do not toggle auto"));
+      return;
+    }
+    if (!this.book.started) {
+      this.send(ws, rejected(requestId, "autoRefused", "table is not full"));
+      return;
+    }
+    this.book.auto[seat] = on;
+    this.armDerived(this.deps.clock());
+    await this.persistCore();
+    this.send(ws, accepted(requestId, this.seq));
+    this.broadcastPresence(seat);
+    await this.rearm();
+  }
+
   private isBotControlled(seat: SeatIndex): boolean {
     const meta = this.meta;
-    return (meta?.header.players[seat].bot ?? false) || this.presence[seat].botActing;
+    return (
+      (meta?.header.players[seat].bot ?? false) ||
+      this.presence[seat].botActing ||
+      this.book.auto[seat]
+    );
   }
 
   /**

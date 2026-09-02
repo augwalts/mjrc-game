@@ -147,6 +147,17 @@ export interface RequestRobKongPayload {
   offerSeq: number;
 }
 
+/**
+ * `requestAuto { on }` — player-toggled auto-play: while on, the table plays
+ * this seat exactly as it does after a disconnect takeover (the bot brain, on
+ * `botPace` pacing, over the same redacted view) until the player turns it
+ * off or sends any game request themselves, which turns it off first and then
+ * applies the move as normal (worker/src/table.ts `submit`).
+ */
+export interface RequestAutoPayload {
+  on: boolean;
+}
+
 export type ClientRequest =
   | RequestEnvelope<"join", JoinPayload>
   | RequestEnvelope<"resync", ResyncPayload>
@@ -165,7 +176,14 @@ export type ClientRequest =
   | RequestEnvelope<"requestWinOnDiscard", RequestWinOnDiscardPayload>
   | RequestEnvelope<"requestRobKong", RequestRobKongPayload>
   /** 自摸 on your own draw. */
-  | RequestEnvelope<"requestWinOnSelfDraw", Record<string, never>>;
+  | RequestEnvelope<"requestWinOnSelfDraw", Record<string, never>>
+  /** Any human seat may pause or resume the table (live-demo feature). */
+  | RequestEnvelope<"requestPause", Record<string, never>>
+  | RequestEnvelope<"requestResume", Record<string, never>>
+  /** Ends the hand-end intermission early once every connected human seat
+   *  has sent it. */
+  | RequestEnvelope<"requestNextHand", Record<string, never>>
+  | RequestEnvelope<"requestAuto", RequestAutoPayload>;
 
 export type ClientRequestType = ClientRequest["type"];
 
@@ -182,6 +200,10 @@ export const CLIENT_REQUEST_TYPES = [
   "requestWinOnDiscard",
   "requestRobKong",
   "requestWinOnSelfDraw",
+  "requestPause",
+  "requestResume",
+  "requestNextHand",
+  "requestAuto",
 ] as const satisfies readonly ClientRequestType[];
 
 type SameKeys<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
@@ -216,6 +238,8 @@ export interface SeatDirectoryEntry {
   displayName: string;
   bot: boolean;
   connected: boolean;
+  /** Player-toggled auto-play is on for this seat (§`RequestAutoPayload`). */
+  auto: boolean;
 }
 
 /**
@@ -233,6 +257,13 @@ export interface ChatMessagePayload {
   ts: number;
 }
 
+/** Who has the table paused, and since when (worker/src/table.ts `book.paused`). */
+export interface PausedState {
+  bySeat: SeatIndex;
+  displayName: string;
+  since: number;
+}
+
 export interface WelcomePayload {
   matchId: string;
   /** The seat this socket is bound to. Every redaction is relative to it. */
@@ -245,6 +276,8 @@ export interface WelcomePayload {
   /** The table's last 50 chat messages (§8), oldest first, so a joiner meets
    *  the conversation already in progress. */
   chat: ChatMessagePayload[];
+  /** `null` unless the table is currently paused. */
+  paused: PausedState | null;
 }
 
 /** The reply to `resync`: snapshot + everything after it (§5.3). */
@@ -256,6 +289,8 @@ export interface RestorePayload {
   /** Same ring `WelcomePayload.chat` carries — a reconnect gets chat history
    *  exactly like a fresh join does (§8). */
   chat: ChatMessagePayload[];
+  /** `null` unless the table is currently paused. */
+  paused: PausedState | null;
 }
 
 export interface EventsPayload {
@@ -327,7 +362,15 @@ export type RejectCode =
   /** A `chat` request that failed validation: neither/both of text and
    *  phrase set, text too long, the per-seat 1/s limit, or a bot seat (bots
    *  never chat, §8). */
-  | "chatRefused";
+  | "chatRefused"
+  /** `requestPause`/`requestResume` refused: a bot seat, the table is not
+   *  full, the match is over, or the request does not match the current
+   *  pause state (pausing while already paused, resuming while not). */
+  | "pauseRefused"
+  /** Any game request (`request*`) sent while the table is paused. */
+  | "paused"
+  /** `requestAuto` refused: a bot seat, or the table is not full. */
+  | "autoRefused";
 
 export interface RejectedPayload {
   requestId: string;
@@ -353,6 +396,25 @@ export interface PresencePayload {
    * the table can show it rather than letting the seat look merely slow.
    */
   botActing: boolean;
+  /**
+   * Player-toggled auto-play (`RequestAutoPayload`), distinct from
+   * `botActing`: it survives a reconnect and only a fresh game request or an
+   * explicit `requestAuto { on: false }` clears it.
+   */
+  auto: boolean;
+}
+
+/**
+ * Broadcast on both a pause and a resume (worker/src/table.ts `handlePause` /
+ * `resumeNow`). `bySeat`/`displayName` name the seat that paused the table;
+ * on an auto-resume (`TableConfig.pauseMaxMs` elapsed with nobody resuming)
+ * they are still the pauser's, since nobody else acted.
+ */
+export interface PausedPayload {
+  on: boolean;
+  bySeat: SeatIndex;
+  displayName: string;
+  ts: number;
 }
 
 /** Transport-level failure, distinct from a refused move. */
@@ -386,6 +448,7 @@ export type ServerToSeat =
   | ServerEnvelope<"accepted", AcceptedPayload>
   | ServerEnvelope<"rejected", RejectedPayload>
   | ServerEnvelope<"presence", PresencePayload>
+  | ServerEnvelope<"paused", PausedPayload>
   | ServerEnvelope<"heartbeat", Record<string, never>>
   | ServerEnvelope<"protocolFault", ProtocolFaultPayload>;
 

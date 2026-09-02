@@ -40,6 +40,14 @@ Open http://localhost:8877 — Basic Auth, any username, password from
 carry `TABLE_SECRET` and `TABLE_CONFIG`. **A `.dev.vars` change needs a server
 restart**; source changes hot-reload (and drop live sockets).
 
+`TABLE_CONFIG` (`worker/src/table.ts` `TableConfig`) also carries
+`pauseMaxMs` (a pause auto-resumes after this long; default 10 minutes) and
+`handEndIntermissionMs` (how long a `handEnd` is held, when a human seat is
+connected, before the next hand is dealt; default 10s, `.dev.vars` sets it to
+1s so the smoke test does not sit through it). `handEndIntermissionMs: 0`
+disables the intermission — the table advances the instant a hand ends, same
+as before the feature existed.
+
 ## Prove a match end to end
 
 ```sh
@@ -58,6 +66,10 @@ MJRC_SEATS="human,human,bot:v1,bot:v2" MJRC_START=1 node gamepvp/test/smoke.mjs
 # ranked settlement: all four seats human (the server refuses any bot in a
 # ranked table); after matchEnd, GET /api/stats/me must show a real rating
 MJRC_MODE=ranked MJRC_HUMANS=4 node gamepvp/test/smoke.mjs
+
+# pause/resume: seat 0 pauses for 3s during hand 0, then resumes; the match
+# still runs to completion
+MJRC_PAUSE=1 node gamepvp/test/smoke.mjs
 
 # gate 2: the archived log re-executes to itself
 node gamepvp/test/assemble-log.mjs gamepvp/.wrangler/logs <matchId>

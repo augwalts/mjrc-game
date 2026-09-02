@@ -307,6 +307,15 @@ export interface HandEndPayload {
   nextDealer: SeatIndex;
   /** Advances when the deal passes East's seat a full cycle (§4). */
   nextRoundWind: WindIndex;
+  /**
+   * When the table holds this hand's end for the intermission (a connected
+   * human seat and `TableConfig.handEndIntermissionMs > 0`), the wall-clock
+   * deadline the next deal fires on — stamped by the table the way
+   * `stampWindowDeadline` stamps a claim's `deadlineTs`; it is a coordination
+   * fact, so the reducer never sets it. Absent when the table advances at
+   * once (no human connected, or the intermission is disabled).
+   */
+  nextHandTs?: number;
 }
 
 export interface MatchEndPayload {

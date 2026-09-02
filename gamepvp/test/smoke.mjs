@@ -89,6 +89,14 @@ const MODE = process.env.MJRC_MODE === "ranked" ? "ranked" : "casual";
  * creator, plus the one left open) and is meaningless without it.
  */
 const START = process.env.MJRC_START === "1";
+/**
+ * Pauses the table for 3s and resumes once, during hand 0 (right after every
+ * socket has joined — hand 0 is dealt at table-creation time and the claim
+ * window alone takes seconds on the fast local clocks, so there is no risk of
+ * missing it). Exercises `requestPause`/`requestResume` end to end and checks
+ * the match still completes afterwards.
+ */
+const PAUSE_TEST = process.env.MJRC_PAUSE === "1";
 
 const GATE_HEX = createHash("sha256").update(`mjrc-gate:${GATE_PASSWORD}`).digest("hex");
 const GATE_COOKIE = `mjrc_gate=${GATE_HEX}`;
@@ -186,6 +194,21 @@ function handleEvents(events) {
   }
 }
 
+/**
+ * Ends the hand-end intermission early (worker/src/table.ts
+ * `handleRequestNextHand`) instead of waiting the full `handEndIntermissionMs`
+ * on every hand. PER-SOCKET, deliberately outside
+ * `handleEvents`'s global `seenSeqs` dedup: every connected human's own
+ * socket has to send its own `requestNextHand` for the server to count it,
+ * so this must run once per socket, not once per unique `seq` across all of
+ * them.
+ */
+function respondToHandEnd(events, send) {
+  for (const e of events ?? []) {
+    if (e.type === "handEnd") send("requestNextHand", {});
+  }
+}
+
 /* ── one seat's socket ─────────────────────────────────────────────────── */
 
 /** Resolves with the open WebSocket once `welcome` confirms the join. */
@@ -246,15 +269,22 @@ function openSeatSocket(human, matchUuid, resume = null) {
         case "events":
           trackSeq(msg.payload.events);
           handleEvents(msg.payload.events);
+          respondToHandEnd(msg.payload.events, send);
           break;
         case "restore":
           trackSeq(msg.payload.events);
           handleEvents(msg.payload.events);
+          respondToHandEnd(msg.payload.events, send);
           break;
         case "prompt":
           respondToPrompt(msg.payload.legal, send);
           break;
         case "presence":
+          break;
+        case "paused":
+          console.log(
+            `${label}: table ${msg.payload.on ? "paused" : "resumed"} by seat ${msg.payload.bySeat} (${msg.payload.displayName})`,
+          );
           break;
         case "heartbeat":
           send("heartbeat", {});
@@ -380,6 +410,16 @@ async function main() {
   }
 
   const sockets = await Promise.all(humans.map((h) => openSeatSocket(h, matchUuid)));
+
+  if (PAUSE_TEST) {
+    const pauser = sockets[0];
+    const send = (type, payload) => pauser.send(JSON.stringify({ p: 1, requestId: randomUUID(), type, payload }));
+    console.log("MJRC_PAUSE=1: pausing the table for 3s during hand 0");
+    send("requestPause", {});
+    await new Promise((r) => setTimeout(r, 3000));
+    console.log("MJRC_PAUSE=1: resuming");
+    send("requestResume", {});
+  }
 
   const timeout = new Promise((_, reject) =>
     setTimeout(() => reject(new Error(`overall timeout after ${TIMEOUT_MS}ms`)), TIMEOUT_MS),

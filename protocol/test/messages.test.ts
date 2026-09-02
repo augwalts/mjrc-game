@@ -77,6 +77,7 @@ describe("chat — server payload shape", () => {
       events: [],
       directory: {} as RestorePayload["directory"],
       chat,
+      paused: null,
     };
     expect(restore.chat).toHaveLength(2);
     expect(restore.chat[0]!.ts).toBeLessThan(restore.chat[1]!.ts);

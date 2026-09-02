@@ -958,11 +958,308 @@ describe("claim windows", () => {
   });
 });
 
+/* ── 3b. pause / resume ────────────────────────────────────────────────── */
+
+describe("pause / resume", () => {
+  it("stops a turn clock from expiring across the fake clock", async () => {
+    // Default turnMs (20s) and pauseMaxMs (10min): the jump below clears the
+    // turn clock's original deadline by a wide margin while staying well
+    // inside the pause's own auto-resume window.
+    const t = await seated();
+    const start = t.clock.now;
+    await request(t, 0, "requestPause", {});
+    const accepts = (t.sockets[0] as StubSocket).msgs("accepted");
+    expect(accepts.length).toBeGreaterThan(0);
+
+    const paused = (t.sockets[0] as StubSocket).msgs("paused").at(-1);
+    expect(paused?.payload).toMatchObject({ on: true, bySeat: 0, displayName: "Player 0" });
+
+    const pauseTimeout = t.core.deadlineSnapshot().find((d) => d.name === "pauseTimeout");
+    expect(pauseTimeout?.at).toBe(start + DEFAULT_TABLE_CONFIG.pauseMaxMs);
+    expect(t.ctx.storage.alarm).toBe(pauseTimeout?.at);
+
+    // Jump WAY past where the turn clock would have fired unpaused. Nothing
+    // may dispatch except pauseTimeout itself, which has not come due yet.
+    t.clock.now = start + DEFAULT_TABLE_CONFIG.turnMs + 1_000;
+    await t.core.alarm();
+    expect(t.rules.calls).toHaveLength(0);
+    expect(t.core.deadlineSnapshot()).toContainEqual({ name: "turnClock", at: start + DEFAULT_TABLE_CONFIG.turnMs });
+  });
+
+  it("restores the remaining time exactly across a pause", async () => {
+    const t = await seated({ config: { turnMs: 10_000 } });
+    const start = t.clock.now;
+    t.clock.now = start + 3_000; // 7s left on the turn clock
+    await request(t, 0, "requestPause", {});
+
+    t.clock.now = start + 3_000 + 30_000; // a 30s pause
+    // Any human may resume — not only the one who paused.
+    await request(t, 1, "requestResume", {});
+
+    const resumed = (t.sockets[1] as StubSocket).msgs("paused").at(-1);
+    expect(resumed?.payload.on).toBe(false);
+
+    const turnClock = t.core.deadlineSnapshot().find((d) => d.name === "turnClock");
+    expect(turnClock?.at).toBe(t.clock.now + 7_000);
+    expect(t.core.deadlineSnapshot().map((d) => d.name)).not.toContain("pauseTimeout");
+  });
+
+  it("shifts an open claim window's close time across a pause", async () => {
+    const t = await seated({ config: { turnMs: 10_000_000 } });
+    const start = t.clock.now;
+    await request(t, 0, "requestDiscard", { tile: 0 });
+    const before = t.core.deadlineSnapshot().find((d) => d.name === "claimWindow")?.at;
+    expect(before).toBe(start + DEFAULT_TABLE_CONFIG.claimWindowMs);
+
+    t.clock.now = start + 100;
+    await request(t, 1, "requestPause", {});
+    t.clock.now = start + 100 + 5_000; // a 5s pause
+    await request(t, 1, "requestResume", {});
+
+    const after = t.core.deadlineSnapshot().find((d) => d.name === "claimWindow")?.at;
+    expect(after).toBe((before ?? 0) + 5_000);
+
+    // The window still resolves normally once resumed.
+    t.clock.now = (after ?? 0) + 1;
+    await t.core.alarm();
+    expect(t.rules.calls.slice(1).map((a) => a.type)).toContain("pass");
+  });
+
+  it("rejects a game request while paused", async () => {
+    const t = await seated({ config: { turnMs: 10_000_000 } });
+    await request(t, 0, "requestPause", {});
+    await request(t, 0, "requestDiscard", { tile: 0 });
+    const rejects = (t.sockets[0] as StubSocket).msgs("rejected");
+    expect(rejects.at(-1)?.payload.code).toBe("paused");
+    expect(t.rules.calls).toHaveLength(0);
+  });
+
+  it("refuses a pause or a resume from a bot seat", async () => {
+    const t = await makeTable({ botSeats: [1, 2, 3] });
+    await join(t, 0); // fills the table: seats 1-3 are bots
+    // A socket bound to a bot-labelled seat, for exercising the guard only —
+    // production bots never open a socket.
+    const botSocket = await join(t, 1);
+    await request(t, 1, "requestPause", {});
+    expect(botSocket.msgs("rejected").at(-1)?.payload.code).toBe("pauseRefused");
+
+    await request(t, 0, "requestPause", {});
+    await request(t, 1, "requestResume", {});
+    expect(botSocket.msgs("rejected").at(-1)?.payload.code).toBe("pauseRefused");
+  });
+
+  it("refuses pausing twice, and resuming when not paused", async () => {
+    const t = await seated({ config: { turnMs: 10_000_000 } });
+    await request(t, 0, "requestResume", {});
+    expect((t.sockets[0] as StubSocket).msgs("rejected").at(-1)?.payload.code).toBe("pauseRefused");
+
+    await request(t, 0, "requestPause", {});
+    await request(t, 1, "requestPause", {});
+    expect((t.sockets[1] as StubSocket).msgs("rejected").at(-1)?.payload.code).toBe("pauseRefused");
+  });
+
+  it("auto-resumes once pauseMaxMs elapses with nobody resuming", async () => {
+    const t = await seated({ config: { turnMs: 10_000_000, pauseMaxMs: 5_000 } });
+    const start = t.clock.now;
+    await request(t, 0, "requestPause", {});
+
+    t.clock.now = start + 5_000 + 1;
+    await t.core.alarm();
+
+    const msgs = (t.sockets[0] as StubSocket).msgs("paused");
+    const last = msgs.at(-1);
+    expect(last?.payload).toMatchObject({ on: false, bySeat: 0, displayName: "Player 0" });
+    expect(t.core.deadlineSnapshot().map((d) => d.name)).not.toContain("pauseTimeout");
+    // A discard now goes through — the table is live again.
+    await request(t, 0, "requestDiscard", { tile: 0 });
+    expect(t.rules.calls.map((a) => a.type)).toEqual(["discard"]);
+  });
+
+  it("carries the paused state on welcome and restore", async () => {
+    const t = await seated({ config: { turnMs: 10_000_000 } });
+    await request(t, 0, "requestPause", {});
+
+    const three = t.sockets[3] as StubSocket;
+    three.close();
+    await t.core.webSocketClose(three);
+    const back = await join(t, 3);
+    expect(back.msgs("welcome").at(-1)?.payload.paused).toMatchObject({ bySeat: 0, displayName: "Player 0" });
+
+    await request(t, 3, "resync", { sinceSeq: -1 });
+    expect(back.msgs("restore").at(-1)?.payload.paused).toMatchObject({ bySeat: 0, displayName: "Player 0" });
+  });
+});
+
+/* ── 3c. the hand-end intermission ─────────────────────────────────────── */
+
+describe("hand-end intermission", () => {
+  it("holds the next deal and stamps nextHandTs when a human is connected", async () => {
+    const t = await seated({ config: { turnMs: 10_000_000, handEndIntermissionMs: 5_000 } });
+    const start = t.clock.now;
+    await request(t, 0, "requestWinOnSelfDraw", {});
+
+    // handEnd landed but the next hand has NOT been dealt yet.
+    expect(t.core.viewFor(0).handIndex).toBe(0);
+
+    const zero = t.sockets[0] as StubSocket;
+    const handEnd = zero
+      .msgs("events")
+      .flatMap((m) => m.payload.events)
+      .find((e) => e.type === "handEnd");
+    expect(handEnd).toBeDefined();
+    if (!handEnd || handEnd.type !== "handEnd") throw new Error("no handEnd");
+    expect(handEnd.payload.nextHandTs).toBe(start + 5_000);
+    expect(t.core.deadlineSnapshot()).toContainEqual({ name: "nextHand", at: start + 5_000 });
+
+    t.clock.now = start + 5_000 + 1;
+    await t.core.alarm();
+    expect(t.core.viewFor(0).handIndex).toBe(1);
+  });
+
+  it("advances at once when no human seat is connected", async () => {
+    const t = await seated({
+      botSeats: [1, 2, 3],
+      config: { turnMs: 10_000_000, handEndIntermissionMs: 5_000 },
+    });
+    const zero = t.sockets[0] as StubSocket;
+    zero.close();
+    await t.core.webSocketClose(zero);
+
+    await request(t, 0, "requestWinOnSelfDraw", {});
+    expect(t.core.viewFor(0).handIndex).toBe(1);
+  });
+
+  it("ends the intermission early once every connected human has requested the next hand", async () => {
+    const t = await seated({ config: { turnMs: 10_000_000, handEndIntermissionMs: 60_000 } });
+    await request(t, 0, "requestWinOnSelfDraw", {});
+    expect(t.core.viewFor(0).handIndex).toBe(0);
+
+    for (const seat of [0, 1, 2] as SeatIndex[]) {
+      await request(t, seat, "requestNextHand", {});
+      expect(t.core.viewFor(0).handIndex).toBe(0); // still waiting on seat 3
+    }
+    await request(t, 3, "requestNextHand", {});
+    expect(t.core.viewFor(0).handIndex).toBe(1);
+  });
+
+  it("seals the outgoing hand into the archive only after the intermission's deal", async () => {
+    const t = await seated({ config: { turnMs: 10_000_000, handEndIntermissionMs: 5_000 } });
+    const start = t.clock.now;
+    await request(t, 0, "requestWinOnSelfDraw", {});
+    expect(t.archive.results).toHaveLength(0);
+
+    t.clock.now = start + 5_000 + 1;
+    await t.core.alarm(); // nextHand -> advance + sealHand -> outboxFlush, all in one alarm
+    expect(t.archive.results).toHaveLength(1);
+    expect(t.archive.results[0].handIndex).toBe(0);
+  });
+
+  it("still ends the match after the last hand's intermission", async () => {
+    const t = await seated({
+      config: { turnMs: 10_000_000, handEndIntermissionMs: 5_000 },
+      matchOverAfterHands: 1,
+    });
+    const start = t.clock.now;
+    await request(t, 0, "requestWinOnSelfDraw", {});
+
+    t.clock.now = start + 5_000 + 1;
+    await t.core.alarm();
+
+    const zero = t.sockets[0] as StubSocket;
+    const matchEnd = zero
+      .msgs("events")
+      .flatMap((m) => m.payload.events)
+      .find((e) => e.type === "matchEnd");
+    expect(matchEnd).toBeDefined();
+  });
+
+  it("shifts the nextHand deadline across a pause during the intermission", async () => {
+    const t = await seated({ config: { turnMs: 10_000_000, handEndIntermissionMs: 5_000 } });
+    const start = t.clock.now;
+    await request(t, 0, "requestWinOnSelfDraw", {});
+    const before = t.core.deadlineSnapshot().find((d) => d.name === "nextHand")?.at;
+    expect(before).toBe(start + 5_000);
+
+    await request(t, 1, "requestPause", {});
+    t.clock.now = start + 3_000; // a 3s pause
+    await request(t, 1, "requestResume", {});
+
+    const after = t.core.deadlineSnapshot().find((d) => d.name === "nextHand")?.at;
+    expect(after).toBe((before ?? 0) + 3_000);
+  });
+});
+
+/* ── 3d. auto-play ──────────────────────────────────────────────────────── */
+
+describe("auto-play", () => {
+  it("plays a seat's turn via the bot brain while auto is on", async () => {
+    const t = await seated({ config: { turnMs: 10_000_000 } });
+    const start = t.clock.now;
+    await request(t, 0, "requestAuto", { on: true });
+    expect((t.sockets[0] as StubSocket).msgs("accepted").length).toBeGreaterThan(0);
+
+    const presence = (t.sockets[1] as StubSocket).msgs("presence");
+    expect(presence.some((m) => m.payload.seat === 0 && m.payload.auto === true)).toBe(true);
+    expect(t.core.deadlineSnapshot().map((d) => d.name)).toContain("botPace:0");
+    expect(t.bots.decideCalls).toHaveLength(0); // never synchronous
+
+    t.clock.now = start + t.bots.pace + 1;
+    await t.core.alarm();
+    expect(t.bots.decideCalls.some((c) => c.seat === 0)).toBe(true);
+    expect(t.rules.calls.map((a) => a.type)).toContain("discard");
+  });
+
+  it("turns auto off when the seat sends a game request itself, and applies the move", async () => {
+    const t = await seated({ config: { turnMs: 10_000_000 } });
+    await request(t, 0, "requestAuto", { on: true });
+    await request(t, 0, "requestDiscard", { tile: 0 });
+
+    expect(t.rules.calls.map((a) => a.type)).toEqual(["discard"]);
+    const presence = (t.sockets[1] as StubSocket).msgs("presence");
+    expect(presence.some((m) => m.payload.seat === 0 && m.payload.auto === false)).toBe(true);
+    expect(t.core.deadlineSnapshot().map((d) => d.name)).not.toContain("botPace:0");
+  });
+
+  it("survives a reconnect, unlike a disconnect takeover", async () => {
+    const t = await seated({ config: { turnMs: 10_000_000 } });
+    await request(t, 0, "requestAuto", { on: true });
+
+    const zero = t.sockets[0] as StubSocket;
+    zero.close();
+    await t.core.webSocketClose(zero);
+    const back = await join(t, 0);
+
+    const welcome = back.msgs("welcome").at(-1);
+    expect(welcome?.payload.directory[0]).toMatchObject({ auto: true, connected: true, bot: false });
+  });
+
+  it("refuses requestAuto before the table is full", async () => {
+    // botSeats: [] — every seat is human, so joining only seat 0 leaves the
+    // table short and the clocks unstarted.
+    const t = await makeTable({ botSeats: [] });
+    const zero = await join(t, 0);
+    await request(t, 0, "requestAuto", { on: true });
+    expect(zero.msgs("rejected").at(-1)?.payload.code).toBe("autoRefused");
+  });
+
+  it("refuses requestAuto from a bot seat", async () => {
+    const t = await makeTable({ botSeats: [1, 2, 3] });
+    await join(t, 0); // fills the table: seats 1-3 are bots
+    const botSocket = await join(t, 1);
+    await request(t, 1, "requestAuto", { on: true });
+    expect(botSocket.msgs("rejected").at(-1)?.payload.code).toBe("autoRefused");
+  });
+});
+
 /* ── 4. the outbox ─────────────────────────────────────────────────────── */
 
 describe("outbox", () => {
   it("keeps a hand's events until BOTH sinks confirm, and retries the failing one", async () => {
-    const t = await seated({ config: { turnMs: 10_000_000 } });
+    // handEndIntermissionMs: 0 — this suite is about the outbox, not the
+    // hand-end intermission (its own describe block above); disabling it
+    // keeps a win advancing and sealing at once, same as before that feature
+    // existed.
+    const t = await seated({ config: { turnMs: 10_000_000, handEndIntermissionMs: 0 } });
     t.archive.failLogTimes = 2;
     await request(t, 0, "requestWinOnSelfDraw", {});
 
@@ -992,7 +1289,7 @@ describe("outbox", () => {
   });
 
   it("archives the whole hand, contiguous and in order", async () => {
-    const t = await seated({ config: { turnMs: 10_000_000 } });
+    const t = await seated({ config: { turnMs: 10_000_000, handEndIntermissionMs: 0 } });
     await request(t, 0, "requestDiscard", { tile: 0 });
     t.clock.now += DEFAULT_TABLE_CONFIG.claimWindowMs + 1;
     await t.core.alarm();
@@ -1014,7 +1311,7 @@ describe("outbox", () => {
   });
 
   it("never drops an event when a sink fails forever", async () => {
-    const t = await seated({ config: { turnMs: 10_000_000 } });
+    const t = await seated({ config: { turnMs: 10_000_000, handEndIntermissionMs: 0 } });
     t.archive.failLogTimes = 50;
     t.archive.failResultTimes = 50;
     await request(t, 0, "requestWinOnSelfDraw", {});
@@ -1032,7 +1329,10 @@ describe("outbox", () => {
   });
 
   it("is disposable at MATCH_END, and not before", async () => {
-    const t = await seated({ config: { turnMs: 10_000_000 }, matchOverAfterHands: 1 });
+    const t = await seated({
+      config: { turnMs: 10_000_000, handEndIntermissionMs: 0 },
+      matchOverAfterHands: 1,
+    });
     t.archive.failLogTimes = 1;
     await request(t, 0, "requestWinOnSelfDraw", {});
 
@@ -1053,7 +1353,7 @@ describe("outbox", () => {
   });
 
   it("summarises the hand into the D1 row from the events, not from a guess", async () => {
-    const t = await seated({ config: { turnMs: 10_000_000 } });
+    const t = await seated({ config: { turnMs: 10_000_000, handEndIntermissionMs: 0 } });
     await request(t, 0, "requestWinOnSelfDraw", {});
     t.clock.now += 1;
     await t.core.alarm();
