@@ -6,17 +6,17 @@ bots, and two clients.
 
 ## Two versions
 
-| | **Solo** | **gamepvp** |
+| | **the demo** | **gamepvp** |
 | --- | --- | --- |
 | What | The live demo: you against three bots, everything runs in the browser | Real-time play against people, server-authoritative |
 | Source | `client/game/` | `client/gamepvp/` + `gamepvp/` (the Worker) |
 | Built into | `deploy/` (`tools/publish-demo.sh`) | `gamepvp/assets/` |
 | Cloudflare | Pages project `mjrc-game` → game.mahjongresearch.com | Worker `mjrc-gamepvp` → gamepvp.mahjongresearch.com |
-| Status | **Frozen** at tag `solo-1.0` | In build — see `../PVP-MULTIPLAYER-PLAN-2026-09-01.md` |
+| Status | Live; pinned at tag `demo-2026-09-01` | In build — see `../PVP-MULTIPLAYER-PLAN-2026-09-01.md` |
 
-Solo is frozen on purpose: its action logs replay through the reducer, so a
+The demo is pinned at a tag on purpose: its action logs replay through the reducer, so a
 rebuild against a newer engine would silently change what old records mean. A
-Solo fix is built from the tag in a worktree, and `deploy/` is never rebuilt
+demo fix is built from the tag in a worktree, and `deploy/` is never rebuilt
 from a newer engine. gamepvp work never touches `client/game/` or `deploy/`.
 
 ## Packages
@@ -27,7 +27,7 @@ from a newer engine. gamepvp work never touches `client/game/` or `deploy/`.
 | `rulesets/` | `@mjrc/rulesets` — ruleset presets as data (`mjrc-standard`, `tvb-2026`, …) |
 | `protocol/` | `@mjrc/protocol` — client/server messages, omniscient vs per-seat event serializers |
 | `worker/` | Table Durable Object (`src/table.ts`), platform routes (`src/index.ts`), D1 schema |
-| `client/` | `game/` Solo · `gamepvp/` the PvP client · `src/` the `MatchScene` renderer boundary |
+| `client/` | `game/` the demo · `gamepvp/` the PvP client · `src/` the `MatchScene` renderer boundary |
 | `gamepvp/` | The gamepvp Worker project: wrangler config, entry, static assets |
 | `tools/` | sim/training stack, replay, validation, `publish-demo.sh` |
 
