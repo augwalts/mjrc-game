@@ -90,6 +90,11 @@ class StubStorage implements TableStorage {
   map = new Map<string, string>();
   alarm: number | null = null;
   setAlarmCalls = 0;
+  /** Every key ever handed to `put`, in call order — this is what Cloudflare
+   *  bills as "rows written" (one row per key per `put`, regardless of
+   *  whether the value actually changed). The row-budget instrumentation
+   *  below (`describe("row-write budget")`) reduces this list to a count. */
+  putKeyLog: string[] = [];
 
   async get<T>(key: string): Promise<T | undefined> {
     const raw = this.map.get(key);
@@ -98,6 +103,7 @@ class StubStorage implements TableStorage {
   async put(entries: Record<string, unknown>): Promise<void> {
     for (const key of Object.keys(entries).sort()) {
       const value = entries[key];
+      this.putKeyLog.push(key);
       if (value === undefined) this.map.delete(key);
       else this.map.set(key, JSON.stringify(value));
     }
@@ -2036,6 +2042,63 @@ describe("binding to engine/src/reducer.ts", () => {
     // The hand is forgotten only because both sinks confirmed.
     expect(ctx.storage.keysWithPrefix("ev:0000:")).toHaveLength(0);
     expect(ctx.storage.keysWithPrefix("ob:0000")).toHaveLength(0);
+  });
+
+  /**
+   * Cloudflare's Durable Object row-write quota (Workers Free: 100k/day) is
+   * charged one row per KEY per `storage.put` call — `StubStorage.putKeyLog`
+   * (above) mirrors that exactly. Before `persistCore`/`commit` diffed
+   * against `lastWritten`, `persistCore` wrote all seven core keys on every
+   * commit AND again, unconditionally, at the end of `afterCommit`, plus
+   * again before every alarm dispatch — measured directly against this SAME
+   * driver (same seed, same bots), that cost 2,962 rows for a 231-event
+   * hand, so the number below is measured here, not asserted from memory.
+   */
+  it("writes fewer than half the storage rows for a whole hand than before persistCore diffed", async () => {
+    const ctx = new StubCtx();
+    const archive = new StubArchive();
+    const clock = { now: 1_700_000_000_000 };
+    const core = new TableCore(ctx, {}, {
+      rules: engine,
+      bots: new StubBots(),
+      archive,
+      clock: () => clock.now,
+    });
+    const init: TableInit = {
+      matchId: MATCH_ID,
+      header: makeHeader([0, 1, 2, 3]),
+      seed: 20260826,
+      seatTokens: TOKENS,
+    };
+    const res = await core.fetch(
+      new Request("https://table.invalid/table/init", {
+        method: "POST",
+        body: JSON.stringify(init),
+      }),
+    );
+    expect(res.status).toBe(200);
+
+    for (let tick = 0; tick < 4_000 && archive.handLogs.length === 0; tick++) {
+      const at = ctx.storage.alarm;
+      if (at === null) break;
+      clock.now = Math.max(clock.now + 1, at);
+      await core.alarm();
+    }
+    expect(archive.handLogs).toHaveLength(1);
+
+    const rowsWritten = ctx.storage.putKeyLog.length;
+    const eventCount = archive.results[0]!.eventCount;
+    // Measured baseline BEFORE persistCore diffed (commit `c46c9dc`'s
+    // table.ts, before this change): this exact driver, same seed, wrote
+    // 2,962 rows for a 231-event hand. Half of that, rounded down, is the
+    // bar the diffed implementation must clear.
+    const BASELINE_ROWS_BEFORE_DIFFING = 2_962;
+    console.log(
+      `[row-write budget] one hand: ${eventCount} events, ${rowsWritten} storage rows written ` +
+        `(baseline before diffing: ${BASELINE_ROWS_BEFORE_DIFFING}, ` +
+        `${((rowsWritten / BASELINE_ROWS_BEFORE_DIFFING) * 100).toFixed(1)}% of baseline)`,
+    );
+    expect(rowsWritten).toBeLessThanOrEqual(Math.floor(BASELINE_ROWS_BEFORE_DIFFING / 2));
   });
 
   it("keeps the omniscient wall out of every seat view of a real hand", async () => {

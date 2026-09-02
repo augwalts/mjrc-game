@@ -831,6 +831,33 @@ export class TableCore {
   private rate = new Map<number, { windowStart: number; count: number }>();
   private seenRequests: string[] = [];
 
+  /**
+   * The serialized JSON this object last actually WROTE for each of
+   * `persistCore`'s seven keys (§`corePairs`) — never a value it merely read.
+   * `persistCore`/`commit` diff against this so a key whose value has not
+   * changed since the last write is left out of the batch entirely; a DO's
+   * row-write quota (Cloudflare Workers Free: 100k/day) is charged one row
+   * per KEY per `put`, so writing seven keys on every commit — most of them
+   * unchanged — was most of this object's quota bill.
+   *
+   * Seeded from `load()`'s post-hydration values, not from the raw storage
+   * read: `presence` in particular is RECONCILED from live sockets on every
+   * wake and never trusted from storage (`load`'s own comment), so the
+   * correct "already written" baseline is what hydration settled on, not
+   * whatever byte happened to be on disk. Safe in general because every
+   * field's cold-start default (`load`'s `?? …` fallbacks) is a pure,
+   * deterministic function of nothing (or of already-durable data) — so a
+   * key whose current value equals that recomputable baseline never needs a
+   * row spent re-asserting it: a future `load()` reconstructs the identical
+   * value whether or not this exact byte ever reached storage.
+   *
+   * Entries are updated ONLY after the corresponding `storage.put` call has
+   * resolved without throwing — never optimistically before the write — so a
+   * failed `put` (quota, transient error) leaves the diff still "dirty" and
+   * the next attempt retries the same keys instead of silently losing them.
+   */
+  private lastWritten = new Map<string, string>();
+
   constructor(
     private readonly ctx: TableCtx,
     private readonly env: TableEnv,
@@ -904,6 +931,12 @@ export class TableCore {
         botActing: isBot || this.presence[seat].botActing,
       };
     }
+
+    // Seed the write-diff baseline from what hydration settled on (see
+    // `lastWritten`'s doc comment) — AFTER presence reconciliation, so a
+    // reconnect-derived `connected` flip that storage never saw is not
+    // mistaken for a pending change.
+    this.lastWritten = new Map(this.corePairs().map(([key, value]) => [key, JSON.stringify(value)]));
   }
 
   private requireMeta(): TableMeta {
@@ -916,16 +949,61 @@ export class TableCore {
     return this.state;
   }
 
+  /** The seven keys `persistCore`/`commit` keep durable, in the fixed order
+   *  every caller must diff and stamp them in. */
+  private corePairs(): [string, unknown][] {
+    return [
+      [K_META, this.meta],
+      [K_STATE, this.state],
+      [K_SEQ, this.seq],
+      [K_DEADLINES, this.deadlines],
+      [K_WINDOW, this.window],
+      [K_PRESENCE, this.presence],
+      [K_BOOK, this.book],
+    ];
+  }
+
+  /**
+   * The subset of `corePairs()` whose serialized value differs from
+   * `lastWritten` — what actually needs a row this time. Returns the patch to
+   * write AND every key's fresh serialization, so a caller that goes on to
+   * `put` the patch successfully can hand the same map to `markCoreWritten`
+   * without re-serializing. Pure: does not touch `lastWritten` itself, so a
+   * caller that never writes (or whose write throws) leaves the diff dirty
+   * for the next attempt.
+   */
+  private changedCore(): { patch: Record<string, unknown>; serialized: Map<string, string> } {
+    const patch: Record<string, unknown> = {};
+    const serialized = new Map<string, string>();
+    for (const [key, value] of this.corePairs()) {
+      const json = JSON.stringify(value);
+      serialized.set(key, json);
+      if (this.lastWritten.get(key) !== json) patch[key] = value;
+    }
+    return { patch, serialized };
+  }
+
+  /** Record that `keys` were just durably written as `serialized` says —
+   *  call ONLY after the `storage.put` carrying them has resolved. */
+  private markCoreWritten(serialized: Map<string, string>, keys: Iterable<string>): void {
+    for (const key of keys) {
+      const json = serialized.get(key);
+      if (json !== undefined) this.lastWritten.set(key, json);
+    }
+  }
+
+  /**
+   * Writes only the core keys that changed since the last write — see
+   * `lastWritten`'s doc comment. A no-op, with no `storage.put` call at all,
+   * when nothing changed: most `alarm()` dispatches and every `flushOutbox`
+   * pass that only touched the outbox record land here.
+   */
   private async persistCore(): Promise<void> {
-    await this.ctx.storage.put({
-      [K_META]: this.meta,
-      [K_STATE]: this.state,
-      [K_SEQ]: this.seq,
-      [K_DEADLINES]: this.deadlines,
-      [K_WINDOW]: this.window,
-      [K_PRESENCE]: this.presence,
-      [K_BOOK]: this.book,
-    });
+    const { patch, serialized } = this.changedCore();
+    const keys = Object.keys(patch);
+    if (keys.length === 0) return;
+    await this.ctx.storage.put(patch);
+    this.markCoreWritten(serialized, keys);
   }
 
   /* ── HTTP ────────────────────────────────────────────────────────────── */
@@ -1904,14 +1982,17 @@ export class TableCore {
 
     this.armDerived(ts);
 
-    batch[K_META] = this.meta;
-    batch[K_STATE] = this.state;
-    batch[K_SEQ] = this.seq;
-    batch[K_DEADLINES] = this.deadlines;
-    batch[K_WINDOW] = this.window;
-    batch[K_PRESENCE] = this.presence;
-    batch[K_BOOK] = this.book;
+    // Only the core keys that actually changed join the batch — `changedCore`
+    // (see `lastWritten`'s doc comment) — but they join THIS SAME batch as
+    // the events and outbox record above, in the one `putBatch` call: a crash
+    // between committing an event and persisting the durable facts it implies
+    // (the state that produced it, the seq it claimed, any deadline it opened
+    // or closed) can never happen, because there is no gap between them for a
+    // crash to land in.
+    const { patch: corePatch, serialized } = this.changedCore();
+    Object.assign(batch, corePatch);
     await this.putBatch(batch);
+    this.markCoreWritten(serialized, Object.keys(corePatch));
 
     this.broadcast(events);
     await this.afterCommit(events);
