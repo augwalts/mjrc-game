@@ -30,7 +30,9 @@
  *   POST /api/tables/:id/leave      a participant hands their seat to a bot
  *                                   for the rest of the match
  *   GET  /api/lobby                 who is here, what tables are open, recent
- *                                   results (PVP-LOBBY-PROPOSAL-2026-09-02.md §7)
+ *                                   results, last 50 lobby chat messages
+ *                                   (PVP-LOBBY-PROPOSAL-2026-09-02.md §7, §8)
+ *   POST /api/lobby/chat            post one lobby chat message (§8)
  *   POST /api/presence              the lobby heartbeat, every 30s
  *   GET  /api/stats/me              the caller's own totals, recent matches,
  *                                   rating history
@@ -53,6 +55,7 @@ import type {
   DoneMatchRow,
   HandRow,
   LobbyMatchRow,
+  LobbyMessageRow,
   MatchListRow,
   MatchRow,
   MatchSeatRow,
@@ -77,8 +80,10 @@ import {
   handsOfMatch,
   humanSeatsOfMatch,
   insertCredential,
+  insertLobbyMessage,
   insertMatch,
   insertPlayer,
+  lastLobbyMessageAt,
   leaderboardCasual,
   leaderboardRanked,
   matchById,
@@ -94,6 +99,7 @@ import {
   presenceSince,
   randomId,
   ratingHistoryForPlayer,
+  recentLobbyMessages,
   recentMatchesForPlayer,
   renamePlayer,
   rulesetHash,
@@ -1186,6 +1192,17 @@ const HERE_WINDOW_MS = 90_000;
 const LOBBY_TABLE_LIMIT = 200;
 /** "Last five", per §7.2. */
 const RECENT_LIMIT = 5;
+/** "Last 50" lobby chat messages returned inside `GET /api/lobby` (§8) —
+ *  same number the table's own K_CHAT ring keeps (worker/src/table.ts). */
+const LOBBY_CHAT_LIMIT = 50;
+/** §8: "length cap" for lobby chat, same number table chat enforces
+ *  (protocol CHAT_TEXT_MAX_LENGTH) but re-stated here rather than imported —
+ *  this file already re-derives its own small constants (MAX_DISPLAY_NAME)
+ *  rather than reach into the protocol package for them. */
+const LOBBY_CHAT_TEXT_MAX_LENGTH = 200;
+/** §8: "per-player rate limit" for lobby chat, enforced off the newest row's
+ *  own `created_at` rather than a second table. */
+const LOBBY_CHAT_MIN_INTERVAL_MS = 2_000;
 
 interface HereEntry {
   playerId: string;
@@ -1222,10 +1239,11 @@ async function getLobby(p: Platform): Promise<Response> {
   const now = p.now();
   const sinceIso = new Date(Date.parse(now) - HERE_WINDOW_MS).toISOString();
 
-  const [presenceRows, openRows, doneRows] = await Promise.all([
+  const [presenceRows, openRows, doneRows, chatRows] = await Promise.all([
     presenceSince(p.db, sinceIso),
     matchesWaitingOrPlaying(p.db, LOBBY_TABLE_LIMIT),
     matchesDone(p.db, RECENT_LIMIT),
+    recentLobbyMessages(p.db, LOBBY_CHAT_LIMIT),
   ]);
 
   /* Seeded from presence; a seated human below overwrites their entry with
@@ -1307,7 +1325,21 @@ async function getLobby(p: Platform): Promise<Response> {
     }),
   );
 
-  return json({ now, here: [...here.values()], tables, recent });
+  // Chat rows come back newest-first (idx_lobby_messages_player's sibling
+  // ordering — see recentLobbyMessages' doc comment); the lobby renders
+  // oldest-first, same convention the table's own K_CHAT ring already uses.
+  const chat = chatRows
+    .slice()
+    .reverse()
+    .map((r: LobbyMessageRow) => ({
+      id: r.id,
+      playerId: r.player_id,
+      displayName: r.display_name,
+      text: r.text,
+      at: r.created_at,
+    }));
+
+  return json({ now, here: [...here.values()], tables, recent, chat });
 }
 
 /** POST /api/presence — the lobby heartbeat (proposal §3.2). Upsert, not
@@ -1317,6 +1349,31 @@ async function postPresence(req: Request, p: Platform, player: PlayerRow): Promi
   if (body === null) return fail("bad_json", 400);
   const state = body.state === "away" ? "away" : "lobby";
   await upsertPresence(p.db, player.id, state, p.now());
+  return new Response(null, { status: 204, headers: BASE_HEADERS });
+}
+
+/**
+ * POST /api/lobby/chat — the lobby's chat (§8). Length-capped like table
+ * chat, rate-limited per player off the newest row's OWN `created_at` — no
+ * second table for "when did this player last post", same doctrine
+ * `postLobbyChat`'s sibling `postPresence` uses for presence. 204, same as
+ * `postPresence`: the row itself is read back through `GET /api/lobby`, not
+ * echoed here.
+ */
+async function postLobbyChat(req: Request, p: Platform, player: PlayerRow): Promise<Response> {
+  const body = await readJsonObject(req);
+  if (body === null) return fail("bad_json", 400);
+
+  const text = str(body.text);
+  if (text === null || text.length > LOBBY_CHAT_TEXT_MAX_LENGTH) return fail("bad_text", 400);
+
+  const now = p.now();
+  const last = await lastLobbyMessageAt(p.db, player.id);
+  if (last !== null && Date.parse(now) - Date.parse(last) < LOBBY_CHAT_MIN_INTERVAL_MS) {
+    return fail("rate_limited", 429);
+  }
+
+  await insertLobbyMessage(p.db, { playerId: player.id, displayName: player.display_name, text, now });
   return new Response(null, { status: 204, headers: BASE_HEADERS });
 }
 
@@ -1407,9 +1464,15 @@ export async function handle(request: Request, p: Platform): Promise<Response> {
     return getLeaderboard(url, p);
   }
 
-  if (seg[1] === "lobby" && seg.length === 2) {
-    if (method !== "GET") return fail("method_not_allowed", 405);
-    return getLobby(p);
+  if (seg[1] === "lobby") {
+    if (seg.length === 2) {
+      if (method !== "GET") return fail("method_not_allowed", 405);
+      return getLobby(p);
+    }
+    if (seg.length === 3 && seg[2] === "chat") {
+      if (method !== "POST") return fail("method_not_allowed", 405);
+      return postLobbyChat(request, p, player);
+    }
   }
 
   if (seg[1] === "presence" && seg.length === 2) {

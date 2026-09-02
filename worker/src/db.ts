@@ -583,6 +583,33 @@ export const SQL = Object.freeze({
      WHERE mp.match_id = ? AND p.kind = 'human'
      ORDER BY mp.seat`,
 
+  /* ── lobby chat (§8) ────────────────────────────────────────────────────
+   * `display_name` is stored on the row (schema.sql lobby_messages), so
+   * neither statement joins `players` — the same reason `hands.awards`
+   * carries stable ids rather than a lookup: a read-only history must not
+   * change meaning under a later rename.
+   */
+
+  insertLobbyMessage: `
+    INSERT INTO lobby_messages (player_id, display_name, text, created_at)
+    VALUES (?, ?, ?, ?)`,
+
+  /** The one row the 1-per-2s rate check needs — this player's newest
+   *  message, via idx_lobby_messages_player. */
+  lastLobbyMessageForPlayer: `
+    SELECT created_at
+      FROM lobby_messages
+     WHERE player_id = ?
+     ORDER BY id DESC
+     LIMIT 1`,
+
+  /** Newest `limit` messages; the caller reverses to chronological order. */
+  recentLobbyMessages: `
+    SELECT id, player_id, display_name, text, created_at
+      FROM lobby_messages
+     ORDER BY id DESC
+     LIMIT ?`,
+
   /* ── stats and leaderboards (PVP-LOBBY-PROPOSAL-2026-09-02.md §7.2's last
    * two bullets) ────────────────────────────────────────────────────────── */
 
@@ -973,6 +1000,39 @@ export interface DoneMatchRow {
 /** The last `limit` finished matches, newest first — the recent-results strip. */
 export async function matchesDone(db: D1Like, limit: number): Promise<DoneMatchRow[]> {
   const { results } = await db.prepare(SQL.matchesDone).bind(limit).all<DoneMatchRow>();
+  return results;
+}
+
+export interface LobbyMessageRow {
+  id: number;
+  player_id: string;
+  display_name: string;
+  text: string;
+  created_at: string;
+}
+
+/** Append one lobby chat message (§8). `displayName` is denormalized at
+ *  write time — see schema.sql `lobby_messages`'s header comment. */
+export async function insertLobbyMessage(
+  db: D1Like,
+  m: { playerId: string; displayName: string; text: string; now: string },
+): Promise<void> {
+  await db.prepare(SQL.insertLobbyMessage).bind(m.playerId, m.displayName, m.text, m.now).run();
+}
+
+/** This player's most recent message time, or null if they have never sent
+ *  one — the whole state `postLobbyChat`'s 1-per-2s limit needs, with no
+ *  extra table (§7 `POST /api/lobby/chat`'s doc comment). */
+export async function lastLobbyMessageAt(db: D1Like, playerId: string): Promise<string | null> {
+  const row = await db.prepare(SQL.lastLobbyMessageForPlayer).bind(playerId).first<{ created_at: string }>();
+  return row === null ? null : row.created_at;
+}
+
+/** Newest `limit` lobby messages, NEWEST FIRST — the caller (`getLobby`)
+ *  reverses this into chronological order for display, same shape the
+ *  table's own K_CHAT ring already presents to a client. */
+export async function recentLobbyMessages(db: D1Like, limit: number): Promise<LobbyMessageRow[]> {
+  const { results } = await db.prepare(SQL.recentLobbyMessages).bind(limit).all<LobbyMessageRow>();
   return results;
 }
 

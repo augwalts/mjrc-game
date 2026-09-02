@@ -1494,6 +1494,130 @@ describe("/leave — a participant's explicit leave", () => {
   });
 });
 
+/* ── chat (PVP-LOBBY-PROPOSAL-2026-09-02.md §8) ───────────────────────────── */
+
+const chat = (t: Harness, seat: SeatIndex, payload: unknown): Promise<void> =>
+  request(t, seat, "chat", payload);
+
+describe("chat", () => {
+  it("reaches every socket and accepts the sender, with text stamped and trimmed", async () => {
+    const t = await seated({ config: { turnMs: 10_000_000 } });
+    await chat(t, 0, { text: "  食糊!  " });
+
+    for (const seat of [0, 1, 2, 3] as SeatIndex[]) {
+      const ws = t.sockets[seat] as StubSocket;
+      const seen = ws.msgs("chat");
+      expect(seen).toHaveLength(1);
+      expect(seen[0]!.payload).toEqual({ seat: 0, displayName: "Player 0", text: "食糊!", ts: t.clock.now });
+    }
+    // The sender also gets an `accepted` for the chat request itself (one
+    // more than the `join`'s own `accepted`, already on this socket).
+    const sender = t.sockets[0] as StubSocket;
+    expect(sender.msgs("accepted")).toHaveLength(2);
+    expect(sender.msgs("rejected")).toHaveLength(0);
+  });
+
+  it("broadcasts a quick phrase with phrase set and text absent", async () => {
+    const t = await seated({ config: { turnMs: 10_000_000 } });
+    await chat(t, 2, { phrase: "hurry" });
+    const ws = t.sockets[1] as StubSocket;
+    const seen = ws.msgs("chat");
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.payload).toEqual({ seat: 2, displayName: "Player 2", phrase: "hurry", ts: t.clock.now });
+  });
+
+  it("refuses a message with neither or both of text and phrase, and an over-length text", async () => {
+    const t = await seated({ config: { turnMs: 10_000_000 } });
+    const ws = t.sockets[0] as StubSocket;
+
+    await chat(t, 0, {});
+    await chat(t, 0, { text: "hi", phrase: "nice" });
+    await chat(t, 0, { text: "  " }); // trims to empty — same as absent
+    await chat(t, 0, { text: "x".repeat(201) });
+
+    expect(ws.msgs("rejected").every((m) => m.payload.code === "chatRefused")).toBe(true);
+    expect(ws.msgs("rejected")).toHaveLength(4);
+    expect(ws.msgs("chat")).toHaveLength(0);
+
+    // Exactly 200 is fine.
+    await chat(t, 0, { text: "y".repeat(200) });
+    expect(ws.msgs("chat")).toHaveLength(1);
+  });
+
+  it("a bot-marked seat cannot chat even if a socket is attached to it", async () => {
+    const t = await seated({ botSeats: [3], config: { turnMs: 10_000_000 } });
+    // A socket attached to the bot seat, same shape /leave's own test uses
+    // ("makeHeader's bot seats still carry a playerId" — and a token).
+    const botWs = await join(t, 3);
+    await chat(t, 3, { text: "hello" });
+
+    expect(botWs.msgs("rejected")).toHaveLength(1);
+    expect(botWs.msgs("rejected")[0]!.payload.code).toBe("chatRefused");
+    const other = t.sockets[0] as StubSocket;
+    expect(other.msgs("chat")).toHaveLength(0);
+  });
+
+  it("enforces a 1-message-per-second-per-seat cadence on top of the general limiter", async () => {
+    const t = await seated({ config: { turnMs: 10_000_000 } });
+    const ws = t.sockets[1] as StubSocket;
+
+    await chat(t, 1, { text: "one" });
+    await chat(t, 1, { text: "two" }); // same tick — too soon
+    expect(ws.msgs("chat")).toHaveLength(1);
+    expect(ws.msgs("rejected")).toHaveLength(1);
+    expect(ws.msgs("rejected")[0]!.payload.code).toBe("chatRefused");
+
+    t.clock.now += 999;
+    await chat(t, 1, { text: "still too soon" });
+    expect(ws.msgs("chat")).toHaveLength(1);
+
+    t.clock.now += 1;
+    await chat(t, 1, { text: "now" }); // exactly 1000ms later is fine
+    expect(ws.msgs("chat")).toHaveLength(2);
+
+    // A DIFFERENT seat's cadence is untouched by seat 1's limiter.
+    await chat(t, 2, { text: "seat 2 speaks" });
+    expect((t.sockets[2] as StubSocket).msgs("chat")).toHaveLength(3); // its own + seat1's two
+  });
+
+  it("gives a joiner and a reconnecting seat the last 50 messages, oldest first", async () => {
+    const t = await makeTable({ config: { turnMs: 10_000_000 } });
+    await join(t, 0);
+    await join(t, 1);
+    await join(t, 2);
+    await chat(t, 0, { text: "first" });
+    t.clock.now += 1_100;
+    await chat(t, 1, { text: "second" });
+
+    // A fresh joiner meets the conversation already in progress.
+    const ws3 = await join(t, 3);
+    expect(ws3.msgs("welcome")).toHaveLength(1);
+    expect(ws3.msgs("welcome")[0]!.payload.chat.map((m) => m.text)).toEqual(["first", "second"]);
+
+    // Reconnect (same seat, same token) — the welcome carries the same history.
+    const rejoined = await join(t, 1);
+    expect(rejoined.msgs("welcome")[0]!.payload.chat.map((m) => m.text)).toEqual(["first", "second"]);
+
+    // resync's `restore` carries it too.
+    await request(t, 2, "resync", { sinceSeq: -1 });
+    const restore = (t.sockets[2] as StubSocket).msgs("restore").at(-1);
+    expect(restore?.payload.chat.map((m) => m.text)).toEqual(["first", "second"]);
+  });
+
+  it("keeps only the last 50 messages", async () => {
+    const t = await seated({ config: { turnMs: 10_000_000 } });
+    for (let i = 0; i < 55; i += 1) {
+      await chat(t, 0, { text: `m${i}` });
+      t.clock.now += 1_100;
+    }
+    const rejoined = await join(t, 0);
+    const texts = rejoined.msgs("welcome")[0]!.payload.chat.map((m) => m.text);
+    expect(texts).toHaveLength(50);
+    expect(texts[0]).toBe("m5");
+    expect(texts[49]).toBe("m54");
+  });
+});
+
 /* ── 6. determinism ────────────────────────────────────────────────────── */
 
 describe("determinism", () => {

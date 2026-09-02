@@ -45,6 +45,7 @@ interface Store {
   match_players: Row[];
   hands: Row[];
   presence: Row[];
+  lobby_messages: Row[];
   rating_history: Row[];
 }
 
@@ -56,6 +57,7 @@ const emptyStore = (): Store => ({
   match_players: [],
   hands: [],
   presence: [],
+  lobby_messages: [],
   rating_history: [],
 });
 
@@ -272,6 +274,32 @@ const HANDLERS = new Map<string, Handler>([
       };
     }));
   }],
+
+  /* ── lobby chat (§8) ──────────────────────────────────────────────────── */
+
+  [SQL.insertLobbyMessage, (s, [playerId, displayName, text, createdAt]) => {
+    const id = s.lobby_messages.reduce((max, r) => Math.max(max, Number(r.id)), 0) + 1;
+    s.lobby_messages.push({
+      id, player_id: playerId, display_name: displayName, text, created_at: createdAt,
+    });
+    return wrote(1);
+  }],
+
+  [SQL.lastLobbyMessageForPlayer, (s, [playerId]) => {
+    const mine = s.lobby_messages
+      .filter((r) => r.player_id === playerId)
+      .sort((a, b) => Number(b.id) - Number(a.id));
+    return rows(mine.length === 0 ? [] : [pick(mine[0], ["created_at"])]);
+  }],
+
+  [SQL.recentLobbyMessages, (s, [limit]) =>
+    rows(
+      s.lobby_messages
+        .slice()
+        .sort((a, b) => Number(b.id) - Number(a.id))
+        .slice(0, Number(limit))
+        .map((r) => pick(r, ["id", "player_id", "display_name", "text", "created_at"])),
+    )],
 
   /* ── stats and leaderboards ────────────────────────────────────────────── */
 
@@ -1323,6 +1351,114 @@ describe("GET /api/lobby", () => {
     const res = await handle(get("/api/lobby", TOKEN_A), h.platform);
     const body = (await res.json()) as { here: unknown[] };
     expect(body.here).toHaveLength(0);
+  });
+});
+
+describe("GET /api/lobby — chat (§8)", () => {
+  it("returns the last 50 messages inside the lobby response, oldest first", async () => {
+    const h = harness();
+    const alice = await identify(h, TOKEN_A, "Alice");
+    const bob = await identify(h, TOKEN_B, "Bob");
+    h.store.lobby_messages.push(
+      { id: 1, player_id: alice, display_name: "Alice", text: "hi all", created_at: "2026-09-02T00:00:01.000Z" },
+      { id: 2, player_id: bob, display_name: "Bob", text: "hey", created_at: "2026-09-02T00:00:02.000Z" },
+    );
+
+    const res = await handle(get("/api/lobby", TOKEN_A), h.platform);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      chat: { id: number; playerId: string; displayName: string; text: string; at: string }[];
+    };
+    expect(body.chat).toEqual([
+      { id: 1, playerId: alice, displayName: "Alice", text: "hi all", at: "2026-09-02T00:00:01.000Z" },
+      { id: 2, playerId: bob, displayName: "Bob", text: "hey", at: "2026-09-02T00:00:02.000Z" },
+    ]);
+  });
+
+  it("caps at the last 50, dropping the oldest", async () => {
+    const h = harness();
+    const alice = await identify(h, TOKEN_A, "Alice");
+    for (let i = 0; i < 55; i += 1) {
+      h.store.lobby_messages.push({
+        id: i + 1, player_id: alice, display_name: "Alice", text: `m${i}`,
+        created_at: `2026-09-02T00:00:${String(i).padStart(2, "0")}.000Z`,
+      });
+    }
+    const res = await handle(get("/api/lobby", TOKEN_A), h.platform);
+    const body = (await res.json()) as { chat: { text: string }[] };
+    expect(body.chat).toHaveLength(50);
+    expect(body.chat[0]!.text).toBe("m5");
+    expect(body.chat[49]!.text).toBe("m54");
+  });
+});
+
+describe("POST /api/lobby/chat", () => {
+  it("appends a row, readable back through GET /api/lobby, and answers 204", async () => {
+    const h = harness();
+    const alice = await identify(h, TOKEN_A, "Alice");
+
+    const res = await handle(post("/api/lobby/chat", { text: "  hello lobby  " }, TOKEN_A), h.platform);
+    expect(res.status).toBe(204);
+    expect(h.store.lobby_messages).toHaveLength(1);
+    expect(h.store.lobby_messages[0]).toMatchObject({
+      player_id: alice, display_name: "Alice", text: "hello lobby",
+    });
+
+    const lobby = await handle(get("/api/lobby", TOKEN_A), h.platform);
+    const body = (await lobby.json()) as { chat: { text: string; displayName: string }[] };
+    expect(body.chat).toEqual([{ id: 1, playerId: alice, displayName: "Alice", text: "hello lobby", at: h.store.lobby_messages[0].created_at }]);
+  });
+
+  it("refuses empty text and text over 200 characters", async () => {
+    const h = harness();
+    await identify(h, TOKEN_A, "Alice");
+
+    const empty = await handle(post("/api/lobby/chat", { text: "   " }, TOKEN_A), h.platform);
+    expect(empty.status).toBe(400);
+
+    const tooLong = await handle(post("/api/lobby/chat", { text: "x".repeat(201) }, TOKEN_A), h.platform);
+    expect(tooLong.status).toBe(400);
+
+    const exactly200 = await handle(post("/api/lobby/chat", { text: "y".repeat(200) }, TOKEN_A), h.platform);
+    expect(exactly200.status).toBe(204);
+  });
+
+  it("rate-limits to one message per 2 seconds per player, off the newest row's created_at", async () => {
+    const h = harness();
+    await identify(h, TOKEN_A, "Alice");
+
+    const first = await handle(post("/api/lobby/chat", { text: "one" }, TOKEN_A), h.platform);
+    expect(first.status).toBe(204);
+
+    const second = await handle(post("/api/lobby/chat", { text: "two" }, TOKEN_A), h.platform);
+    expect(second.status).toBe(429);
+    expect(h.store.lobby_messages).toHaveLength(1);
+
+    // A message more than 2s after the first's own created_at is allowed —
+    // simulate that by backdating the stored row rather than the harness
+    // clock (postLobbyChat compares against the ROW's created_at, not now()).
+    h.store.lobby_messages[0].created_at = "2020-01-01T00:00:00.000Z";
+    const third = await handle(post("/api/lobby/chat", { text: "three" }, TOKEN_A), h.platform);
+    expect(third.status).toBe(204);
+    expect(h.store.lobby_messages).toHaveLength(2);
+  });
+
+  it("does not rate-limit across different players", async () => {
+    const h = harness();
+    await identify(h, TOKEN_A, "Alice");
+    await identify(h, TOKEN_B, "Bob");
+
+    const a = await handle(post("/api/lobby/chat", { text: "alice speaks" }, TOKEN_A), h.platform);
+    const b = await handle(post("/api/lobby/chat", { text: "bob speaks" }, TOKEN_B), h.platform);
+    expect(a.status).toBe(204);
+    expect(b.status).toBe(204);
+    expect(h.store.lobby_messages).toHaveLength(2);
+  });
+
+  it("requires authentication", async () => {
+    const h = harness();
+    const res = await handle(post("/api/lobby/chat", { text: "hi" }), h.platform);
+    expect(res.status).toBe(401);
   });
 });
 

@@ -156,3 +156,15 @@ npx wrangler d1 execute mjrc-scoring --remote --command "CREATE INDEX idx_matche
 -- backfill for matches that predate lobby_status
 UPDATE matches SET lobby_status='done' WHERE status IN ('complete','abandoned') AND lobby_status<>'done'
 ```
+
+Chat (`PVP-LOBBY-PROPOSAL-2026-09-02.md` §8, 2026-09-02) added one table for
+lobby chat; table chat needs no schema at all (`worker/src/table.ts`'s `K_CHAT`
+ring lives entirely in the table's own DO storage). Applied to local D1
+already; someone with remote access needs to run the same against remote
+before a build that reads/writes lobby chat reaches production — `POST
+/api/lobby/chat` and the `chat` field of `GET /api/lobby` depend on it.
+Migration file: `migrations/remote-2026-09-02-chat.sql`.
+
+```sh
+npx wrangler d1 execute mjrc-scoring --remote --file migrations/remote-2026-09-02-chat.sql
+```

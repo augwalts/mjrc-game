@@ -11,10 +11,11 @@
  *      If MJRC_START=1, the creator then POSTs /api/tables/:id/start, which
  *      bot-fills the human seat nobody joined as and starts the clocks.
  *   3. Each human opens its own WebSocket to /table/:matchUuid, sends `join`
- *      with its seatToken, and from then on reacts to whatever the server
- *      sends: it answers a `prompt` with the simplest legal move (see
- *      `respondToPrompt`), replies to a server `heartbeat`, and logs
- *      `rejected` without dying.
+ *      with its seatToken, sends one `chat` quick-phrase right after `welcome`
+ *      (§8 — exercises chat end to end), and from then on reacts to whatever
+ *      the server sends: it answers a `prompt` with the simplest legal move
+ *      (see `respondToPrompt`), replies to a server `heartbeat`, tallies every
+ *      `chat` it receives, and logs `rejected` without dying.
  *   4. Every seat-visible event that arrives (via `events` or `restore`) is
  *      deduped by its globally-unique `seq` and tallied by type. A `handEnd`
  *      prints one summary line; a `matchEnd` ends the wait.
@@ -156,6 +157,7 @@ const shared = {
   handEndCount: 0,
   lastStandings: null,
   matchEndPayload: null,
+  chatReceived: 0,
 };
 const matchEndDeferred = deferred();
 const faultDeferred = deferred();
@@ -224,6 +226,10 @@ function openSeatSocket(human, matchUuid, resume = null) {
             send("resync", { sinceSeq: lastSeq });
           } else {
             console.log(`${label}: joined match ${msg.payload.matchId} as seat ${msg.payload.seat}`);
+            // §8: each human seat sends one quick-phrase chat after joining —
+            // exercises `chat` end to end (protocol -> table -> every socket)
+            // without slowing the match down.
+            send("chat", { phrase: "nice" });
           }
           resolveConnected(ws);
           break;
@@ -233,6 +239,9 @@ function openSeatSocket(human, matchUuid, resume = null) {
           console.warn(
             `${label}: rejected ${msg.payload.code}${msg.payload.detail ? " - " + msg.payload.detail : ""}`,
           );
+          break;
+        case "chat":
+          shared.chatReceived += 1;
           break;
         case "events":
           trackSeq(msg.payload.events);
@@ -405,6 +414,7 @@ async function main() {
   console.log("--- summary ---");
   console.log(`hands played: ${shared.handEndCount}`);
   console.log(`events by type: ${JSON.stringify(shared.eventCounts)}`);
+  console.log(`chat messages received: ${shared.chatReceived}`);
   console.log(`elapsed: ${elapsedMs}ms`);
   console.log(
     `final standings: ${JSON.stringify(shared.matchEndPayload?.standings ?? shared.lastStandings)}`,

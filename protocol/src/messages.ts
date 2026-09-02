@@ -101,6 +101,43 @@ export interface RequestKongPayload {
   tile: TileId;
 }
 
+/**
+ * Quick phrases for phones (PVP-LOBBY-PROPOSAL-2026-09-02.md §8): 好牌 nice ·
+ * 快啲 hurry · 唔好意思 sorry · 再嚟 again · 👍 thumbs. Stable ids, never display
+ * strings — same TERMINOLOGY.md discipline as every other pattern id in this
+ * repo (e.g. FaanAward.id): the client renders and localises, the wire never
+ * carries a sentence for these.
+ */
+export type ChatPhrase = "nice" | "hurry" | "sorry" | "again" | "thumbs";
+
+export const CHAT_PHRASES = [
+  "nice",
+  "hurry",
+  "sorry",
+  "again",
+  "thumbs",
+] as const satisfies readonly ChatPhrase[];
+
+export const isChatPhrase = (v: unknown): v is ChatPhrase =>
+  typeof v === "string" && (CHAT_PHRASES as readonly string[]).includes(v);
+
+/** Trimmed-length cap on free-text chat (§8). Table chat and lobby chat both
+ *  enforce this — one number, read from here rather than restated per site. */
+export const CHAT_TEXT_MAX_LENGTH = 200;
+
+/**
+ * `chat { text? }` or `chat { phrase? }` — exactly one, never both, never
+ * neither. That EXACTLY-ONE rule is a request-validity question, so it is
+ * enforced where every other request-validity question is (the table, §8),
+ * not encoded in this type: a union of two payload shapes would just move the
+ * same branch into the type checker without buying anything runtime
+ * validation does not already have to do anyway (trimming, the length cap).
+ */
+export interface ChatRequestPayload {
+  text?: string;
+  phrase?: ChatPhrase;
+}
+
 export interface RequestWinOnDiscardPayload {
   offerSeq: number;
 }
@@ -114,6 +151,9 @@ export type ClientRequest =
   | RequestEnvelope<"join", JoinPayload>
   | RequestEnvelope<"resync", ResyncPayload>
   | RequestEnvelope<"heartbeat", Record<string, never>>
+  /** Table chat (§8). Never a game event, never in the event log or the R2
+   *  archive — see ../../worker/src/table.ts's handling for why. */
+  | RequestEnvelope<"chat", ChatRequestPayload>
   | RequestEnvelope<"requestDiscard", RequestDiscardPayload>
   | RequestEnvelope<"requestClaim", RequestClaimPayload>
   | RequestEnvelope<"requestPass", RequestPassPayload>
@@ -133,6 +173,7 @@ export const CLIENT_REQUEST_TYPES = [
   "join",
   "resync",
   "heartbeat",
+  "chat",
   "requestDiscard",
   "requestClaim",
   "requestPass",
@@ -177,6 +218,21 @@ export interface SeatDirectoryEntry {
   connected: boolean;
 }
 
+/**
+ * One chat message as it reaches a seat socket, table or lobby (§8). `text`
+ * XOR `phrase` — the table enforces exactly-one on the way in
+ * (`ChatRequestPayload`'s doc comment); this is just the settled record of
+ * which one won. `ts` is the DO's wall clock, stamped the same way every
+ * other event's `ts` is (never the client's).
+ */
+export interface ChatMessagePayload {
+  seat: SeatIndex;
+  displayName: string;
+  text?: string;
+  phrase?: ChatPhrase;
+  ts: number;
+}
+
 export interface WelcomePayload {
   matchId: string;
   /** The seat this socket is bound to. Every redaction is relative to it. */
@@ -186,12 +242,18 @@ export interface WelcomePayload {
   rulesetId: string;
   directory: FourSeats<SeatDirectoryEntry>;
   snapshot: SeatVisible<SeatSnapshot>;
+  /** The table's last 50 chat messages (§8), oldest first, so a joiner meets
+   *  the conversation already in progress. */
+  chat: ChatMessagePayload[];
 }
 
 /** The reply to `resync`: snapshot + everything after it (§5.3). */
 export interface RestorePayload {
   snapshot: SeatVisible<SeatSnapshot>;
   events: SeatVisible<RedactedGameEvent>[];
+  /** Same ring `WelcomePayload.chat` carries — a reconnect gets chat history
+   *  exactly like a fresh join does (§8). */
+  chat: ChatMessagePayload[];
 }
 
 export interface EventsPayload {
@@ -259,7 +321,11 @@ export type RejectCode =
   | "windowClosed"
   | "duplicateRequest"
   | "rateLimited"
-  | "matchOver";
+  | "matchOver"
+  /** A `chat` request that failed validation: neither/both of text and
+   *  phrase set, text too long, the per-seat 1/s limit, or a bot seat (bots
+   *  never chat, §8). */
+  | "chatRefused";
 
 export interface RejectedPayload {
   requestId: string;
@@ -304,6 +370,7 @@ export type ServerToSeat =
   | ServerEnvelope<"welcome", WelcomePayload>
   | ServerEnvelope<"restore", RestorePayload>
   | ServerEnvelope<"events", EventsPayload>
+  | ServerEnvelope<"chat", ChatMessagePayload>
   | ServerEnvelope<"prompt", PromptPayload>
   | ServerEnvelope<"accepted", AcceptedPayload>
   | ServerEnvelope<"rejected", RejectedPayload>
@@ -323,6 +390,13 @@ export const eventsMessage = (
   p: PROTOCOL_VERSION,
   type: "events",
   payload: snapshot ? { events, snapshot } : { events },
+});
+
+/** Broadcast one settled chat message (§8) to a seat socket. */
+export const chatMessage = (payload: ChatMessagePayload): ServerToSeat => ({
+  p: PROTOCOL_VERSION,
+  type: "chat",
+  payload,
 });
 
 export const rejected = (

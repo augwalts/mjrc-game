@@ -595,3 +595,30 @@ CREATE TABLE presence (
 
 -- The 90s "here now" window, and the sweep for rows nobody will read again.
 CREATE INDEX idx_presence_seen ON presence(seen_at);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- lobby_messages — the lobby's chat (PVP-LOBBY-PROPOSAL-2026-09-02.md §8).
+-- Rides the same 5s poll as GET /api/lobby (last 50 rows, returned inside that
+-- same response) until the lobby moves to a Durable Object (L2), at which
+-- point the same rows are pushed instead of polled.
+--
+-- display_name is denormalized at write time, same rule as everywhere else a
+-- name reaches a read-only lobby view: a later rename must not rewrite what a
+-- message looked like when it was sent.
+--
+-- Never archived, never part of any match's event log or R2 blob — chat is
+-- not a game fact (table.ts's own K_CHAT ring makes the identical decision for
+-- table chat). Append-only; no edit or delete path exists at P0, on purpose —
+-- the gate password is the moderation (proposal §8).
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE lobby_messages (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  player_id    TEXT NOT NULL REFERENCES players(id),
+  display_name TEXT NOT NULL,
+  text         TEXT NOT NULL,
+  created_at   TEXT NOT NULL
+);
+
+-- The per-player rate check reads this player's newest row; the "last 50"
+-- read is the table's own rowid order and needs no extra index.
+CREATE INDEX idx_lobby_messages_player ON lobby_messages(player_id, id DESC);

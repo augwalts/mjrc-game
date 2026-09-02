@@ -47,12 +47,15 @@ import type {
   WindIndex,
 } from "@mjrc/engine";
 import {
+  CHAT_TEXT_MAX_LENGTH,
   EVENT_SCHEMA_VERSION,
   PROTOCOL_VERSION,
   acceptsProtocolVersion,
   accepted,
   assertEventStreamWellFormed,
+  chatMessage,
   eventsMessage,
+  isChatPhrase,
   isKnownRequestType,
   omniscientMatchLog,
   protocolFault,
@@ -61,6 +64,7 @@ import {
   snapshotFor,
 } from "@mjrc/protocol";
 import type {
+  ChatMessagePayload,
   ClientRequest,
   FourSeats,
   GameEvent,
@@ -523,9 +527,17 @@ const K_DEADLINES = "deadlines";
 const K_WINDOW = "window";
 const K_PRESENCE = "presence";
 const K_BOOK = "book";
+const K_CHAT = "chat";
 const K_TOMBSTONE = "tombstone";
 const P_OUTBOX = "ob:";
 const P_EVENT = "ev:";
+
+/** Table chat (§8): last N, and the per-seat minimum gap between messages —
+ *  IN ADDITION to the table's general per-seat request limiter, never instead
+ *  of it. Persisted under K_CHAT, never in the event log, never archived to
+ *  R2 (this file's header, item 3: chat is not a game fact). */
+const CHAT_RING_SIZE = 50;
+const CHAT_MIN_INTERVAL_MS = 1_000;
 
 const pad = (n: number, width: number): string => String(n).padStart(width, "0");
 const outboxKey = (handIndex: number): string => `${P_OUTBOX}${pad(handIndex, 4)}`;
@@ -663,6 +675,7 @@ const isRejectCode = (x: unknown): x is RejectCode =>
     "duplicateRequest",
     "rateLimited",
     "matchOver",
+    "chatRefused",
   ].includes(x);
 
 const hasAnyRequest = (l: LegalRequests): boolean =>
@@ -737,8 +750,17 @@ export class TableCore {
     botActing: false,
   }));
   private book: BookKeeping = emptyBook();
+  /** Last 50 chat messages (§8), oldest first. Persisted under K_CHAT,
+   *  outside `persistCore`'s batch because nothing else ever touches it —
+   *  `handleChat` is the one writer. */
+  private chat: ChatMessagePayload[] = [];
   private outbox = new Map<number, OutboxRecord>();
   private tombstone = false;
+
+  /** Per-seat chat cadence (§8's 1/s, in addition to the general limiter).
+   *  In-memory only, same doctrine as `rate`/`seenRequests` below: losing this
+   *  on a wake costs at most one extra allowed message, never a stuck table. */
+  private chatRate = new Map<number, number>();
   /** Depth of the handEnd → startNextHand chain. A reducer that emitted a
    *  handEnd from `startNextHand` would otherwise spin here forever. */
   private advanceDepth = 0;
@@ -785,6 +807,8 @@ export class TableCore {
     if (!Array.isArray(this.book.grading) || this.book.grading.length !== 4) {
       this.book.grading = four(() => ({ graded: 0, matched: 0, gapSum: 0 }));
     }
+    this.chat = (await st.get<ChatMessagePayload[]>(K_CHAT)) ?? [];
+    if (!Array.isArray(this.chat)) this.chat = [];
 
     const records = await st.list<OutboxRecord>({ prefix: P_OUTBOX });
     this.outbox = new Map();
@@ -1375,6 +1399,7 @@ export class TableCore {
         rulesetId: this.meta.header.rulesetId,
         directory: this.directory(),
         snapshot: this.viewFor(seat),
+        chat: [...this.chat],
       },
     });
     this.send(ws, accepted(msg.requestId, this.seq));
@@ -1449,6 +1474,13 @@ export class TableCore {
       case "heartbeat":
         return;
 
+      // Chat is handled here, BEFORE the game-request path below: it is not
+      // a game action, never touches the reducer or the event log, and its
+      // own validation (exactly one of text/phrase, the length cap, the
+      // per-seat cadence, "bots never") is entirely its own.
+      case "chat":
+        return this.handleChat(seat, ws, msg);
+
       case "resync": {
         const since = typeof msg.payload?.sinceSeq === "number" ? msg.payload.sinceSeq : -1;
         // Reconnect is snapshot + actions-since, NOT a replay from the top
@@ -1461,6 +1493,7 @@ export class TableCore {
           payload: {
             snapshot: this.viewFor(seat),
             events: redactEventsFor(seat, events),
+            chat: [...this.chat],
           },
         });
         return;
@@ -1514,6 +1547,64 @@ export class TableCore {
         return this.submit(seat, win, ws, msg.requestId);
       }
     }
+  }
+
+  /**
+   * Table chat (§8). Authenticated seat only — guaranteed by the caller, which
+   * never reaches this without a joined `att` — bots never (a bot has no
+   * business holding a socket, but the check is here rather than assumed),
+   * exactly one of `text`/`phrase`, the length cap, and a per-seat 1-per-second
+   * cadence ON TOP OF the table's general request limiter (`rateLimited`,
+   * already checked in `webSocketMessage` before `handleRequest` runs at all).
+   * A bad message is `rejected` with `chatRefused`; a good one is stamped,
+   * appended to the ring, persisted, broadcast to every socket, and
+   * `accepted` to the sender — never fed to the reducer, never logged as a
+   * `GameEvent`, never archived (this file's header, item 3).
+   */
+  private async handleChat(
+    seat: SeatIndex,
+    ws: SeatSocket,
+    msg: Extract<ClientRequest, { type: "chat" }>,
+  ): Promise<void> {
+    const meta = this.requireMeta();
+    const player = meta.header.players[seat];
+    if (player.bot) {
+      this.send(ws, rejected(msg.requestId, "chatRefused", "bots do not chat"));
+      return;
+    }
+    const now = this.deps.clock();
+    const last = this.chatRate.get(seat);
+    if (last !== undefined && now - last < CHAT_MIN_INTERVAL_MS) {
+      this.send(ws, rejected(msg.requestId, "chatRefused", "1 message per second per seat"));
+      return;
+    }
+    const payload = msg.payload ?? {};
+    const text = typeof payload.text === "string" ? payload.text.trim() : undefined;
+    const phrase = isChatPhrase(payload.phrase) ? payload.phrase : undefined;
+    const hasText = text !== undefined && text !== "";
+    const hasPhrase = phrase !== undefined;
+    if (hasText === hasPhrase) {
+      // Both set, or neither — never a coherent chat message.
+      this.send(ws, rejected(msg.requestId, "chatRefused", "exactly one of text or phrase"));
+      return;
+    }
+    if (hasText && text!.length > CHAT_TEXT_MAX_LENGTH) {
+      this.send(ws, rejected(msg.requestId, "chatRefused", "text too long"));
+      return;
+    }
+
+    this.chatRate.set(seat, now);
+    const entry: ChatMessagePayload = hasText
+      ? { seat, displayName: player.displayName, text, ts: now }
+      : { seat, displayName: player.displayName, phrase, ts: now };
+
+    this.chat.push(entry);
+    if (this.chat.length > CHAT_RING_SIZE) this.chat = this.chat.slice(-CHAT_RING_SIZE);
+    await this.ctx.storage.put({ [K_CHAT]: this.chat });
+
+    const out = chatMessage(entry);
+    for (const socket of this.ctx.getWebSockets()) this.send(socket, out);
+    this.send(ws, accepted(msg.requestId, this.seq));
   }
 
   /** A late click on a window that already closed is stale, never a live move. */

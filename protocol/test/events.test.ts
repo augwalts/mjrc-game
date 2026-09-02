@@ -670,6 +670,7 @@ describe("omniscient data cannot reach a seat socket", () => {
       directory,
       // @ts-expect-error a snapshot must carry the seat brand from snapshotFor
       snapshot: stripped,
+      chat: [],
     };
     expect(bad.seat).toBe(0);
 
@@ -680,6 +681,7 @@ describe("omniscient data cannot reach a seat socket", () => {
       rulesetId: "hkos-classic",
       directory,
       snapshot: snapshotFor(0, STATE, { matchId: MATCH, seq: 0 }),
+      chat: [],
     };
     expect(good.snapshot.seat).toBe(0);
   });
