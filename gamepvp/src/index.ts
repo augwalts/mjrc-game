@@ -31,7 +31,7 @@ import {
   type TableNamespace,
   type TableSpec,
 } from "../../worker/src/index.js";
-import { BOT_LINEUP, bots } from "./bots.js";
+import { BOT_CATALOGUE, BOT_LINEUP, bots, catalogueEntry, isBotCatalogueKey } from "./bots.js";
 
 /* ── bind the engine into the table, once, at module load ─────────────── */
 
@@ -213,8 +213,11 @@ async function ensureBotPlayers(env: Env, init: TableInit, now: string): Promise
   }
 }
 
-/** Humans take the low seats, in join order; bots fill from the top. The seed
- *  and the placeholder tokens are coordination entropy, not game state. */
+/** Humans take the low seats, in join order; bots fill from the top. `bots`
+ *  is the creator's picks for those seats, in seat order (worker/src/index.ts
+ *  `postTable` already rejected a length mismatch or an unknown key, so this
+ *  is defensive, not the primary check). The seed and the placeholder tokens
+ *  are coordination entropy, not game state. */
 function tableInitOf(spec: TableSpec): TableInit {
   const botSeats = Math.max(0, Math.min(4, spec.botSeats));
   const firstBot = 4 - botSeats;
@@ -222,8 +225,11 @@ function tableInitOf(spec: TableSpec): TableInit {
   const players = [0, 1, 2, 3].map((i) => {
     const seat = seatOf(i);
     if (i >= firstBot) {
-      const b = BOT_LINEUP[seat]!;
-      return { playerId: `bot:${b.profile}`, displayName: b.displayName, seat, bot: true };
+      const pick = spec.bots?.[i - firstBot];
+      const entry = pick !== undefined ? catalogueEntry(pick) : undefined;
+      const key = entry?.key ?? pick ?? BOT_LINEUP[seat]!.profile;
+      const displayName = entry?.displayName ?? BOT_LINEUP[seat]!.displayName;
+      return { playerId: `bot:${key}`, displayName, seat, bot: true };
     }
     return { playerId: "", displayName: "", seat, bot: false };
   }) as MatchLogHeader["players"];
@@ -269,6 +275,7 @@ function platformOf(env: Env): Platform {
     random: (n) => crypto.getRandomValues(new Uint8Array(n)),
     engineVersion: ENGINE_VERSION,
     replayTokenSecret,
+    isBotKey: isBotCatalogueKey,
   };
 }
 
@@ -303,6 +310,29 @@ export default {
 
     const url = new URL(request.url);
     const seg = url.pathname.split("/").filter((s) => s !== "");
+
+    /* GET /api/bots — the catalogue for the New Table bot picker. Routed here,
+     * ahead of the platform's own /api/* dispatch (worker/src/index.ts's
+     * `handle`), because it is gamepvp-specific data (bot profiles are not a
+     * platform concept) and needs no DB or auth — just the gate above. */
+    if (seg[0] === "api" && seg[1] === "bots" && seg.length === 2) {
+      if (request.method !== "GET") {
+        return withCookie(
+          new Response(JSON.stringify({ error: "method_not_allowed" }), {
+            status: 405,
+            headers: { "content-type": "application/json; charset=utf-8" },
+          }),
+          admitted.setCookie,
+        );
+      }
+      return withCookie(
+        new Response(JSON.stringify({ bots: BOT_CATALOGUE }), {
+          status: 200,
+          headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
+        }),
+        admitted.setCookie,
+      );
+    }
 
     if (seg[0] === "api") {
       let platform: Platform;

@@ -36,8 +36,8 @@ import type {
 } from "../../protocol/src/messages.js";
 import {
   ApiError, RequestRejected, TableSocket,
-  createTable, identify, joinTable, listMatches, storedIdentity,
-  type CreateTableResult, type Identity, type MatchFormat, type MatchListItem,
+  createTable, identify, joinTable, listBots, listMatches, storedIdentity,
+  type BotCatalogueEntry, type CreateTableResult, type Identity, type MatchFormat, type MatchListItem,
 } from "./net.js";
 
 declare global {
@@ -112,6 +112,23 @@ const RULE_PICKS: [string, string, string][] = [
   ["mjrc-standard", "MJRC standard", "3–10 faan · flowers · doubling payments. The house game."],
   ["tvb-2026", "TVB Championship 2026", "1 faan minimum · no flowers · linear payments. Every hand is payable, and big hands barely out-earn small ones."],
 ];
+
+/* ── bot picker (New table screen) ────────────────────────────────────────
+ * The catalogue is server data (GET /api/bots — gamepvp/src/bots.ts
+ * BOT_CATALOGUE) fetched once and cached; DEFAULT_BOT_LINEUP mirrors that
+ * file's BOT_LINEUP purely so the picker can pre-select the same default the
+ * server falls back to when a table is created with no `bots` picks. Bot
+ * seats fill from the top (worker/src/index.ts tableInitOf), so for N bot
+ * seats the defaults are the LAST N entries here, in seat order. */
+const DEFAULT_BOT_LINEUP = ["v1", "v4", "persona", "v2"];
+
+let botCatalogue: BotCatalogueEntry[] | null = null;
+let botCatalogueP: Promise<BotCatalogueEntry[]> | null = null;
+function loadBotCatalogue(): Promise<BotCatalogueEntry[]> {
+  if (botCatalogue) return Promise.resolve(botCatalogue);
+  botCatalogueP ??= listBots().catch(() => []).then((list) => { botCatalogue = list; return list; });
+  return botCatalogueP;
+}
 
 const $ = (id: string): HTMLElement => document.getElementById(id)!;
 const fmtChips = (n: number): string => `${n > 0 ? "+" : ""}${n}`;
@@ -1226,12 +1243,20 @@ function lobbyScreen(): void {
   (document.getElementById("btnAbout2") as HTMLElement).onclick = (e) => { e.preventDefault(); aboutScreen(lobbyScreen); };
 }
 
-const newTableDraft: { rulesetId: string; matchFormat: MatchFormat; botSeats: number } = {
-  rulesetId: "mjrc-standard", matchFormat: "east", botSeats: 3,
+const newTableDraft: { rulesetId: string; matchFormat: MatchFormat; botSeats: number; bots: string[] } = {
+  rulesetId: "mjrc-standard", matchFormat: "east", botSeats: 3, bots: DEFAULT_BOT_LINEUP.slice(1),
 };
+/** Reset the picks to the default lineup for `n` bot seats — the last `n`
+ *  entries of DEFAULT_BOT_LINEUP, in seat order (see the comment above it). */
+function defaultBotPicks(n: number): string[] {
+  return DEFAULT_BOT_LINEUP.slice(4 - n);
+}
+let newTableGen = 0;
 function newTableScreen(): void {
+  const gen = ++newTableGen;
   $("veil").style.display = "flex";
   $("panel").classList.remove("about");
+  const n = newTableDraft.botSeats;
   $("panel").innerHTML = `
     <h1>New table</h1>
     <h2>Length</h2>
@@ -1244,9 +1269,11 @@ function newTableScreen(): void {
       <div class="choice ${newTableDraft.rulesetId === id ? "sel" : ""}" data-r="${id}">
         <b>${label}</b><span>${blurb}</span></div>`).join("")}</div>
     <h2>Bots</h2>
-    <div class="seg">${[0, 1, 2, 3].map((n) => `
-      <button class="${newTableDraft.botSeats === n ? "on" : ""}" data-bots="${n}">
-        <b>${n}</b><span>${n === 0 ? "all human" : n === 3 ? "solo vs bots" : `${4 - n} human seats`}</span></button>`).join("")}</div>
+    <div class="seg">${[0, 1, 2, 3].map((k) => `
+      <button class="${n === k ? "on" : ""}" data-bots="${k}">
+        <b>${k}</b><span>${k === 0 ? "all human" : k === 3 ? "solo vs bots" : `${4 - k} human seats`}</span></button>`).join("")}</div>
+    ${n > 0 ? `<p class="segcap">Who plays the ${n === 1 ? "bot seat" : "bot seats"} — tap a name to swap it.</p>
+    <div class="botpicks">${botPickerRows(n)}</div>` : ""}
     <p class="mut">Playing as <b>${identity?.displayName ?? "—"}</b> ·
       <a href="#" id="btnRename" style="color:var(--gold)">change name</a></p>
     <button id="btnCreate">create table ▸</button>
@@ -1256,15 +1283,48 @@ function newTableScreen(): void {
     el.onclick = () => { newTableDraft.matchFormat = el.dataset.fmt as MatchFormat; newTableScreen(); };
   }
   for (const el of Array.from($("panel").querySelectorAll<HTMLElement>(".seg button[data-bots]"))) {
-    el.onclick = () => { newTableDraft.botSeats = Number(el.dataset.bots); newTableScreen(); };
+    el.onclick = () => {
+      const picked = Number(el.dataset.bots);
+      if (picked !== newTableDraft.botSeats) newTableDraft.bots = defaultBotPicks(picked);
+      newTableDraft.botSeats = picked;
+      newTableScreen();
+    };
   }
   for (const el of Array.from($("panel").querySelectorAll<HTMLElement>(".choice"))) {
     el.onclick = () => { newTableDraft.rulesetId = el.dataset.r!; newTableScreen(); };
+  }
+  for (const el of Array.from($("panel").querySelectorAll<HTMLElement>(".botchip"))) {
+    el.onclick = () => {
+      const seatIx = Number(el.dataset.seatIx);
+      newTableDraft.bots[seatIx] = el.dataset.key!;
+      newTableScreen();
+    };
   }
   const ren = document.getElementById("btnRename");
   if (ren) ren.onclick = (e) => { e.preventDefault(); nameScreen(newTableScreen); };
   wireBack(lobbyScreen);
   (document.getElementById("btnCreate") as HTMLButtonElement).onclick = () => void doCreateTable();
+  if (n > 0 && !botCatalogue) {
+    void loadBotCatalogue().then(() => { if (gen === newTableGen) newTableScreen(); });
+  }
+}
+/** One compact row per bot seat: a wrap of small name chips (catalogue once
+ *  loaded, else just the current pick) — no modal, portrait-friendly. */
+function botPickerRows(n: number): string {
+  while (newTableDraft.bots.length < n) newTableDraft.bots.push(DEFAULT_BOT_LINEUP[DEFAULT_BOT_LINEUP.length - 1]!);
+  newTableDraft.bots.length = n;
+  const catalogue = botCatalogue ?? [];
+  const rows: string[] = [];
+  for (let i = 0; i < n; i++) {
+    const picked = newTableDraft.bots[i]!;
+    const chips = catalogue.length > 0
+      ? catalogue.map((b) => `
+        <button class="botchip ${b.key === picked ? "on" : ""}" data-seat-ix="${i}" data-key="${b.key}"
+          title="${b.blurb} · strength ${b.strength}/5">${b.displayName}</button>`).join("")
+      : `<button class="botchip on" data-seat-ix="${i}" data-key="${picked}">${picked}</button>`;
+    rows.push(`<div class="botrow"><span class="botlabel">bot ${i + 1}</span><div class="chips">${chips}</div></div>`);
+  }
+  return rows.join("");
 }
 async function doCreateTable(): Promise<void> {
   if (!identity) return;
@@ -1273,6 +1333,7 @@ async function doCreateTable(): Promise<void> {
   try {
     const r: CreateTableResult = await createTable(identity.deviceToken, {
       rulesetId: newTableDraft.rulesetId, matchFormat: newTableDraft.matchFormat, botSeats: newTableDraft.botSeats,
+      ...(newTableDraft.botSeats > 0 ? { bots: newTableDraft.bots.slice(0, newTableDraft.botSeats) } : {}),
     });
     connectToMatch({
       matchUuid: r.matchUuid, joinCode: r.joinCode, seat: r.seat, seatToken: r.seatToken,

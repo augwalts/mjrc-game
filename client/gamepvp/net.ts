@@ -131,9 +131,22 @@ export interface CreateTableResult {
 
 export async function createTable(
   token: string,
-  opts: { rulesetId: string; matchFormat: MatchFormat; botSeats: number },
+  opts: { rulesetId: string; matchFormat: MatchFormat; botSeats: number; bots?: string[] },
 ): Promise<CreateTableResult> {
   return apiFetch("tables", { method: "POST", token, body: opts });
+}
+
+/** One row of GET /api/bots — see gamepvp/src/bots.ts `BOT_CATALOGUE`. */
+export interface BotCatalogueEntry {
+  key: string;
+  displayName: string;
+  blurb: string;
+  strength: number;
+}
+
+export async function listBots(): Promise<BotCatalogueEntry[]> {
+  const data = await apiFetch<{ bots: BotCatalogueEntry[] }>("bots");
+  return data.bots;
 }
 
 export interface JoinTableResult {

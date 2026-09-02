@@ -54,10 +54,15 @@
   // Pinned onto every match row (DESIGN.md §5.5). Must equal ENGINE_VERSION in
   // engine/src/reducer.ts for the build being deployed; src/index.ts refuses to
   // start if they disagree.
-  "vars": { "ENGINE_VERSION": "mjrc-engine/1.0.0" },
+  "vars": {
+    "ENGINE_VERSION": "mjrc-engine/1.0.0",
+    // Augustine's rulings 2026-09-01: 20 s turn, 5 s claim window, 60 s grace
+    // (long enough for an app switch on a phone).
+    "TABLE_CONFIG": "{\"turnMs\":20000,\"claimWindowMs\":5000,\"disconnectGraceMs\":60000}"
+  },
 
-  // Uncomment on the first approved deploy. wrangler creates the DNS record.
-  // "routes": [{ "pattern": "gamepvp.mahjongresearch.com", "custom_domain": true }],
+  // Live since 2026-09-02. wrangler created the DNS record on deploy.
+  "routes": [{ "pattern": "gamepvp.mahjongresearch.com", "custom_domain": true }],
 
   "observability": { "enabled": true }
 }

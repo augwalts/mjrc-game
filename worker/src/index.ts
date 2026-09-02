@@ -91,6 +91,16 @@ export interface TableSpec {
   logSchemaVersion: number;
   matchFormat: string;
   botSeats: number;
+  /**
+   * Profile keys for the bot seats, in seat order — length `botSeats` when
+   * present. Opaque to this file (worker doesn't know what a profile IS,
+   * `Platform.isBotKey` is the deployment's membership check); it is only
+   * carried through to `TableStub.openTable`, whose deployment-specific
+   * implementation resolves each key to a `PlayerRef` (gamepvp/src/index.ts
+   * `tableInitOf`). Undefined or omitted means "use the deployment's default
+   * lineup".
+   */
+  bots?: string[];
   startedAt: string;
 }
 
@@ -147,6 +157,14 @@ export interface Platform {
   random(n: number): Uint8Array;
   engineVersion: string;
   replayTokenSecret: string;
+  /**
+   * Is `key` a real bot profile? The catalogue lives with the game, not the
+   * platform (gamepvp/src/bots.ts `isBotCatalogueKey`), so this is how
+   * `postTable` gets a precise, pre-write 400 on an unknown `bots` pick
+   * without this file importing a deployment's bot list. Omitted = accept
+   * any non-empty key (a deployment with no catalogue of its own).
+   */
+  isBotKey?(key: string): boolean;
 }
 
 export class ConfigError extends Error {}
@@ -281,6 +299,31 @@ function str(v: unknown): string | null {
 function clampInt(v: unknown, lo: number, hi: number, fallback: number): number {
   if (typeof v !== "number" || !Number.isInteger(v)) return fallback;
   return Math.min(hi, Math.max(lo, v));
+}
+
+/**
+ * `body.bots` from `POST /api/tables`: `undefined` means "the deployment's
+ * default lineup"; otherwise it must be exactly `botSeats` non-empty keys,
+ * each one `isBotKey` accepts (when the deployment supplies that check).
+ * Returns the sentinel `"invalid"` rather than throwing so the one caller can
+ * turn every failure mode into a single, precise 400 before any row is
+ * written — see the `postTable` doctrine comment on write ordering.
+ */
+function parseBots(
+  v: unknown,
+  botSeats: number,
+  isBotKey: ((key: string) => boolean) | undefined,
+): string[] | undefined | "invalid" {
+  if (v === undefined) return undefined;
+  if (!Array.isArray(v) || v.length !== botSeats) return "invalid";
+  const keys: string[] = [];
+  for (const entry of v) {
+    const key = str(entry);
+    if (key === null) return "invalid";
+    if (isBotKey && !isBotKey(key)) return "invalid";
+    keys.push(key);
+  }
+  return keys;
 }
 
 const MAX_DISPLAY_NAME = 40;
@@ -654,6 +697,8 @@ async function postTable(req: Request, p: Platform, player: PlayerRow): Promise<
 
   const matchFormat = body.matchFormat === "full" ? "full" : "east";
   const botSeats = clampInt(body.botSeats, 0, 3, 0);
+  const bots = parseBots(body.bots, botSeats, p.isBotKey);
+  if (bots === "invalid") return fail("unknown_bot", 400);
   const now = p.now();
   const hash = await rulesetHash(rules);
   await archiveRuleset(p.db, hash, rules, now);
@@ -687,6 +732,7 @@ async function postTable(req: Request, p: Platform, player: PlayerRow): Promise<
     logSchemaVersion: EVENT_SCHEMA_VERSION,
     matchFormat,
     botSeats,
+    bots,
     startedAt: now,
   });
   if (handoff === null) return fail("table_unavailable", 503);

@@ -44,6 +44,14 @@ const HUMANS = Math.min(4, Math.max(1, Number.parseInt(process.env.MJRC_HUMANS ?
 const MATCH_FORMAT = process.env.MJRC_FORMAT ?? "east";
 const RULESET_ID = process.env.MJRC_RULESET ?? "mjrc-standard";
 const TIMEOUT_MS = Number.parseInt(process.env.MJRC_TIMEOUT_MS ?? "180000", 10);
+/** Comma-separated bot profile keys (gamepvp/src/bots.ts BOT_CATALOGUE), in
+ *  seat order for the bot seats — exercises the POST /api/tables `bots` pick
+ *  path headless. Unset (the default) omits `bots` entirely and the server
+ *  falls back to its own default lineup, same as before this option existed. */
+const BOTS = (process.env.MJRC_BOTS ?? "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter((s) => s !== "");
 
 const GATE_HEX = createHash("sha256").update(`mjrc-gate:${GATE_PASSWORD}`).digest("hex");
 const GATE_COOKIE = `mjrc_gate=${GATE_HEX}`;
@@ -218,9 +226,14 @@ function openSeatSocket(human, matchUuid) {
 
 async function main() {
   const start = Date.now();
+  const botSeats = 4 - HUMANS;
   console.log(
-    `mjrc smoke test — base=${HTTP_BASE} humans=${HUMANS} format=${MATCH_FORMAT} ruleset=${RULESET_ID}`,
+    `mjrc smoke test — base=${HTTP_BASE} humans=${HUMANS} format=${MATCH_FORMAT} ruleset=${RULESET_ID}` +
+      (BOTS.length > 0 ? ` bots=${BOTS.join(",")}` : ""),
   );
+  if (BOTS.length > 0 && BOTS.length !== botSeats) {
+    throw new Error(`MJRC_BOTS has ${BOTS.length} keys but botSeats is ${botSeats} (4 - MJRC_HUMANS)`);
+  }
 
   const humans = [];
   for (let seat = 0; seat < HUMANS; seat += 1) {
@@ -233,7 +246,12 @@ async function main() {
   const created = await apiFetch("/api/tables", {
     method: "POST",
     token: humans[0].deviceToken,
-    body: { rulesetId: RULESET_ID, matchFormat: MATCH_FORMAT, botSeats: 4 - HUMANS },
+    body: {
+      rulesetId: RULESET_ID,
+      matchFormat: MATCH_FORMAT,
+      botSeats,
+      ...(BOTS.length > 0 ? { bots: BOTS } : {}),
+    },
   });
   const matchUuid = created.matchUuid;
   humans[0].seat = created.seat;

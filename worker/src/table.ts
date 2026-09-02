@@ -68,6 +68,7 @@ import type {
   MatchEndPayload,
   MatchLogHeader,
   OmniscientMatchLog,
+  PlayerRef,
   RejectCode,
   SeatDirectoryEntry,
   SeatSnapshot,
@@ -220,8 +221,13 @@ export interface TableRules {
  * cheat, and the type here is what stops one being written by accident.
  */
 export interface BotBrain {
-  /** Deterministic. `rand` is a seeded `prng`; there is no other entropy. */
-  decide(view: SeatVisible<SeatSnapshot>, legal: LegalRequests, rand: () => number): Action | null;
+  /**
+   * Deterministic. `rand` is a seeded `prng`; there is no other entropy.
+   * `player` is this seat's `PlayerRef` from the header — how a brain that
+   * serves more than one profile (gamepvp/src/bots.ts) tells seats apart.
+   * Optional so a brain that only ever runs one profile need not read it.
+   */
+  decide(view: SeatVisible<SeatSnapshot>, legal: LegalRequests, rand: () => number, player?: PlayerRef): Action | null;
   /** Deterministic think time. Clamped by the DO and always inside the window. */
   paceMs(legal: LegalRequests, rand: () => number): number;
 }
@@ -1697,9 +1703,10 @@ export class TableCore {
     const legal = this.legalFor(seat);
     if (!hasAnyRequest(legal)) return;
     const rand = prng(botSeed(this.requireMeta().seed, state.handIndex, this.seq, seat));
+    const player = this.requireMeta().header.players[seat];
     let action: Action | null = null;
     try {
-      action = this.deps.bots.decide(this.viewFor(seat), legal, rand);
+      action = this.deps.bots.decide(this.viewFor(seat), legal, rand, player);
     } catch {
       action = null;
     }
