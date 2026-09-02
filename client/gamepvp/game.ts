@@ -36,11 +36,14 @@ import type {
 } from "../../protocol/src/messages.js";
 import {
   ApiError, RequestRejected, TableSocket,
-  createTable, getLobby, identify, joinTable, leaveTable as apiLeaveTable, listBots, listMatches,
+  createTable, getLeaderboard, getLobby, getMyStats, getPlayerStats, identify, joinTable,
+  leaveTable as apiLeaveTable, listBots, listMatches,
   matchDetail, postPresence, startTable as apiStartTable, storedIdentity,
-  type BotCatalogueEntry, type CreateTableResult, type Identity, type LobbyHereEntry, type LobbyPayload,
-  type LobbyTable, type LobbyTableSeat, type MatchFormat, type MatchListItem, type SeatSpec,
-  type TableAccess, type TableMode,
+  type BotCatalogueEntry, type CasualLeaderboardEntry, type CreateTableResult, type Identity,
+  type LeaderboardMode, type LobbyHereEntry, type LobbyPayload,
+  type LobbyTable, type LobbyTableSeat, type MatchFormat, type MatchListItem,
+  type PlayerStats, type PlayerStatsRecentMatch, type PlayerStatsTotals,
+  type RankedLeaderboardEntry, type SeatSpec, type TableAccess, type TableMode,
 } from "./net.js";
 
 declare global {
@@ -933,7 +936,7 @@ function showMatchEndScreen(): void {
     <p class="mut">${info.reason} · ${info.handsPlayed} hands · ${currentRulesetId} · ${currentMatchFormat}</p>
     <h2 style="margin-top:14px">Final standings</h2>
     <div class="rows">${order.map((i, r) => `
-      <div class="row ${i === mySeat ? "me" : ""}"><span class="c1">${r + 1}. ${seatName(i as SeatIndex)}${agreementLine(i as SeatIndex)}</span>
+      <div class="row ${i === mySeat ? "me" : ""}"><span class="c1">${r + 1}. <span class="pname" data-player="${esc(directory?.[i as SeatIndex]?.playerId ?? "")}">${seatName(i as SeatIndex)}</span>${agreementLine(i as SeatIndex)}</span>
         <span class="c2 ${info.standings[i]! > 0 ? "up" : info.standings[i]! < 0 ? "down" : ""}">${fmtChips(info.standings[i]!)}</span></div>`).join("")}</div>
     ${sessionHands.length === 0 ? "" : `
     <h2 style="margin-top:14px">Hand by hand</h2>
@@ -953,6 +956,11 @@ function showMatchEndScreen(): void {
     currentMatchUuid = null; currentJoinCode = null; isCreatorOfCurrentTable = false;
     lobbyScreen();
   };
+  for (const el of Array.from($("panel").querySelectorAll<HTMLElement>(".pname[data-player]"))) {
+    const id = el.dataset.player;
+    if (!id) continue;
+    el.onclick = (e) => { e.stopPropagation(); playerScreen(id, showMatchEndScreen); };
+  }
 }
 
 /** Local-only: closes the socket and returns to the lobby. Does NOT call
@@ -1443,9 +1451,12 @@ function hereRowHtml(e: LobbyHereEntry, tables: LobbyTable[]): string {
   const t = e.matchId ? tables.find((x) => x.matchId === e.matchId) : undefined;
   const clickable = e.state === "waiting" && t?.access === "open" && t.lobbyStatus === "waiting" && !!t.joinCode;
   const dot = e.state === "lobby" ? "here" : e.state === "waiting" ? "wait" : "play";
+  // The name is its own tap target (→ Player) inside a row that may ALSO be
+  // clickable as a whole (→ sit down) — `pname`'s handler stops propagation
+  // so tapping a name never fires the row's sit-down click underneath it.
   return `<div class="row${clickable ? " clickable" : ""}" ${clickable ? `data-code="${t!.joinCode}"` : ""}>
     <span class="dot ${dot}"></span>
-    <span class="c1">${esc(e.displayName)}</span>
+    <span class="c1"><span class="pname" data-player="${esc(e.playerId)}">${esc(e.displayName)}</span></span>
     <span class="c2 mut" style="width:auto">${hereStateLabel(e, tables)}</span></div>`;
 }
 
@@ -1502,6 +1513,8 @@ function wireLobbyPanel(): void {
   (document.getElementById("goNew") as HTMLElement).onclick = () => { beforeScreen(); newTableScreen(); };
   (document.getElementById("goJoin") as HTMLElement).onclick = () => { beforeScreen(); joinScreen(); };
   (document.getElementById("goStats") as HTMLElement).onclick = () => { beforeScreen(); statsScreen(); };
+  (document.getElementById("goYourStats") as HTMLElement).onclick = () => { beforeScreen(); yourStatsScreen(); };
+  (document.getElementById("goLeaderboard") as HTMLElement).onclick = () => { beforeScreen(); leaderboardScreen("ranked"); };
   (document.getElementById("btnRename") as HTMLElement).onclick = (e) => { e.preventDefault(); beforeScreen(); nameScreen(lobbyScreen); };
   (document.getElementById("btnAbout2") as HTMLElement).onclick = (e) => { e.preventDefault(); beforeScreen(); aboutScreen(lobbyScreen); };
   for (const el of Array.from($("panel").querySelectorAll<HTMLElement>(".row.clickable[data-code]"))) {
@@ -1509,6 +1522,14 @@ function wireLobbyPanel(): void {
   }
   for (const el of Array.from($("panel").querySelectorAll<HTMLButtonElement>("button.sitdown"))) {
     el.onclick = () => { const code = el.dataset.code!; beforeScreen(); void sitDownByCode(code); };
+  }
+  for (const el of Array.from($("panel").querySelectorAll<HTMLElement>(".pname[data-player]"))) {
+    el.onclick = (e) => {
+      e.stopPropagation();
+      const id = el.dataset.player!;
+      beforeScreen();
+      playerScreen(id, lobbyScreen);
+    };
   }
 }
 
@@ -1545,6 +1566,8 @@ function renderLobby(): void {
           <div class="choice" id="goNew"><b>New table ▸</b><span>Pick rules, mode and seats, invite by code.</span></div>
           <div class="choice" id="goJoin"><b>Join by code</b><span>Enter a table's join code to sit down.</span></div>
           <div class="choice" id="goStats"><b>Your games</b><span>Every match you have played — our record of it, not this device's.</span></div>
+          <div class="choice" id="goYourStats"><b>Stats</b><span>Your totals, placements and rating over time.</span></div>
+          <div class="choice" id="goLeaderboard"><b>Leaderboard</b><span>Ranked by rating, casual by record.</span></div>
         </div>
       </div>
     </div>
@@ -1814,6 +1837,191 @@ function statsScreen(): void {
   }).catch(() => {
     $("panel").innerHTML = `<h1>Your games</h1><p class="mut">could not reach the server.</p>${backRow()}`;
     wireBack(lobbyScreen);
+  });
+}
+
+/* ── stats and leaderboard (PVP-LOBBY-PROPOSAL-2026-09-02.md §6 decision 6,
+ * §7.2's last two bullets) ────────────────────────────────────────────────
+ * `statsBodyHtml` is the one layout shared by "Your stats" (own totals) and
+ * "Player" (someone else's, tapped from the leaderboard, Here now, or a
+ * match's own scoreboard) — same numbers, same GET /api/players/:id/stats
+ * shape, only the page framing around it differs. */
+
+function statTilesHtml(t: PlayerStatsTotals): string {
+  const tiles: [string, string][] = [
+    [String(t.matches), "matches"],
+    [String(t.wins), "wins"],
+    [t.avgFaan === null ? "—" : t.avgFaan.toFixed(1), "avg faan"],
+    [fmtChips(t.netChips), "net chips"],
+    [String(t.handsWon), "hands won"],
+    [String(t.selfDraws), "self-draws"],
+    [String(t.dealIns), "deal-ins"],
+  ];
+  // Grading is a web-only feature (owner's ruling — see `agreementLine`
+  // above): the number itself is server truth either way, only the DISPLAY
+  // is gated, same rule as the match-end screen's "how you played it".
+  if (isDesktop() && t.agreement !== null) tiles.push([`${Math.round(t.agreement * 100)}%`, "engine agreement"]);
+  return `<div class="statgrid">${tiles.map(([v, l]) => `<div><span>${v}</span>${l}</div>`).join("")}</div>`;
+}
+
+function placeBarsHtml(places: readonly [number, number, number, number]): string {
+  const max = Math.max(1, ...places);
+  return `<div class="placebars">${places.map((n, i) => `
+    <div class="prow"><span class="plabel">#${i + 1}</span>
+      <span class="ptrack"><span class="pfill" style="width:${Math.round((n / max) * 100)}%"></span></span>
+      <span class="pcount">${n}</span></div>`).join("")}</div>`;
+}
+
+function recentMatchRowHtml(m: PlayerStatsRecentMatch): string {
+  const delta = m.ratingDelta === null ? "" :
+    ` <b class="${m.ratingDelta > 0 ? "up" : m.ratingDelta < 0 ? "down" : ""}">${m.ratingDelta > 0 ? "+" : ""}${m.ratingDelta}</b>`;
+  return `<div class="row"><span class="c1">${m.endedAt ? new Date(m.endedAt).toLocaleDateString() : "—"}
+      <span class="badge ${m.mode}">${m.mode}</span>${delta}</span>
+    <span class="c2">${m.place ? `#${m.place}` : "—"}</span>
+    <span class="c2 ${m.chips > 0 ? "up" : m.chips < 0 ? "down" : ""}">${fmtChips(m.chips)}</span></div>`;
+}
+
+/** Inline SVG only — drawn once per render, no animation loop, and only when
+ *  there is more than one point to connect (task spec item 4). Oldest to
+ *  newest, left to right; `ratingHistory` itself is newest-first on the wire. */
+function sparklineSvg(oldestToNewest: number[]): string {
+  if (oldestToNewest.length < 2) return "";
+  const w = 280, h = 56, pad = 5;
+  const min = Math.min(...oldestToNewest);
+  const max = Math.max(...oldestToNewest);
+  const span = max - min || 1;
+  const stepX = (w - pad * 2) / (oldestToNewest.length - 1);
+  const pts = oldestToNewest
+    .map((v, i) => `${(pad + i * stepX).toFixed(1)},${(pad + (h - pad * 2) * (1 - (v - min) / span)).toFixed(1)}`)
+    .join(" ");
+  const rising = oldestToNewest[oldestToNewest.length - 1]! >= oldestToNewest[0]!;
+  return `<svg viewBox="0 0 ${w} ${h}" width="100%" height="${h}" preserveAspectRatio="none" style="display:block;margin-top:6px">
+    <polyline points="${pts}" fill="none" stroke="${rising ? "#7fe0a4" : "#ff9b93"}" stroke-width="2"
+      stroke-linejoin="round" stroke-linecap="round"/></svg>`;
+}
+
+function statsBodyHtml(stats: PlayerStats): string {
+  const p = stats.player;
+  const ratingLine = p.rating === null
+    ? `<span class="mut">unrated</span>`
+    : `${Math.round(p.rating)}${p.provisional ? ` <span class="mut">(provisional)</span>` : ""}`;
+  const spark = sparklineSvg([...stats.ratingHistory].reverse().map((r) => r.after));
+  return `
+    <p class="mut">rating <b style="color:var(--gold)">${ratingLine}</b></p>
+    ${statTilesHtml(stats.totals)}
+    <h2 style="margin-top:14px">Placement</h2>
+    ${placeBarsHtml(stats.totals.places)}
+    ${spark ? `<h2 style="margin-top:14px">Rating over time</h2>${spark}` : ""}
+    <h2 style="margin-top:14px">Recent matches</h2>
+    <div class="rows">${stats.recent.length === 0
+      ? `<p class="mut">nothing finished yet</p>`
+      : stats.recent.map(recentMatchRowHtml).join("")}</div>`;
+}
+
+function yourStatsScreen(): void {
+  beforeScreen();
+  $("veil").style.display = "flex";
+  $("panel").innerHTML = `<h1>Your stats</h1><p class="mut">reading…</p>`;
+  if (!identity) { lobbyScreen(); return; }
+  void getMyStats(identity.deviceToken).then((stats) => {
+    $("panel").innerHTML = `
+      <h1>Your stats</h1>
+      <p class="mut">Playing as <b>${esc(stats.player.displayName)}</b></p>
+      ${statsBodyHtml(stats)}
+      <p class="mut" style="margin-top:10px"><a href="#" id="goLb" style="color:var(--gold)">leaderboard ▸</a></p>
+      ${backRow()}`;
+    const lb = document.getElementById("goLb");
+    if (lb) lb.onclick = (e) => { e.preventDefault(); leaderboardScreen("ranked"); };
+    wireBack(lobbyScreen);
+  }).catch(() => {
+    $("panel").innerHTML = `<h1>Your stats</h1><p class="mut">could not reach the server.</p>${backRow()}`;
+    wireBack(lobbyScreen);
+  });
+}
+
+/** Reached from the leaderboard, the lobby's Here now list, or a match's own
+ *  scoreboard — `back` is wherever the tap came from, so "◂ back" returns
+ *  there rather than always to the lobby. */
+function playerScreen(playerId: string, back: () => void): void {
+  beforeScreen();
+  $("veil").style.display = "flex";
+  $("panel").innerHTML = `<h1>Player</h1><p class="mut">reading…</p>`;
+  if (!identity || !playerId) { back(); return; }
+  const self = playerId === identity.playerId;
+  void getPlayerStats(identity.deviceToken, playerId).then((stats) => {
+    $("panel").innerHTML = `
+      <h1>${esc(stats.player.displayName)}${self ? ` <span class="mut">(you)</span>` : ""}</h1>
+      ${statsBodyHtml(stats)}
+      ${backRow()}`;
+    wireBack(back);
+  }).catch(() => {
+    $("panel").innerHTML = `<h1>Player</h1><p class="mut">could not reach the server.</p>${backRow()}`;
+    wireBack(back);
+  });
+}
+
+function leaderboardModeToggleHtml(mode: LeaderboardMode): string {
+  return `<div class="seg">
+    <button class="${mode === "ranked" ? "on" : ""}" data-lb="ranked"><b>Ranked</b><span>by rating</span></button>
+    <button class="${mode === "casual" ? "on" : ""}" data-lb="casual"><b>Casual</b><span>by record</span></button>
+  </div>`;
+}
+
+function leaderboardRowHtml(rank: number, e: RankedLeaderboardEntry | CasualLeaderboardEntry, mode: LeaderboardMode): string {
+  if (mode === "ranked") {
+    const r = e as RankedLeaderboardEntry;
+    return `<div class="row clickable" data-player="${esc(r.playerId)}">
+      <span class="c1">${rank}. ${esc(r.displayName)}</span>
+      <span class="c2">${Math.round(r.rating)}${r.provisional ? "*" : ""}</span></div>`;
+  }
+  const c = e as CasualLeaderboardEntry;
+  const agree = isDesktop() && c.agreement !== null ? ` <span class="mut">· ${Math.round(c.agreement * 100)}%</span>` : "";
+  return `<div class="row clickable" data-player="${esc(c.playerId)}">
+    <span class="c1">${rank}. ${esc(c.displayName)}${agree}</span>
+    <span class="c2">${c.wins}-${c.matches - c.wins}</span></div>`;
+}
+
+function wireLeaderboardPanel(mode: LeaderboardMode): void {
+  for (const el of Array.from($("panel").querySelectorAll<HTMLElement>(".seg button[data-lb]"))) {
+    el.onclick = () => leaderboardScreen(el.dataset.lb as LeaderboardMode);
+  }
+  for (const el of Array.from($("panel").querySelectorAll<HTMLElement>(".row[data-player]"))) {
+    el.onclick = () => { const id = el.dataset.player!; playerScreen(id, () => leaderboardScreen(mode)); };
+  }
+  wireBack(lobbyScreen);
+}
+
+/** The two overloads of `getLeaderboard` (net.ts) exist so a caller with a
+ *  LITERAL mode gets the matching entry shape typed; this screen's mode is a
+ *  runtime value, so it branches once here rather than casting past the
+ *  overloads (which would let a "casual" call through the "ranked" typing). */
+async function fetchLeaderboard(
+  token: string,
+  mode: LeaderboardMode,
+): Promise<(RankedLeaderboardEntry | CasualLeaderboardEntry)[]> {
+  if (mode === "ranked") return (await getLeaderboard(token, "ranked")).entries;
+  return (await getLeaderboard(token, "casual")).entries;
+}
+
+function leaderboardScreen(mode: LeaderboardMode): void {
+  beforeScreen();
+  $("veil").style.display = "flex";
+  $("panel").innerHTML = `<h1>Leaderboard</h1>${leaderboardModeToggleHtml(mode)}<p class="mut" style="margin-top:10px">reading…</p>`;
+  wireLeaderboardPanel(mode);
+  if (!identity) return;
+  void fetchLeaderboard(identity.deviceToken, mode).then((entries) => {
+    $("panel").innerHTML = `
+      <h1>Leaderboard</h1>
+      ${leaderboardModeToggleHtml(mode)}
+      ${mode === "ranked" ? `<p class="mut" style="margin-top:6px">* provisional — still finding its level</p>` : ""}
+      <div class="rows" style="max-height:400px">${entries.length === 0
+        ? `<p class="mut">nobody yet</p>`
+        : entries.map((e, i) => leaderboardRowHtml(i + 1, e, mode)).join("")}</div>
+      ${backRow()}`;
+    wireLeaderboardPanel(mode);
+  }).catch(() => {
+    $("panel").innerHTML = `<h1>Leaderboard</h1>${leaderboardModeToggleHtml(mode)}<p class="mut">could not reach the server.</p>${backRow()}`;
+    wireLeaderboardPanel(mode);
   });
 }
 

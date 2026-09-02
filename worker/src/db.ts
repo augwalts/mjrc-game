@@ -567,12 +567,134 @@ export const SQL = Object.freeze({
   /** A match's HUMAN seats only — bots never appear here (see header comment).
    *  `connected` is the table object's own cache (schema.sql match_players,
    *  "Lobby-facing"), not derived from anything this query can see. */
+  /** `AND p.kind = 'human'` is load-bearing, not defensive: bot seats got
+   *  their OWN `match_players` rows once item 1 of the ranked-settlement
+   *  brief landed (worker/src/table.ts `claimBotSeat`, gamepvp/src/index.ts
+   *  `ensureBotSeatRows`) — before that, "nothing ever inserts one for a bot
+   *  seat" was true by construction and this filter was unnecessary. The
+   *  lobby still wants ONLY the human row here: a bot seat's label and
+   *  "connected" (always false) come from `seat_plan` instead (`getLobby`'s
+   *  `spec.kind === 'bot'` branch), which is the only place a bot's identity
+   *  needs to reach the lobby view from. */
   humanSeatsOfMatch: `
     SELECT mp.seat, mp.player_id, p.display_name, mp.connected
       FROM match_players mp
       JOIN players p ON p.id = mp.player_id
-     WHERE mp.match_id = ?
+     WHERE mp.match_id = ? AND p.kind = 'human'
      ORDER BY mp.seat`,
+
+  /* ── stats and leaderboards (PVP-LOBBY-PROPOSAL-2026-09-02.md §7.2's last
+   * two bullets) ────────────────────────────────────────────────────────── */
+
+  playerById: `
+    SELECT id, kind, display_name, rating, rating_games, rating_season
+      FROM players
+     WHERE id = ? AND deleted_at IS NULL`,
+
+  /** Every completed match this player was ever seated at, folded into one
+   *  row — `match_players`/`matches` are canonical, this is a read-time fold
+   *  over them, not a stored projection (schema.sql, "Regenerable vs
+   *  stateful"). `place BETWEEN 1 AND 4` gates the whole row on a completed
+   *  match, so `matches.status = 'complete'` needs no separate predicate. */
+  statsTotalsForPlayer: `
+    SELECT
+      COUNT(*) AS matches,
+      SUM(CASE WHEN m.mode = 'ranked' THEN 1 ELSE 0 END) AS ranked,
+      SUM(CASE WHEN m.mode = 'casual' THEN 1 ELSE 0 END) AS casual,
+      SUM(CASE WHEN mp.place = 1 THEN 1 ELSE 0 END) AS place1,
+      SUM(CASE WHEN mp.place = 2 THEN 1 ELSE 0 END) AS place2,
+      SUM(CASE WHEN mp.place = 3 THEN 1 ELSE 0 END) AS place3,
+      SUM(CASE WHEN mp.place = 4 THEN 1 ELSE 0 END) AS place4,
+      SUM(mp.hands_won) AS hands_won,
+      SUM(mp.self_draws) AS self_draws,
+      SUM(mp.deal_ins) AS deal_ins,
+      SUM(mp.moves_graded) AS moves_graded,
+      SUM(mp.moves_matched) AS moves_matched
+    FROM match_players mp
+    JOIN matches m ON m.id = mp.match_id
+   WHERE mp.player_id = ? AND m.status = 'complete'`,
+
+  /** Mean faan of every hand this player WON — `avgFaan` in the stats
+   *  contract. Separate from `statsTotalsForPlayer` because it reads `hands`,
+   *  not `match_players`, and mixing the two into one query would force a
+   *  join whose row count no longer matches either table's own grain. */
+  avgFaanForPlayer: `
+    SELECT AVG(faan) AS avg_faan, COUNT(*) AS n
+      FROM hands
+     WHERE winner_player_id = ?`,
+
+  /** Net chips across every hand this player was ever dealt into — the sum of
+   *  the seat's own delta column, hand by hand, joined through `match_players`
+   *  rather than stored anywhere: `hands.delta_seat<N>` is keyed by physical
+   *  seat, and this player's seat can differ match to match. `netChips` in the
+   *  stats contract. */
+  netChipsForPlayer: `
+    SELECT SUM(
+      CASE mp.seat
+        WHEN 0 THEN h.delta_seat0 WHEN 1 THEN h.delta_seat1
+        WHEN 2 THEN h.delta_seat2 WHEN 3 THEN h.delta_seat3
+      END
+    ) AS net_chips
+      FROM match_players mp
+      JOIN hands h ON h.match_id = mp.match_id
+     WHERE mp.player_id = ?`,
+
+  /** Last 10 completed matches, newest first — the stats screen's "recent"
+   *  list. `rating_before`/`rating_after` are null on a casual match; the
+   *  route derives `ratingDelta` from the pair rather than reading a stored
+   *  delta column, which does not exist. */
+  recentMatchesForPlayer: `
+    SELECT m.id AS match_id, m.ended_at AS ended_at, m.mode AS mode,
+           mp.place AS place, mp.final_chips AS final_chips,
+           mp.rating_before AS rating_before, mp.rating_after AS rating_after
+      FROM match_players mp
+      JOIN matches m ON m.id = mp.match_id
+     WHERE mp.player_id = ? AND m.status = 'complete'
+     ORDER BY m.ended_at DESC
+     LIMIT ?`,
+
+  /** Last 30 rating changes, newest first — `idx_rating_history_player`
+   *  covers this exactly (player_id, id DESC). */
+  ratingHistoryForPlayer: `
+    SELECT created_at AS at, rating_before AS before, rating_after AS after, match_id
+      FROM rating_history
+     WHERE player_id = ?
+     ORDER BY id DESC
+     LIMIT ?`,
+
+  /** Ranked leaderboard: humans with at least one rated match, by rating
+   *  desc — `idx_players_rating` (rating_season, rating DESC) WHERE kind =
+   *  'human' AND deleted_at IS NULL AND rating IS NOT NULL covers this. */
+  leaderboardRanked: `
+    SELECT id, display_name, rating, rating_games
+      FROM players
+     WHERE kind = 'human' AND deleted_at IS NULL
+       AND rating_season = ? AND rating_games >= 1
+     ORDER BY rating DESC
+     LIMIT ?`,
+
+  /** Casual leaderboard: humans by wins then matches, over CASUAL matches
+   *  only. An aggregate scan of `match_players`/`matches`/`players`, not an
+   *  indexed point read — acceptable at P0's scale (worker/README.md), the
+   *  same judgement call `matchesWaitingOrPlaying`'s defensive LIMIT makes. */
+  leaderboardCasual: `
+    SELECT p.id AS player_id, p.display_name AS display_name,
+           COUNT(*) AS matches,
+           SUM(CASE WHEN mp.place = 1 THEN 1 ELSE 0 END) AS wins,
+           SUM(CASE WHEN mp.place = 1 THEN 1 ELSE 0 END) AS place1,
+           SUM(CASE WHEN mp.place = 2 THEN 1 ELSE 0 END) AS place2,
+           SUM(CASE WHEN mp.place = 3 THEN 1 ELSE 0 END) AS place3,
+           SUM(CASE WHEN mp.place = 4 THEN 1 ELSE 0 END) AS place4,
+           SUM(mp.moves_graded) AS moves_graded,
+           SUM(mp.moves_matched) AS moves_matched
+      FROM match_players mp
+      JOIN matches m ON m.id = mp.match_id
+      JOIN players p ON p.id = mp.player_id
+     WHERE m.mode = 'casual' AND m.status = 'complete'
+       AND p.kind = 'human' AND p.deleted_at IS NULL
+     GROUP BY p.id
+     ORDER BY wins DESC, matches DESC
+     LIMIT ?`,
 });
 
 /* ── identity ─────────────────────────────────────────────────────────────── */
@@ -867,5 +989,117 @@ export interface LobbySeatRow {
  *  lobby view fall back to the seat plan for any seat missing here. */
 export async function humanSeatsOfMatch(db: D1Like, matchId: string): Promise<LobbySeatRow[]> {
   const { results } = await db.prepare(SQL.humanSeatsOfMatch).bind(matchId).all<LobbySeatRow>();
+  return results;
+}
+
+/* ── stats and leaderboards ──────────────────────────────────────────────── */
+
+/** P0's one rating season (worker/src/table.ts `RATING_SEASON`, schema.sql
+ *  `rating_history.season`/`players.rating_season`). Duplicated as a literal
+ *  in both files rather than shared from a module either would have to take a
+ *  new dependency on — `RATING_SYSTEM_ID`'s sibling, not a config value. */
+export const RATING_SEASON = "p0-provisional";
+
+export function playerById(db: D1Like, playerId: string): Promise<PlayerRow | null> {
+  return db.prepare(SQL.playerById).bind(playerId).first<PlayerRow>();
+}
+
+export interface StatsTotalsRow {
+  matches: number;
+  ranked: number;
+  casual: number;
+  place1: number;
+  place2: number;
+  place3: number;
+  place4: number;
+  hands_won: number;
+  self_draws: number;
+  deal_ins: number;
+  moves_graded: number;
+  moves_matched: number;
+}
+
+/** Every field is a `SUM`/`COUNT` over zero rows when the player has never
+ *  finished a match, and SQLite's aggregates return NULL over zero rows —
+ *  never a bare 0 — so every caller reads through `?? 0`, not this helper. */
+export async function statsTotalsForPlayer(db: D1Like, playerId: string): Promise<StatsTotalsRow | null> {
+  return db.prepare(SQL.statsTotalsForPlayer).bind(playerId).first<StatsTotalsRow>();
+}
+
+export async function avgFaanForPlayer(db: D1Like, playerId: string): Promise<number | null> {
+  const row = await db.prepare(SQL.avgFaanForPlayer).bind(playerId).first<{ avg_faan: number | null; n: number }>();
+  return row === null || row.n === 0 ? null : row.avg_faan;
+}
+
+export async function netChipsForPlayer(db: D1Like, playerId: string): Promise<number> {
+  const row = await db.prepare(SQL.netChipsForPlayer).bind(playerId).first<{ net_chips: number | null }>();
+  return row?.net_chips ?? 0;
+}
+
+export interface RecentMatchRow {
+  match_id: string;
+  ended_at: string | null;
+  mode: string;
+  place: number | null;
+  final_chips: number;
+  rating_before: number | null;
+  rating_after: number | null;
+}
+
+export async function recentMatchesForPlayer(
+  db: D1Like,
+  playerId: string,
+  limit: number,
+): Promise<RecentMatchRow[]> {
+  const { results } = await db.prepare(SQL.recentMatchesForPlayer).bind(playerId, limit).all<RecentMatchRow>();
+  return results;
+}
+
+export interface RatingHistoryPointRow {
+  at: string;
+  before: number;
+  after: number;
+  match_id: string | null;
+}
+
+export async function ratingHistoryForPlayer(
+  db: D1Like,
+  playerId: string,
+  limit: number,
+): Promise<RatingHistoryPointRow[]> {
+  const { results } = await db.prepare(SQL.ratingHistoryForPlayer).bind(playerId, limit).all<RatingHistoryPointRow>();
+  return results;
+}
+
+export interface RankedLeaderboardRow {
+  id: string;
+  display_name: string;
+  rating: number;
+  rating_games: number;
+}
+
+export async function leaderboardRanked(db: D1Like, limit: number): Promise<RankedLeaderboardRow[]> {
+  const { results } = await db
+    .prepare(SQL.leaderboardRanked)
+    .bind(RATING_SEASON, limit)
+    .all<RankedLeaderboardRow>();
+  return results;
+}
+
+export interface CasualLeaderboardRow {
+  player_id: string;
+  display_name: string;
+  matches: number;
+  wins: number;
+  place1: number;
+  place2: number;
+  place3: number;
+  place4: number;
+  moves_graded: number;
+  moves_matched: number;
+}
+
+export async function leaderboardCasual(db: D1Like, limit: number): Promise<CasualLeaderboardRow[]> {
+  const { results } = await db.prepare(SQL.leaderboardCasual).bind(limit).all<CasualLeaderboardRow>();
   return results;
 }

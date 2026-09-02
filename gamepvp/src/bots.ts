@@ -80,9 +80,18 @@ export const defaultBotFor = (seat: SeatIndex): { key: string; displayName: stri
   return { key: spec.profile, displayName: spec.displayName };
 };
 
-/** `bot:<key>` → `<key>`, or null if `playerId` is not a bot ref at all. */
-const keyOfPlayerId = (playerId: string): string | null =>
-  playerId.startsWith("bot:") ? playerId.slice("bot:".length) : null;
+/** `bot:<key>` → `<key>`, or null if `playerId` is not a bot ref at all.
+ *  Strips a trailing `#2`, `#3`, ... first — worker/src/table.ts's
+ *  `botPlayerId` appends one when two seats at the same table pick the same
+ *  catalogue key, to keep `match_players` rows unique, and that suffix must
+ *  never reach a profile-dial lookup: seat 2's "Sifu" plays exactly like
+ *  seat 1's, not a profile nobody configured. */
+const keyOfPlayerId = (playerId: string): string | null => {
+  if (!playerId.startsWith("bot:")) return null;
+  const rest = playerId.slice("bot:".length);
+  const hash = rest.indexOf("#");
+  return hash === -1 ? rest : rest.slice(0, hash);
+};
 
 /** The profile a seat's `PlayerRef` names, falling back to the seat's spot in
  *  `BOT_LINEUP` when the ref is missing or its key was never a real profile

@@ -38,7 +38,7 @@ import type {
   ServerToSeat,
 } from "@mjrc/protocol";
 import * as engine from "../../engine/src/reducer.js";
-import { DEFAULT_TABLE_CONFIG, TableCore } from "../src/table.js";
+import { DEFAULT_TABLE_CONFIG, TableCore, bindingArchive } from "../src/table.js";
 import type {
   Applied,
   Archive,
@@ -52,6 +52,7 @@ import type {
   SeatSocket,
   TableConfig,
   TableCtx,
+  TableEnv,
   TableRules,
   TableInit,
   TableStorage,
@@ -161,6 +162,17 @@ class StubD1 implements D1Like {
         if (self.fail) throw new Error("D1 unavailable");
         self.ran.push({ sql, args: bound });
         return { success: true };
+      },
+      // Unused by TableCore's own lobby writes (all fire-and-forget `run()`
+      // calls) — present only so this class satisfies `D1PreparedLike`, which
+      // `bindingArchive`'s ranked settlement (worker/src/table.ts
+      // `settleRatedMatch`) also reads through. See `FakeRatingDB` below for
+      // the fake that actually exercises those reads.
+      async first<T>(): Promise<T | null> {
+        return null;
+      },
+      async all<T>(): Promise<{ results: T[] }> {
+        return { results: [] };
       },
     };
     return stmt;
@@ -1291,6 +1303,19 @@ describe("/fill — the creator's start-now bot-fill", () => {
         `seat ${seat}'s bot row`,
       ).toBe(true);
     }
+    // ...and a `match_players` row, so its standings show up in match detail
+    // and the lobby's recent-results strip (item 1 of the ranked-settlement
+    // brief) instead of vanishing the way an /init-time bot seat's used to.
+    for (const seat of [1, 2, 3]) {
+      expect(
+        t.db.ran.some(
+          (r) =>
+            r.sql.includes("INSERT OR IGNORE INTO match_players") &&
+            r.args[0] === MATCH_ID && r.args[1] === seat && r.args[2] === `bot:k${seat}`,
+        ),
+        `seat ${seat}'s match_players row`,
+      ).toBe(true);
+    }
 
     // The directory (sent on the next welcome) shows the new bots by name.
     const back = await join(t, 0);
@@ -1383,6 +1408,53 @@ describe("/fill — the creator's start-now bot-fill", () => {
     expect(socketB.msgs("rejected")).toHaveLength(0);
     expect(socketB.msgs("accepted").length).toBeGreaterThan(0);
     void socketA; // reclaimed and closed by `backA`'s join above — nothing more to assert on it
+  });
+
+  it("suffixes a repeated bot pick's playerId so match_players stays UNIQUE", async () => {
+    // Seat 1 opened as a bot at /init time under key "kdup". Seats 2 and 3 are
+    // unclaimed, and `defaultBotFor` (deliberately, for this test) hands out
+    // that SAME key for every seat it is asked about — the collision
+    // `botPlayerId` exists to resolve (worker/src/table.ts doc comment).
+    const players = ([0, 1, 2, 3] as SeatIndex[]).map((seat) => {
+      if (seat === 0) return { playerId: "p0", displayName: "Human0", seat, bot: false };
+      if (seat === 1) return { playerId: "bot:kdup", displayName: "Dup", seat, bot: true };
+      return unclaimed(seat);
+    }) as MatchLogHeader["players"];
+    const t = await makeFillableTable({
+      players,
+      defaultBotFor: () => ({ key: "kdup", displayName: "Dup" }),
+    });
+    await join(t, 0);
+
+    const res = await fill(t);
+    expect(res.status).toBe(200);
+
+    const back = await join(t, 0);
+    const directory = back.msgs("welcome")[0]!.payload.directory;
+    // Seat 1 keeps its original, unsuffixed id; seats 2 and 3 — filled in
+    // seat order — pick up #2 and #3 rather than colliding with it or with
+    // each other.
+    expect(directory[1]).toMatchObject({ playerId: "bot:kdup", bot: true });
+    expect(directory[2]).toMatchObject({ playerId: "bot:kdup#2", bot: true });
+    expect(directory[3]).toMatchObject({ playerId: "bot:kdup#3", bot: true });
+
+    // Each suffixed id got its OWN `players` row and its OWN `match_players`
+    // row — the two inserts `UNIQUE (match_id, player_id)` would otherwise
+    // have refused the second and third of.
+    for (const [seat, playerId] of [[2, "bot:kdup#2"], [3, "bot:kdup#3"]] as const) {
+      expect(
+        t.db.ran.some((r) => r.sql.includes("INSERT OR IGNORE INTO players") && r.args[0] === playerId),
+        `${playerId}'s players row`,
+      ).toBe(true);
+      expect(
+        t.db.ran.some(
+          (r) =>
+            r.sql.includes("INSERT OR IGNORE INTO match_players") &&
+            r.args[0] === MATCH_ID && r.args[1] === seat && r.args[2] === playerId,
+        ),
+        `${playerId}'s match_players row`,
+      ).toBe(true);
+    }
   });
 });
 
@@ -1630,5 +1702,268 @@ describe("move grading", () => {
     };
     await expect(request(t, 0, "requestDiscard", { tile: 0 })).resolves.toBeUndefined();
     expect(t.rules.calls.some((a) => a.type === "discard" && a.seat === 0)).toBe(true);
+  });
+});
+
+/* ── 9. bindingArchive — ranked settlement ─────────────────────────────── *
+ *
+ * `settleRatedMatch` (worker/src/table.ts, called from `bindingArchive`'s
+ * `finishMatch`) is the production wiring the rest of this file deliberately
+ * never exercises — every other test drives `TableCore` against `StubArchive`
+ * so the outbox tests stay decoupled from D1's actual shape. These three
+ * tests are the one place `bindingArchive` itself runs, against a small
+ * in-memory D1 that actually holds `matches` / `players` / `match_players` /
+ * `rating_history` rows.
+ */
+
+interface FakeMatchRow { id: string; rated: number }
+interface FakePlayerRow { id: string; kind: string; rating: number | null; rating_games: number; rating_season: string | null }
+interface FakeMatchPlayerRow {
+  match_id: string; seat: number; player_id: string;
+  final_chips: number; place: number | null;
+  rating_before: number | null; rating_after: number | null;
+}
+interface FakeRatingHistoryRow {
+  id: number; player_id: string; match_id: string | null; kind: string; system: string; season: string;
+  rating_before: number; rating_after: number; games_played_before: number; k_factor: number;
+  place: number | null; chip_delta: number | null; created_at: string;
+}
+
+/**
+ * Recognises statements by a distinctive substring rather than parsing SQL —
+ * same doctrine as `StubD1` above and db.test.ts's fake D1 — scoped to the
+ * handful of statements `bindingArchive.finishMatch` actually issues. An
+ * unrecognised statement throws rather than silently no-opping, so a new read
+ * or write added to `finishMatch` without teaching this fake fails the test
+ * that exercises it instead of passing on a stale fake.
+ */
+class FakeRatingDB implements D1Like {
+  matches: FakeMatchRow[] = [];
+  players: FakePlayerRow[] = [];
+  matchPlayers: FakeMatchPlayerRow[] = [];
+  ratingHistory: FakeRatingHistoryRow[] = [];
+  private nextHistoryId = 1;
+
+  prepare(sql: string): D1PreparedLike {
+    const self = this;
+    let bound: unknown[] = [];
+    const stmt: D1PreparedLike = {
+      bind(...values: unknown[]) {
+        bound = values;
+        return stmt;
+      },
+      async run(): Promise<unknown> {
+        self.exec(sql, bound);
+        return { success: true };
+      },
+      async first<T>(): Promise<T | null> {
+        const r = self.query(sql, bound);
+        return (r[0] as T) ?? null;
+      },
+      async all<T>(): Promise<{ results: T[] }> {
+        return { results: self.query(sql, bound) as T[] };
+      },
+    };
+    return stmt;
+  }
+
+  private query(sql: string, args: unknown[]): Record<string, unknown>[] {
+    if (sql.includes("SELECT rated FROM matches")) {
+      const m = this.matches.find((r) => r.id === args[0]);
+      return m ? [{ rated: m.rated }] : [];
+    }
+    if (sql.includes("SELECT id FROM rating_history WHERE match_id")) {
+      return this.ratingHistory.filter((r) => r.match_id === args[0]).map((r) => ({ id: r.id }));
+    }
+    if (sql.includes("FROM match_players mp") && sql.includes("JOIN players p")) {
+      return this.matchPlayers
+        .filter((mp) => mp.match_id === args[0])
+        .sort((a, b) => a.seat - b.seat)
+        .map((mp) => {
+          const p = this.players.find((pl) => pl.id === mp.player_id);
+          return {
+            seat: mp.seat,
+            player_id: mp.player_id,
+            kind: p?.kind ?? "human",
+            rating: p?.rating ?? null,
+            rating_games: p?.rating_games ?? 0,
+          };
+        });
+    }
+    throw new Error(`FakeRatingDB: unrecognised read: ${sql}`);
+  }
+
+  private exec(sql: string, args: unknown[]): void {
+    if (sql.includes("UPDATE matches") && sql.includes("SET status")) return; // the close-out's own write
+    if (sql.includes("SET final_chips")) {
+      const [final_chips, place, , , , , , match_id, seat] = args;
+      const mp = this.matchPlayers.find((r) => r.match_id === match_id && r.seat === seat);
+      if (mp) {
+        mp.final_chips = final_chips as number;
+        mp.place = place as number | null;
+      }
+      return;
+    }
+    if (sql.startsWith("INSERT INTO rating_history")) {
+      // `kind` is an inline SQL literal ('match'), not a bound value — see
+      // the statement in worker/src/table.ts. 11 bound args, not 12.
+      const [
+        player_id, match_id, system, season, rating_before, rating_after,
+        games_played_before, k_factor, place, chip_delta, created_at,
+      ] = args;
+      this.ratingHistory.push({
+        id: this.nextHistoryId++,
+        player_id: player_id as string,
+        match_id: match_id as string,
+        kind: "match",
+        system: system as string,
+        season: season as string,
+        rating_before: rating_before as number,
+        rating_after: rating_after as number,
+        games_played_before: games_played_before as number,
+        k_factor: k_factor as number,
+        place: place as number | null,
+        chip_delta: chip_delta as number | null,
+        created_at: created_at as string,
+      });
+      return;
+    }
+    if (sql.startsWith("UPDATE players SET rating")) {
+      const [rating, rating_games, rating_season, id] = args;
+      const p = this.players.find((r) => r.id === id);
+      if (p) {
+        p.rating = rating as number;
+        p.rating_games = rating_games as number;
+        p.rating_season = rating_season as string;
+      }
+      return;
+    }
+    if (sql.startsWith("UPDATE match_players SET rating_before")) {
+      const [rating_before, rating_after, match_id, seat] = args;
+      const mp = this.matchPlayers.find((r) => r.match_id === match_id && r.seat === seat);
+      if (mp) {
+        mp.rating_before = rating_before as number;
+        mp.rating_after = rating_after as number;
+      }
+      return;
+    }
+    throw new Error(`FakeRatingDB: unrecognised write: ${sql}`);
+  }
+}
+
+class FakeLogsBucket {
+  puts: { key: string; value: string }[] = [];
+  async put(key: string, value: string): Promise<unknown> {
+    this.puts.push({ key, value });
+    return undefined;
+  }
+}
+
+function fakeSummary(matchId: string, overrides: Partial<MatchSummaryRow> = {}): MatchSummaryRow {
+  return {
+    matchId,
+    reason: "windRoundComplete",
+    handsPlayed: 8,
+    standings: [1200, 1100, 900, 800],
+    placements: [1, 2, 3, 4],
+    botTakeoverHands: [0, 0, 0, 0],
+    movesGraded: [0, 0, 0, 0],
+    movesMatched: [0, 0, 0, 0],
+    gapSum: [0, 0, 0, 0],
+    handLogKeys: [],
+    clients: [null, null, null, null],
+    endedAt: 1_700_000_000_000,
+    ...overrides,
+  };
+}
+
+/** Four human seats, all unrated, seeded into `db` for `matchId`. */
+function seedRatedMatchPlayers(db: FakeRatingDB, matchId: string): void {
+  for (let seat = 0; seat < 4; seat += 1) {
+    const playerId = `p${seat}`;
+    db.players.push({ id: playerId, kind: "human", rating: null, rating_games: 0, rating_season: null });
+    db.matchPlayers.push({
+      match_id: matchId, seat, player_id: playerId,
+      final_chips: 0, place: null, rating_before: null, rating_after: null,
+    });
+  }
+}
+
+describe("bindingArchive — ranked settlement", () => {
+  it("settles a rated match: rating_history, players.rating and match_players.rating_after", async () => {
+    const db = new FakeRatingDB();
+    const matchId = "rated-match-1";
+    db.matches.push({ id: matchId, rated: 1 });
+    seedRatedMatchPlayers(db, matchId);
+    const env: TableEnv = { DB: db, LOGS: new FakeLogsBucket() };
+
+    await bindingArchive(env).finishMatch(fakeSummary(matchId));
+
+    expect(db.ratingHistory).toHaveLength(4);
+    for (const row of db.ratingHistory) {
+      expect(row.match_id).toBe(matchId);
+      expect(row.kind).toBe("match");
+      expect(row.season).toBe("p0-provisional");
+      // A brand-new player's before-rating is the engine's INITIAL_RATING —
+      // asserted indirectly: after minus before must be a real delta, and the
+      // deltas across all four seats conserve to zero (engine/src/rating.ts).
+    }
+    const deltaSum = db.ratingHistory.reduce((s, r) => s + (r.rating_after - r.rating_before), 0);
+    expect(deltaSum).toBe(0);
+    // First place gained, last place lost — the ordering `rating.ts` guarantees.
+    const byPlace = new Map(db.ratingHistory.map((r) => [r.place, r.rating_after - r.rating_before]));
+    expect(byPlace.get(1)!).toBeGreaterThan(0);
+    expect(byPlace.get(4)!).toBeLessThan(0);
+
+    for (const mp of db.matchPlayers) {
+      expect(mp.rating_before).not.toBeNull();
+      expect(mp.rating_after).not.toBeNull();
+    }
+    for (const p of db.players) {
+      expect(p.rating).not.toBeNull();
+      expect(p.rating_games).toBe(1);
+      expect(p.rating_season).toBe("p0-provisional");
+    }
+  });
+
+  it("writes nothing for a casual (unrated) match", async () => {
+    const db = new FakeRatingDB();
+    const matchId = "casual-match-1";
+    db.matches.push({ id: matchId, rated: 0 });
+    seedRatedMatchPlayers(db, matchId);
+    const env: TableEnv = { DB: db, LOGS: new FakeLogsBucket() };
+
+    await bindingArchive(env).finishMatch(fakeSummary(matchId));
+
+    expect(db.ratingHistory).toHaveLength(0);
+    for (const p of db.players) {
+      expect(p.rating).toBeNull();
+      expect(p.rating_games).toBe(0);
+    }
+    for (const mp of db.matchPlayers) {
+      expect(mp.rating_before).toBeNull();
+      expect(mp.rating_after).toBeNull();
+    }
+  });
+
+  it("is idempotent: a second finishMatch call settles nothing further", async () => {
+    const db = new FakeRatingDB();
+    const matchId = "rated-match-2";
+    db.matches.push({ id: matchId, rated: 1 });
+    seedRatedMatchPlayers(db, matchId);
+    const env: TableEnv = { DB: db, LOGS: new FakeLogsBucket() };
+
+    await bindingArchive(env).finishMatch(fakeSummary(matchId));
+    const afterFirst = db.ratingHistory.map((r) => ({ ...r }));
+    const ratingsAfterFirst = db.players.map((p) => p.rating);
+
+    await bindingArchive(env).finishMatch(fakeSummary(matchId));
+
+    expect(db.ratingHistory).toHaveLength(4);
+    expect(db.ratingHistory).toEqual(afterFirst);
+    expect(db.players.map((p) => p.rating)).toEqual(ratingsAfterFirst);
+    // rating_games did not tick a second time — the read at the top of
+    // `settleRatedMatch` found existing history and skipped everything after.
+    for (const p of db.players) expect(p.rating_games).toBe(1);
   });
 });

@@ -22,6 +22,7 @@ import { ENGINE_VERSION, applyAction, legalActions, startMatch, startNextHand } 
 import { EVENT_SCHEMA_VERSION, type MatchLogHeader } from "../../protocol/src/index.js";
 import {
   TableDO as BaseTableDO,
+  botPlayerId,
   installTableRules,
   type TableInit,
 } from "../../worker/src/table.js";
@@ -34,6 +35,8 @@ import {
   type TableNamespace,
   type TableSpec,
 } from "../../worker/src/index.js";
+import { claimSeat } from "../../worker/src/db.js";
+import type { SeatIndex } from "../../engine/src/types.js";
 import { BOT_CATALOGUE, BOT_LINEUP, bots, catalogueEntry, defaultBotFor, isBotCatalogueKey } from "./bots.js";
 
 /* ── bind the engine into the table, once, at module load ─────────────── */
@@ -185,6 +188,7 @@ function tableNamespace(env: Env): TableNamespace {
         async openTable(spec: TableSpec): Promise<void> {
           const init = tableInitOf(spec);
           await ensureBotPlayers(env, init, spec.startedAt);
+          await ensureBotSeatRows(env, init);
           const res = await post(stub, "/init", init);
           if (!res.ok) throw new Error(`table init ${res.status}: ${await res.text()}`);
         },
@@ -225,6 +229,26 @@ async function ensureBotPlayers(env: Env, init: TableInit, now: string): Promise
 }
 
 /**
+ * `match_players` row for every seat `tableInitOf` opened as a bot. Bot seats
+ * never call `POST /api/tables/:code/join` — `claimSeat`'s only other
+ * caller — so without this a bot's standings vanish from `GET
+ * /api/matches/:id` and the lobby's recent-results strip (schema.sql
+ * `match_players`, previously a row only for a human-claimed seat).
+ * `claimSeat` (worker/src/db.ts) is reused rather than duplicated: same
+ * `wind = seat` convention, same `INSERT OR IGNORE` on `UNIQUE (match_id,
+ * player_id)` — which every `playerId` here is already safe against, because
+ * `tableInitOf`/`playerRefFor` ran `botPlayerId`'s dedupe before this ever
+ * sees them. Idempotent, so a retried `openTable` for an already-initialised
+ * match changes nothing further.
+ */
+async function ensureBotSeatRows(env: Env, init: TableInit): Promise<void> {
+  for (const p of init.header.players) {
+    if (!p.bot) continue;
+    await claimSeat(env.DB, init.matchId, p.seat as SeatIndex, p.playerId);
+  }
+}
+
+/**
  * A seat's spec (worker/src/index.ts `TableSpec.seatPlan`, §7.2's `seats` or
  * the legacy `botSeats`/`bots` converted to the same shape by `postTable`)
  * becomes this seat's `PlayerRef`: an empty human seat waiting for `/seat` to
@@ -235,20 +259,30 @@ async function ensureBotPlayers(env: Env, init: TableInit, now: string): Promise
  * seat, not only the top ones (§6 decision 3 — the seat plan is the host's,
  * not derived from a count).
  */
-function playerRefFor(seat: 0 | 1 | 2 | 3, spec: SeatSpec): MatchLogHeader["players"][number] {
+function playerRefFor(
+  seat: 0 | 1 | 2 | 3,
+  spec: SeatSpec,
+  used: ReadonlySet<string>,
+): MatchLogHeader["players"][number] {
   if (spec.kind === "human") return { playerId: "", displayName: "", seat, bot: false };
   const entry = spec.bot !== undefined ? catalogueEntry(spec.bot) : undefined;
   const key = entry?.key ?? spec.bot ?? BOT_LINEUP[seat]!.profile;
   const displayName = entry?.displayName ?? BOT_LINEUP[seat]!.displayName;
-  return { playerId: `bot:${key}`, displayName, seat, bot: true };
+  // A client may name the same bot for two seats (`parseSeatsBody`,
+  // worker/src/index.ts, does not forbid it) — `botPlayerId` (worker/src/
+  // table.ts) is the one dedupe rule this file and `/fill` both use.
+  return { playerId: botPlayerId(key, used), displayName, seat, bot: true };
 }
 
 /** The seed and the placeholder tokens are coordination entropy, not game
  *  state — see `placeholderToken`'s doc comment. */
 function tableInitOf(spec: TableSpec): TableInit {
-  const players = ([0, 1, 2, 3] as const).map((seat) =>
-    playerRefFor(seat, spec.seatPlan[seat] ?? { kind: "human" }),
-  ) as MatchLogHeader["players"];
+  const used = new Set<string>();
+  const players = ([0, 1, 2, 3] as const).map((seat) => {
+    const ref = playerRefFor(seat, spec.seatPlan[seat] ?? { kind: "human" }, used);
+    if (ref.bot) used.add(ref.playerId);
+    return ref;
+  }) as MatchLogHeader["players"];
   const header: MatchLogHeader = {
     v: EVENT_SCHEMA_VERSION,
     matchId: spec.matchId,

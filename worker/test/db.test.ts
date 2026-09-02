@@ -45,6 +45,7 @@ interface Store {
   match_players: Row[];
   hands: Row[];
   presence: Row[];
+  rating_history: Row[];
 }
 
 const emptyStore = (): Store => ({
@@ -55,6 +56,7 @@ const emptyStore = (): Store => ({
   match_players: [],
   hands: [],
   presence: [],
+  rating_history: [],
 });
 
 type Handler = (s: Store, a: SqlValue[]) => { rows: Row[]; changes: number };
@@ -258,6 +260,7 @@ const HANDLERS = new Map<string, Handler>([
   [SQL.humanSeatsOfMatch, (s, [matchId]) => {
     const seats = s.match_players
       .filter((r) => r.match_id === matchId)
+      .filter((mp) => s.players.find((r) => r.id === mp.player_id)?.kind === "human")
       .sort((a, b) => Number(a.seat) - Number(b.seat));
     return rows(seats.map((mp) => {
       const p = s.players.find((r) => r.id === mp.player_id);
@@ -268,6 +271,127 @@ const HANDLERS = new Map<string, Handler>([
         connected: mp.connected ?? 0,
       };
     }));
+  }],
+
+  /* ── stats and leaderboards ────────────────────────────────────────────── */
+
+  [SQL.playerById, (s, [id]) => {
+    const p = s.players.find((r) => r.id === id && r.deleted_at === null);
+    return rows(p === undefined ? [] : [pick(p, ["id", "kind", "display_name", "rating", "rating_games", "rating_season"])]);
+  }],
+
+  [SQL.statsTotalsForPlayer, (s, [playerId]) => {
+    const joined = s.match_players
+      .filter((mp) => mp.player_id === playerId)
+      .map((mp) => ({ mp, m: s.matches.find((r) => r.id === mp.match_id) }))
+      .filter((j): j is { mp: Row; m: Row } => j.m !== undefined && j.m.status === "complete");
+    const n = joined.length;
+    const cnt = (pred: (j: (typeof joined)[number]) => boolean): number | null =>
+      n === 0 ? null : joined.filter(pred).length;
+    const sumField = (field: string): number | null =>
+      n === 0 ? null : joined.reduce((acc, j) => acc + Number(j.mp[field] ?? 0), 0);
+    return rows([{
+      matches: n,
+      ranked: cnt((j) => j.m.mode === "ranked"),
+      casual: cnt((j) => j.m.mode === "casual"),
+      place1: cnt((j) => Number(j.mp.place) === 1),
+      place2: cnt((j) => Number(j.mp.place) === 2),
+      place3: cnt((j) => Number(j.mp.place) === 3),
+      place4: cnt((j) => Number(j.mp.place) === 4),
+      hands_won: sumField("hands_won"),
+      self_draws: sumField("self_draws"),
+      deal_ins: sumField("deal_ins"),
+      moves_graded: sumField("moves_graded"),
+      moves_matched: sumField("moves_matched"),
+    }]);
+  }],
+
+  [SQL.avgFaanForPlayer, (s, [playerId]) => {
+    const won = s.hands.filter((h) => h.winner_player_id === playerId);
+    const n = won.length;
+    const avg = n === 0 ? null : won.reduce((acc, h) => acc + Number(h.faan), 0) / n;
+    return rows([{ avg_faan: avg, n }]);
+  }],
+
+  [SQL.netChipsForPlayer, (s, [playerId]) => {
+    const seatsFor = s.match_players.filter((mp) => mp.player_id === playerId);
+    let sum: number | null = null;
+    for (const mp of seatsFor) {
+      for (const h of s.hands.filter((r) => r.match_id === mp.match_id)) {
+        const col = `delta_seat${mp.seat}`;
+        sum = (sum ?? 0) + Number(h[col] ?? 0);
+      }
+    }
+    return rows([{ net_chips: sum }]);
+  }],
+
+  [SQL.recentMatchesForPlayer, (s, [playerId, limit]) => {
+    const joined = s.match_players
+      .filter((mp) => mp.player_id === playerId)
+      .map((mp) => ({ mp, m: s.matches.find((r) => r.id === mp.match_id) }))
+      .filter((j): j is { mp: Row; m: Row } => j.m !== undefined && j.m.status === "complete")
+      .sort((a, b) => String(b.m.ended_at).localeCompare(String(a.m.ended_at)))
+      .slice(0, Number(limit));
+    return rows(joined.map((j) => ({
+      match_id: j.m.id,
+      ended_at: j.m.ended_at,
+      mode: j.m.mode,
+      place: j.mp.place,
+      final_chips: j.mp.final_chips,
+      rating_before: j.mp.rating_before,
+      rating_after: j.mp.rating_after,
+    })));
+  }],
+
+  [SQL.ratingHistoryForPlayer, (s, [playerId, limit]) => {
+    const list = s.rating_history
+      .filter((r) => r.player_id === playerId)
+      .sort((a, b) => Number(b.id) - Number(a.id))
+      .slice(0, Number(limit));
+    return rows(list.map((r) => ({
+      at: r.created_at, before: r.rating_before, after: r.rating_after, match_id: r.match_id,
+    })));
+  }],
+
+  [SQL.leaderboardRanked, (s, [season, limit]) => {
+    const list = s.players
+      .filter((p) =>
+        p.kind === "human" && p.deleted_at === null &&
+        p.rating_season === season && Number(p.rating_games) >= 1,
+      )
+      .sort((a, b) => Number(b.rating) - Number(a.rating))
+      .slice(0, Number(limit));
+    return rows(list.map((p) => pick(p, ["id", "display_name", "rating", "rating_games"])));
+  }],
+
+  [SQL.leaderboardCasual, (s, [limit]) => {
+    const byPlayer = new Map<string, { p: Row; rs: { mp: Row; m: Row }[] }>();
+    for (const mp of s.match_players) {
+      const m = s.matches.find((r) => r.id === mp.match_id);
+      if (m === undefined || m.mode !== "casual" || m.status !== "complete") continue;
+      const p = s.players.find((r) => r.id === mp.player_id);
+      if (p === undefined || p.kind !== "human" || p.deleted_at !== null) continue;
+      const key = String(p.id);
+      const entry = byPlayer.get(key) ?? { p, rs: [] };
+      entry.rs.push({ mp, m });
+      byPlayer.set(key, entry);
+    }
+    const list = [...byPlayer.values()]
+      .map(({ p, rs }) => ({
+        player_id: p.id,
+        display_name: p.display_name,
+        matches: rs.length,
+        wins: rs.filter((r) => Number(r.mp.place) === 1).length,
+        place1: rs.filter((r) => Number(r.mp.place) === 1).length,
+        place2: rs.filter((r) => Number(r.mp.place) === 2).length,
+        place3: rs.filter((r) => Number(r.mp.place) === 3).length,
+        place4: rs.filter((r) => Number(r.mp.place) === 4).length,
+        moves_graded: rs.reduce((acc, r) => acc + Number(r.mp.moves_graded ?? 0), 0),
+        moves_matched: rs.reduce((acc, r) => acc + Number(r.mp.moves_matched ?? 0), 0),
+      }))
+      .sort((a, b) => b.wins - a.wins || b.matches - a.matches)
+      .slice(0, Number(limit));
+    return rows(list);
   }],
 ]);
 
@@ -452,6 +576,7 @@ function harness(): Harness {
 
 const TOKEN_A = "0123456789abcdefghijklmnopqrstuvwxyzABCD";
 const TOKEN_B = "ZYXWVUTSRQPONMLKJIHGFEDCBA9876543210zyxw";
+const TOKEN_C = "1111222233334444555566667777888899990000";
 
 const get = (path: string, token?: string): Request =>
   new Request(`https://game.mahjongresearch.com${path}`, {
@@ -550,7 +675,7 @@ describe("the query surface", () => {
     /* The only single-quoted literals allowed anywhere in the statement set are
      * closed-vocabulary constants. A quoted value would mean something was
      * concatenated in, which is the thing db.ts exists to make impossible. */
-    const allowed = new Set(["running", "waiting", "playing", "done"]);
+    const allowed = new Set(["running", "waiting", "playing", "done", "complete", "ranked", "casual", "human"]);
     for (const [name, sql] of Object.entries(SQL)) {
       for (const [, literal] of sql.matchAll(/'([^']*)'/g)) {
         expect(allowed.has(literal), `${name} embeds '${literal}'`).toBe(true);
@@ -1152,6 +1277,46 @@ describe("GET /api/lobby", () => {
     expect(aliceStanding).toEqual({ displayName: "Alice", chips: 1200, place: 1 });
   });
 
+  it("never lets a bot's own match_players row (item 1: bot standings) leak into a table's human seats", async () => {
+    // Since ranked settlement (item 1 of the brief), a bot seat gets its own
+    // match_players row too — humanSeatsOfMatch must still show ONLY the
+    // human seat, or a bot would render as an extra "connected human" in the
+    // lobby's open-table view (`getLobby`'s `spec.kind === 'bot'` branch
+    // never looks at this query for a bot seat, but the query itself must
+    // still hand back nothing for one — belt and braces).
+    const bob = await identify(h, TOKEN_A, "Bob");
+    h.store.players.push({
+      id: "bot:v1", kind: "bot", display_name: "Kwan", bot_policy: "v1",
+      rating: null, rating_games: 0, rating_season: null,
+      almanac_user_id: null, almanac_link_source: null, almanac_linked_at: null,
+      created_at: "x", updated_at: "x", last_seen_at: "x", deleted_at: null,
+    });
+    seedMatch(h, {
+      id: "M-BOTROW",
+      seats: [bob],
+      status: "running",
+      lobbyStatus: "waiting",
+      access: "open",
+      seatPlan: JSON.stringify([{ kind: "human" }, { kind: "bot", bot: "v1" }, { kind: "human" }, { kind: "human" }]),
+    });
+    // The bot seat's own match_players row, exactly as claimBotSeat/claimSeat
+    // would insert it.
+    h.store.match_players.push({
+      match_id: "M-BOTROW", seat: 1, player_id: "bot:v1", wind: 1, final_chips: 0,
+      faan_won: 0, place: null, hands_won: 0, self_draws: 0, deal_ins: 0,
+      bot_takeover_hands: 0, moves_graded: 0, moves_matched: 0, gap_sum: 0,
+      rating_before: null, rating_after: null, connected: 0,
+    });
+
+    const res = await handle(get("/api/lobby", TOKEN_A), h.platform);
+    const body = (await res.json()) as {
+      tables: { matchId: string; seats: { seat: number; kind: string; displayName?: string; connected: boolean }[] }[];
+    };
+    const table = body.tables.find((t) => t.matchId === "M-BOTROW")!;
+    expect(table.seats[1]).toMatchObject({ seat: 1, kind: "bot", connected: false });
+    expect(table.seats[1].displayName).not.toBe(""); // the seat_plan's bot label, not a blank human row
+  });
+
   it("excludes a presence row older than the 90s window", async () => {
     const alice = await identify(h, TOKEN_A, "Alice");
     h.store.presence.push({ player_id: alice, state: "lobby", seen_at: "2020-01-01T00:00:00.000Z" });
@@ -1288,5 +1453,181 @@ describe("routing", () => {
     expect((await handle(get("/api/nope", TOKEN_A), h.platform)).status).toBe(404);
     expect((await handle(post("/api/matches", {}, TOKEN_A), h.platform)).status).toBe(405);
     expect((await handle(get("/api/identity", TOKEN_A), h.platform)).status).toBe(405);
+  });
+});
+
+/* ── stats and leaderboards (PVP-LOBBY-PROPOSAL-2026-09-02.md §7.2's last two
+ * bullets) ───────────────────────────────────────────────────────────────── */
+
+describe("GET /api/stats/me and /api/players/:id/stats", () => {
+  it("is all zero/null for a player with no matches, and reads provisional off rating_games", async () => {
+    const h = harness();
+    await identify(h, TOKEN_A, "Ah Ming");
+    const res = await handle(get("/api/stats/me", TOKEN_A), h.platform);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      player: { displayName: string; rating: number | null; ratingGames: number; provisional: boolean };
+      totals: Record<string, unknown>;
+      recent: unknown[];
+      ratingHistory: unknown[];
+    };
+    expect(body.player.displayName).toBe("Ah Ming");
+    expect(body.player.rating).toBeNull();
+    expect(body.player.ratingGames).toBe(0);
+    expect(body.player.provisional).toBe(true); // 0 games is under the engine's provisionalMatches
+    expect(body.totals).toEqual({
+      matches: 0, ranked: 0, casual: 0, wins: 0, places: [0, 0, 0, 0],
+      handsWon: 0, selfDraws: 0, dealIns: 0, avgFaan: null, netChips: 0,
+      movesGraded: 0, agreement: null,
+    });
+    expect(body.recent).toEqual([]);
+    expect(body.ratingHistory).toEqual([]);
+  });
+
+  it("folds a finished match's match_players/hands rows into totals and recent", async () => {
+    const h = harness();
+    const me = await identify(h, TOKEN_A, "Ah Ming");
+    const opp = await identify(h, TOKEN_B, "Opponent");
+    seedMatch(h, { id: "m1", seats: [me, opp, "p2", "p3"], mode: "casual" });
+    const mine = h.store.match_players.find((r) => r.match_id === "m1" && r.player_id === me)!;
+    mine.place = 1;
+    mine.final_chips = 400;
+    mine.hands_won = 2;
+    mine.self_draws = 1;
+    mine.moves_graded = 10;
+    mine.moves_matched = 8;
+
+    const res = await handle(get("/api/stats/me", TOKEN_A), h.platform);
+    const body = (await res.json()) as {
+      totals: {
+        matches: number; ranked: number; casual: number; wins: number; places: number[];
+        handsWon: number; selfDraws: number; avgFaan: number | null; netChips: number;
+        movesGraded: number; agreement: number | null;
+      };
+      recent: { matchId: string; place: number; chips: number; mode: string; ratingDelta: number | null }[];
+    };
+    expect(body.totals.matches).toBe(1);
+    expect(body.totals.casual).toBe(1);
+    expect(body.totals.ranked).toBe(0);
+    expect(body.totals.wins).toBe(1);
+    expect(body.totals.places).toEqual([1, 0, 0, 0]);
+    expect(body.totals.handsWon).toBe(2);
+    expect(body.totals.selfDraws).toBe(1);
+    expect(body.totals.movesGraded).toBe(10);
+    expect(body.totals.agreement).toBeCloseTo(0.8);
+    // seedMatch's one hand is won by seats[1] (the opponent), so "me" never
+    // won a hand in this match — avgFaan has nothing to average.
+    expect(body.totals.avgFaan).toBeNull();
+    // seedMatch's hand credits seat 1 and debits seat 2; seat 0 ("me") nets 0.
+    expect(body.totals.netChips).toBe(0);
+    expect(body.recent).toHaveLength(1);
+    expect(body.recent[0]).toMatchObject({ matchId: "m1", place: 1, chips: 400, mode: "casual", ratingDelta: null });
+  });
+
+  it("reads someone else's stats by id, and 404s an id nobody holds", async () => {
+    const h = harness();
+    await identify(h, TOKEN_A, "Ah Ming");
+    const opp = await identify(h, TOKEN_B, "Opponent");
+
+    const res = await handle(get(`/api/players/${opp}/stats`, TOKEN_A), h.platform);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { player: { id: string } };
+    expect(body.player.id).toBe(opp);
+
+    const missing = await handle(get("/api/players/nobody-here/stats", TOKEN_A), h.platform);
+    expect(missing.status).toBe(404);
+  });
+
+  it("surfaces rating history and a rating delta from a rated match", async () => {
+    const h = harness();
+    const me = await identify(h, TOKEN_A, "Ah Ming");
+    seedMatch(h, { id: "m-ranked", seats: [me, "p1", "p2", "p3"], mode: "ranked" });
+    const mine = h.store.match_players.find((r) => r.match_id === "m-ranked" && r.player_id === me)!;
+    mine.place = 2;
+    mine.rating_before = 1500;
+    mine.rating_after = 1512;
+    h.store.rating_history.push({
+      id: 1, player_id: me, match_id: "m-ranked", kind: "match", system: "elo-placement-v1",
+      season: "p0-provisional", rating_before: 1500, rating_after: 1512,
+      games_played_before: 0, k_factor: 60, place: 2, chip_delta: 10,
+      created_at: "2026-09-02T00:00:00.000Z",
+    });
+    const player = h.store.players.find((r) => r.id === me)!;
+    player.rating = 1512;
+    player.rating_games = 1;
+    player.rating_season = "p0-provisional";
+
+    const res = await handle(get("/api/stats/me", TOKEN_A), h.platform);
+    const body = (await res.json()) as {
+      player: { rating: number; ratingGames: number };
+      recent: { matchId: string; place: number; ratingDelta: number | null }[];
+      ratingHistory: { at: string; before: number; after: number; matchId: string | null }[];
+    };
+    expect(body.player.rating).toBe(1512);
+    expect(body.player.ratingGames).toBe(1);
+    expect(body.recent[0]).toMatchObject({ matchId: "m-ranked", place: 2, ratingDelta: 12 });
+    expect(body.ratingHistory).toHaveLength(1);
+    expect(body.ratingHistory[0]).toMatchObject({ before: 1500, after: 1512, matchId: "m-ranked" });
+  });
+});
+
+describe("GET /api/leaderboard", () => {
+  it("ranked: humans with rating_games >= 1, ordered by rating desc — bots and the unrated excluded", async () => {
+    const h = harness();
+    const a = await identify(h, TOKEN_A, "Ah Ming");
+    const b = await identify(h, TOKEN_B, "Opponent");
+    await identify(h, TOKEN_C, "Never Rated"); // rating_games stays 0
+
+    const pa = h.store.players.find((r) => r.id === a)!;
+    pa.rating = 1600; pa.rating_games = 5; pa.rating_season = "p0-provisional";
+    const pb = h.store.players.find((r) => r.id === b)!;
+    pb.rating = 1450; pb.rating_games = 2; pb.rating_season = "p0-provisional";
+    // A bot never belongs on a human leaderboard, even with a rating.
+    h.store.players.push({
+      id: "bot:v4", kind: "bot", display_name: "Sifu", bot_policy: "v4",
+      rating: 1700, rating_games: 9, rating_season: "p0-provisional",
+      almanac_user_id: null, almanac_link_source: null, almanac_linked_at: null,
+      created_at: "x", updated_at: "x", last_seen_at: "x", deleted_at: null,
+    });
+
+    const res = await handle(get("/api/leaderboard?mode=ranked", TOKEN_A), h.platform);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      mode: string;
+      entries: { playerId: string; displayName: string; rating: number; games: number; provisional: boolean }[];
+    };
+    expect(body.mode).toBe("ranked");
+    expect(body.entries.map((e) => e.playerId)).toEqual([a, b]);
+    expect(body.entries[0]).toMatchObject({ displayName: "Ah Ming", rating: 1600, games: 5, provisional: true });
+  });
+
+  it("casual: humans ordered by wins then matches, over casual matches only", async () => {
+    const h = harness();
+    const a = await identify(h, TOKEN_A, "Ah Ming");
+    const b = await identify(h, TOKEN_B, "Opponent");
+    seedMatch(h, { id: "c1", seats: [a, b, "p2", "p3"], mode: "casual" });
+    seedMatch(h, { id: "c2", seats: [a, b, "p2", "p3"], mode: "casual" });
+    for (const matchId of ["c1", "c2"]) {
+      h.store.match_players.find((r) => r.match_id === matchId && r.player_id === a)!.place = 1;
+      h.store.match_players.find((r) => r.match_id === matchId && r.player_id === b)!.place = 4;
+    }
+
+    const res = await handle(get("/api/leaderboard?mode=casual", TOKEN_A), h.platform);
+    const body = (await res.json()) as {
+      mode: string;
+      entries: { playerId: string; matches: number; wins: number; places: number[] }[];
+    };
+    expect(body.mode).toBe("casual");
+    expect(body.entries[0]).toMatchObject({ playerId: a, matches: 2, wins: 2, places: [2, 0, 0, 0] });
+    expect(body.entries.find((e) => e.playerId === b)).toMatchObject({ matches: 2, wins: 0, places: [0, 0, 0, 2] });
+  });
+
+  it("defaults to ranked when mode is omitted or unrecognised", async () => {
+    const h = harness();
+    await identify(h, TOKEN_A, "Ah Ming");
+    const noMode = await handle(get("/api/leaderboard", TOKEN_A), h.platform);
+    expect(((await noMode.json()) as { mode: string }).mode).toBe("ranked");
+    const badMode = await handle(get("/api/leaderboard?mode=nonsense", TOKEN_A), h.platform);
+    expect(((await badMode.json()) as { mode: string }).mode).toBe("ranked");
   });
 });

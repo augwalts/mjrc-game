@@ -312,6 +312,106 @@ export async function matchDetail(token: string, matchId: string): Promise<Match
   return apiFetch(`matches/${encodeURIComponent(matchId)}`, { token });
 }
 
+/* ── stats and leaderboards ────────────────────────────────────────────── */
+
+/** GET /api/stats/me and GET /api/players/:id/stats — see worker/src/index.ts
+ *  `getStatsFor`, the one function behind both routes. */
+export interface PlayerStatsPlayer {
+  id: string;
+  displayName: string;
+  rating: number | null;
+  ratingGames: number;
+  /** Fewer than the engine's provisional threshold of games — show the label. */
+  provisional: boolean;
+}
+
+export interface PlayerStatsTotals {
+  matches: number;
+  ranked: number;
+  casual: number;
+  /** Place-1 finishes. Same number as `places[0]`, kept separate because the
+   *  stats screen shows it as its own tile. */
+  wins: number;
+  /** [1st, 2nd, 3rd, 4th] finishes. */
+  places: [number, number, number, number];
+  handsWon: number;
+  selfDraws: number;
+  dealIns: number;
+  /** null when this player has never won a hand — nothing to average. */
+  avgFaan: number | null;
+  netChips: number;
+  movesGraded: number;
+  /** null when nothing was graded (web-only grading — see `DESKTOP` in game.ts). */
+  agreement: number | null;
+}
+
+export interface PlayerStatsRecentMatch {
+  matchId: string;
+  endedAt: string | null;
+  mode: TableMode;
+  place: number | null;
+  chips: number;
+  /** null on a casual match, or a rated match not yet settled. */
+  ratingDelta: number | null;
+}
+
+export interface PlayerStatsRatingPoint {
+  at: string;
+  before: number;
+  after: number;
+  /** null for a seed/reset/adjustment row — never happens at P0, but the
+   *  server's `rating_history.kind` allows for it. */
+  matchId: string | null;
+}
+
+export interface PlayerStats {
+  player: PlayerStatsPlayer;
+  totals: PlayerStatsTotals;
+  /** Last 10, newest first. */
+  recent: PlayerStatsRecentMatch[];
+  /** Last 30, newest first. */
+  ratingHistory: PlayerStatsRatingPoint[];
+}
+
+export async function getMyStats(token: string): Promise<PlayerStats> {
+  return apiFetch("stats/me", { token });
+}
+
+export async function getPlayerStats(token: string, playerId: string): Promise<PlayerStats> {
+  return apiFetch(`players/${encodeURIComponent(playerId)}/stats`, { token });
+}
+
+export type LeaderboardMode = "ranked" | "casual";
+
+export interface RankedLeaderboardEntry {
+  playerId: string;
+  displayName: string;
+  rating: number;
+  games: number;
+  provisional: boolean;
+}
+
+export interface CasualLeaderboardEntry {
+  playerId: string;
+  displayName: string;
+  matches: number;
+  wins: number;
+  places: [number, number, number, number];
+  agreement: number | null;
+}
+
+/** GET /api/leaderboard?mode=ranked|casual. Two overloads so a caller who
+ *  passes a literal mode gets the matching entry shape back typed, not a
+ *  union it has to narrow by hand. */
+export function getLeaderboard(token: string, mode: "ranked"): Promise<{ mode: "ranked"; entries: RankedLeaderboardEntry[] }>;
+export function getLeaderboard(token: string, mode: "casual"): Promise<{ mode: "casual"; entries: CasualLeaderboardEntry[] }>;
+export function getLeaderboard(
+  token: string,
+  mode: LeaderboardMode,
+): Promise<{ mode: LeaderboardMode; entries: (RankedLeaderboardEntry | CasualLeaderboardEntry)[] }> {
+  return apiFetch(`leaderboard?mode=${mode}`, { token });
+}
+
 /* ── the table socket ─────────────────────────────────────────────────── */
 
 /** The seven requests that get an `accepted`/`rejected` reply keyed by

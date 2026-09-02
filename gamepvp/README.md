@@ -55,6 +55,10 @@ MJRC_SEATS="human,human,bot,bot" MJRC_MODE=ranked node gamepvp/test/smoke.mjs  #
 # is left unjoined, the creator calls /start, the match still completes
 MJRC_SEATS="human,human,bot:v1,bot:v2" MJRC_START=1 node gamepvp/test/smoke.mjs
 
+# ranked settlement: all four seats human (the server refuses any bot in a
+# ranked table); after matchEnd, GET /api/stats/me must show a real rating
+MJRC_MODE=ranked MJRC_HUMANS=4 node gamepvp/test/smoke.mjs
+
 # gate 2: the archived log re-executes to itself
 node gamepvp/test/assemble-log.mjs gamepvp/.wrangler/logs <matchId>
 ./node_modules/.bin/vite-node tools/replay/cli.ts -- gamepvp/.wrangler/logs/<matchId>.json --verify
@@ -69,7 +73,8 @@ node gamepvp/test/assemble-log.mjs gamepvp/.wrangler/logs <matchId>
   path), `POST /api/tables/:id/start` (creator only: fill empty seats with
   bots and start), `POST /api/tables/:id/leave` (hand your seat to a bot for
   the rest of the match), `GET /api/lobby`, `POST /api/presence`, `GET
-  /api/matches[/:id[/log]]`.
+  /api/matches[/:id[/log]]`, `GET /api/stats/me`, `GET
+  /api/players/:id/stats`, `GET /api/leaderboard?mode=ranked|casual`.
 - **Match plane, one WebSocket per seat** — `/table/:matchId`, `join` with the
   seat token, then `prompt` / `events` (each batch carries the seat's post-batch
   `snapshot`) / `presence` / `accepted` / `rejected`. The client never computes
@@ -148,4 +153,6 @@ npx wrangler d1 execute mjrc-scoring --remote --command "CREATE TABLE presence (
 npx wrangler d1 execute mjrc-scoring --remote --command "CREATE INDEX idx_presence_seen ON presence(seen_at)"
 npx wrangler d1 execute mjrc-scoring --remote --command "CREATE INDEX idx_matches_lobby_open ON matches(lobby_status, started_at DESC) WHERE lobby_status IN ('waiting', 'playing')"
 npx wrangler d1 execute mjrc-scoring --remote --command "CREATE INDEX idx_matches_lobby_done ON matches(lobby_status, ended_at DESC) WHERE lobby_status = 'done'"
+-- backfill for matches that predate lobby_status
+UPDATE matches SET lobby_status='done' WHERE status IN ('complete','abandoned') AND lobby_status<>'done'
 ```

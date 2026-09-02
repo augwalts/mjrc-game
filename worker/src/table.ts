@@ -36,6 +36,7 @@
  * unordered key iteration on any path that affects state.
  */
 import { prng } from "@mjrc/engine";
+import { INITIAL_RATING, RATING_SYSTEM_ID, provisionalK, updateRatings } from "../../engine/src/rating.js";
 import type {
   Action,
   ClaimOption,
@@ -115,6 +116,10 @@ export interface R2Like {
 export interface D1PreparedLike {
   bind(...values: unknown[]): D1PreparedLike;
   run(): Promise<unknown>;
+  /** Read-only. Only `bindingArchive`'s ranked settlement (`settleRatedMatch`)
+   *  reads through this — every other D1 write in this file is fire-and-forget. */
+  first<T>(): Promise<T | null>;
+  all<T>(): Promise<{ results: T[] }>;
 }
 export interface D1Like {
   prepare(query: string): D1PreparedLike;
@@ -555,6 +560,35 @@ function mintSeatToken(): string {
   return hex;
 }
 
+/**
+ * `bot:<key>`, or `bot:<key>#2`, `bot:<key>#3`, ... when the same catalogue
+ * key already names another seat AT THIS TABLE — `used` is every playerId
+ * already assigned there. Without this, two seats picking the same bot
+ * profile (a client is free to ask for that — `parseSeatsBody`,
+ * worker/src/index.ts, places no such restriction) would mint the SAME
+ * playerId twice, and `UNIQUE (match_id, player_id)` on `match_players`
+ * (schema.sql) would silently drop the second seat's standings row.
+ *
+ * The alternative — dropping that constraint — was rejected: it is a SQLite
+ * table rebuild (no in-place `ALTER ... DROP CONSTRAINT`), and it would also
+ * let a genuine bug (the SAME seat claimed twice) through silently instead of
+ * failing loudly. A seat suffix costs one extra `players` row per duplicate
+ * pick and nothing else — `gamepvp/src/bots.ts`'s `keyOfPlayerId` strips the
+ * `#N` back off before it ever reaches a profile-dial lookup, so bot
+ * strength/grading are unaffected by which occurrence a seat is.
+ *
+ * Exported so `gamepvp/src/index.ts`'s initial seat-plan resolution
+ * (`tableInitOf`) and this file's own `/fill` path share one rule — two
+ * independently-invented suffix schemes would be worse than either alone.
+ */
+export function botPlayerId(key: string, used: ReadonlySet<string>): string {
+  const base = `bot:${key}`;
+  if (!used.has(base)) return base;
+  let n = 2;
+  while (used.has(`${base}#${n}`)) n += 1;
+  return `${base}#${n}`;
+}
+
 /** Coordination entropy, same rule as `mintSeatToken`: the platform's CSPRNG,
  *  never `prng(seed)`. The production default for `TableDeps.rand`. */
 function cryptoRand(): number {
@@ -980,6 +1014,11 @@ export class TableCore {
 
     const meta = this.meta;
     const players = four((seat) => meta.header.players[seat]);
+    // Every bot playerId already at this table (seats the seat plan opened as
+    // bots at `/init` time) — `botPlayerId`'s dedupe set, so a `/fill` pick
+    // that collides with one of THOSE gets suffixed too, not just collisions
+    // among `/fill`'s own picks.
+    const used = new Set<string>(players.filter((p) => p.bot).map((p) => p.playerId));
     for (const seat of SEATS) {
       const current = players[seat];
       if (current.bot || current.playerId !== "") continue;
@@ -987,9 +1026,11 @@ export class TableCore {
         key: `seat${seat}`,
         displayName: `Bot ${seat + 1}`,
       };
-      const playerId = `bot:${pick.key}`;
+      const playerId = botPlayerId(pick.key, used);
+      used.add(playerId);
       players[seat] = { playerId, displayName: pick.displayName, seat, bot: true };
       await this.ensureBotPlayerRow(playerId, pick.displayName);
+      await this.claimBotSeat(seat, playerId);
     }
     this.meta = { ...meta, header: { ...meta.header, players } };
 
@@ -1060,6 +1101,32 @@ export class TableCore {
         .run();
     } catch (err) {
       console.error("ensureBotPlayerRow failed", this.meta?.matchId, playerId, err);
+    }
+  }
+
+  /**
+   * `match_players` row for a bot seat filled by `/fill` — same UNIQUE-safe
+   * insert `claimSeat` (worker/src/db.ts) uses for a human's, reused as a
+   * literal statement here rather than imported: this file's `D1Like` is a
+   * narrower structural surface than db.ts's (worker/README.md §2), and a
+   * bot seat is never claimed through the platform's HTTP layer that
+   * `claimSeat` serves. Without this a bot who only ever arrived via
+   * `/fill` has no `match_players` row, and its standings vanish from match
+   * detail and the lobby's recent-results strip exactly like the seats
+   * `/init` opens as bots already did before this file's own dedupe fix —
+   * see `botPlayerId`. Idempotent (`OR IGNORE`), best-effort like every
+   * other lobby write from this object.
+   */
+  private async claimBotSeat(seat: SeatIndex, playerId: string): Promise<void> {
+    if (!this.env.DB) return;
+    try {
+      await this.env.DB.prepare(
+        `INSERT OR IGNORE INTO match_players (match_id, seat, player_id, wind) VALUES (?, ?, ?, ?)`,
+      )
+        .bind(this.requireMeta().matchId, seat, playerId, seat)
+        .run();
+    } catch (err) {
+      console.error("claimBotSeat failed", this.meta?.matchId, seat, playerId, err);
     }
   }
 
@@ -2458,8 +2525,117 @@ export function bindingArchive(env: TableEnv): Archive {
           )
           .run();
       }
+      await settleRatedMatch(env, summary);
     },
   };
+}
+
+/** P0's rating season (schema.sql `rating_history.season`, `players.rating_season`). */
+const RATING_SEASON = "p0-provisional";
+
+/**
+ * Ranked settlement at match end (PVP-LOBBY-PROPOSAL-2026-09-02.md §6
+ * decision 5, §7.2) — folded into `bindingArchive.finishMatch`'s close-out
+ * rather than a separate outbox step, because it needs nothing the close-out
+ * does not already have: the match's placements and chip standings.
+ *
+ * IDEMPOTENT on `rating_history.match_id`: `finishMatch` can run more than
+ * once for the same match (the outbox retries a failed close-out, and this
+ * function's own writes are not atomic with each other), so the first read
+ * below — "does this match already have rating history" — is what makes a
+ * retried settlement a no-op instead of a double-counted one.
+ *
+ * Casual matches (`matches.rated = 0`) write nothing. Bots are never rated:
+ * `postTable` (worker/src/index.ts) already refuses to open a ranked table
+ * with any bot seat, so every seat this reads is expected to be human — the
+ * `kind !== 'human'` guard below is defensive (a corrupted row, a future
+ * relaxation of that rule) rather than a path this build can take.
+ *
+ * Uses `DEFAULT_RATING_CONFIG` (engine/src/rating.ts) rather than a
+ * ruleset-specific `chipScale`: the default is tuned for hkos-doubling — the
+ * P0 default ruleset — and threading the actual ruleset's limit-hand value
+ * through `MatchSummaryRow` is a refinement for when a second payment table
+ * is actually rated, not before.
+ */
+async function settleRatedMatch(env: TableEnv, summary: MatchSummaryRow): Promise<void> {
+  if (!env.DB) return;
+  const db = env.DB;
+  const iso = (ms: number): string => new Date(ms).toISOString();
+
+  const matchRow = await db
+    .prepare(`SELECT rated FROM matches WHERE id = ?`)
+    .bind(summary.matchId)
+    .first<{ rated: number }>();
+  if (!matchRow || Number(matchRow.rated) === 0) return;
+
+  const already = await db
+    .prepare(`SELECT id FROM rating_history WHERE match_id = ? LIMIT 1`)
+    .bind(summary.matchId)
+    .first<{ id: number }>();
+  if (already) return;
+
+  const { results: seatRows } = await db
+    .prepare(
+      `SELECT mp.seat AS seat, mp.player_id AS player_id, p.kind AS kind,
+              p.rating AS rating, p.rating_games AS rating_games
+         FROM match_players mp
+         JOIN players p ON p.id = mp.player_id
+        WHERE mp.match_id = ?
+        ORDER BY mp.seat`,
+    )
+    .bind(summary.matchId)
+    .all<{ seat: number; player_id: string; kind: string; rating: number | null; rating_games: number }>();
+
+  if (seatRows.length !== 4 || seatRows.some((r) => r.kind !== "human")) return;
+
+  const before = seatRows.map((r) => r.rating ?? INITIAL_RATING);
+  const matchesPlayed = seatRows.map((r) => r.rating_games);
+  const placements = seatRows.map((r) => summary.placements[r.seat as SeatIndex]);
+  const chips = seatRows.map((r) => summary.standings[r.seat as SeatIndex]);
+  // Every seat's chips relative to an even split — computable from the
+  // standings alone (schema.sql `hands`: every hand's deltas sum to zero, so
+  // the match's do too, and the mean final_chips across the four seats is
+  // exactly the ruleset's starting stake regardless of what that number is).
+  const avgChips = chips.reduce((a, b) => a + b, 0) / chips.length;
+
+  const after = updateRatings(before, placements, { matchesPlayed, chips });
+  const now = iso(summary.endedAt);
+
+  for (let i = 0; i < seatRows.length; i += 1) {
+    const row = seatRows[i]!;
+    const k = provisionalK(matchesPlayed[i]!);
+    await db
+      .prepare(
+        `INSERT INTO rating_history
+           (player_id, match_id, kind, system, season, rating_before, rating_after,
+            games_played_before, k_factor, place, chip_delta, created_at)
+         VALUES (?, ?, 'match', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(
+        row.player_id,
+        summary.matchId,
+        RATING_SYSTEM_ID,
+        RATING_SEASON,
+        before[i],
+        after[i],
+        matchesPlayed[i],
+        k,
+        placements[i],
+        Math.round(chips[i]! - avgChips),
+        now,
+      )
+      .run();
+
+    await db
+      .prepare(`UPDATE players SET rating = ?, rating_games = ?, rating_season = ? WHERE id = ?`)
+      .bind(after[i], matchesPlayed[i]! + 1, RATING_SEASON, row.player_id)
+      .run();
+
+    await db
+      .prepare(`UPDATE match_players SET rating_before = ?, rating_after = ? WHERE match_id = ? AND seat = ?`)
+      .bind(before[i], after[i], summary.matchId, row.seat)
+      .run();
+  }
 }
 
 /**

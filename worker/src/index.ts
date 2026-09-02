@@ -32,6 +32,11 @@
  *   GET  /api/lobby                 who is here, what tables are open, recent
  *                                   results (PVP-LOBBY-PROPOSAL-2026-09-02.md §7)
  *   POST /api/presence              the lobby heartbeat, every 30s
+ *   GET  /api/stats/me              the caller's own totals, recent matches,
+ *                                   rating history
+ *   GET  /api/players/:id/stats     same shape, any player — the leaderboard,
+ *                                   Here now and a scoreboard all link here
+ *   GET  /api/leaderboard           ?mode=ranked (by rating) or casual (by record)
  *   GET  /api/replay/:token         PUBLIC, unauthenticated — §2's only viral loop
  *
  * Not here, on purpose: CORS. The client ships same-origin behind the site's
@@ -41,7 +46,9 @@
 import type { FaanAward, SeatIndex } from "@mjrc/engine";
 import { EVENT_SCHEMA_VERSION } from "@mjrc/protocol";
 import { DEFAULT_RULESET_ID, assertRulesetSound, ruleset } from "@mjrc/rulesets";
+import { isProvisional } from "../../engine/src/rating.js";
 import type {
+  CasualLeaderboardRow,
   D1Like,
   DoneMatchRow,
   HandRow,
@@ -51,7 +58,11 @@ import type {
   MatchSeatRow,
   PlayerRow,
   R2Like,
+  RankedLeaderboardRow,
+  RatingHistoryPointRow,
+  RecentMatchRow,
   SeatSpec,
+  StatsTotalsRow,
 } from "./db.js";
 /* Re-exported: `TableSpec.seatPlan` and `postTable` both speak this type, and
  * gamepvp/src/index.ts (`tableInitOf`) needs it too — one shape, re-exported
@@ -61,22 +72,29 @@ import {
   ID_LENGTH,
   JOIN_CODE_LENGTH,
   archiveRuleset,
+  avgFaanForPlayer,
   claimSeat,
   handsOfMatch,
   humanSeatsOfMatch,
   insertCredential,
   insertMatch,
   insertPlayer,
+  leaderboardCasual,
+  leaderboardRanked,
   matchById,
   matchByJoinCode,
   matchLogById,
   matchesDone,
   matchesForPlayer,
   matchesWaitingOrPlaying,
+  netChipsForPlayer,
   parseSeatPlan,
+  playerById,
   playerForCredential,
   presenceSince,
   randomId,
+  ratingHistoryForPlayer,
+  recentMatchesForPlayer,
   renamePlayer,
   rulesetHash,
   seatOf,
@@ -84,6 +102,7 @@ import {
   seatsOfMatch,
   serializeSeatPlan,
   sha256Hex,
+  statsTotalsForPlayer,
   toHex,
   touchCredential,
   upsertPresence,
@@ -1041,6 +1060,124 @@ async function postLeave(matchId: string, p: Platform, player: PlayerRow): Promi
   return json({ ok: true });
 }
 
+/* ── stats and leaderboards (PVP-LOBBY-PROPOSAL-2026-09-02.md §7.2's last two
+ * bullets) ───────────────────────────────────────────────────────────────── */
+
+/** "Last 10" / "last 30" per the stats contract. */
+const RECENT_MATCHES_LIMIT = 10;
+const RATING_HISTORY_LIMIT = 30;
+const LEADERBOARD_LIMIT = 50;
+
+/** `moves_graded`/`moves_matched` → an agreement rate, or null when nothing
+ *  was graded — the same rule `seatView`'s per-match `agreement` uses. */
+const agreementOf = (graded: number, matched: number): number | null => (graded > 0 ? matched / graded : null);
+
+/**
+ * `GET /api/stats/me` and `GET /api/players/:id/stats` — one function, two
+ * routes: "me" is just "the caller's own id", never a different read. Every
+ * number here folds `match_players`/`hands`/`rating_history` at read time
+ * (schema.sql, "Regenerable vs stateful" — none of it is a stored
+ * projection), so a stats screen is always exactly as fresh as the last
+ * match to settle.
+ *
+ * Not a participant-only route: a player's stats are reachable by anyone
+ * authenticated, the same "everyone sees everyone" the lobby itself already
+ * grants (PVP-LOBBY-PROPOSAL-2026-09-02.md §6 decision 1) — the leaderboard,
+ * the "here now" list and a match's own scoreboard all link a name here.
+ */
+async function getStatsFor(playerId: string, p: Platform): Promise<Response> {
+  const player = await playerById(p.db, playerId);
+  if (player === null) return fail("not_found", 404);
+
+  const [totals, avgFaan, netChips, recent, ratingHistory] = await Promise.all([
+    statsTotalsForPlayer(p.db, playerId),
+    avgFaanForPlayer(p.db, playerId),
+    netChipsForPlayer(p.db, playerId),
+    recentMatchesForPlayer(p.db, playerId, RECENT_MATCHES_LIMIT),
+    ratingHistoryForPlayer(p.db, playerId, RATING_HISTORY_LIMIT),
+  ]);
+
+  // SQLite's SUM/COUNT over zero matching rows is NULL, never 0 — `?? 0`
+  // below is that translation, done once here rather than at every call site.
+  const t: StatsTotalsRow = totals ?? {
+    matches: 0, ranked: 0, casual: 0, place1: 0, place2: 0, place3: 0, place4: 0,
+    hands_won: 0, self_draws: 0, deal_ins: 0, moves_graded: 0, moves_matched: 0,
+  };
+
+  return json({
+    player: {
+      id: player.id,
+      displayName: player.display_name,
+      rating: player.rating,
+      ratingGames: player.rating_games,
+      provisional: isProvisional(player.rating_games),
+    },
+    totals: {
+      matches: t.matches ?? 0,
+      ranked: t.ranked ?? 0,
+      casual: t.casual ?? 0,
+      wins: t.place1 ?? 0,
+      places: [t.place1 ?? 0, t.place2 ?? 0, t.place3 ?? 0, t.place4 ?? 0],
+      handsWon: t.hands_won ?? 0,
+      selfDraws: t.self_draws ?? 0,
+      dealIns: t.deal_ins ?? 0,
+      avgFaan,
+      netChips,
+      movesGraded: t.moves_graded ?? 0,
+      agreement: agreementOf(t.moves_graded ?? 0, t.moves_matched ?? 0),
+    },
+    recent: recent.map((r: RecentMatchRow) => ({
+      matchId: r.match_id,
+      endedAt: r.ended_at,
+      mode: r.mode,
+      place: r.place,
+      chips: r.final_chips,
+      ratingDelta:
+        r.rating_before !== null && r.rating_after !== null ? r.rating_after - r.rating_before : null,
+    })),
+    ratingHistory: ratingHistory.map((h: RatingHistoryPointRow) => ({
+      at: h.at,
+      before: h.before,
+      after: h.after,
+      matchId: h.match_id,
+    })),
+  });
+}
+
+/** GET /api/leaderboard?mode=ranked|casual — defaults to ranked on anything
+ *  else, same "unknown value degrades to the safe default" doctrine as
+ *  `postTable`'s `matchFormat`/`access` parsing above. */
+async function getLeaderboard(url: URL, p: Platform): Promise<Response> {
+  const mode = url.searchParams.get("mode") === "casual" ? "casual" : "ranked";
+
+  if (mode === "casual") {
+    const rows = await leaderboardCasual(p.db, LEADERBOARD_LIMIT);
+    return json({
+      mode,
+      entries: rows.map((r: CasualLeaderboardRow) => ({
+        playerId: r.player_id,
+        displayName: r.display_name,
+        matches: r.matches,
+        wins: r.wins,
+        places: [r.place1, r.place2, r.place3, r.place4],
+        agreement: agreementOf(r.moves_graded, r.moves_matched),
+      })),
+    });
+  }
+
+  const rows = await leaderboardRanked(p.db, LEADERBOARD_LIMIT);
+  return json({
+    mode,
+    entries: rows.map((r: RankedLeaderboardRow) => ({
+      playerId: r.id,
+      displayName: r.display_name,
+      rating: r.rating,
+      games: r.rating_games,
+      provisional: isProvisional(r.rating_games),
+    })),
+  });
+}
+
 /* ── the lobby ────────────────────────────────────────────────────────────── */
 
 /** A heartbeat older than this is not "here" (proposal §3.2). */
@@ -1253,6 +1390,21 @@ export async function handle(request: Request, p: Platform): Promise<Response> {
       if (method !== "POST") return fail("method_not_allowed", 405);
       return postLeave(seg[2], p, player);
     }
+  }
+
+  if (seg[1] === "stats" && seg[2] === "me" && seg.length === 3) {
+    if (method !== "GET") return fail("method_not_allowed", 405);
+    return getStatsFor(player.id, p);
+  }
+
+  if (seg[1] === "players" && seg.length === 4 && seg[3] === "stats") {
+    if (method !== "GET") return fail("method_not_allowed", 405);
+    return getStatsFor(seg[2], p);
+  }
+
+  if (seg[1] === "leaderboard" && seg.length === 2) {
+    if (method !== "GET") return fail("method_not_allowed", 405);
+    return getLeaderboard(url, p);
   }
 
   if (seg[1] === "lobby" && seg.length === 2) {

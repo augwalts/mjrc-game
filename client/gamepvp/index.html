@@ -375,6 +375,18 @@ body.counting #wall .wt{opacity:.85}
 .rows .dot.play{background:var(--accent)}
 .rows .row.clickable{cursor:pointer}
 .rows .row.clickable:hover{background:rgba(255,255,255,.07)}
+/* a name that opens the Player page — inside a row that may ALSO be
+ * clickable for something else (sit down), so this needs its own affordance
+ * and its own stopPropagation()'d handler (game.ts wireLobbyPanel). */
+.pname{cursor:pointer}
+.pname:hover{color:var(--gold);text-decoration:underline}
+/* stats screen: four placement bars, #1-#4 */
+.placebars{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+.placebars .prow{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--dim)}
+.placebars .plabel{width:24px;flex:0 0 auto}
+.placebars .ptrack{flex:1;height:9px;border-radius:5px;background:rgba(255,255,255,.08);overflow:hidden}
+.placebars .pfill{display:block;height:100%;background:var(--gold);border-radius:5px}
+.placebars .pcount{width:24px;text-align:right;flex:0 0 auto;color:var(--ink);font-variant-numeric:tabular-nums}
 /* open tables: one card per table, not a `.rows` list — a table carries more
  * than two columns' worth (creator, badges, four seats, a Sit down button) */
 .tablelist{display:flex;flex-direction:column;gap:8px;margin-top:6px;max-height:280px;overflow-y:auto}

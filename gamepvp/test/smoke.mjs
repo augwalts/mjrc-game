@@ -293,6 +293,16 @@ async function main() {
     };
   }
 
+  // Ranked needs every seat human (postTable's own `ranked_needs_humans`
+  // 400) — checked here too so a misconfigured ranked run fails with a clear
+  // message instead of a 400 from deep inside `/api/tables`.
+  if (MODE === "ranked") {
+    const allHuman = SEATS ? SEATS.every((s) => s.kind === "human") : HUMANS === 4;
+    if (!allHuman) {
+      throw new Error("MJRC_MODE=ranked needs MJRC_HUMANS=4 (or an all-human MJRC_SEATS) — the server refuses any bot seat in a ranked table");
+    }
+  }
+
   console.log(
     `mjrc smoke test — base=${HTTP_BASE} mode=${MODE} format=${MATCH_FORMAT} ruleset=${RULESET_ID} ` +
       (SEATS ? `seats=${process.env.MJRC_SEATS}` : `humans=${HUMANS}`) +
@@ -351,6 +361,20 @@ async function main() {
 
   const detail = await apiFetch(`/api/matches/${matchUuid}`, { token: humans[0].deviceToken });
 
+  // Ranked settlement (worker/src/table.ts `settleRatedMatch`, called from
+  // `bindingArchive.finishMatch` at the same close-out that just wrote
+  // `detail`) — GET /api/stats/me must show a real rating afterward, not the
+  // unrated null every fresh identity starts with.
+  let statsAfter = null;
+  if (MODE === "ranked") {
+    statsAfter = await apiFetch("/api/stats/me", { token: humans[0].deviceToken });
+    if (statsAfter.player.rating === null || statsAfter.player.ratingGames < 1) {
+      throw new Error(
+        `ranked match settled but GET /api/stats/me shows no rating: ${JSON.stringify(statsAfter.player)}`,
+      );
+    }
+  }
+
   const elapsedMs = Date.now() - start;
   console.log("--- summary ---");
   console.log(`hands played: ${shared.handEndCount}`);
@@ -360,6 +384,12 @@ async function main() {
     `final standings: ${JSON.stringify(shared.matchEndPayload?.standings ?? shared.lastStandings)}`,
   );
   console.log(`match detail: status=${detail.match.status} handCount=${detail.match.handCount}`);
+  if (statsAfter) {
+    console.log(
+      `ranked settlement: rating=${statsAfter.player.rating} ratingGames=${statsAfter.player.ratingGames} ` +
+        `provisional=${statsAfter.player.provisional}`,
+    );
+  }
 }
 
 main()
