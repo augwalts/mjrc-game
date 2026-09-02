@@ -75,6 +75,7 @@ describe("chat — server payload shape", () => {
     const restore: RestorePayload = {
       snapshot: {} as RestorePayload["snapshot"],
       events: [],
+      directory: {} as RestorePayload["directory"],
       chat,
     };
     expect(restore.chat).toHaveLength(2);

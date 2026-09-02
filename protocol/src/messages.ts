@@ -251,6 +251,8 @@ export interface WelcomePayload {
 export interface RestorePayload {
   snapshot: SeatVisible<SeatSnapshot>;
   events: SeatVisible<RedactedGameEvent>[];
+  /** Who sits where now — seats filled or shuffled since the welcome. */
+  directory: FourSeats<SeatDirectoryEntry>;
   /** Same ring `WelcomePayload.chat` carries — a reconnect gets chat history
    *  exactly like a fresh join does (§8). */
   chat: ChatMessagePayload[];
@@ -337,6 +339,15 @@ export interface RejectedPayload {
 export interface PresencePayload {
   seat: SeatIndex;
   connected: boolean;
+  /**
+   * The seat's current identity. A player who joins AFTER your welcome is
+   * otherwise a nameless seat to you: the directory rides on `welcome` only,
+   * so presence carries enough to keep every client's directory current.
+   * `playerId` is "" for an unfilled human seat.
+   */
+  playerId: string;
+  displayName: string;
+  bot: boolean;
   /**
    * Set while a bot is playing a disconnected seat (§5.3 grace → takeover), so
    * the table can show it rather than letting the seat look merely slow.

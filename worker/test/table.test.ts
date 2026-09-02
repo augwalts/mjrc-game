@@ -1105,14 +1105,14 @@ describe("reconnect", () => {
     await t.core.webSocketClose(one);
 
     const zero = t.sockets[0] as StubSocket;
-    expect(zero.msgs("presence").at(-1)?.payload).toEqual({
+    expect(zero.msgs("presence").at(-1)?.payload).toMatchObject({
       seat: 1,
       connected: false,
       botActing: false,
     });
     t.clock.now = start + DEFAULT_TABLE_CONFIG.disconnectGraceMs + 1;
     await t.core.alarm();
-    expect(zero.msgs("presence").at(-1)?.payload).toEqual({
+    expect(zero.msgs("presence").at(-1)?.payload).toMatchObject({
       seat: 1,
       connected: false,
       botActing: true,
@@ -1132,7 +1132,7 @@ describe("reconnect", () => {
     expect(back.msgs("welcome")).toHaveLength(1);
     expect(back.msgs("welcome")[0].payload.seat).toBe(1);
     const zero = t.sockets[0] as StubSocket;
-    expect(zero.msgs("presence").at(-1)?.payload).toEqual({
+    expect(zero.msgs("presence").at(-1)?.payload).toMatchObject({
       seat: 1,
       connected: true,
       botActing: false,
@@ -1469,7 +1469,7 @@ describe("/leave — a participant's explicit leave", () => {
     expect(one.closed?.code).toBe(4001);
 
     const zero = t.sockets[0] as StubSocket;
-    expect(zero.msgs("presence").at(-1)?.payload).toEqual({ seat: 1, connected: false, botActing: true });
+    expect(zero.msgs("presence").at(-1)?.payload).toMatchObject({ seat: 1, connected: false, botActing: true });
 
     // Idempotent: a second call changes nothing further.
     const again = await leave(t, "p1");

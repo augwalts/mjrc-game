@@ -1493,6 +1493,7 @@ export class TableCore {
           payload: {
             snapshot: this.viewFor(seat),
             events: redactEventsFor(seat, events),
+            directory: this.directory(),
             chat: [...this.chat],
           },
         });
@@ -1937,6 +1938,11 @@ export class TableCore {
         seat,
         connected: this.presence[seat].connected,
         botActing: this.presence[seat].botActing,
+        // A late joiner's name reaches the seats that were welcomed before
+        // the join bound it.
+        playerId: this.meta?.header.players[seat].playerId ?? "",
+        displayName: this.meta?.header.players[seat].displayName ?? "",
+        bot: this.meta?.header.players[seat].bot ?? false,
       },
     };
     for (const ws of this.ctx.getWebSockets()) this.send(ws, msg);
