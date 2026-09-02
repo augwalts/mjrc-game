@@ -37,14 +37,15 @@ import type {
 import { CHAT_PHRASES, CHAT_TEXT_MAX_LENGTH } from "../../protocol/src/messages.js";
 import {
   ApiError, RequestRejected, TableSocket,
-  createTable, getLeaderboard, getLobby, getMyStats, getPlayerStats, identify, joinTable,
+  createRoom, createTable, getLeaderboard, getLobby, getMyRooms, getMyStats, getPlayerStats,
+  identify, joinRoom, joinTable,
   leaveTable as apiLeaveTable, listBots, listMatches,
   matchDetail, postLobbyChat, postPresence, startTable as apiStartTable, storedIdentity,
   type BotCatalogueEntry, type CasualLeaderboardEntry, type CreateTableResult, type Identity,
   type LeaderboardMode, type LobbyChatEntry, type LobbyHereEntry, type LobbyPayload,
   type LobbyTable, type LobbyTableSeat, type MatchFormat, type MatchListItem,
   type PlayerStats, type PlayerStatsRecentMatch, type PlayerStatsTotals,
-  type RankedLeaderboardEntry, type SeatSpec, type TableAccess, type TableMode,
+  type RankedLeaderboardEntry, type RoomSummary, type SeatSpec, type TableAccess, type TableMode,
 } from "./net.js";
 
 declare global {
@@ -407,6 +408,33 @@ const DESKTOP = matchMedia("(min-width: 900px) and (pointer: fine)");
 const isDesktop = (): boolean => DESKTOP.matches;
 DESKTOP.addEventListener("change", () => { if (snap) render(); syncVeil(); });
 
+/** Task brief item 2 (2026-09-02 live demo): "win → resize → popup vanishes,
+ *  player stuck". A resize/orientation change must NEVER clear an
+ *  overlay/veil — only an explicit close (a button's own onclick) may. This
+ *  mirrors the DESKTOP listener just above, which already gets this right:
+ *  re-render the table under whatever is showing, then resync the veil so it
+ *  stays exactly what it was (paused / hand-end reveal / matchEnd / waiting
+ *  room) — never reset to "none". Neither `render()` nor `syncVeil()` ever
+ *  touches `overlay`/`matchEndInfo`/`paused` themselves (audited below), so
+ *  this can never be the thing that drops a popup.
+ *
+ *  Debounced: iOS fires a burst of `resize` while the address bar
+ *  hides/shows on scroll, and a rotation fires both `resize` and
+ *  `orientationchange` for the same physical event — one coalesced re-render
+ *  is enough, and it also keeps width-dependent layout (the pile's
+ *  `--pileth`, computed from `pileEl.clientWidth` in `render()`) current,
+ *  which nothing previously did on a resize at all. */
+let viewportSyncTimer = 0;
+const onViewportChange = (): void => {
+  window.clearTimeout(viewportSyncTimer);
+  viewportSyncTimer = window.setTimeout(() => {
+    if (snap) render();
+    syncVeil();
+  }, 120);
+};
+window.addEventListener("resize", onViewportChange);
+window.addEventListener("orientationchange", onViewportChange);
+
 /* ── handicaps ─────────────────────────────────────────────────────────
  * Unchanged from Solo except the source: `seatViewOf(snap)` builds the same
  * `SeatView` the engine's analysis functions expect, from the redacted wire
@@ -651,6 +679,39 @@ function devPanel(): string {
   </div>`;
 }
 
+/* ── motion queue (task brief item 4) ─────────────────────────────────────
+ * THE PROBLEM: a discard's toss and the very next seat's draw can land in
+ * the SAME batch — `applyBatch()` consumes the discard event (which only
+ * marks `pileTiles`, no DOM yet) and replaces `snap` (which already shows
+ * the next seat holding a drawn tile) BEFORE the one `render()` call that
+ * creates both DOM nodes. Both animations used to start at frame 0
+ * together — two motions competing for one pair of eyes. This client never
+ * had a fix for it; only the CSS half (`--tossdelay`/`--drawdelay` custom
+ * properties) existed, unused, defaulting to 0ms everywhere.
+ *
+ * RULE: a draw queues BEHIND the most recent toss, by delay, never by
+ * gating — the element exists and is clickable immediately (`backwards`
+ * fill mode holds it at frame 0 until its delay elapses), so no affordance
+ * is ever taken away by an animation.
+ *
+ * `TOSS_MS`/the toss's own easing (`cubic-bezier(.15,0,.85,.85)`, index.html
+ * `#pile .tile.fresh`) are the owner's `discard-lab.html` trial, revised
+ * 2026-09-02: a short push off the finger for the first ~15% of 380ms, then
+ * constant speed, then a dead stop exactly on the tile's slot — ONE motion
+ * to ONE destination decided before the toss starts (see the pile-placement
+ * loop below), never a second leg to correct a landing spot. Since the toss
+ * no longer has an early "settled" plateau the old three-phase keyframe
+ * did, a queued draw simply waits out the toss's FULL duration, not some
+ * fraction of it. */
+const TOSS_MS = 380;
+const DRAW_MS = 900;
+/** When the most recent toss started (`performance.now()`), so a draw that
+ *  lands in the same render pass — or the very next one — queues behind it
+ *  instead of racing it. Far in the past at boot, so the first draw of a
+ *  match never waits on a toss that never happened. */
+let lastTossAt = -1e9;
+const queueBehindToss = (): number => Math.max(0, Math.round(lastTossAt + TOSS_MS - performance.now()));
+
 /* ── announcements (unchanged from Solo — purely decorative) ────────────── */
 const CALLS: Record<string, [string, string]> = {
   pung: ["碰", "pung"], chow: ["上", "chow"], kong: ["槓", "kong"],
@@ -742,7 +803,16 @@ function clockTick(): void {
   if (remain <= 0) { clockRaf = 0; return; }
   clockRaf = requestAnimationFrame(clockTick);
 }
+/** `deadlineTs === 0` (task brief item 4's last bullet) is the server's "no
+ *  clock" sentinel for this prompt — not a real Unix-ms deadline in 1970.
+ *  Starting the rAF loop against it used to leave `#clockbar`'s own 3px
+ *  track visible (unfilled, briefly tinted `.low` for one frame) even though
+ *  nothing is actually counting down; this hides the track outright instead,
+ *  same as `stopClock()`'s "not your turn" case already leaves it (unfilled
+ *  but visible) — a real deadline always un-hides it via `startClock`. */
 function startClock(deadlineTs: number): void {
+  if (deadlineTs === 0) { stopClock(); $("clockbar").style.display = "none"; return; }
+  $("clockbar").style.display = "";
   clockDeadline = deadlineTs;
   clockTotalMs = Math.max(1, deadlineTs - Date.now());
   cancelAnimationFrame(clockRaf);
@@ -1405,10 +1475,18 @@ function seatBox(seat: SeatIndex): string {
   const s = snap!.seats[seat]!;
   const nm = seatName(seat);
   const hidden = s.handCount + (s.holdingDrawn ? 1 : 0);
+  // Motion queue (task item 4), same rule as the own hand's drawn tile below
+  // — an opponent's draw indicator queues behind the toss most recently
+  // placed, rather than always animating at delay 0. `seatBox()` runs before
+  // the pile loop each render() pass (same order the demo's own `seatBox`
+  // uses), so this reads whichever toss is still settling from the PREVIOUS
+  // pass; a toss from THIS pass queues the next render's backrow instead,
+  // same as the demo.
+  const drawDelay = queueBehindToss();
   return plate(seat, nm, nm[0]!) + `
     <div class="backrow">${Array.from({ length: Math.min(hidden, 14) }, (_, i) =>
       `<span class="back ${i === hidden - 1 && s.holdingDrawn ? "wtnew" : ""}"
-         style="--drawdelay:0ms"></span>`).join("")}</div>
+         style="--drawdelay:${drawDelay}ms"></span>`).join("")}</div>
     <div class="meldrow">${s.melds.map((m, i) => meldHtml(m,
         `sm ${landingMeld && landingMeld.seat === seat && landingMeld.index === i ? "claimed" : ""}`))
         .join('<span style="width:6px"></span>')}
@@ -1500,15 +1578,30 @@ function render(): void {
   for (const d of pileTiles) {
     if (have.has(d.id)) continue;
     const r = rel(d.seat);
-    const from = [[0, 190], [230, 0], [0, -190], [-230, 0]][r] ?? [0, 190];
-    const lx = from[0]! * 0.3, ly = from[1]! * 0.3;
-    const lr = d.pos!.rot + (d.pos!.spin - d.pos!.rot) * 0.22;
+    // Own seat's origin (r===0) flies from further down than the demo's
+    // `[0, 190]`: the claim bar (`#actions`, task item 4a) now sits between
+    // the table and the hand, ~60px it never had to clear before (its CSS
+    // `min-height:54px` + `margin-top:6px`, always present — see index.html
+    // — since the bar shows either buttons or a hint the rest of the time).
+    // #surface's 3D tilt (`perspective(1500px) rotateX(17deg)`) rules out
+    // measuring the real DOM gap directly: a viewport rect from outside that
+    // transformed subtree does not convert linearly into the untransformed
+    // local pixels `left`/`top`/`--fx`/`--fy` are all expressed in here, so
+    // this is a deliberate constant, not a guess left unexamined.
+    const OWN_TOSS_ORIGIN_FY = 190 + 60;
+    const from = [[0, OWN_TOSS_ORIGIN_FY], [230, 0], [0, -190], [-230, 0]][r] ?? [0, OWN_TOSS_ORIGIN_FY];
     for (const el of Array.from(pileEl.children)) el.classList.remove("hot");
+    // Queue any draw that lands behind this toss (motion queue above) — set
+    // BEFORE the element goes in, not after, so a draw rendered later in
+    // this same pass (own hand, or an opponent's backrow) already sees it.
+    lastTossAt = performance.now();
+    // ONE motion straight to the slot (`d.pos`, fixed above and never
+    // recomputed once set) — no `--lx`/`--ly`/`--lr` "contact" leg any more,
+    // see the `toss` keyframe's own doc comment in index.html.
     pileEl.insertAdjacentHTML("beforeend", tileHtml(d.tile, "pt fresh hot",
       `data-pid="${d.id}" style="left:${d.pos!.x.toFixed(1)}px;top:${d.pos!.y.toFixed(1)}px;`
       + `--fx:${from[0]}px;--fy:${from[1]}px;--fr:${d.pos!.spin.toFixed(0)}deg;`
-      + `--lx:${lx.toFixed(0)}px;--ly:${ly.toFixed(0)}px;--lr:${lr.toFixed(1)}deg;`
-      + `--rot:${d.pos!.rot.toFixed(1)}deg;--tossms:1300ms;`
+      + `--rot:${d.pos!.rot.toFixed(1)}deg;--tossms:${TOSS_MS}ms;`
       + `transform:translate(-50%,-50%) rotate(${d.pos!.rot.toFixed(1)}deg)"`));
   }
 
@@ -1525,10 +1618,15 @@ function render(): void {
   const sig = `${hand.join(",")}|${me.drawn ?? "-"}|${canDiscard}`;
   if (sig !== handSig) {
     handSig = sig;
+    // Motion queue (task item 4): if a discard's toss just landed in THIS
+    // same render pass (or is still settling from the last one), this draw
+    // waits behind it rather than starting in the same frame — see the
+    // `queueBehindToss` doc comment above.
+    const drawDelay = queueBehindToss();
     $("myhand").innerHTML = hand.map((t) => tileHtml(t, "", `data-t="${t}"`)).join("")
       + (me.drawn !== null
           ? tileHtml(me.drawn, "drawn",
-              `data-t="${me.drawn}" style="--drawms:900ms;--drawdelay:0ms;`
+              `data-t="${me.drawn}" style="--drawms:${DRAW_MS}ms;--drawdelay:${drawDelay}ms;`
               + `--wx:${(120 - hand.length * 9).toFixed(0)}px;--wy:-190px"`)
           : "");
   }
@@ -1611,12 +1709,32 @@ function hits(a: { x: number; y: number; rot: number }, b: { x: number; y: numbe
   return true;
 }
 
-/* ── table chat (§8) ──────────────────────────────────────────────────────
- * The drawer's own DOM (#chatBtn/#chatDrawer/…) is static furniture in
- * index.html, wired ONCE at boot (below) — unlike a screen's `.panel`, this
- * survives every screen change, since it only makes sense while a match
- * exists. `updateChatVisibility()` is what shows/hides it, keyed on
- * `currentMatchUuid`, not on which screen happens to be up. */
+/* ── table chat (§8, reworked 2026-09-02 — task brief item 1) ────────────
+ * "Chat must not be a window." The old bottom-sheet drawer (mobile) / pinned
+ * sidebar (desktop) is gone — both were a panel with a background that
+ * pushed or sat over the table as its own surface. Chat is now ONE round
+ * button (`#chatBtn`, bottom-right of the felt, unread badge — unchanged)
+ * and, only while tapped open, a fully transparent overlay directly on the
+ * felt (`#chatOverlay`): bare translucent text lines with a text-shadow for
+ * legibility, no panel background, positioned bottom-right above the button
+ * on a phone and top-left (below `#state`) on desktop — see index.html's
+ * `@media (min-width:900px) and (pointer:fine)` block. It never pushes the
+ * table layout around: both the button and the overlay are `position:
+ * absolute` children of `#felt`, exactly like `#state`/`#say`/`#call`, laid
+ * OVER the table rather than beside or under it.
+ *
+ * Tapping the button again, or tapping the felt itself, closes it
+ * (`wireChatDrawer()` below). While it is closed, an incoming message shows
+ * as a fading translucent line near the button for 4s (`showChatPreviewLine`)
+ * and bumps the badge — separate from the existing per-seat phrase bubble
+ * (`showChatBubble`/`#chatbubble`, unchanged below), which is a call heard
+ * at the TABLE, not a chat notification near the button.
+ *
+ * The drawer's own DOM is static furniture in index.html, wired ONCE at boot
+ * (below) — unlike a screen's `.panel`, this survives every screen change,
+ * since it only makes sense while a match exists. `updateChatVisibility()`
+ * is what shows/hides it, keyed on `currentMatchUuid`, not on which screen
+ * happens to be up. */
 const CHAT_BUBBLE_MS = 2500;
 let chatBubbleTimer = 0;
 /** A phrase from another seat, near their nameplate — same TIMED CLASS SWAP
@@ -1648,18 +1766,32 @@ function chatRowHtml(m: ChatEntry): string {
     <span class="ctext">${body}</span></div>`;
 }
 
-/** Repaints the drawer's message list AND the FAB badge — called on every
- *  chat-relevant change (a new message, `chatShowAll`/mute toggling, a
- *  fresh match). Cheap and small (≤50 rows), so no diffing needed. */
+/** How many messages the transparent overlay shows at once (task item 1:
+ *  "the last ~6 messages"). Independent of the server's own 50-message ring
+ *  (`tableChat`'s cap) and of `chatShowAll`'s hand/all filter — both apply
+ *  first, then this trims to the tail. */
+const CHAT_OVERLAY_ROWS = 6;
+
+/** Repaints the overlay's message list AND the FAB badge — called on every
+ *  chat-relevant change (a new message, `chatShowAll`/mute toggling, a fresh
+ *  match). Cheap and small (already ≤50 rows before the ~6 trim), so no
+ *  diffing needed. Runs regardless of whether the overlay is currently open
+ *  — cheap DOM writes behind `display:none` are fine, and it means the list
+ *  is already current the instant `setChatOpen(true)` reveals it. */
 function renderTableChat(): void {
   const box = document.getElementById("chatMsgs");
   if (box) {
     const muted = mutedSet();
-    const visible = tableChat.filter((m) => !muted.has(m.playerId) && (chatShowAll || m.ts >= handStartTs));
+    const visible = tableChat
+      .filter((m) => !muted.has(m.playerId) && (chatShowAll || m.ts >= handStartTs))
+      .slice(-CHAT_OVERLAY_ROWS);
     box.innerHTML = visible.length === 0
       ? `<p class="mut">${chatShowAll ? "no messages yet" : "nothing this hand yet — try “show all”"}</p>`
       : visible.map(chatRowHtml).join("");
     wireMuteTaps(box);
+    // `.chat-msgs` caps at 150px (index.html) — wrapped long lines among the
+    // ~6 shown can still overflow it, so pin to the newest (bottom) rather
+    // than leaving it scrolled to whatever the browser defaults to (top).
     box.scrollTop = box.scrollHeight;
   }
   // Owned here, not just the click handler — `chatShowAll` is also reset
@@ -1673,31 +1805,53 @@ function renderTableChat(): void {
 function updateChatBadge(): void {
   const badge = document.getElementById("chatBadge");
   if (!badge) return;
-  const show = !isDesktop() && !chatOpen && chatUnread > 0;
+  const show = !chatOpen && chatUnread > 0;
   badge.hidden = !show;
   if (show) badge.textContent = chatUnread > 99 ? "99+" : String(chatUnread);
 }
-/** Mobile: toggles the bottom-sheet drawer. Desktop: a no-op on the drawer
- *  itself (CSS keeps it open, see index.html), but still clears the badge —
- *  harmless since the badge is already hidden on desktop either way. */
+/** Toggles the transparent table overlay — the SAME behaviour on a phone and
+ *  on desktop now (task item 1: chat is an overlay everywhere, not a
+ *  permanently-pinned sidebar on desktop any more). */
 function setChatOpen(open: boolean): void {
   chatOpen = open;
-  document.getElementById("chatDrawer")?.classList.toggle("open", open);
-  if (open) chatUnread = 0;
+  const overlay = document.getElementById("chatOverlay");
+  if (overlay) overlay.style.display = open && currentMatchUuid !== null ? "flex" : "none";
+  if (open) { chatUnread = 0; hideChatPreview(); }
   updateChatBadge();
 }
 /** Shown only while a table exists at all — waiting room through the
  *  post-match scoreboard — never in the lobby or any other screen (the lobby
- *  has its own chat column instead). Desktop hides the FAB outright (the
- *  panel is always open by CSS); mobile shows the FAB and keeps the drawer
- *  closed until tapped. */
+ *  has its own chat column instead). The button now shows on every
+ *  breakpoint; only the overlay's CORNER differs by CSS media query. */
 function updateChatVisibility(): void {
   const btn = document.getElementById("chatBtn");
-  const drawer = document.getElementById("chatDrawer");
   const show = currentMatchUuid !== null;
-  if (btn) btn.style.display = show && !isDesktop() ? "flex" : "none";
-  if (drawer) drawer.style.display = show ? "flex" : "none";
-  updateChatBadge();
+  if (btn) btn.style.display = show ? "flex" : "none";
+  setChatOpen(show && chatOpen);
+}
+
+/** The near-button preview (task item 1): while the overlay is closed, an
+ *  incoming message — phrase OR free text, unlike the per-seat
+ *  `showChatBubble` above which is phrase-only — fades in as a bare
+ *  translucent line next to `#chatBtn` for 4s, no panel, same timed
+ *  class-swap technique as `sayDiscard`/`announce`/`showChatBubble`. */
+const CHAT_PREVIEW_MS = 4000;
+let chatPreviewTimer = 0;
+function showChatPreviewLine(html: string): void {
+  const el = document.getElementById("chatPreview");
+  if (!el) return;
+  el.innerHTML = html;
+  el.className = "";
+  void el.offsetWidth;
+  el.style.setProperty("--previewms", `${CHAT_PREVIEW_MS}ms`);
+  el.className = "show";
+  clearTimeout(chatPreviewTimer);
+  chatPreviewTimer = window.setTimeout(() => { el.className = ""; }, CHAT_PREVIEW_MS);
+}
+function hideChatPreview(): void {
+  clearTimeout(chatPreviewTimer);
+  const el = document.getElementById("chatPreview");
+  if (el) el.className = "";
 }
 /** The HUD's Pause and Auto buttons (task brief items 2/3) — same "shown
  *  only while a table exists" rule as the chat FAB above, plus their own
@@ -1738,16 +1892,31 @@ function wireChatDrawer(): void {
   if (phrases) {
     phrases.innerHTML = CHAT_PHRASES.map((p) => {
       const [ch, en] = CHAT_PHRASE_LABELS[p];
-      return `<button class="phrasebtn" data-p="${p}">${ch}<span>${en}</span></button>`;
+      // The English sub-label is a `title` tooltip here, not visible text —
+      // task item 1 asks for "the five quick-phrase buttons in one row",
+      // and the overlay is only ~230px wide on a phone; five two-line chips
+      // wrapped to two rows there. `<span>` stays in the markup (CSS hides
+      // it only inside `#chatOverlay`) in case this button HTML is ever
+      // reused somewhere wider.
+      return `<button class="phrasebtn" data-p="${p}" title="${en}">${ch}<span>${en}</span></button>`;
     }).join("");
     for (const el of Array.from(phrases.querySelectorAll<HTMLButtonElement>(".phrasebtn"))) {
       el.onclick = () => void sendTableChatPhrase(el.dataset.p as ChatPhrase);
     }
   }
+  // Task item 1: the button toggles the overlay; tapping it again, or
+  // tapping the felt itself, closes it — nothing else on the felt is
+  // clickable (discards/claims live in `#mine`, outside `#felt`), so a plain
+  // felt click is unambiguous. `stopPropagation` on the button and the
+  // overlay itself is what stops that SAME click from also reaching the
+  // felt's own handler below and immediately closing what it just opened
+  // (the button is a child of `#felt`, so its click bubbles there too).
   const btn = document.getElementById("chatBtn");
-  if (btn) btn.onclick = () => setChatOpen(!chatOpen);
-  const close = document.getElementById("chatClose");
-  if (close) close.onclick = () => setChatOpen(false);
+  if (btn) btn.onclick = (e) => { e.stopPropagation(); setChatOpen(!chatOpen); };
+  const overlay = document.getElementById("chatOverlay");
+  if (overlay) overlay.onclick = (e) => { e.stopPropagation(); };
+  const felt = document.getElementById("felt");
+  if (felt) felt.onclick = () => { if (chatOpen) setChatOpen(false); };
   const send = document.getElementById("chatSend");
   if (send) send.onclick = () => void sendTableChatText();
   const input = document.getElementById("chatInput") as HTMLInputElement | null;
@@ -1763,7 +1932,6 @@ function wireChatDrawer(): void {
       renderTableChat(); // also syncs this link's own label
     };
   }
-  DESKTOP.addEventListener("change", () => { updateChatVisibility(); setChatOpen(chatOpen); });
 }
 
 /* ── hud notes / connection badge ─────────────────────────────────────── */
@@ -1801,7 +1969,7 @@ function connectToMatch(r: {
   pendingWinDetail = null; pendingDrawDistance = null;
   pileTiles = []; handSig = ""; landingMeld = null; feed.length = 0;
   sessionHands.length = 0; coachTally.graded = 0; coachTally.matched = 0;
-  tableChat = []; handStartTs = 0; chatShowAll = false; chatUnread = 0;
+  tableChat = []; handStartTs = 0; chatShowAll = false; chatUnread = 0; chatOpen = false;
   renderTableChat();
   for (const k of Object.keys(presence)) delete presence[Number(k) as SeatIndex];
   ts?.close();
@@ -1879,14 +2047,24 @@ function connectToMatch(r: {
       if (tableChat.length > 50) tableChat.splice(0, tableChat.length - 50);
       const mine = payload.seat === mySeat;
       if (!mine && !mutedSet().has(entry.playerId)) {
-        if (!isDesktop() && !chatOpen) chatUnread++;
-        // Phrases only (task spec item 2) — free text never bubbles, it only
-        // ever shows inside the drawer/panel. Reuses the announce/sayDiscard
+        // Phrases only bubble at the sender's own nameplate (task spec item
+        // 2) — a call heard AT THE TABLE, reusing the announce/sayDiscard
         // STYLE (a timed CSS class swap, no rAF loop) via its own element so
         // it never collides with a discard's own #say.
         if (payload.phrase) {
           const [ch, en] = CHAT_PHRASE_LABELS[payload.phrase];
           showChatBubble(`${ch} <span class="mut">${en}</span>`, rel(payload.seat));
+        }
+        // Task item 1: while the overlay is closed, ANY incoming message —
+        // phrase or free text — also previews as a fading line near the
+        // button and bumps its badge; this is what tells a player with the
+        // overlay closed that something arrived at all.
+        if (!chatOpen) {
+          chatUnread++;
+          const preview = payload.phrase
+            ? `${CHAT_PHRASE_LABELS[payload.phrase][0]} ${CHAT_PHRASE_LABELS[payload.phrase][1]}`
+            : (payload.text ?? "");
+          showChatPreviewLine(`<b>${esc(entry.displayName)}</b> ${esc(preview)}`);
         }
       }
       renderTableChat();
@@ -2127,13 +2305,51 @@ async function sitDownByCode(code: string): Promise<void> {
   }
 }
 
-/** Handlers for the lobby's STATIC furniture — title, rename link, the five
- *  navigation cards, "what is this?" — wired exactly once per `lobbyScreen()`
- *  entry, never on a poll tick (bug fix, task item 1: the old `wireLobbyPanel`
- *  re-queried and re-bound all of this every 5s, which is also when a tap
- *  landing mid-rebind could miss — see `paintLobbyPanel` below for the part
- *  that actually needs to redraw on a schedule). */
+/* ── lobby tabs (task brief item 3, 2026-09-02) ───────────────────────────
+ * Play (Here now / Open tables / New table / Join by code), Chat (the lobby
+ * chat), Stats (Your stats / Leaderboard), Games (Your games / recent
+ * results), Rooms (a placeholder — see `refreshLobbyRooms` below). Each
+ * pane is built ONCE with the rest of the shell and only ever hidden/shown
+ * (`setLobbyTab`) — a switch never rebuilds `#lobbyHere`/`#lobbyTables`/
+ * `#lobbyChat`/`#lobbyRecent`, so those keep their scroll position and their
+ * `LOBBY_PANELS` signature-diffed repaint discipline untouched. The active
+ * tab is remembered in `sessionStorage` so a reload (or a trip through
+ * another screen and "back to lobby") returns to the same one. */
+type LobbyTab = "play" | "chat" | "stats" | "games" | "rooms";
+const LOBBY_TABS: readonly LobbyTab[] = ["play", "chat", "stats", "games", "rooms"];
+const LOBBY_TAB_KEY = "mjrc.gamepvp.lobbyTab";
+let lobbyActiveTab: LobbyTab = "play";
+function loadLobbyTab(): LobbyTab {
+  const v = sessionStorage.getItem(LOBBY_TAB_KEY);
+  return (LOBBY_TABS as readonly string[]).includes(v ?? "") ? (v as LobbyTab) : "play";
+}
+/** Switches panes, repaints whatever that tab owns from data already in hand
+ *  (`paintLobbyPanel(key, true)` — a poll tick may have fetched fresh
+ *  `lobbyData` while this tab was hidden without painting it, see
+ *  `refreshLobby`'s "only the visible tab" rule below), and kicks off the
+ *  Rooms tab's own fetch the first time it is opened. */
+function setLobbyTab(tab: LobbyTab): void {
+  lobbyActiveTab = tab;
+  sessionStorage.setItem(LOBBY_TAB_KEY, tab);
+  for (const el of Array.from(document.querySelectorAll<HTMLElement>(".tabpane[data-tab]")))
+    el.classList.toggle("on", el.dataset.tab === tab);
+  for (const el of Array.from(document.querySelectorAll<HTMLElement>(".tabpill[data-tab]")))
+    el.classList.toggle("on", el.dataset.tab === tab);
+  for (const key of Object.keys(LOBBY_PANELS) as LobbyPanelKey[])
+    if (PANEL_TAB[key] === tab) paintLobbyPanel(key, true);
+  if (tab === "rooms") void refreshLobbyRooms();
+}
+
+/** Handlers for the lobby's STATIC furniture — title, rename link, the tab
+ *  pills, the nav cards, "what is this?" — wired exactly once per
+ *  `lobbyScreen()` entry, never on a poll tick (bug fix, PVP-LOBBY-PROPOSAL
+ *  §3.1: the old `wireLobbyPanel` re-queried and re-bound all of this every
+ *  5s, which is also when a tap landing mid-rebind could miss — see
+ *  `paintLobbyPanel` below for the part that actually needs to redraw on a
+ *  schedule). */
 function wireLobbyStatic(): void {
+  for (const el of Array.from(document.querySelectorAll<HTMLElement>(".tabpill[data-tab]")))
+    el.onclick = () => setLobbyTab(el.dataset.tab as LobbyTab);
   (document.getElementById("goNew") as HTMLElement).onclick = () => { beforeScreen(); newTableScreen(); };
   (document.getElementById("goJoin") as HTMLElement).onclick = () => { beforeScreen(); joinScreen(); };
   (document.getElementById("goStats") as HTMLElement).onclick = () => { beforeScreen(); statsScreen(); };
@@ -2177,50 +2393,70 @@ function wireLobbyChatInput(): void {
   input.onkeydown = (e) => { if (e.key === "Enter") void send(); };
 }
 
-/** The lobby's static shell — everything `wireLobbyStatic` wires, plus four
- *  EMPTY panel containers (`#lobbyHere`/`#lobbyTables`/`#lobbyRecent`/
- *  `#lobbyChat`) that `paintLobbyPanel` fills in and keeps current. Built
- *  once per `lobbyScreen()` entry; a poll tick never touches this HTML again.
- *  Four `.lobbycol`s share the same `.lobbygrid` layout (stacked on a phone,
- *  a row at ≥900px) — task item 3 asks for Chat as "a fourth panel…below
- *  the three on phones, a right-hand column on desktop", which its DOM order
- *  (last) already gives it for free under that existing rule. */
+/** The lobby's static shell — everything `wireLobbyStatic` wires, plus the
+ *  five tab panes (one of which is "on" at a time — see `setLobbyTab`) and
+ *  the EMPTY panel containers inside them (`#lobbyHere`/`#lobbyTables`/
+ *  `#lobbyRecent`/`#lobbyChat`) that `paintLobbyPanel` fills in and keeps
+ *  current. Built once per `lobbyScreen()` entry; a poll tick never touches
+ *  this HTML again — only `paintLobbyPanel`'s own containers repaint. */
 function lobbyShellHtml(): string {
+  const tab = (id: LobbyTab, label: string): string =>
+    `<button class="tabpill" data-tab="${id}">${label}</button>`;
   return `
     <h1>香港麻雀 · MJRC</h1>
     <p class="mut">Playing as <b>${esc(identity?.displayName ?? "—")}</b> ·
       <a href="#" id="btnRename" style="color:var(--gold)">change name</a></p>
-    <div class="lobbygrid">
-      <div class="lobbycol">
-        <h2>Here now</h2>
-        <div class="rows" id="lobbyHere"></div>
-      </div>
-      <div class="lobbycol">
-        <h2>Open tables</h2>
-        <div class="tablelist" id="lobbyTables"></div>
-      </div>
-      <div class="lobbycol">
-        <div class="choices lobby">
-          <div class="choice" id="goNew"><b>New table ▸</b><span>Pick rules, mode and seats, invite by code.</span></div>
-          <div class="choice" id="goJoin"><b>Join by code</b><span>Enter a table's join code to sit down.</span></div>
-          <div class="choice" id="goStats"><b>Your games</b><span>Every match you have played — our record of it, not this device's.</span></div>
-          <div class="choice" id="goYourStats"><b>Stats</b><span>Your totals, placements and rating over time.</span></div>
-          <div class="choice" id="goLeaderboard"><b>Leaderboard</b><span>Ranked by rating, casual by record.</span></div>
+    <div class="tabbar">
+      ${tab("play", "Play")}${tab("chat", "Chat")}${tab("stats", "Stats")}${tab("games", "Games")}${tab("rooms", "Rooms")}
+    </div>
+
+    <div class="tabpane" data-tab="play">
+      <div class="lobbygrid">
+        <div class="lobbycol">
+          <h2>Here now</h2>
+          <div class="rows" id="lobbyHere"></div>
+        </div>
+        <div class="lobbycol">
+          <h2>Open tables</h2>
+          <div class="tablelist" id="lobbyTables"></div>
         </div>
       </div>
-      <div class="lobbycol">
-        <h2>Chat</h2>
-        <div class="rows chatrows" id="lobbyChat"></div>
-        <div class="chat-input-row lobby">
-          <input id="lobbyChatIn" type="text" placeholder="say something…">
-          <button id="lobbyChatSend">send</button>
-        </div>
-        <p class="mut" id="lobbyChatNote"></p>
+      <div class="choices lobby" style="margin-top:14px">
+        <div class="choice" id="goNew"><b>New table ▸</b><span>Pick rules, mode and seats, invite by code.</span></div>
+        <div class="choice" id="goJoin"><b>Join by code</b><span>Enter a table's join code to sit down.</span></div>
       </div>
     </div>
-    <h2 style="margin-top:16px">Recent results</h2>
-    <div class="rows" id="lobbyRecent"></div>
-    <p class="mut" style="margin-top:10px"><a href="#" id="btnAbout2" style="color:var(--gold)">what is this?</a></p>`;
+
+    <div class="tabpane" data-tab="chat">
+      <h2>Chat</h2>
+      <div class="rows chatrows" id="lobbyChat"></div>
+      <div class="chat-input-row lobby">
+        <input id="lobbyChatIn" type="text" placeholder="say something…">
+        <button id="lobbyChatSend">send</button>
+      </div>
+      <p class="mut" id="lobbyChatNote"></p>
+    </div>
+
+    <div class="tabpane" data-tab="stats">
+      <div class="choices lobby">
+        <div class="choice" id="goYourStats"><b>Your stats ▸</b><span>Your totals, placements and rating over time.</span></div>
+        <div class="choice" id="goLeaderboard"><b>Leaderboard ▸</b><span>Ranked by rating, casual by record.</span></div>
+      </div>
+    </div>
+
+    <div class="tabpane" data-tab="games">
+      <div class="choices lobby">
+        <div class="choice" id="goStats"><b>Your games ▸</b><span>Every match you have played — our record of it, not this device's.</span></div>
+      </div>
+      <h2 style="margin-top:14px">Recent results</h2>
+      <div class="rows" id="lobbyRecent"></div>
+    </div>
+
+    <div class="tabpane" data-tab="rooms">
+      <div id="lobbyRooms"><p class="mut">reading…</p></div>
+    </div>
+
+    <p class="mut" style="margin-top:14px"><a href="#" id="btnAbout2" style="color:var(--gold)">what is this?</a></p>`;
 }
 
 function hereHtml(data: LobbyPayload | null): string {
@@ -2308,6 +2544,9 @@ const LOBBY_PANELS: Record<LobbyPanelKey, {
     html: lobbyChatHtml, wire: wireLobbyChatPanel,
   },
 };
+/** Which tab each `LOBBY_PANELS` key lives in — what `refreshLobby`'s "only
+ *  the visible tab" rule and `setLobbyTab`'s catch-up repaint both key off. */
+const PANEL_TAB: Record<LobbyPanelKey, LobbyTab> = { here: "play", tables: "play", recent: "games", chat: "chat" };
 /** `down`: a pointer is currently down somewhere inside this panel's
  *  container — see `wireLobbyPanelDownTracking`/`ensureLobbyPointerGuard`
  *  below (task item 1: "never re-render a panel while a pointer is down
@@ -2367,9 +2606,143 @@ function ensureLobbyPointerGuard(): void {
   document.addEventListener("pointercancel", release);
 }
 
+/* ── Rooms tab (task brief item 3; PVP-LOBBY-PROPOSAL-2026-09-02.md §8b) ──
+ * A placeholder, by design: another agent is building the room API to this
+ * exact contract in parallel, so every call here degrades on a 404 rather
+ * than assuming it exists yet. Not part of the 5s `GET /api/lobby` poll —
+ * this is its own fetch, run once when the tab is first opened (and again
+ * after a successful join/create). */
+interface RoomsTabState { status: "loading" | "unavailable" | "error" | "ready"; rooms: RoomSummary[]; }
+let roomsTabState: RoomsTabState = { status: "loading", rooms: [] };
+
+function roomRowHtml(r: RoomSummary): string {
+  return `<div class="row"><span class="c1">${esc(r.name)} <span class="mut">${esc(r.code)}</span></span>
+    ${r.memberCount === undefined ? "" : `<span class="c2">${r.memberCount}</span>`}</div>`;
+}
+
+/** The join-by-code input and create-room form (§8b: `POST /api/rooms/:code
+ *  /join`, `POST /api/rooms`) — shown under the rooms list, or on their own
+ *  under the "coming soon"/error note, so the tab is never a dead end even
+ *  before a player is in any room, or before the backend exists at all.
+ *  Ruleset/format default to the standard table (`newTableDraft`'s own
+ *  defaults) rather than a picker — a fuller form is follow-up work once
+ *  rooms are actually live, not this placeholder pass. */
+function roomsFormsHtml(): string {
+  const inputStyle = "flex:1;min-width:0;padding:9px 12px;font-size:14px;border-radius:9px;"
+    + "background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.18);color:var(--ink)";
+  return `
+    <h2 style="margin-top:14px">Join a room</h2>
+    <div class="setrow">
+      <input id="roomJoinCode" type="text" maxlength="10" autocapitalize="characters"
+        placeholder="room code" style="${inputStyle};text-transform:uppercase;letter-spacing:.06em">
+      <button id="roomJoinBtn">join ▸</button>
+    </div>
+    <p class="mut" id="roomJoinNote"></p>
+    <h2 style="margin-top:14px">Create a room</h2>
+    <div class="setrow" style="flex-direction:column;align-items:stretch">
+      <input id="roomCreateName" type="text" maxlength="40" placeholder="room name" style="${inputStyle}">
+      <input id="roomCreateAdmin" type="text" maxlength="40" placeholder="admin code — yours to remember"
+        style="${inputStyle};margin-top:6px">
+    </div>
+    <button id="roomCreateBtn" style="margin-top:8px">create ▸</button>
+    <p class="mut" id="roomCreateNote"></p>`;
+}
+
+/** A 404 on either call reads as "not live on this server yet" — the same
+ *  "rooms are coming" framing as the tab's own empty state, not a raw error. */
+const ROOMS_NOT_LIVE_NOTE = "rooms are coming — not live on this server yet";
+function wireRoomsForms(): void {
+  const joinBtn = document.getElementById("roomJoinBtn") as HTMLButtonElement | null;
+  const joinIn = document.getElementById("roomJoinCode") as HTMLInputElement | null;
+  const joinNote = document.getElementById("roomJoinNote");
+  if (joinBtn && joinIn) {
+    const go = async (): Promise<void> => {
+      if (!identity) return;
+      const code = joinIn.value.trim();
+      if (!code) { joinIn.focus(); return; }
+      joinBtn.disabled = true;
+      try {
+        await joinRoom(identity.deviceToken, code);
+        joinIn.value = "";
+        void refreshLobbyRooms();
+      } catch (e) {
+        if (joinNote) joinNote.textContent = e instanceof ApiError && e.status === 404 ? ROOMS_NOT_LIVE_NOTE : describeError(e);
+      }
+      joinBtn.disabled = false;
+    };
+    joinBtn.onclick = () => void go();
+    joinIn.onkeydown = (e) => { if (e.key === "Enter") void go(); };
+  }
+  const createBtn = document.getElementById("roomCreateBtn") as HTMLButtonElement | null;
+  const nameIn = document.getElementById("roomCreateName") as HTMLInputElement | null;
+  const adminIn = document.getElementById("roomCreateAdmin") as HTMLInputElement | null;
+  const createNote = document.getElementById("roomCreateNote");
+  if (createBtn && nameIn && adminIn) {
+    const go = async (): Promise<void> => {
+      if (!identity) return;
+      const name = nameIn.value.trim();
+      const adminCode = adminIn.value.trim();
+      if (!name || !adminCode) { (name ? adminIn : nameIn).focus(); return; }
+      createBtn.disabled = true;
+      try {
+        const r = await createRoom(identity.deviceToken, {
+          name, adminCode, rulesetId: newTableDraft.rulesetId, matchFormat: newTableDraft.matchFormat,
+        });
+        nameIn.value = ""; adminIn.value = "";
+        if (createNote) createNote.textContent = `created — code ${r.code}`;
+        void refreshLobbyRooms();
+      } catch (e) {
+        if (createNote) createNote.textContent = e instanceof ApiError && e.status === 404 ? ROOMS_NOT_LIVE_NOTE : describeError(e);
+      }
+      createBtn.disabled = false;
+    };
+    createBtn.onclick = () => void go();
+  }
+}
+
+function renderRoomsTab(): void {
+  const el = document.getElementById("lobbyRooms");
+  if (!el) return;
+  if (roomsTabState.status === "loading") { el.innerHTML = `<p class="mut">reading…</p>`; return; }
+  const lead = roomsTabState.status === "unavailable" ? `<p class="mut">${ROOMS_NOT_LIVE_NOTE}</p>`
+    : roomsTabState.status === "error" ? `<p class="mut">could not reach the server.</p>`
+    : roomsTabState.rooms.length === 0 ? `<p class="mut">You are not in a room yet.</p>`
+    : `<div class="rows">${roomsTabState.rooms.map(roomRowHtml).join("")}</div>`;
+  el.innerHTML = lead + roomsFormsHtml();
+  wireRoomsForms();
+}
+
+/** `GET /api/rooms/mine` — see net.ts's doc comment for why a 404 here is
+ *  "not built yet", not a real error. Guarded by `lobbyGen` the same way
+ *  `refreshLobby` is: a slow response landing after the player has already
+ *  left the lobby (or come back to a fresh visit) must not paint over it. */
+async function refreshLobbyRooms(): Promise<void> {
+  if (!identity) return;
+  const gen = lobbyGen;
+  try {
+    const rooms = await getMyRooms(identity.deviceToken);
+    if (gen !== lobbyGen) return;
+    roomsTabState = { status: "ready", rooms };
+  } catch (e) {
+    if (gen !== lobbyGen) return;
+    roomsTabState = e instanceof ApiError && e.status === 404
+      ? { status: "unavailable", rooms: [] }
+      : { status: "error", rooms: [] };
+  }
+  renderRoomsTab();
+}
+
 /** GET /api/lobby every 5s while this screen is up (§3, §7.2). A failed poll
  *  is swallowed and the panels stay on whatever they last showed (or
- *  "reading…" on the very first attempt), never a fake row. */
+ *  "reading…" on the very first attempt), never a fake row.
+ *
+ *  Task brief item 3: "the 5-second poll only repaints panels on the visible
+ *  tab." The fetch itself always runs (one shared `GET /api/lobby` behind
+ *  all four `here`/`tables`/`recent`/`chat` panels — there is no cheaper way
+ *  to keep an inactive tab's data current for when it IS switched to); only
+ *  the DOM repaint is gated. A panel on a hidden tab simply keeps its old
+ *  `lobbyPanelState.sig`, so `setLobbyTab`'s forced repaint on the next
+ *  switch-to always shows the latest fetch, not a stale one. */
 async function refreshLobby(gen: number): Promise<void> {
   if (!identity || gen !== lobbyGen) return;
   try {
@@ -2378,7 +2751,8 @@ async function refreshLobby(gen: number): Promise<void> {
     /* degrade gracefully — see refreshLobby's/hereHtml's "reading…" fallback */
   }
   if (gen !== lobbyGen) return;
-  for (const key of Object.keys(LOBBY_PANELS) as LobbyPanelKey[]) paintLobbyPanel(key);
+  for (const key of Object.keys(LOBBY_PANELS) as LobbyPanelKey[])
+    if (PANEL_TAB[key] === lobbyActiveTab) paintLobbyPanel(key);
 }
 
 function lobbyScreen(): void {
@@ -2393,6 +2767,8 @@ function lobbyScreen(): void {
   wireLobbyPanelDownTracking();
   ensureLobbyPointerGuard();
   for (const key of Object.keys(LOBBY_PANELS) as LobbyPanelKey[]) paintLobbyPanel(key, true);
+  roomsTabState = { status: "loading", rooms: [] };
+  setLobbyTab(loadLobbyTab());
   void refreshLobby(gen);
   lobbyPollTimer = window.setInterval(() => void refreshLobby(gen), 5000);
 }

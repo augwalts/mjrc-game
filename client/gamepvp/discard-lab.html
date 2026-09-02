@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Discard motion lab</title>
+<style>
+  :root{--felt:#12503f;--felt-dk:#0d3d30;--ink:#f2ece0;--dim:#a9b8ae;--gold:#d8b56a;--tile:#f6f1e4;--tile-edge:#cdc3ab;--tile-ink:#22201c;--red:#b23b32;--green:#1f6b46}
+  *{box-sizing:border-box}
+  body{margin:0;background:#0f0e0c;color:var(--ink);font:14px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;display:flex;flex-direction:column;align-items:center;gap:12px;padding:14px}
+  h1{font-size:16px;margin:0}
+  p.note{margin:0;color:var(--dim);max-width:720px;text-align:center}
+  #controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:center;max-width:820px}
+  #controls label{display:flex;align-items:center;gap:6px;background:rgba(255,255,255,.06);padding:6px 10px;border-radius:8px}
+  #controls input[type=range]{width:120px}
+  #controls select,#controls button{font:inherit;padding:6px 10px;border-radius:8px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.08);color:var(--ink)}
+  #controls button.seat{min-width:78px}
+  #controls button.primary{background:var(--gold);color:#1a1409;border-color:transparent;font-weight:600}
+  #felt{position:relative;width:min(96vw,760px);height:min(64vh,520px);border-radius:22px;
+    background:radial-gradient(ellipse at 50% 42%, var(--felt) 0%, var(--felt-dk) 72%, #0b3427 100%);
+    border:10px solid #2e2016;box-shadow:inset 0 0 60px rgba(0,0,0,.45),0 18px 50px rgba(0,0,0,.55);overflow:hidden}
+  .edge{position:absolute;color:var(--dim);font-size:12px;letter-spacing:.06em}
+  .edge.s{bottom:8px;left:50%;transform:translateX(-50%)}
+  .edge.n{top:8px;left:50%;transform:translateX(-50%)}
+  .edge.e{right:10px;top:50%;transform:translateY(-50%)}
+  .edge.w{left:10px;top:50%;transform:translateY(-50%)}
+  #slots{position:absolute;inset:0;pointer-events:none}
+  .slot{position:absolute;width:34px;height:46px;border:1px dashed rgba(255,255,255,.12);border-radius:4px;transform:translate(-50%,-50%)}
+  .tile{position:absolute;left:0;top:0;width:34px;height:46px;border-radius:4px;background:linear-gradient(180deg,#fbf7ea,var(--tile));border:1px solid var(--tile-edge);
+    box-shadow:0 2px 0 #c9bf9f,0 6px 10px rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;color:var(--tile-ink);will-change:transform}
+  .tile.red{color:var(--red)} .tile.green{color:var(--green)}
+  .tile.lit{box-shadow:0 0 0 2px var(--gold),0 6px 12px rgba(0,0,0,.5)}
+  #trace{position:absolute;inset:0;pointer-events:none}
+  #readout{color:var(--dim);font-size:12px;min-height:18px}
+  #log{width:min(96vw,760px);max-height:120px;overflow:auto;font:12px/1.4 ui-monospace,Menlo,monospace;color:var(--dim);background:rgba(255,255,255,.04);padding:8px 10px;border-radius:8px}
+</style>
+</head>
+<body>
+<h1>Discard motion lab</h1>
+<p class="note">The tile appears at the discarder's edge, then moves to its resting slot in ONE motion: a short push as if flung from a finger, then constant speed, then a dead stop. No second relocation: the slot is fixed before the toss starts and nothing lays the pile out again afterwards. Toggle "current (two-stage)" to see the old behaviour for comparison.</p>
+
+<div id="controls">
+  <button class="seat" data-seat="0">toss from S</button>
+  <button class="seat" data-seat="1">toss from E</button>
+  <button class="seat" data-seat="2">toss from N</button>
+  <button class="seat" data-seat="3">toss from W</button>
+  <button id="auto" class="primary">auto (round the table)</button>
+  <button id="reset">reset pile</button>
+  <label>duration <input id="dur" type="range" min="200" max="1400" step="20" value="380"><span id="durv">380 ms</span></label>
+  <label>easing
+    <select id="ease">
+      <option value="cubic-bezier(.15,0,.85,.85)">fling: short push, then constant speed, hard stop (proposed)</option>
+      <option value="cubic-bezier(.08,0,.92,.92)">fling, sharper push</option>
+      <option value="cubic-bezier(.6,0,1,.6)">accelerate all the way (previous)</option>
+      <option value="cubic-bezier(.4,0,1,.8)">accelerate, hard stop</option>
+      <option value="cubic-bezier(.3,0,.9,1)">accelerate, slight settle</option>
+      <option value="linear">linear</option>
+      <option value="cubic-bezier(.2,.8,.3,1.1)">current ease with overshoot (bad)</option>
+    </select>
+  </label>
+  <label>spin <input id="spin" type="range" min="0" max="40" step="1" value="14"><span id="spinv">14°</span></label>
+  <label><input id="twostage" type="checkbox"> current (two-stage) for comparison</label>
+  <label><input id="trails" type="checkbox" checked> show path</label>
+</div>
+
+<div id="felt">
+  <div class="edge s">S · you</div><div class="edge e">E</div><div class="edge n">N</div><div class="edge w">W</div>
+  <svg id="trace"></svg>
+  <div id="slots"></div>
+</div>
+<div id="readout"></div>
+<div id="log"></div>
+
+<script>
+(() => {
+  const felt = document.getElementById('felt');
+  const slotsEl = document.getElementById('slots');
+  const trace = document.getElementById('trace');
+  const log = document.getElementById('log');
+  const readout = document.getElementById('readout');
+  const $ = (id) => document.getElementById(id);
+  const say = (s) => { log.textContent = s + "\n" + log.textContent; };
+
+  const GLYPHS = [['五萬','red'],['三筒',''],['七索','green'],['東',''],['發','green'],['中','red'],['九萬','red'],['一筒','']];
+  let glyphIx = 0;
+
+  // ── the pile: FIXED slots, decided before any tile moves ──────────────
+  // Six per row per seat, laid out in front of that seat's edge, rows growing
+  // toward the centre. A tile's slot is assigned when it is thrown and never
+  // changes; that is the whole cure for "relocates a second time".
+  const counts = [0, 0, 0, 0];
+  function slotFor(seat, index) {
+    const W = felt.clientWidth, H = felt.clientHeight, cx = W / 2, cy = H / 2;
+    const perRow = 6, pitch = 36, rowPitch = 48;
+    const row = Math.floor(index / perRow), col = index % perRow;
+    const along = (col - (perRow - 1) / 2) * pitch;          // along the edge
+    const inward = 92 + row * rowPitch;                       // distance from centre
+    switch (seat) {
+      case 0: return { x: cx + along, y: cy + inward, rot: 0 };
+      case 2: return { x: cx - along, y: cy - inward, rot: 180 };
+      case 1: return { x: cx + inward, y: cy + along, rot: -90 };
+      default: return { x: cx - inward, y: cy - along, rot: 90 };
+    }
+  }
+  function edgeStart(seat) {
+    const W = felt.clientWidth, H = felt.clientHeight, cx = W / 2, cy = H / 2;
+    switch (seat) {
+      case 0: return { x: cx + 40, y: H - 26, rot: 0 };
+      case 2: return { x: cx - 40, y: 26, rot: 180 };
+      case 1: return { x: W - 26, y: cy - 40, rot: -90 };
+      default: return { x: 26, y: cy + 40, rot: 90 };
+    }
+  }
+  function drawSlots() {
+    slotsEl.innerHTML = '';
+    for (let seat = 0; seat < 4; seat++) for (let i = 0; i < 12; i++) {
+      const p = slotFor(seat, i); const d = document.createElement('div'); d.className = 'slot';
+      d.style.left = p.x + 'px'; d.style.top = p.y + 'px'; d.style.transform = `translate(-50%,-50%) rotate(${p.rot}deg)`; slotsEl.appendChild(d);
+    }
+  }
+  drawSlots();
+
+  const tf = (p, rot) => `translate(${p.x}px, ${p.y}px) translate(-50%,-50%) rotate(${rot}deg)`;
+
+  function drawPath(a, b) {
+    if (!$('trails').checked) return;
+    const l = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    l.setAttribute('x1', a.x); l.setAttribute('y1', a.y); l.setAttribute('x2', b.x); l.setAttribute('y2', b.y);
+    l.setAttribute('stroke', 'rgba(216,181,106,.35)'); l.setAttribute('stroke-dasharray', '3 5');
+    trace.appendChild(l); setTimeout(() => l.remove(), 2500);
+  }
+
+  let busy = false;
+  async function toss(seat) {
+    if (busy) return; busy = true;
+    const index = counts[seat]++;
+    const start = edgeStart(seat), end = slotFor(seat, index);
+    const [g, cls] = GLYPHS[glyphIx++ % GLYPHS.length];
+    const spin = Number($('spin').value) * (index % 2 ? -1 : 1);
+    const el = document.createElement('div'); el.className = 'tile ' + cls; el.textContent = g;
+    el.style.transform = tf(start, start.rot);
+    felt.appendChild(el);
+    const dur = Number($('dur').value), ease = $('ease').value;
+    drawPath(start, end);
+    const t0 = performance.now();
+    if ($('twostage').checked) {
+      // The old shape: an ease-in-out toss to an APPROXIMATE spot, then the pile
+      // is laid out again and the tile slides to where it really goes.
+      const approx = { x: end.x + 26, y: end.y - 18 };
+      await el.animate([{ transform: tf(start, start.rot) }, { transform: tf(approx, end.rot + spin) }],
+        { duration: dur, easing: 'cubic-bezier(.2,.8,.3,1.1)', fill: 'forwards' }).finished;
+      await new Promise(r => setTimeout(r, 90));
+      await el.animate([{ transform: tf(approx, end.rot + spin) }, { transform: tf(end, end.rot + spin) }],
+        { duration: 260, easing: 'ease-out', fill: 'forwards' }).finished;
+      say(`two-stage: ${Math.round(performance.now() - t0)} ms total, second move of ${Math.round(Math.hypot(26, 18))} px`);
+    } else {
+      // One motion, one destination, accelerating all the way in.
+      await el.animate([{ transform: tf(start, start.rot) }, { transform: tf(end, end.rot + spin) }],
+        { duration: dur, easing: ease, fill: 'forwards' }).finished;
+      say(`one motion: ${Math.round(performance.now() - t0)} ms, ${ease}`);
+    }
+    el.style.transform = tf(end, end.rot + spin);   // commit the resting state; no reflow, no relocation
+    el.classList.add('lit'); setTimeout(() => el.classList.remove('lit'), 500);
+    busy = false;
+  }
+
+  document.querySelectorAll('button.seat').forEach(b => b.onclick = () => toss(Number(b.dataset.seat)));
+  $('reset').onclick = () => { felt.querySelectorAll('.tile').forEach(t => t.remove()); counts.fill(0); trace.innerHTML = ''; log.textContent = ''; };
+  $('dur').oninput = () => $('durv').textContent = $('dur').value + ' ms';
+  $('spin').oninput = () => $('spinv').textContent = $('spin').value + '°';
+  let autoTimer = 0, autoSeat = 0;
+  $('auto').onclick = () => {
+    if (autoTimer) { clearInterval(autoTimer); autoTimer = 0; $('auto').textContent = 'auto (round the table)'; return; }
+    $('auto').textContent = 'stop';
+    autoTimer = setInterval(() => { toss(autoSeat); autoSeat = (autoSeat + 1) % 4; }, Math.max(700, Number($('dur').value) + 350));
+  };
+  window.addEventListener('resize', drawSlots);
+  readout.textContent = 'Proposed: fling — cubic-bezier(.15, 0, .85, .85), ~380 ms. A short push off the finger (~15% of the time), then constant speed, then it stops dead on the slot.';
+})();
+</script>
+</body>
+</html>

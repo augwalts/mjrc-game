@@ -128,25 +128,25 @@ body{background:radial-gradient(ellipse at 50% 30%, #1e1b17 0%, #131110 55%, #0a
    of a laptop-sized 480x300 centre in 2 of 4 runs, and 42px spilled in 4 of 4.
    That was a pre-existing bug; making tiles bigger only made it louder. */
 #pile .tile{position:absolute;--th:var(--pileth,38px)}
-#pile .tile.fresh{animation:toss var(--tossms,1300ms) linear backwards,
-                            tossFade 170ms ease-out backwards;
+/* ── the toss (task item 4, revised 2026-09-02 per owner's `discard-lab.html`
+ * trial — "fling: short push, then constant speed, hard stop") ────────────
+ * ONE motion, ONE destination, decided BEFORE this animation ever starts —
+ * `d.pos` (game.ts's pile-placement loop) fixes the tile's final slot before
+ * this class is ever applied, and that slot is never recomputed once set
+ * (nodes are keyed to the discard's own id and never rebuilt — see game.ts),
+ * so nothing here ever needs a second leg to correct a landing spot the way
+ * the old FLIGHT→CONTACT→SKID three-phase keyframe did (a tile visibly
+ * accelerated in, stopped short, then slid again — "relocates a second
+ * time", owner 2026-09-02). `cubic-bezier(.15,0,.85,.85)`: a short push off
+ * the finger for about the first 15% of the 380ms, constant speed through
+ * the middle, then a dead stop exactly on the slot — no separate skid. */
+#pile .tile.fresh{animation:toss var(--tossms,380ms) cubic-bezier(.15,0,.85,.85) backwards,
+                            tossFade 120ms ease-out backwards;
                   animation-delay:var(--tossdelay,0ms), var(--tossdelay,0ms)}
 @keyframes tossFade{from{opacity:0}to{opacity:1}}
 @keyframes toss{
-  /* FLIGHT — leaves the thrower fast, slowing as it drops onto the felt */
-  0%{transform:translate(calc(-50% + var(--fx,0px)),calc(-50% + var(--fy,140px)))
-       rotate(var(--fr,0deg)) scale(1.25);
-     animation-timing-function:cubic-bezier(.11,.6,.32,1)}
-  /* CONTACT — down, short of the slot, still crooked from the throw */
-  52%{transform:translate(calc(-50% + var(--lx,0px)),calc(-50% + var(--ly,42px)))
-        rotate(var(--lr,0deg)) scale(1);
-      animation-timing-function:linear}
-  /* the beat where it is simply lying there */
-  64%{transform:translate(calc(-50% + var(--lx,0px)),calc(-50% + var(--ly,42px)))
-        rotate(var(--lr,0deg)) scale(1);
-      animation-timing-function:cubic-bezier(.72,0,1,1)}
-  /* SKID — gathers speed across the felt and stops dead */
-  100%{transform:translate(-50%,-50%) rotate(var(--rot,0deg)) scale(1)}
+  0%{transform:translate(calc(-50% + var(--fx,0px)),calc(-50% + var(--fy,140px))) rotate(var(--fr,0deg))}
+  100%{transform:translate(-50%,-50%) rotate(var(--rot,0deg))}
 }
 #pile .tile.hot{outline:2px solid var(--gold);box-shadow:0 0 12px rgba(216,181,106,.6);z-index:9}
 
@@ -427,6 +427,35 @@ body.counting #wall .wt{opacity:.85}
  * the centering, or a stale cached stylesheet). `#panel.about` a few rules
  * up already got this right by pairing the ID; do the same here. */
 #panel.lobby3{max-width:1040px;text-align:left}
+/* ── lobby tabs (task item 3, 2026-09-02) ─────────────────────────────────
+ * Play / Chat / Stats / Games / Rooms across the top, remembered in
+ * `sessionStorage` (game.ts `setLobbyTab`). Portrait-first: a horizontally
+ * SCROLLABLE row of pills (no wrap — five short labels already fit most
+ * phones, and a scrollable row is the one layout that never reflows the
+ * page as the active pill's width/position changes), a plain row on wider
+ * screens where they all fit anyway. */
+.tabbar{display:flex;gap:6px;margin:12px 0 4px;overflow-x:auto;padding-bottom:2px;
+  -webkit-overflow-scrolling:touch;scrollbar-width:none}
+.tabbar::-webkit-scrollbar{display:none}
+/* Paired with `#panel` (specificity 1-1-0), same fix as `#panel.lobby3`
+ * above and for the same reason: the base `.panel button{background:
+ * var(--gold);…}` rule (0-1-1, an element selector beats a bare class of
+ * equal class-count) otherwise wins over plain `.tabpill` (0-1-0) and every
+ * INACTIVE pill renders as a bold gold button — backwards from the
+ * highlighted ACTIVE pill `.tabpill.on` (0-2-0) already correctly shows.
+ * Verified live (browser test, 2026-09-02): without the `#panel` pairing,
+ * every pill but the active one showed solid gold. */
+#panel .tabpill{flex:0 0 auto;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.14);
+  border-radius:20px;padding:7px 16px;color:var(--dim);font:inherit;font-size:13px;font-weight:700;
+  cursor:pointer;white-space:nowrap}
+#panel .tabpill:hover{background:rgba(255,255,255,.1)}
+#panel .tabpill.on{background:rgba(216,181,106,.16);border-color:var(--gold);color:var(--gold)}
+/* Each pane is built once with the rest of the shell (`lobbyShellHtml`) and
+ * simply hidden/shown — never rebuilt on a tab switch — so the live panels
+ * inside it (Here now/Open tables/Chat/Recent) keep their own DOM nodes and
+ * scroll positions across a switch away and back. */
+.tabpane{display:none}
+.tabpane.on{display:block}
 .lobbygrid{display:flex;flex-direction:column;gap:16px;margin-top:10px}
 .lobbycol{min-width:0}
 .lobbycol h2{margin-top:0}
@@ -662,62 +691,86 @@ body.devmode #mine{padding-top:2px}
 #log{position:absolute;left:8px;bottom:8px;font-size:11px;color:rgba(255,255,255,.5);max-width:210px;
   pointer-events:none;line-height:1.5}
 
-/* ── table chat (PVP-LOBBY-PROPOSAL §8) ──────────────────────────────────
- * Phone: a round FAB bottom-right of the felt, a bottom-sheet drawer over
- * the lower third that slides up on tap. Desktop (the same breakpoint as
- * game.ts's `DESKTOP` matchMedia): the FAB is hidden and the drawer is
- * pinned open as a right-hand sidebar instead — see the media query below. */
+/* ── table chat (PVP-LOBBY-PROPOSAL §8, reworked 2026-09-02 — task item 1)
+ * "Chat must not be a window." One round FAB, bottom-right of the felt, on
+ * every breakpoint now (it used to hide on desktop in favour of a
+ * permanently-open sidebar — gone). Tapping it shows a fully TRANSPARENT
+ * overlay directly on the felt: bare translucent text over the table, no
+ * panel background, no border, no shadow — bottom-right just above the
+ * button on a phone, top-left (below #state) on desktop, see the media
+ * query below. Tapping the button again, or the felt itself, closes it
+ * (game.ts wireChatDrawer). Nothing here ever pushes #mine/#table around:
+ * both the button and the overlay are `position:absolute` children of
+ * #felt, exactly like #state/#call/#say, laid OVER the table. */
 /* A child of #felt (like #state/#call/#say) so "bottom-right of the felt"
  * is literal, not a viewport-relative guess — it can never drift over #mine
  * (the hand/actions strip below the table) the way a fixed position would. */
 #chatBtn{position:absolute;right:10px;bottom:10px;width:46px;height:46px;border-radius:50%;
   background:var(--gold);color:#2a2113;border:0;font-size:19px;line-height:1;
-  box-shadow:0 6px 18px rgba(0,0,0,.45);cursor:pointer;z-index:12;
+  box-shadow:0 6px 18px rgba(0,0,0,.45);cursor:pointer;z-index:14;
   display:flex;align-items:center;justify-content:center}
 #chatBadge{position:absolute;top:-3px;right:-3px;background:var(--danger);color:#2a1410;
   border-radius:10px;min-width:18px;height:18px;padding:0 4px;font-size:10px;font-weight:800;
   display:flex;align-items:center;justify-content:center;border:2px solid #171512}
-#chatDrawer{position:fixed;left:0;right:0;bottom:0;height:36vh;max-height:360px;z-index:46;
-  background:linear-gradient(180deg,#173a2f,#0e2019);border-top:1px solid rgba(216,181,106,.35);
-  border-radius:16px 16px 0 0;box-shadow:0 -12px 34px rgba(0,0,0,.5);
-  display:flex;flex-direction:column;transform:translateY(102%);transition:transform .22s ease-out}
-#chatDrawer.open{transform:translateY(0)}
-.chat-head{display:flex;align-items:center;gap:10px;padding:9px 12px;flex:0 0 auto;
-  border-bottom:1px solid rgba(255,255,255,.08)}
-.chat-head b{font-size:13px}
-.chat-head a{color:var(--gold);font-size:11px;margin-left:auto}
-.chat-head #chatClose{background:none;border:0;color:var(--dim);font-size:15px;cursor:pointer;padding:2px 4px}
-.chat-msgs{flex:1;overflow-y:auto;padding:6px 12px;display:flex;flex-direction:column;gap:2px}
-.crow{font-size:12.5px;line-height:1.5;padding:2px 0}
-.crow.mine{color:var(--ink)}
+/* phone: bottom-right, stacked just above the FAB (46px tall + 10px gap +
+   10px inset — see the desktop override below for the top-left version). No
+   background/border/shadow of its own: legibility over the felt comes from
+   each line's own text-shadow (`.crow`/.chat-phrases/.chat-input-row below),
+   the same trick `#chatbubble`/`#say` already use for text over the table. */
+#chatOverlay{position:absolute;right:10px;bottom:66px;z-index:13;
+  display:flex;flex-direction:column;gap:6px;width:min(230px,calc(100% - 20px))}
+.chat-msgs{display:flex;flex-direction:column;gap:2px;max-height:150px;overflow-y:auto}
+.crow{font-size:12.5px;line-height:1.5;color:#eef0ea;
+  text-shadow:0 1px 3px rgba(0,0,0,.9),0 0 6px rgba(0,0,0,.55)}
+.crow.mine{color:#fff6de}
 .cname{font-weight:700;color:var(--accent);cursor:pointer}
 .crow.mine .cname{color:var(--gold);cursor:default}
 .cname:hover{text-decoration:underline}
-.ctext{margin-left:5px;color:var(--ink)}
-.chat-phrases{display:flex;gap:5px;flex-wrap:wrap;padding:0 12px 6px;flex:0 0 auto}
-.phrasebtn{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.14);border-radius:20px;
+.ctext{margin-left:5px}
+.chat-phrases{display:flex;gap:5px;flex-wrap:wrap}
+.phrasebtn{background:rgba(8,20,15,.55);border:1px solid rgba(255,255,255,.22);border-radius:20px;
   padding:4px 10px 4px 11px;color:var(--ink);font:inherit;font-size:12.5px;cursor:pointer;
-  display:flex;flex-direction:column;align-items:center;line-height:1.15}
-.phrasebtn span{font-size:8.5px;color:var(--dim);letter-spacing:.02em}
-.phrasebtn:hover{background:rgba(255,255,255,.12)}
-.chat-input-row{display:flex;gap:6px;padding:8px 10px;flex:0 0 auto;border-top:1px solid rgba(255,255,255,.08)}
+  display:flex;flex-direction:column;align-items:center;line-height:1.15;
+  text-shadow:0 1px 2px rgba(0,0,0,.7);backdrop-filter:blur(2px)}
+.phrasebtn span{font-size:8.5px;color:#d8dcd2;letter-spacing:.02em}
+.phrasebtn:hover{background:rgba(8,20,15,.78)}
+/* Task item 1: "the five quick-phrase buttons in one row." The overlay is
+ * only `min(230px, …)` wide (a phone), too narrow for five two-line chips
+ * without wrapping — so inside it specifically the English sub-label
+ * (`.phrasebtn span`, still in the DOM as a `title` tooltip) is hidden and
+ * each chip shares the row evenly instead of wrapping. */
+#chatOverlay .chat-phrases{flex-wrap:nowrap}
+#chatOverlay .phrasebtn{flex:1 1 0;min-width:0;padding:5px 2px;font-size:14px}
+#chatOverlay .phrasebtn span{display:none}
+.chat-input-row{display:flex;gap:6px;flex:0 0 auto}
 .chat-input-row input{flex:1;min-width:0;padding:8px 10px;font-size:14px;border-radius:8px;
-  background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.18);color:var(--ink)}
+  background:rgba(8,20,15,.6);border:1px solid rgba(255,255,255,.25);color:var(--ink);
+  backdrop-filter:blur(2px)}
 .chat-input-row button{background:var(--gold);color:#2a2113;border:0;border-radius:8px;
   padding:0 14px;font-size:12.5px;font-weight:700;cursor:pointer}
 .chat-input-row button:disabled{opacity:.5;cursor:default}
-/* lobby's copy of the same input row, inline in its `.lobbycol` rather than
- * a fixed drawer — no border-top (the panel isn't a sheet) */
-.chat-input-row.lobby{padding:8px 0 0;border-top:0}
+/* lobby's copy of the same input row, inline in its `.lobbycol` (a normal
+ * solid panel, not the transparent felt) rather than an overlay — its own
+ * plain background, no blur needed there. */
+.chat-input-row.lobby{padding:8px 0 0}
+.chat-input-row.lobby input{background:rgba(255,255,255,.07);backdrop-filter:none}
 .chatrows{max-height:220px}
+#chatOverlay #chatShowAll{align-self:flex-end;font-size:10.5px;color:var(--gold);
+  text-shadow:0 1px 2px rgba(0,0,0,.8)}
+/* the near-button preview (task item 1): a bare fading line for an incoming
+ * message while the overlay is closed — same "no panel" rule, its own
+ * element so it never fights `#chatOverlay`/`#chatbubble` for a slot. */
+#chatPreview{position:absolute;right:62px;bottom:22px;z-index:12;max-width:190px;
+  text-align:right;font-size:12px;line-height:1.35;color:#eef0ea;
+  text-shadow:0 1px 3px rgba(0,0,0,.9),0 0 6px rgba(0,0,0,.55);
+  pointer-events:none;opacity:0}
+#chatPreview.show{animation:chatPreviewFade var(--previewms,4000ms) ease-in-out forwards}
+@keyframes chatPreviewFade{0%{opacity:0}8%{opacity:1}78%{opacity:1}100%{opacity:0}}
 
 @media (min-width:900px) and (pointer:fine){
-  #chatBtn{display:none !important}
-  #chatDrawer{left:auto;right:16px;top:70px;bottom:16px;width:280px;height:auto;max-height:none;
-    border-radius:14px;transform:none;transition:none}
-  /* open by default, permanently, on desktop (task item 2) — the mobile
-     close affordance has nothing to do here */
-  .chat-head #chatClose{display:none}
+  /* top-left, below #state (left:10px;top:8px — see #state above), rather
+     than bottom-right above the button: the button itself does not move. */
+  #chatOverlay{right:auto;bottom:auto;left:10px;top:64px}
 }
 
 /* the phrase bubble near a seat's nameplate (§8) — same positions and same
@@ -805,6 +858,24 @@ body.devmode #mine{padding-top:2px}
   <div id="say"></div>
   <div id="chatbubble"></div>
   <div id="call"></div>
+  <!-- ── table chat overlay (task item 1, 2026-09-02) ────────────────────
+       Chat is never a window: no panel background, laid directly over the
+       felt as a child of it — like #state/#say/#call above — so its corner
+       is relative to the TABLE, not the viewport, and it can never push the
+       table layout around. #chatBtn (below) toggles it open/closed
+       (game.ts wireChatDrawer); tapping the felt itself also closes it.
+       #chatPreview is the separate near-button fading line for an incoming
+       message while the overlay is closed. -->
+  <div id="chatOverlay" style="display:none">
+    <div class="chat-msgs" id="chatMsgs"></div>
+    <div class="chat-phrases" id="chatPhrases"></div>
+    <div class="chat-input-row">
+      <input id="chatInput" type="text" placeholder="say something…">
+      <button id="chatSend">send</button>
+    </div>
+    <a href="#" id="chatShowAll" class="mut">show all</a>
+  </div>
+  <div id="chatPreview"></div>
   <button id="chatBtn" aria-label="chat" style="display:none">💬<span id="chatBadge" hidden></span></button>
 </div></div>
 <div id="callwrap"></div>
@@ -819,25 +890,6 @@ body.devmode #mine{padding-top:2px}
   <div id="myhand"></div>
 </div>
 <div id="fly"></div>
-<!-- ── table chat (PVP-LOBBY-PROPOSAL §8) ───────────────────────────────
-     The drawer is static furniture, wired once at boot (game.ts
-     wireChatDrawer) — shown only while a table exists (game.ts
-     updateChatVisibility), independent of whatever screen/veil is currently
-     up. The FAB itself lives inside #felt above (bottom-right of the felt).
-     Phone: the FAB opens this bottom-sheet drawer. Desktop: the FAB is
-     hidden and the drawer is pinned open beside the table (CSS media query
-     below, same breakpoint as game.ts's `DESKTOP`). -->
-<div id="chatDrawer" style="display:none">
-  <div class="chat-head"><b>Chat</b>
-    <a href="#" id="chatShowAll" class="mut">show all</a>
-    <button id="chatClose" aria-label="close">✕</button></div>
-  <div class="chat-msgs" id="chatMsgs"></div>
-  <div class="chat-phrases" id="chatPhrases"></div>
-  <div class="chat-input-row">
-    <input id="chatInput" type="text" placeholder="say something…">
-    <button id="chatSend">send</button>
-  </div>
-</div>
 <div class="veil" id="veil"><div class="panel" id="panel"></div></div>
 <script>
 // ABSOLUTE paths (leading "/"), not page-relative ones: this same index.html

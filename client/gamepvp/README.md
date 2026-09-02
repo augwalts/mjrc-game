@@ -27,8 +27,16 @@ for *this seat only*; it is replaced whole, never patched.
   state and transient notes.
 - `SPEC.md` — Solo's spec of record; still the authority on the animation
   system, layout conventions and known gaps that this retrofit inherited
-  unchanged (the pile-packing algorithm, the wall's decorative erosion, the
-  motion-queue rule, portrait-vs-landscape).
+  unchanged (the pile-packing algorithm, the wall's decorative erosion,
+  portrait-vs-landscape). **Exception, 2026-09-02 (task brief item 4):** the
+  discard toss and its motion-queue rule diverge from SPEC.md now — see
+  message-flow item 19 below for the reworked keyframe/easing and the
+  `queueBehindToss()` mechanism, which this client never actually had until
+  this pass despite the CSS custom properties for it existing already.
+- `discard-lab.html` — a standalone reference tool (not part of the build,
+  not linked from `index.html`) the owner used to settle the toss's exact
+  easing/duration live; kept here as the record of that decision, not to be
+  modified as part of ordinary client work.
 
 ## Message flow
 
@@ -41,19 +49,51 @@ for *this seat only*; it is replaced whole, never patched.
    player straight to `joinScreen(code)` (code pre-filled, not auto-submitted)
    instead of the lobby or a resumed session — a deep link is a deliberate
    act and wins over both.
-2. **Lobby** (`lobbyScreen()`/`renderLobby()`) — three panels, stacked on a
-   phone and side by side ≥900px (`.lobby3`/`.lobbygrid` in `index.html`):
-   **Here now** (everyone seen in the last 90s, from `GET /api/lobby`'s
-   `here[]`; tapping a name waiting at an *open* table sits down at it),
-   **Open tables** (`tables[]`; a lock icon for private tables, a **Sit
-   down** button only when open and waiting, seats as four small tiles),
-   then **New table** / **Join by code** / **Your games**, and a **Recent
-   results** strip (`recent[]`, last 5). Polled every 5s
-   (`refreshLobby`/`lobbyPollTimer`) while this screen is up; every other
+2. **Lobby** (`lobbyScreen()`/`renderLobby()`) — reworked 2026-09-02 (task
+   brief item 3) into five tabs across the top, a horizontally scrollable
+   row of pills on a phone (`.tabbar`/`.tabpill`, `#panel .tabpill` paired
+   with the ID — see the CSS comment on that rule for why: the bare class
+   used to lose to `.panel button`'s own background and every INACTIVE pill
+   rendered as a bold gold button, caught live-testing this rework), a plain
+   row ≥900px: **Play** (**Here now** — everyone seen in the last 90s, from
+   `GET /api/lobby`'s `here[]`, tapping a name waiting at an *open* table
+   sits down at it; **Open tables** — `tables[]`, a lock icon for private
+   tables, a **Sit down** button only when open and waiting, seats as four
+   small tiles; **New table** / **Join by code**), **Chat** (the lobby
+   chat, unchanged — see item 14 for what "chat" means on the table itself),
+   **Stats** (**Your stats** / **Leaderboard**, both still their own full
+   screens — `yourStatsScreen()`/`leaderboardScreen()` — reached from a card
+   here), **Games** (**Your games**, likewise its own screen —
+   `statsScreen()` — plus the **Recent results** strip, `recent[]`, last 5,
+   inline in this tab), **Rooms** (a placeholder — see below). The active
+   tab is remembered in `sessionStorage` (`setLobbyTab`/`loadLobbyTab`,
+   `mjrc.gamepvp.lobbyTab`) so a reload, or "back to lobby" from anywhere,
+   returns to the same one. Each pane is built once with the rest of the
+   shell and only ever hidden/shown (`.tabpane`/`.tabpane.on`) — a switch
+   never rebuilds `#lobbyHere`/`#lobbyTables`/`#lobbyChat`/`#lobbyRecent`,
+   so their own signature-diffed repaint discipline and pointer-hold guard
+   (`LOBBY_PANELS`/`paintLobbyPanel`/`lobbyPanelState`) are untouched by
+   tab-switching. Polled every 5s (`refreshLobby`/`lobbyPollTimer`) while
+   this screen is up, but the poll now only *repaints* whichever panel(s)
+   belong to the *visible* tab (`PANEL_TAB`) — the underlying `GET
+   /api/lobby` fetch still runs every tick regardless (one call behind all
+   four panels), so switching tabs always shows data at most 5s old via a
+   forced catch-up repaint (`setLobbyTab`), never a stale one. Every other
    screen function starts with `beforeScreen()`, which is what stops the
    poll — there is no separate "left the lobby" event. A failed poll (the
    backend not there yet, a network blip) is swallowed and the panels keep
    showing whatever they last had, never a fabricated row.
+   **Rooms** (task item 3; PVP-LOBBY-PROPOSAL-2026-09-02.md §8b) reads `GET
+   /api/rooms/mine` — built by another agent in parallel, so a 404 there
+   reads as "rooms are coming — not live on this server yet" rather than a
+   real error (`refreshLobbyRooms`/`net.ts`'s `getMyRooms`), same framing an
+   empty room list gets. Below that, always: a **join a room by code**
+   input (`POST /api/rooms/:code/join`) and a **create a room** form
+   (`POST /api/rooms { name, rulesetId, matchFormat, adminCode }` →
+   `{ code }`, ruleset/format defaulted from `newTableDraft` rather than
+   their own picker — a fuller form is follow-up work once rooms are
+   actually live). Not part of the 5s lobby poll; fetched once each time the
+   tab is opened.
 3. **New table** (`newTableScreen()`) — length, ruleset, **mode**
    (casual/ranked — ranked forces every seat human and greys the bot
    picker), **access** (open/private, with a one-line explanation),
@@ -145,21 +185,36 @@ for *this seat only*; it is replaced whole, never patched.
 14. **Chat** (PVP-LOBBY-PROPOSAL §8) — two independent chats, one client-side
     mute list. *Table chat* rides `TableSocket.sendChat({text} | {phrase})`
     over the seat socket; `welcome`/`restore` hand their last-50 ring to
-    `onChatHistory`, a live message arrives via `onChat`. The drawer
-    (`#chatBtn`/`#chatDrawer` in `index.html`, wired once in
-    `wireChatDrawer()`) is a phone FAB-and-bottom-sheet, pinned open as a
-    sidebar on desktop (same `DESKTOP` breakpoint as the coach panels); it is
-    shown only while `currentMatchUuid` is set (`updateChatVisibility()`),
-    independent of which screen/veil is up. Messages default to "this hand"
+    `onChatHistory`, a live message arrives via `onChat`. **Reworked
+    2026-09-02 (task brief item 1): "chat must not be a window."** The old
+    phone bottom-sheet / desktop pinned-sidebar drawer is gone. One round
+    button (`#chatBtn`, bottom-right of the felt, unread badge — unchanged,
+    now shown on every breakpoint) toggles a fully TRANSPARENT overlay
+    directly on the felt (`#chatOverlay`, a `position:absolute` child of
+    `#felt` exactly like `#state`/`#say`/`#call` — never a panel background,
+    never pushes `#mine`/`#table` around): the last ~6 messages as bare
+    text-shadowed lines, the five quick-phrase buttons in one row (their
+    English sub-label becomes a `title` tooltip inside the overlay
+    specifically — `#chatOverlay .phrasebtn`, index.html — five two-line
+    chips do not fit ~230px without wrapping), and a single-line input +
+    send. Bottom-right above the button on a phone, top-left below `#state`
+    on desktop (the same media query, but the button itself never moves).
+    Tapping the button again, or the felt itself, closes it
+    (`wireChatDrawer()`, `stopPropagation()` on the button/overlay is what
+    stops that same click from also reaching the felt's own close handler).
+    While closed, an incoming message — phrase or free text — fades in for
+    4s near the button (`#chatPreview`/`showChatPreviewLine()`, no panel,
+    same timed-class-swap technique as `sayDiscard`/`announce`) and bumps
+    the badge; this is separate from the per-seat phrase bubble
+    (`#chatbubble`, unchanged) below. Messages default to "this hand"
     (`handStartTs`, set from the last `deal` event's `ts`) with a "show all"
-    toggle. A phrase from another seat also pops a 2.5s bubble near their
-    nameplate (`#chatbubble`, the same timed-class-swap trick as
-    `sayDiscard`/`announce` — no new rAF loop). *Lobby chat* is a fourth
-    `lobbyScreen()` panel (`postLobbyChat()`, `GET /api/lobby`'s new `chat[]`)
-    painted by the same signature-diffed `LOBBY_PANELS` rule as the other
-    three; its send button disables for 2s after a send, and a 429 reads as
-    "slow down". *Mute* (`mutedSet()`/`setMuted()`, `localStorage`, task item
-    4) is local-only and keys on `playerId` — table chat resolves one from
+    toggle. *Lobby chat* is unchanged in behaviour, now living in the lobby's
+    own **Chat** tab (see item 2/`lobbyScreen()`) rather than a fourth
+    always-visible panel; still painted by the same signature-diffed
+    `LOBBY_PANELS` rule as **Here now**/**Open tables**/**Recent results**;
+    its send button disables for 2s after a send, and a 429 reads as "slow
+    down". *Mute* (`mutedSet()`/`setMuted()`, `localStorage`, task item 4) is
+    local-only and keys on `playerId` — table chat resolves one from
     `directory` at the moment a message arrives (the wire payload only
     carries a seat), lobby chat's rows already have one. Bots never chat
     (server-enforced), so there is no bot-chat affordance to build.
@@ -228,6 +283,52 @@ for *this seat only*; it is replaced whole, never patched.
     leaderboard/stats board, the bot-thinking panel, and anything reading
     omniscient state — none of it has an equivalent over a redacted seat
     socket (see "What was removed from Solo, and why" below).
+19. **The discard toss, reworked 2026-09-02 (task item 4)** — two live-demo
+    bugs, fixed together: no motion queue at all (a discard's toss and the
+    very next seat's draw could land in the same `events` batch and both
+    animate from frame 0 together, competing for one pair of eyes) and a
+    toss that visibly relocated a second time (the old `toss` keyframe was
+    three phases — FLIGHT to an approximate spot, a CONTACT pause, then a
+    SKID to the real slot — so a discard looked like it accelerated in,
+    stopped short, then slid again). Both are gone: `lastTossAt`/
+    `queueBehindToss()` (game.ts) delay a draw — this seat's own drawn tile
+    and an opponent's backrow `.wtnew` indicator alike — behind the most
+    recent toss's full duration; and `#pile .tile.fresh`'s `toss` keyframe
+    (index.html) is now ONE motion from the discarder's edge straight to the
+    tile's already-fixed slot (`d.pos`, decided once in the pile-placement
+    loop and never recomputed — nodes are keyed to the discard's own id and
+    a node is created exactly once). The curve itself —
+    `cubic-bezier(.15,0,.85,.85)` over 380ms, "a short push off the finger,
+    then constant speed, then a dead stop on the slot" — is the owner's own
+    call after trying it live in a standalone tool, `discard-lab.html`
+    (kept in this directory as a reference, not part of the build). Also
+    fixed: the local player's own toss used to start from a hardcoded `[0,
+    190]` origin tuned before the claim bar (`#actions`) moved between the
+    table and the hand (task item 4a) — it now accounts for that bar's own
+    always-present ~60px (`min-height:54px` + `margin-top:6px`, index.html),
+    a deliberate constant rather than a measured one: `#surface`'s 3D tilt
+    (`perspective(1500px) rotateX(17deg)`) means a plain viewport rect from
+    outside that transformed subtree would not convert linearly into the
+    untransformed local pixels the toss's own placement math uses.
+20. **`deadlineTs === 0` reads as "no clock"** (task item 4's last bullet) —
+    a prompt can carry this sentinel instead of a real Unix-ms deadline;
+    `startClock()` now hides `#clockbar` outright for it instead of
+    briefly showing an unfilled, `.low`-tinted track for a "deadline" that
+    was actually already in the past.
+21. **A resize or orientation change never clears the veil** (task item 2,
+    2026-09-02 live demo: "win → resize → popup vanishes, player stuck").
+    Audited every place `#veil`/`#panel`/`overlay`/`matchEndInfo`/`paused`
+    is touched — `render()` never reads or writes any of them, and every
+    screen/`syncVeil()` path already only closes one on an explicit action
+    (a button's own `onclick`, never a passive listener). What was actually
+    missing was the listener itself: `window.addEventListener("resize"/
+    "orientationchange", …)` did not exist at all, so a phone rotation never
+    re-ran `render()` to pick up new width-dependent layout (the pile's
+    `--pileth`, from `pileEl.clientWidth`). It now does, debounced 120ms
+    (iOS fires a burst of `resize` as the address bar hides/shows), mirroring
+    the DESKTOP breakpoint listener's already-correct pattern: re-render the
+    table under whatever is showing, THEN `syncVeil()` — never the reverse,
+    and never a bare "hide the veil".
 
 ## What was removed from Solo, and why
 

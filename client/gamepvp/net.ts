@@ -337,6 +337,49 @@ export async function matchDetail(token: string, matchId: string): Promise<Match
   return apiFetch(`matches/${encodeURIComponent(matchId)}`, { token });
 }
 
+/* ── rooms (PVP-LOBBY-PROPOSAL-2026-09-02.md §8b; task item 3's Rooms tab) ─
+ * Scheduled work another agent is building to this contract, in parallel
+ * with this client — every call here is written to degrade gracefully (a
+ * 404 `ApiError`) rather than assume the backend already exists. */
+
+/** One row of `GET /api/rooms/mine` — not itself named in §8b (which only
+ *  specifies `GET /api/rooms/:code`'s single-room shape), but what the lobby
+ *  polls to fill its Rooms tab; a summary row, not the full detail shape. */
+export interface RoomSummary {
+  code: string;
+  name: string;
+  memberCount?: number;
+}
+
+/** `GET /api/rooms/mine` — the rooms this player belongs to. The caller
+ *  (game.ts's Rooms tab) treats a 404 `ApiError` as "not built yet" and
+ *  shows "rooms are coming" rather than a real error — see its doc comment. */
+export async function getMyRooms(token: string): Promise<RoomSummary[]> {
+  const data = await apiFetch<{ rooms: RoomSummary[] }>("rooms/mine", { token });
+  return data.rooms ?? [];
+}
+
+export interface CreateRoomResult {
+  code: string;
+}
+
+/** `POST /api/rooms { name, rulesetId, matchFormat, adminCode }` → `{ code
+ *  }` (§8b) — a 6-char Crockford code, not colliding with the Almanac's own
+ *  room codes (the two share the `rooms` table). */
+export async function createRoom(
+  token: string,
+  opts: { name: string; rulesetId: string; matchFormat: MatchFormat; adminCode: string },
+): Promise<CreateRoomResult> {
+  return apiFetch("rooms", { method: "POST", token, body: opts });
+}
+
+/** `POST /api/rooms/:code/join` — membership only (a `room_players` row);
+ *  sitting at one of the room's OWN tables is still the game's usual
+ *  `joinTable`/`createTable` flow, unrelated to this call. */
+export async function joinRoom(token: string, code: string): Promise<void> {
+  await apiFetch<void>(`rooms/${encodeURIComponent(code)}/join`, { method: "POST", token, body: {} });
+}
+
 /* ── stats and leaderboards ────────────────────────────────────────────── */
 
 /** GET /api/stats/me and GET /api/players/:id/stats — see worker/src/index.ts
