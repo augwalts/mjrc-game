@@ -27,7 +27,7 @@ body{margin:0;background:#15161a;color:#e7e4dc;
 header{padding:26px 30px 6px;max-width:1180px;margin:0 auto}
 header h1{margin:0 0 4px;font-size:22px;letter-spacing:.01em}
 header p{margin:0;color:#93908a;font-size:13px;max-width:70ch}
-#board,#forms{max-width:1180px;margin:0 auto;padding:0 30px 20px}
+#board,#forms,#variants{max-width:1180px;margin:0 auto;padding:0 30px 20px}
 .axis{max-width:1180px;margin:38px auto 0;padding:0 30px;font-size:13px;
   letter-spacing:.14em;text-transform:uppercase;color:#cfccc4;
   border-top:1px solid #2a2c33;padding-top:22px}
@@ -167,6 +167,8 @@ header p{margin:0;color:#93908a;font-size:13px;max-width:70ch}
 </header>
 <h2 class="axis">The three rooms <small>each palette read off photographs of that room, and the form each one implies</small></h2>
 <div id="board"></div>
+<h2 class="axis">The felt, and the tile <small>the street parlour throughout — only the table colour and the tile change</small></h2>
+<div id="variants"></div>
 <h2 class="axis">Form on its own <small>the shipped palette, five geometries — outline, depth, corners, type — held apart from colour</small></h2>
 <div id="forms"></div>
 
@@ -355,11 +357,20 @@ const THEMES = [
           The tile is DARK GLASS: face to the room's black, engraved edge to a
           dim blue-grey, so an unlit tile still reads as an object and the
           glyph is the only thing emitting. */
-       .tile{background:#0a0c11;
-         box-shadow:0 0 0 1px rgba(120,150,200,.14), 0 2px 6px rgba(0,0,0,.7)}
-       .tile svg [fill="#FAFAF8"]{fill:#0a0c11}
-       .tile svg [stroke="#FAFAF8"]{stroke:#0a0c11}
-       .tile svg [stroke="#CCCCCC"]{stroke:#243044}
+       /* A DARK TILE STILL HAS TO BE AN OBJECT. The first cut used #0a0c11,
+          which is darker than every felt here — so in the discard heap the
+          bodies vanished and the pile read as loose glyphs floating on the
+          table with no countable edges. Counting discards is a real skill
+          the game supports; a heap you cannot parse is not a style choice.
+          The face is now a dark slate that stays lighter than the felt, with
+          a cool rim and a top highlight, so an unlit tile reads as a solid
+          before its glyph reads as light. */
+       .tile{background:linear-gradient(176deg,#1c222c,#11151c 62%,#0c1015);
+         box-shadow:0 0 0 1px rgba(150,180,230,.26),
+           inset 0 1px 0 rgba(180,205,245,.16), 0 2px 6px rgba(0,0,0,.75)}
+       .tile svg [fill="#FAFAF8"]{fill:none}
+       .tile svg [stroke="#FAFAF8"]{stroke:#141922}
+       .tile svg [stroke="#CCCCCC"]{stroke:none}
        .tile svg [stroke="#888"]{stroke:#48536a}
        .tile svg [fill="#D42222"]{fill:#ff3347;
          filter:drop-shadow(0 0 1.6px #ff3347) drop-shadow(0 0 4.5px rgba(255,51,71,.75))}
@@ -719,6 +730,78 @@ document.getElementById("forms").innerHTML = FORMS.map((f) => {
     </div>
   </section>`;
 }).join("");
+
+/* ══ THE FELT, AND THE TILE ═══════════════════════════════════════════ *
+ * Two questions that cannot be answered apart: the felt is the largest
+ * single colour on the screen, and whether a tile reads better dark or
+ * light depends entirely on what it is lying on.
+ *
+ * Every pane below is the street parlour — same room, same tubes, same
+ * washes. Only the felt colour and the tile change. The variant plates
+ * carry the `p-street` class as well as their own, so they inherit the
+ * whole neon sheet already in the document and add only the difference.
+ *
+ * The dark tile is a SIGN: it emits, and its glyph carries the glow.
+ * The light tile is an OBJECT: it is lit BY the signs, so the glyphs go
+ * saturated but the glow moves off the glyph and onto the tile's edge as
+ * a warm rim. Glow painted inside a white tile is invisible anyway — a
+ * halo needs somewhere dark to fall.
+ * ══════════════════════════════════════════════════════════════════════ */
+const FELTS = [
+  { id:"green", name:"Deep green", note:"Today's felt. Traditional, but it sits at the same mid-luminance as the green tubes and takes the sting out of them.",
+    c:["#146b3c","#0d4d2b","#07321c"] },
+  { id:"ink",   name:"Ink navy", note:"Wet asphalt at night, which is what the reference photographs actually put under the signs. Cool ground, warm lights — every amber and red gains.",
+    c:["#16204a","#0d1533","#070c22"] },
+  { id:"ox",    name:"Oxblood", note:"The parlour's own red, pulled down to a table. Makes the greens and cyans ring — at the cost of the red tubes, which have nowhere to stand.",
+    c:["#5a1a20","#3d1016","#26080d"] },
+  { id:"teal",  name:"Deep teal", note:"Between the green and the navy. Keeps a table-like colour without competing with the green tubes.",
+    c:["#0d4f57","#093a42","#05262c"] },
+  { id:"char",  name:"Charcoal", note:"The table stops being an object and becomes the dark the tiles float in. Dramatic, and it costs you the edge of the table.",
+    c:["#1b1e22","#141619","#0c0e10"] },
+];
+
+const feltCSS = (f) => `.v-${f.id} .felt{background:
+    radial-gradient(ellipse at 12% 8%, rgba(245,50,28,.3) 0%, transparent 46%),
+    radial-gradient(ellipse at 88% 92%, rgba(18,217,74,.22) 0%, transparent 44%),
+    radial-gradient(ellipse at 50% 42%, ${f.c[0]} 0%, ${f.c[1]} 72%, ${f.c[2]} 100%)}`;
+
+/* the light tile has to out-specify the dark rules already in the sheet,
+   which is why every selector here repeats .p-street */
+const LIGHT_TILE = `
+.p-street.v-light .tile{background:#f3eee1;
+  box-shadow:0 0 0 1px rgba(255,214,150,.3), 0 0 12px -3px rgba(255,186,90,.55),
+    0 2px 5px rgba(0,0,0,.6)}
+.p-street.v-light .tile svg [fill="#FAFAF8"]{fill:#f3eee1}
+.p-street.v-light .tile svg [stroke="#FAFAF8"]{stroke:#f3eee1}
+.p-street.v-light .tile svg [stroke="#CCCCCC"]{stroke:#c6bca6}
+.p-street.v-light .tile svg [stroke="#888"]{stroke:#9a9182}
+.p-street.v-light .tile svg [fill="#D42222"]{fill:#e5142c;filter:none}
+.p-street.v-light .tile svg [stroke="#D42222"]{stroke:#e5142c;filter:none}
+.p-street.v-light .tile svg [fill="#1A8B3A"]{fill:#00a844;filter:none}
+.p-street.v-light .tile svg [stroke="#1A8B3A"]{stroke:#00a844;filter:none}
+.p-street.v-light .tile svg [fill="#1845A5"]{fill:#0d4fd8;filter:none}
+.p-street.v-light .tile svg [stroke="#1845A5"]{stroke:#0d4fd8;filter:none}
+.p-street.v-light .tile svg [fill="#B07020"]{fill:#c47a12;filter:none}
+.p-street.v-light .tile svg [stroke="#B07020"]{stroke:#c47a12;filter:none}`;
+
+const streetVars = THEMES.find((t) => t.id === "street").vars;
+const streetStyle = Object.entries(Object.assign({}, base, streetVars))
+  .map(([k, v]) => `--${k}:${v}`).join(";");
+
+document.getElementById("variants").innerHTML =
+  `<style>${FELTS.map(feltCSS).join("\n")}${LIGHT_TILE}</style>` +
+  FELTS.map((f) => `<section class="plate">
+    <div class="plabel"><h2>${f.name}</h2>
+      <span class="tag">felt</span><p>${f.note}</p>
+      <div class="sw">${f.c.map(c => `<i style="background:${c}"></i>`).join("")}</div>
+    </div>
+    <div class="panes">
+      <div class="pane p-street v-${f.id}"><span class="cap">black tiles</span>
+        <div class="room" style="${streetStyle}">${tableMock("square")}</div></div>
+      <div class="pane p-street v-${f.id} v-light"><span class="cap">white tiles</span>
+        <div class="room" style="${streetStyle}">${tableMock("square")}</div></div>
+    </div>
+  </section>`).join("");
 </script>
 </body>
 </html>
