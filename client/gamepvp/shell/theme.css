@@ -53,8 +53,9 @@
 #shell a{color:inherit}
 #shell .mut{color:var(--dim)}
 #shell .up{color:var(--green)} #shell .down{color:var(--red)}
-#shell .spinner{color:var(--dim); font-size:13px; padding:24px 0; text-align:center}
-#shell .empty{color:var(--dim); font-size:13px; padding:18px 4px; text-align:center}
+#shell .spinner{color:var(--dim); font-size:13px; padding:10px 0; text-align:center}
+#shell .empty{color:var(--dim); font-size:13px; padding:10px 4px; text-align:center; margin:0}
+#shell .spinner .empty{padding:0}
 
 /* ── top bar ───────────────────────────────────────────────────────────── */
 #shell .top{display:flex; align-items:center; gap:10px; margin-bottom:12px}
@@ -184,8 +185,11 @@
 /* ── desktop (≥1100px): two/three column dashboards, top nav row ───────── */
 @media (min-width:1100px){
   #shell .view{padding:20px 28px 28px; max-width:1320px; margin:0 auto; width:100%}
-  /* The bar becomes a top row: #shell is a flex column (view, nav), so order:-1 puts it first. */
-  #shell .nav{position:static; order:-1; background:var(--bg); border:0; border-bottom:1px solid var(--line); justify-content:flex-start; gap:14px; padding:12px 28px; width:100%; max-width:1320px; margin:0 auto}
+  /* The bar becomes a top row. The nav is rendered inside the scrolling view with the page, so the
+     view becomes a flex column and the nav is ordered first; the page's own blocks keep their order. */
+  #shell .view{display:flex; flex-direction:column}
+  #shell .view > *{flex:0 0 auto}
+  #shell .nav{position:static; order:-1; background:var(--bg); border:0; border-bottom:1px solid var(--line); justify-content:flex-start; gap:14px; padding:0 0 12px; margin:0 0 16px; width:100%}
   #shell .nav button{flex:0 0 auto; flex-direction:row; font-size:13px; gap:6px}
   #shell .cols{display:grid; grid-template-columns:1.4fr 1fr; gap:0 20px; align-items:start}
   #shell .dash{display:grid; grid-template-columns:repeat(3,1fr); gap:18px 22px; align-items:start}
