@@ -176,6 +176,7 @@ const HANDLERS = new Map<string, Handler>([
       return {
         ...pick(mp, ["seat", "player_id", "wind", "final_chips", "faan_won", "place",
           "hands_won", "self_draws", "deal_ins", "bot_takeover_hands",
+          "moves_graded", "moves_matched", "gap_sum",
           "rating_before", "rating_after"]),
         display_name: p === undefined ? "" : p.display_name,
         kind: p === undefined ? "human" : p.kind,
@@ -192,6 +193,7 @@ const HANDLERS = new Map<string, Handler>([
     s.match_players.push({
       match_id: matchId, seat, player_id: playerId, wind, final_chips: 0, faan_won: 0,
       place: null, hands_won: 0, self_draws: 0, deal_ins: 0, bot_takeover_hands: 0,
+      moves_graded: 0, moves_matched: 0, gap_sum: 0,
       rating_before: null, rating_after: null,
     });
     return wrote(1);
@@ -431,7 +433,8 @@ function seedMatch(
     h.store.match_players.push({
       match_id: opts.id, seat, player_id: playerId, wind: seat, final_chips: 0,
       faan_won: 0, place: null, hands_won: 0, self_draws: 0, deal_ins: 0,
-      bot_takeover_hands: 0, rating_before: null, rating_after: null,
+      bot_takeover_hands: 0, moves_graded: 0, moves_matched: 0, gap_sum: 0,
+      rating_before: null, rating_after: null,
     });
   });
   h.store.hands.push({
@@ -809,7 +812,8 @@ describe("the §5.3 match handoff", () => {
       h.store.match_players.push({
         match_id: match.id, seat, player_id: `BOT${seat}`, wind: seat, final_chips: 0,
         faan_won: 0, place: null, hands_won: 0, self_draws: 0, deal_ins: 0,
-        bot_takeover_hands: 0, rating_before: null, rating_after: null,
+        bot_takeover_hands: 0, moves_graded: 0, moves_matched: 0, gap_sum: 0,
+        rating_before: null, rating_after: null,
       });
     }
     await identify(h, TOKEN_B, "Ah Fai");

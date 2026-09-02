@@ -264,6 +264,9 @@ export interface MatchSeatRow {
   self_draws: number;
   deal_ins: number;
   bot_takeover_hands: number;
+  moves_graded: number;
+  moves_matched: number;
+  gap_sum: number;
   rating_before: number | null;
   rating_after: number | null;
 }
@@ -405,7 +408,8 @@ export const SQL = Object.freeze({
   seatsOfMatch: `
     SELECT mp.seat, mp.player_id, p.display_name, p.kind, mp.wind, mp.final_chips,
            mp.faan_won, mp.place, mp.hands_won, mp.self_draws, mp.deal_ins,
-           mp.bot_takeover_hands, mp.rating_before, mp.rating_after
+           mp.bot_takeover_hands, mp.moves_graded, mp.moves_matched, mp.gap_sum,
+           mp.rating_before, mp.rating_after
       FROM match_players mp
       JOIN players p ON p.id = mp.player_id
      WHERE mp.match_id = ?

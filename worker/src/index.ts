@@ -411,6 +411,12 @@ function seatView(r: MatchSeatRow) {
     selfDraws: r.self_draws,
     dealIns: r.deal_ins,
     botTakeoverHands: r.bot_takeover_hands,
+    movesGraded: r.moves_graded,
+    movesMatched: r.moves_matched,
+    gapSum: r.gap_sum,
+    /* null when nothing was graded — a bot seat, or a human who never got a
+     * gradable decision (a very short match, an all-forced hand). */
+    agreement: r.moves_graded > 0 ? r.moves_matched / r.moves_graded : null,
     ratingBefore: r.rating_before,
     ratingAfter: r.rating_after,
   };

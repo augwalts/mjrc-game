@@ -230,6 +230,23 @@ export interface BotBrain {
   decide(view: SeatVisible<SeatSnapshot>, legal: LegalRequests, rand: () => number, player?: PlayerRef): Action | null;
   /** Deterministic think time. Clamped by the DO and always inside the window. */
   paceMs(legal: LegalRequests, rand: () => number): number;
+  /**
+   * Grade one decision against the champion, for the "how you played it"
+   * record (owner: grading is a web-only feature, but the record itself is
+   * computed here — server-authoritative, like everything else a bot knows).
+   * `view`/`legal` are the seat's state and options BEFORE `action` is
+   * applied — same information a human at that seat had when they chose it.
+   * `null` means this action is not a gradable decision (a win is never a
+   * choice, and neither is answering a window nothing was offered in).
+   * Optional: a `BotBrain` that never grades is a legal one. Deterministic,
+   * like `decide` — `rand` is a seeded stream private to this call.
+   */
+  grade?(
+    view: SeatVisible<SeatSnapshot>,
+    legal: LegalRequests,
+    action: Action,
+    rand: () => number,
+  ): { matched: boolean; gap: number } | null;
 }
 
 /** The `hands` row of worker/schema.sql, camelCase. Written by the outbox. */
@@ -272,6 +289,10 @@ export interface MatchSummaryRow {
   placements: FourSeats<1 | 2 | 3 | 4>;
   /** Hands each seat was played by a bot after a takeover (§5.3). */
   botTakeoverHands: FourSeats<number>;
+  /** Decisions graded against the champion (owner: web-only grading, §BotBrain.grade). */
+  movesGraded: FourSeats<number>;
+  movesMatched: FourSeats<number>;
+  gapSum: FourSeats<number>;
   /** The per-hand blob parts, in order, for the consolidated match log. */
   handLogKeys: string[];
   /** "kind/version" per seat as presented on join; null for bots and unknowns. */
@@ -448,6 +469,15 @@ interface BookKeeping {
   handLogKeys: string[];
   /** "kind/version" per seat from the join payload; null until a client says. */
   clients: FourSeats<string | null>;
+  /** Move grading against the champion, per seat (owner: web-only feature,
+   *  computed here regardless — §BotBrain.grade). */
+  grading: FourSeats<SeatGrading>;
+}
+
+interface SeatGrading {
+  graded: number;
+  matched: number;
+  gapSum: number;
 }
 
 /* ── 4. small helpers ──────────────────────────────────────────────────── */
@@ -595,6 +625,7 @@ function emptyBook(): BookKeeping {
     botTookOverThisHand: [false, false, false, false],
     handLogKeys: [],
     clients: [null, null, null, null],
+    grading: four(() => ({ graded: 0, matched: 0, gapSum: 0 })),
   };
 }
 
@@ -666,6 +697,9 @@ export class TableCore {
     this.book = (await st.get<BookKeeping>(K_BOOK)) ?? emptyBook();
     // Books persisted before the field existed.
     if (!Array.isArray(this.book.clients)) this.book.clients = [null, null, null, null];
+    if (!Array.isArray(this.book.grading) || this.book.grading.length !== 4) {
+      this.book.grading = four(() => ({ graded: 0, matched: 0, gapSum: 0 }));
+    }
 
     const records = await st.list<OutboxRecord>({ prefix: P_OUTBOX });
     this.outbox = new Map();
@@ -1167,6 +1201,12 @@ export class TableCore {
         if (ws && requestId) this.send(ws, rejected(requestId, "notALegalMove"));
         return;
       }
+      // Graded here, at the moment the answer is HELD — the human's actual
+      // choice, before it is ever resolved (`closeWindow` applies it later,
+      // in seat order, and may even drop it if the state moved underneath).
+      if (!this.isBotControlled(seat)) {
+        this.tallyGrade(seat, this.viewFor(seat), this.legalFor(seat), action);
+      }
       // HELD. The window always runs its full fixed minimum, so answering fast
       // can never shorten it — a window that closed the instant everyone had
       // answered would announce, by its own duration, that somebody was
@@ -1180,6 +1220,11 @@ export class TableCore {
       return;
     }
 
+    // Captured BEFORE the reducer runs, and only kept if applyAction actually
+    // accepts the move — grading a request the table refuses would credit or
+    // fault a decision the player never got to make.
+    const preView = !this.isBotControlled(seat) ? this.viewFor(seat) : null;
+    const preLegal = preView ? this.legalFor(seat) : null;
     let applied: Applied;
     try {
       applied = this.deps.rules.applyAction(this.requireState(), action);
@@ -1191,7 +1236,39 @@ export class TableCore {
       return;
     }
     if (ws && requestId) this.send(ws, accepted(requestId, this.seq));
+    if (preView && preLegal) this.tallyGrade(seat, preView, preLegal, action);
     await this.commit(applied);
+  }
+
+  /**
+   * Fold one `BotBrain.grade` result into the seat's running tally. Never
+   * lets grading throw into the game flow — a bug in the champion's analysis
+   * must not be a bug in the table (owner: "grading is a bonus, not a
+   * dependency"). Costs well under a millisecond per discard; no pacing
+   * concern.
+   */
+  private tallyGrade(
+    seat: SeatIndex,
+    view: SeatVisible<SeatSnapshot>,
+    legal: LegalRequests,
+    action: Action,
+  ): void {
+    // Bound, not called through a bare destructured reference — a `grade`
+    // that reads `this` (gamepvp/src/bots.ts's does not, but a future one
+    // might) must see its own object, the same way `decide`/`paceMs` do.
+    const grade = this.deps.bots.grade?.bind(this.deps.bots);
+    if (!grade) return;
+    try {
+      const rand = prng(botSeed(this.requireMeta().seed, this.requireState().handIndex, this.seq, seat));
+      const result = grade(view, legal, action, rand);
+      if (!result) return;
+      const g = this.book.grading[seat];
+      g.graded += 1;
+      if (result.matched) g.matched += 1;
+      g.gapSum += result.gap;
+    } catch (err) {
+      console.error("grade threw", this.meta?.matchId, seat, err);
+    }
   }
 
   /* ── commit: persist, then broadcast ─────────────────────────────────── */
@@ -1929,6 +2006,9 @@ export class TableCore {
           standings: four((s) => this.requireState().seats[s].chips),
           placements: this.placements(),
           botTakeoverHands: [...this.book.botTakeoverHands] as FourSeats<number>,
+          movesGraded: four((s) => this.book.grading[s].graded),
+          movesMatched: four((s) => this.book.grading[s].matched),
+          gapSum: four((s) => this.book.grading[s].gapSum),
           handLogKeys: [...this.book.handLogKeys],
           clients: [...this.book.clients] as FourSeats<string | null>,
           endedAt: now,
@@ -2082,7 +2162,8 @@ export function bindingArchive(env: TableEnv): Archive {
       for (const seat of SEATS) {
         await env.DB.prepare(
           `UPDATE match_players
-              SET final_chips = ?, place = ?, bot_takeover_hands = ?, client = ?
+              SET final_chips = ?, place = ?, bot_takeover_hands = ?, client = ?,
+                  moves_graded = ?, moves_matched = ?, gap_sum = ?
             WHERE match_id = ? AND seat = ?`,
         )
           .bind(
@@ -2090,6 +2171,9 @@ export function bindingArchive(env: TableEnv): Archive {
             summary.placements[seat],
             summary.botTakeoverHands[seat],
             summary.clients[seat],
+            summary.movesGraded[seat],
+            summary.movesMatched[seat],
+            summary.gapSum[seat],
             summary.matchId,
             seat,
           )

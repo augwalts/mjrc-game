@@ -13,8 +13,11 @@
  * header's `PlayerRef.playerId` (`bot:<key>`), so a table's bots are stable
  * across hibernation without the brain needing any state of its own.
  */
-import type { SeatIndex } from "../../engine/src/types.js";
-import { DEFAULT_PROFILE, decideAction, type BotProfile } from "../../engine/src/bots.js";
+import type { ClaimOption, SeatIndex } from "../../engine/src/types.js";
+import {
+  DEFAULT_PROFILE, claimDecision, decideAction, rankDiscards, shouldKong,
+  type BotConfig, type BotProfile,
+} from "../../engine/src/bots.js";
 import { ruleset } from "../../rulesets/src/presets.js";
 import { actionsOf, seatViewOf } from "../../protocol/src/seatview.js";
 import type { PlayerRef } from "../../protocol/src/events.js";
@@ -77,6 +80,18 @@ const profileFor = (seat: SeatIndex, player: PlayerRef | undefined): BotProfile 
   return { ...DEFAULT_PROFILE, ...dials };
 };
 
+/** The champion's dials, for GRADING only — a human's play is always measured
+ *  against v4, never against whichever profile happens to be seated across
+ *  from them (a table of easy bots must not read as "you're playing well").
+ *  Same shape as `profileFor`, just pinned to one key. */
+const CHAMPION_PROFILE: BotProfile = {
+  ...DEFAULT_PROFILE,
+  ...((PROFILES as Record<string, Partial<BotProfile>>)["v4"] ?? {}),
+};
+
+const sameClaimOption = (a: ClaimOption, b: ClaimOption): boolean =>
+  a.kind === b.kind && (a.with ?? []).join() === (b.with ?? []).join();
+
 export const bots: BotBrain = {
   decide(view, legal, rand, player) {
     const actions = actionsOf(view.seat, legal);
@@ -94,5 +109,52 @@ export const bots: BotBrain = {
   /** Think time inside the window; the table clamps it to its own bounds. */
   paceMs(_legal, rand) {
     return 700 + Math.floor(rand() * 1800);
+  },
+  /**
+   * The record behind "played like the engine" (client/gamepvp desktop-only
+   * scoreboard). Discards use `rankDiscards`; claims/passes use
+   * `claimDecision`; kongs use `shouldKong` — the same functions Solo's
+   * client-side coach (client/game/game.ts gradeMyDiscard/gradeMyClaim) reads,
+   * just run here instead of trusted from a client. A win is never graded:
+   * `decideAction` takes any legal win before assessing anything else, so
+   * there is no alternative to compare it against.
+   */
+  grade(view, legal, action, rand) {
+    const R = ruleset(view.rulesetId);
+    if (R === undefined) return null;
+    const v = seatViewOf(view);
+    const cfg: BotConfig = { ruleset: R, rnd: rand, profile: CHAMPION_PROFILE };
+
+    if (action.type === "discard") {
+      const ranked = rankDiscards(v, cfg);
+      if (ranked.length === 0) return null;
+      let best = ranked[0]!;
+      for (const d of ranked) if (d.score > best.score) best = d;
+      const mine = ranked.find((d) => d.tile === action.tile);
+      if (!mine) return null;
+      return { matched: mine.tile === best.tile, gap: Math.max(0, best.score - mine.score) };
+    }
+
+    if (action.type === "concealedKong" || action.type === "addedKong") {
+      const form = action.type === "concealedKong" ? "concealed" : "added";
+      const yes = shouldKong(v, action.tile, form, cfg);
+      return { matched: yes, gap: yes ? 0 : 1 };
+    }
+
+    if (action.type === "claim" || action.type === "pass") {
+      // A win is never a decision to grade against.
+      if (action.type === "claim" && action.option.kind === "win") return null;
+      const options: ClaimOption[] = legal.claims?.options ?? [];
+      if (options.length === 0) return null; // nothing was on offer (incl. a 搶槓 window)
+      const want = claimDecision(v, options, cfg);
+      const took: ClaimOption | null = action.type === "claim" ? action.option : null;
+      // A claim's "gap" is coarser than a discard's — assessClaim scores
+      // options, it does not rank every alternative on one scale — so it is
+      // 0 for a match and 1 otherwise, same convention Solo's coach used.
+      const matched = took === null ? want === null : want !== null && sameClaimOption(took, want);
+      return { matched, gap: matched ? 0 : 1 };
+    }
+
+    return null; // declareWin — a win is never a decision
   },
 };

@@ -78,3 +78,20 @@ DO namespace; the R2 bucket and the secrets must exist first; the custom domain
 line is commented out until approved. The D1 tables (`../worker/schema.sql`)
 have to be applied to the remote `mjrc-scoring` database, numbered after the
 accounts branch's migrations (plan §3 W1).
+
+## Schema changes not yet applied remotely
+
+`../worker/schema.sql` picked up three `match_players` columns for server-side
+move grading (`worker/src/table.ts` `BotBrain.grade`, 2026-09-01) after the
+remote `mjrc-scoring` database was first created from that file, so the remote
+copy is missing them. Applied to local D1 already (`npx wrangler d1 execute
+mjrc-scoring --local --command "..."`, one per statement); someone with remote
+access needs to run the same three against remote before a build that writes
+these columns reaches production — `bindingArchive.finishMatch` will fail its
+`UPDATE match_players` otherwise:
+
+```sh
+npx wrangler d1 execute mjrc-scoring --remote --command "ALTER TABLE match_players ADD COLUMN moves_graded INTEGER NOT NULL DEFAULT 0"
+npx wrangler d1 execute mjrc-scoring --remote --command "ALTER TABLE match_players ADD COLUMN moves_matched INTEGER NOT NULL DEFAULT 0"
+npx wrangler d1 execute mjrc-scoring --remote --command "ALTER TABLE match_players ADD COLUMN gap_sum REAL NOT NULL DEFAULT 0"
+```

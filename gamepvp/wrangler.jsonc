@@ -63,6 +63,9 @@
 
   // Live since 2026-09-02. wrangler created the DNS record on deploy.
   "routes": [{ "pattern": "gamepvp.mahjongresearch.com", "custom_domain": true }],
+  // Keep the workers.dev address too: the headless smoke and a machine whose
+  // resolver lags on the new record can still reach the same deployment.
+  "workers_dev": true,
 
   "observability": { "enabled": true }
 }

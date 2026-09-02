@@ -489,6 +489,7 @@ class StubRules {
 
 class StubBots implements BotBrain {
   decideCalls: { seat: SeatIndex; sawTiles: TileId[] }[] = [];
+  gradeCalls: { seat: SeatIndex; action: Action }[] = [];
   pace = 1_000;
 
   decide(view: SeatVisible<SeatSnapshot>, legal: LegalRequests): Action | null {
@@ -504,6 +505,17 @@ class StubBots implements BotBrain {
   }
   paceMs(): number {
     return this.pace;
+  }
+  /** Records every call — §8's teeth. A real `grade` also never sees a
+   *  bot-controlled seat; that guarantee lives in the DO, not here, so the
+   *  test asserts on this log rather than on the returned verdict. */
+  grade(
+    _view: SeatVisible<SeatSnapshot>,
+    _legal: LegalRequests,
+    action: Action,
+  ): { matched: boolean; gap: number } | null {
+    this.gradeCalls.push({ seat: action.seat, action: clone(action) });
+    return { matched: true, gap: 0 };
   }
 }
 
@@ -1309,5 +1321,45 @@ describe("binding to engine/src/reducer.ts", () => {
       expect(view.seats[seat]).not.toHaveProperty("hand");
       expect((view.seats[seat] as OtherSeatView).handCount).toBeGreaterThan(0);
     }
+  });
+});
+
+/* ── 8. move grading ────────────────────────────────────────────────────── */
+
+describe("move grading", () => {
+  it("grades a human's discard, and never a bot's", async () => {
+    const t = await seated({ botSeats: [1, 2, 3], config: { turnMs: 10_000_000 } });
+    const start = t.clock.now;
+
+    // Seat 0 is the only human at this table. Its discard is submitted
+    // through `submit()` on the no-window path — `tallyGrade` must fire
+    // before `commit()`, against the PRE-action view.
+    await request(t, 0, "requestDiscard", { tile: 0 });
+    expect(t.bots.gradeCalls).toEqual([{ seat: 0, action: { type: "discard", seat: 0, tile: 0 } }]);
+
+    // Run the claim window to its close and let the seat that draws next —
+    // seat 1, a bot — take its turn. Same clock steps as the determinism
+    // test above, which is already proven to carry the match this far.
+    for (const step of [1_100, 5_100, 6_500, 12_000]) {
+      t.clock.now = start + step;
+      await t.core.alarm();
+    }
+    // The bot did discard (the toy reducer recorded it)…
+    expect(t.rules.calls.some((a) => a.type === "discard" && a.seat === 1)).toBe(true);
+    // …but nothing about it, or about either bot's claim-window pass, ever
+    // reached `grade`. The tally stays exactly the one human decision.
+    expect(t.bots.gradeCalls).toHaveLength(1);
+    expect(t.bots.gradeCalls[0]!.seat).toBe(0);
+  });
+
+  it("never lets a throwing grade reach the game flow", async () => {
+    const t = await seated({ config: { turnMs: 10_000_000 } });
+    // Shadow the prototype method on this one instance — `submit()` must
+    // catch this and keep applying the action regardless.
+    t.bots.grade = (): { matched: boolean; gap: number } | null => {
+      throw new Error("boom");
+    };
+    await expect(request(t, 0, "requestDiscard", { tile: 0 })).resolves.toBeUndefined();
+    expect(t.rules.calls.some((a) => a.type === "discard" && a.seat === 0)).toBe(true);
   });
 });

@@ -36,7 +36,7 @@ import type {
 } from "../../protocol/src/messages.js";
 import {
   ApiError, RequestRejected, TableSocket,
-  createTable, identify, joinTable, listBots, listMatches, storedIdentity,
+  createTable, identify, joinTable, listBots, listMatches, matchDetail, storedIdentity,
   type BotCatalogueEntry, type CreateTableResult, type Identity, type MatchFormat, type MatchListItem,
 } from "./net.js";
 
@@ -163,6 +163,11 @@ let handSig = "";
 let overlay: string | null = null;
 interface MatchEndInfo { standings: number[]; placements: number[]; reason: string; handsPlayed: number; }
 let matchEndInfo: MatchEndInfo | null = null;
+/** The server's move-grading record for this match, per seat — desktop only
+ *  (see DESKTOP above). `undefined` until `fetchMatchAgreement` lands; a
+ *  landed seat's own `agreement` is null when nothing about it was graded. */
+interface SeatAgreement { movesGraded: number; movesMatched: number; agreement: number | null }
+let matchAgreement: FourSeats<SeatAgreement> | undefined = undefined;
 
 /** Screen position for seat `s`: 0 = you (bottom), 1 = right, 2 = across
  *  (top), 3 = left — turn order runs to the right (SPEC.md §4), whichever
@@ -202,6 +207,17 @@ const saveSettings = (): void => {
 };
 const currentRuleset = (): Ruleset => rulesetById(currentRulesetId) ?? MJRC_STANDARD;
 
+/* ── desktop gate ──────────────────────────────────────────────────────
+ * Owner's ruling (2026-09-01): grading and coaching are a web-app feature,
+ * not a phone one — "the phone is cluttered". ONE rule decides it, re-read on
+ * every render rather than cached at boot (a laptop's window can cross the
+ * breakpoint; a tablet can rotate). Everything gated on it — the discard
+ * helper, what-if, the calling bar, the live coach tally, the server's
+ * agreement line — reads `isDesktop()` fresh, never a value captured once. */
+const DESKTOP = matchMedia("(min-width: 900px) and (pointer: fine)");
+const isDesktop = (): boolean => DESKTOP.matches;
+DESKTOP.addEventListener("change", () => { if (snap) render(); syncVeil(); });
+
 /* ── handicaps ─────────────────────────────────────────────────────────
  * Unchanged from Solo except the source: `seatViewOf(snap)` builds the same
  * `SeatView` the engine's analysis functions expect, from the redacted wire
@@ -240,7 +256,7 @@ const waitList = (r: HandRead): string => {
   return r.waits.map((w) => `<b>${name(w.tile)}</b>&thinsp;<span class="n">${w.unseen}</span>`).join(" ");
 };
 function callingBar(): string {
-  if (!SETTINGS.hcCalling || !snap || overlay) return "";
+  if (!isDesktop() || !SETTINGS.hcCalling || !snap || overlay) return "";
   const r = readHand();
   if (!r) return "";
   const faan = r.payable
@@ -278,7 +294,7 @@ function wireHover(): void {
         o.classList.add("samet");
       }
     }
-    if (SETTINGS.hcWhatIf && el.closest("#myhand") && !overlay) {
+    if (isDesktop() && SETTINGS.hcWhatIf && el.closest("#myhand") && !overlay) {
       const bar = document.getElementById("callbar");
       if (bar) { bar.dataset.saved ??= bar.innerHTML; bar.innerHTML = whatIf(t); bar.classList.add("whatif"); }
     }
@@ -427,7 +443,7 @@ function gradeMyClaim(action: Action): void {
   if (coachLog.length > 24) coachLog.length = 24;
 }
 function devPanel(): string {
-  if (!SETTINGS.dev || !snap) return "";
+  if (!isDesktop() || !SETTINGS.dev || !snap) return "";
   let upcoming = claimAdvice();
   if (pending?.some((a) => a.type === "discard")) {
     const v = seatViewOf(snap);
@@ -435,8 +451,13 @@ function devPanel(): string {
     upcoming += `<div class="sug">champion would cut ${ranked.map((d, i) =>
       `<span class="${i === 0 ? "best" : ""}">${name(d.tile)}</span>`).join(" › ")}</div>`;
   }
+  // The LIVE tally — this session's own read, ahead of the server's. It is a
+  // during-play hint only: the scoreboard's number comes from the server
+  // (showMatchEndScreen's `matchAgreement`), never from this running count.
+  const live = coachTally.graded === 0 ? ""
+    : ` <span class="mut">· so far: ${Math.round((coachTally.matched / coachTally.graded) * 100)}% (${coachTally.graded})</span>`;
   return `<div id="dev">
-    <div class="devbox" style="grid-column:1/-1"><b>discard &amp; claim helper</b>${upcoming}
+    <div class="devbox" style="grid-column:1/-1"><b>discard &amp; claim helper</b>${live}${upcoming}
       <div class="scroll">${coachLog.join("") || '<div class="mut">your discards get graded here, and the grades stay</div>'}</div></div>
   </div>`;
 }
@@ -684,6 +705,10 @@ function consume(events: readonly RedactedGameEvent[]): void {
         const p2 = p as unknown as { standings: number[]; placements: number[]; reason: string; handsPlayed: number };
         matchEndInfo = { standings: p2.standings, placements: p2.placements, reason: p2.reason, handsPlayed: p2.handsPlayed };
         sessionStorage.removeItem(SESSION_KEY);
+        // Grading is desktop-only UI, so there is no reason to spend the
+        // round trip on mobile. GET /api/matches/:id is written by the
+        // outbox shortly after matchEnd — poll it a couple of times.
+        if (isDesktop()) void fetchMatchAgreement(currentMatchUuid);
         break;
       }
       default:
@@ -740,6 +765,43 @@ function showOverlay(): void {
   if (b) (b as HTMLButtonElement).onclick = () => { overlay = null; syncVeil(); };
 }
 
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => window.setTimeout(resolve, ms));
+
+/**
+ * GET /api/matches/:id after `matchEnd`, desktop only. The match_players
+ * close-out (worker/src/table.ts's `finishMatch`, called from the outbox) can
+ * land a beat after the socket's `matchEnd` event, so this polls a few times
+ * rather than trusting the first read — `place` is null until that write has
+ * happened, for every seat, at once. A stale response for a match the player
+ * has since left is dropped by the `matchId` check before touching `render`.
+ */
+async function fetchMatchAgreement(matchId: string | null): Promise<void> {
+  if (!identity || !matchId) return;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    if (attempt > 0) await sleep(700);
+    try {
+      const detail = await matchDetail(identity.deviceToken, matchId);
+      const seats = detail.seats as unknown as {
+        seat: number; place: number | null;
+        movesGraded?: number; movesMatched?: number; agreement?: number | null;
+      }[];
+      if (!seats.every((s) => s.place !== null)) continue; // summary not written yet
+      matchAgreement = ([0, 1, 2, 3] as SeatIndex[]).map((seat) => {
+        const row = seats.find((s) => s.seat === seat);
+        return {
+          movesGraded: row?.movesGraded ?? 0,
+          movesMatched: row?.movesMatched ?? 0,
+          agreement: row?.agreement ?? null,
+        };
+      }) as FourSeats<SeatAgreement>;
+      if (matchId === currentMatchUuid) syncVeil();
+      return;
+    } catch {
+      /* transient — retry */
+    }
+  }
+}
+
 function waitingRoomScreen(): void {
   $("veil").style.display = "flex";
   $("panel").classList.remove("about");
@@ -760,6 +822,16 @@ function waitingRoomScreen(): void {
   if (b) (b as HTMLButtonElement).onclick = () => leaveTable();
 }
 
+/** "played like the engine 62% · 41 moves" — server truth (`matchAgreement`),
+ *  desktop only, empty on mobile and while nothing has been graded. Grading
+ *  UI is web-only by owner's ruling; the record itself is always server-side. */
+const agreementLine = (seat: SeatIndex): string => {
+  if (!isDesktop() || !matchAgreement) return "";
+  const a = matchAgreement[seat];
+  if (!a || a.movesGraded === 0 || a.agreement === null) return "";
+  return ` <span class="mut">· played like the engine ${Math.round(a.agreement * 100)}% · ${a.movesGraded} moves</span>`;
+};
+
 function showMatchEndScreen(): void {
   const info = matchEndInfo;
   if (!info) return;
@@ -767,12 +839,13 @@ function showMatchEndScreen(): void {
   $("panel").classList.remove("about");
   const order = [0, 1, 2, 3].sort((a, b) => info.standings[b]! - info.standings[a]!);
   const place = order.indexOf(mySeat) + 1;
+  const mine = isDesktop() && matchAgreement ? matchAgreement[mySeat] : null;
   $("panel").innerHTML = `
     <h1>${place === 1 ? "🏆 You win" : `You finish ${place}${["st", "nd", "rd", "th"][place - 1]}`}</h1>
     <p class="mut">${info.reason} · ${info.handsPlayed} hands · ${currentRulesetId} · ${currentMatchFormat}</p>
     <h2 style="margin-top:14px">Final standings</h2>
     <div class="rows">${order.map((i, r) => `
-      <div class="row ${i === mySeat ? "me" : ""}"><span class="c1">${r + 1}. ${seatName(i as SeatIndex)}</span>
+      <div class="row ${i === mySeat ? "me" : ""}"><span class="c1">${r + 1}. ${seatName(i as SeatIndex)}${agreementLine(i as SeatIndex)}</span>
         <span class="c2 ${info.standings[i]! > 0 ? "up" : info.standings[i]! < 0 ? "down" : ""}">${fmtChips(info.standings[i]!)}</span></div>`).join("")}</div>
     ${sessionHands.length === 0 ? "" : `
     <h2 style="margin-top:14px">Hand by hand</h2>
@@ -781,14 +854,14 @@ function showMatchEndScreen(): void {
         h.winner === null ? "<span class=\"mut\">流局 — nobody wins</span>"
         : `${seatName(h.winner)} ${h.selfDraw ? "自摸" : h.from === mySeat ? "on YOUR discard" : h.from !== null ? `off ${seatName(h.from)}` : "食糊"} · <b>${h.faan} faan</b>`}</span>
         <span class="c2 ${(h.deltas[mySeat] ?? 0) > 0 ? "up" : (h.deltas[mySeat] ?? 0) < 0 ? "down" : ""}">${h.deltas[mySeat] ? fmtChips(h.deltas[mySeat]!) : "—"}</span></div>`).join("")}</div>`}
-    ${coachTally.graded === 0 ? "" : `
+    ${!mine || mine.movesGraded === 0 || mine.agreement === null ? "" : `
     <h2 style="margin-top:14px">How you played it</h2>
-    <div class="statgrid"><div><span>${Math.round((coachTally.matched / coachTally.graded) * 100)}%</span>engine agreement</div>
-      <div><span>${coachTally.graded}</span>decisions graded</div></div>`}
+    <div class="statgrid"><div><span>${Math.round(mine.agreement * 100)}%</span>engine agreement</div>
+      <div><span>${mine.movesGraded}</span>decisions graded</div></div>`}
     <button id="btnBackLobby" style="margin-top:16px">◂ back to lobby</button>`;
   (document.getElementById("btnBackLobby") as HTMLButtonElement).onclick = () => {
     matchEndInfo = null; ts?.close(); ts = null; snap = null; directory = null;
-    sessionHands.length = 0; coachTally.graded = 0; coachTally.matched = 0;
+    sessionHands.length = 0; coachTally.graded = 0; coachTally.matched = 0; matchAgreement = undefined;
     lobbyScreen();
   };
 }
@@ -797,6 +870,7 @@ function leaveTable(): void {
   ts?.close(); ts = null;
   sessionStorage.removeItem(SESSION_KEY);
   snap = null; directory = null; matchEndInfo = null; overlay = null; curLegal = null; pending = null;
+  matchAgreement = undefined;
   stopClock();
   lobbyScreen();
 }
@@ -998,7 +1072,7 @@ function render(): void {
       el.onclick = () => {
         const t = Number(el.dataset.t) as TileId;
         const a = pending?.find((x) => x.type === "discard" && x.tile === t);
-        if (a) { gradeMyDiscard(t); act(a); }
+        if (a) { if (isDesktop()) gradeMyDiscard(t); act(a); }
       };
     }
   }
@@ -1027,12 +1101,12 @@ function render(): void {
   for (const el of Array.from($("actions").querySelectorAll<HTMLElement>("button"))) {
     el.onclick = () => {
       const a = pending?.[Number(el.dataset.i)];
-      if (a) { gradeMyClaim(a); act(a); }
+      if (a) { if (isDesktop()) gradeMyClaim(a); act(a); }
     };
   }
   $("log").innerHTML = feed.map((l) => `<div>${l}</div>`).join("");
-  $("callwrap").innerHTML = callingBar();
-  $("devwrap").innerHTML = devPanel();
+  $("callwrap").innerHTML = isDesktop() ? callingBar() : "";
+  $("devwrap").innerHTML = isDesktop() ? devPanel() : "";
   recenterGlyphs(document);
   launchGrab();
 }
@@ -1079,7 +1153,7 @@ function connectToMatch(r: {
   mySeat = r.seat;
   sessionStorage.setItem(SESSION_KEY, JSON.stringify({ matchUuid: r.matchUuid, joinCode: r.joinCode, seat: r.seat }));
   snap = null; directory = null; lastSeq = -1; curLegal = null; pending = null;
-  overlay = null; matchEndInfo = null;
+  overlay = null; matchEndInfo = null; matchAgreement = undefined;
   pileTiles = []; handSig = ""; landingMeld = null; feed.length = 0;
   sessionHands.length = 0; coachTally.graded = 0; coachTally.matched = 0;
   for (const k of Object.keys(presence)) delete presence[Number(k) as SeatIndex];

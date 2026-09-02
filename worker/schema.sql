@@ -320,6 +320,18 @@ CREATE TABLE match_players (
   -- bot. So web and app behaviour stay comparable later.
   client        TEXT,
 
+  -- Move grading against the champion bot (worker/src/table.ts BotBrain.grade),
+  -- tallied live in the Table DO and written once at match end alongside the
+  -- rest of this close-out. moves_graded counts every gradable decision this
+  -- seat made (a win is never gradable); moves_matched is how many equalled
+  -- the champion's pick; gap_sum is the summed score gap on the ones that did
+  -- not (0 for a matched discard, roughly 1 per mismatched claim/kong — see
+  -- BotBrain.grade's doc comment). The UI (web only, by owner's ruling) reads
+  -- moves_matched / moves_graded as an agreement rate.
+  moves_graded  INTEGER NOT NULL DEFAULT 0,
+  moves_matched INTEGER NOT NULL DEFAULT 0,
+  gap_sum       REAL NOT NULL DEFAULT 0,
+
   -- Provisional Elo (DESIGN.md §3). Null on an unrated match. Stored on the
   -- match, not only in rating_history, because the results screen renders the
   -- delta and that must be one read.
