@@ -105,12 +105,16 @@ async function apiFetch<T>(
 }
 
 /** POST /api/identity. Mints a device token on first call, then reuses it —
- *  calling again with a new name just renames. */
-export async function identify(displayName: string): Promise<Identity> {
+ *  calling again with a new name just renames. `tzOffsetMin` (task brief
+ *  §11.5): the client's UTC offset in minutes, `Date().getTimezoneOffset()`
+ *  convention (positive west of UTC) — the server folds this into streak/
+ *  "today" counting. Optional so an older caller of this module still
+ *  compiles; every caller in this client now sends one. */
+export async function identify(displayName: string, tzOffsetMin?: number): Promise<Identity> {
   const token = localStorage.getItem(LS_TOKEN) ?? mintDeviceToken();
   const data = await apiFetch<{ playerId: string; displayName: string; rating: number | null }>(
     "identity",
-    { method: "POST", body: { deviceToken: token, displayName } },
+    { method: "POST", body: { deviceToken: token, displayName, tzOffsetMin } },
   );
   localStorage.setItem(LS_TOKEN, token);
   localStorage.setItem(LS_NAME, data.displayName);
@@ -320,21 +324,25 @@ export interface LobbyPayload {
   chat: LobbyChatEntry[];
 }
 
-export async function getLobby(token: string): Promise<LobbyPayload> {
-  return apiFetch("lobby", { token });
+/** `?room=CODE` (§8b) scopes `here`/`tables`/`recent`/`chat` to one room —
+ *  omit for the global lobby (Open hall). */
+export async function getLobby(token: string, room?: string): Promise<LobbyPayload> {
+  return apiFetch(`lobby${room ? `?room=${encodeURIComponent(room)}` : ""}`, { token });
 }
 
 /** POST /api/presence — sent every 30s while the app is open and visible,
- *  and once more on `visibilitychange` back to visible. */
-export async function postPresence(token: string, state: PresenceState): Promise<void> {
-  await apiFetch<void>("presence", { method: "POST", token, body: { state } });
+ *  and once more on `visibilitychange` back to visible. `tzOffsetMin`: see
+ *  `identify()`'s doc comment — sent here too since presence is the more
+ *  frequent signal and "today" should never drift across a heartbeat. */
+export async function postPresence(token: string, state: PresenceState, tzOffsetMin?: number): Promise<void> {
+  await apiFetch<void>("presence", { method: "POST", token, body: { state, tzOffsetMin } });
 }
 
 /** POST /api/lobby/chat { text } → 204 (§8). 400 `bad_text`/429 `rate_limited`
  *  surface as `ApiError` like any other call — the caller (game.ts's lobby
  *  chat panel) reads `.code` to show "slow down" on a 429. */
-export async function postLobbyChat(token: string, text: string): Promise<void> {
-  await apiFetch<void>("lobby/chat", { method: "POST", token, body: { text } });
+export async function postLobbyChat(token: string, text: string, room?: string): Promise<void> {
+  await apiFetch<void>("lobby/chat", { method: "POST", token, body: { text, room } });
 }
 
 /** One row of GET /api/matches — see worker/src/index.ts matchListView. */
@@ -397,6 +405,13 @@ export interface RoomSummary {
   code: string;
   name: string;
   memberCount?: number;
+  /** Server may not send these yet (older `rooms/mine`) — every reader
+   *  treats a missing value the same as "unknown", never a crash. */
+  rulesetId?: string;
+  matchFormat?: MatchFormat;
+  online?: number;
+  live?: number;
+  starred?: boolean;
 }
 
 /** `GET /api/rooms/mine` — the rooms this player belongs to. The caller
@@ -426,6 +441,105 @@ export async function createRoom(
  *  `joinTable`/`createTable` flow, unrelated to this call. */
 export async function joinRoom(token: string, code: string): Promise<void> {
   await apiFetch<void>(`rooms/${encodeURIComponent(code)}/join`, { method: "POST", token, body: {} });
+}
+
+export async function starRoom(token: string, code: string): Promise<void> {
+  await apiFetch<void>(`rooms/${encodeURIComponent(code)}/star`, { method: "POST", token, body: {} });
+}
+export async function unstarRoom(token: string, code: string): Promise<void> {
+  await apiFetch<void>(`rooms/${encodeURIComponent(code)}/star`, { method: "DELETE", token });
+}
+
+/** `GET /api/rooms/:code` (§8b) — the room's own page: name, its `game`
+ *  settings (ruleset/format fixed by the room), member count, and its
+ *  currently open/playing tables (same `LobbyTable` shape `GET /api/lobby`
+ *  uses). A 404 here reads as "no such room", not "not built yet" — the
+ *  room-detail route itself may still be landing, same graceful-degrade
+ *  posture as every other call in this section. */
+export interface RoomDetail {
+  code: string;
+  name: string;
+  game: { rulesetId: string; matchFormat: MatchFormat; access: TableAccess } | null;
+  memberCount: number;
+  tables: LobbyTable[];
+}
+export async function getRoom(token: string, code: string): Promise<RoomDetail> {
+  return apiFetch(`rooms/${encodeURIComponent(code)}`, { token });
+}
+
+/* ── friends (task brief §11.1: everyone you have played with) ──────────── */
+
+export interface FriendEntry {
+  playerId: string;
+  displayName: string;
+  state: HereState | "offline";
+  matchId?: string;
+  hand?: number;
+  handsBase?: number;
+  rating: number | null;
+  starred: boolean;
+  gamesTogether: number;
+  lastSeenAt?: number;
+}
+export async function getFriends(token: string): Promise<FriendEntry[]> {
+  const data = await apiFetch<{ friends: FriendEntry[] }>("friends", { token });
+  return data.friends ?? [];
+}
+export async function starFriend(token: string, playerId: string): Promise<void> {
+  await apiFetch<void>(`friends/${encodeURIComponent(playerId)}/star`, { method: "POST", token, body: {} });
+}
+export async function unstarFriend(token: string, playerId: string): Promise<void> {
+  await apiFetch<void>(`friends/${encodeURIComponent(playerId)}/star`, { method: "DELETE", token });
+}
+
+/* ── inbox + direct messages (PVP-LOBBY-PROPOSAL §8, "Direct messages and
+ * the inbox") ─────────────────────────────────────────────────────────── */
+
+export type InboxKind = "invite" | "room" | "dm" | "result";
+export interface InboxEntry {
+  id: string;
+  kind: InboxKind;
+  fromPlayerId?: string;
+  fromDisplayName: string;
+  text: string;
+  at: number;
+  unread: boolean;
+  /** Present on an `invite` — accepting mints a fresh seat token server-side
+   *  rather than handing over a bare join code (§8). */
+  matchId?: string;
+  joinCode?: string;
+  roomCode?: string;
+}
+export async function getInbox(token: string): Promise<InboxEntry[]> {
+  const data = await apiFetch<{ inbox: InboxEntry[] }>("inbox", { token });
+  return data.inbox ?? [];
+}
+/** Accepting a table invite returns a seat the same shape `joinTable` does —
+ *  the inbox item's own seat token, never a bare code the client re-resolves
+ *  itself. */
+export async function acceptInbox(token: string, id: string): Promise<JoinTableResult> {
+  return apiFetch(`inbox/${encodeURIComponent(id)}/accept`, { method: "POST", token, body: {} });
+}
+export async function dismissInbox(token: string, id: string): Promise<void> {
+  await apiFetch<void>(`inbox/${encodeURIComponent(id)}/dismiss`, { method: "POST", token, body: {} });
+}
+
+export interface DmMessage {
+  id: string;
+  fromPlayerId: string;
+  toPlayerId: string;
+  text: string;
+  at: number;
+  readAt: number | null;
+}
+/** `GET /api/dm/:playerId` — the thread, last 100, oldest first. */
+export async function getDm(token: string, playerId: string): Promise<DmMessage[]> {
+  const data = await apiFetch<{ messages: DmMessage[] }>(`dm/${encodeURIComponent(playerId)}`, { token });
+  return data.messages ?? [];
+}
+/** `POST /api/dm/:playerId { text }` — ≤ 500 chars, 1 per 2s (§8). */
+export async function postDm(token: string, playerId: string, text: string): Promise<void> {
+  await apiFetch<void>(`dm/${encodeURIComponent(playerId)}`, { method: "POST", token, body: { text } });
 }
 
 /* ── stats and leaderboards ────────────────────────────────────────────── */
@@ -526,6 +640,107 @@ export function getLeaderboard(
   mode: LeaderboardMode,
 ): Promise<{ mode: LeaderboardMode; entries: (RankedLeaderboardEntry | CasualLeaderboardEntry)[] }> {
   return apiFetch(`leaderboard?mode=${mode}`, { token });
+}
+
+/* ── the standard stats vocabulary (PVP-LOBBY-PROPOSAL §10) ───────────────
+ * One vocabulary, three datasets, produced identically by the Almanac, the
+ * demo and gamepvp — GAMES · HANDS · WINS · WIN% · INS (hands paid in on) ·
+ * IN% · HANDS W:L · PTS W:L · NET/HAND · WORTH/HAND. Every surface takes a
+ * `StatsScope` and reads the same slice every time. */
+
+export interface StatsScope {
+  player?: string;
+  players?: string[];
+  room?: string;
+  mode?: "ranked" | "casual";
+  rulesetId?: string;
+  since?: string;
+  lastN?: number;
+  source?: "all" | "online" | "offline";
+}
+function scopeQuery(scope: StatsScope): string {
+  const qs = new URLSearchParams();
+  if (scope.player) qs.set("player", scope.player);
+  if (scope.players?.length) qs.set("players", scope.players.join(","));
+  if (scope.room) qs.set("room", scope.room);
+  if (scope.mode) qs.set("mode", scope.mode);
+  if (scope.rulesetId) qs.set("rulesetId", scope.rulesetId);
+  if (scope.since) qs.set("since", scope.since);
+  if (scope.lastN) qs.set("lastN", String(scope.lastN));
+  if (scope.source) qs.set("source", scope.source);
+  return qs.toString();
+}
+
+/** Dataset A — one row per player in scope, the leaderboard shape. */
+export interface StatsRecordRow {
+  playerId: string; displayName: string;
+  games: number; hands: number; wins: number; winPct: number;
+  ins: number; inPct: number;
+  handsW: number; handsL: number; ptsW: number; ptsL: number;
+  netPerHand: number; worthPerHand: number;
+  selfDraws: number; avgWinFan: number | null;
+  placements: [number, number, number, number];
+  rating?: number | null; ratingGames?: number;
+  streakDays: number; bestStreak: number;
+  movesGraded?: number; agreement?: number | null;
+}
+export async function getStatsRecord(token: string, scope: StatsScope = {}): Promise<StatsRecordRow[]> {
+  const q = scopeQuery(scope);
+  const data = await apiFetch<{ rows: StatsRecordRow[] }>(`stats/record${q ? `?${q}` : ""}`, { token });
+  return data.rows ?? [];
+}
+
+/** Dataset B — counts, never averages of ratios. */
+export interface StatsHistograms {
+  fan: { byRuleset: Record<string, number[]> };
+  fanByGame: number[][];
+  handType: { id: string; count: number; avgFan: number; points: number }[];
+  seatByRound: number[][];
+  outcomes: { win: number; selfDraw: number; draw: number };
+  ins: { playerId: string; displayName: string; ins: number; hands: number }[];
+  feeds: {
+    from: { playerId: string; displayName?: string; points: number; hands: number }[];
+    to: { playerId: string; displayName?: string; points: number; hands: number }[];
+  };
+}
+export async function getStatsHistograms(token: string, scope: StatsScope = {}): Promise<StatsHistograms> {
+  const q = scopeQuery(scope);
+  return apiFetch(`stats/histograms${q ? `?${q}` : ""}`, { token });
+}
+
+/** Dataset C — things over time or over hands. */
+export interface StatsSeries {
+  progression: { matchId: string; hands: number[]; standings: number[][] }[];
+  progressionAvg: { hands: number[]; mean: number[]; games: number[][] };
+  worthByGame: { matchId: string; at: string; worth: number }[];
+  rating: { at: string; before: number; after: number; matchId: string | null }[];
+  activity: { day: string; games: number }[];
+}
+export async function getStatsSeries(token: string, scope: StatsScope = {}): Promise<StatsSeries> {
+  const q = scopeQuery(scope);
+  return apiFetch(`stats/series${q ? `?${q}` : ""}`, { token });
+}
+
+/** `GET /api/games/:id` (task brief §11.3/wiring) — one game's own page: the
+ *  result with rating deltas, progression, the hand-by-hand table, this
+ *  viewer's hands, this viewer's decisions (desktop), the game's chat, and a
+ *  replay/share token. Loosely typed (`Record`) the same way `MatchDetail`
+ *  already is — this client only ever reads a handful of named fields off
+ *  it and has no stake in the rest of the shape drifting under it. */
+export interface GameDetail {
+  matchId: string;
+  startedAt: string; endedAt: string | null;
+  mode: TableMode; rulesetId: string; matchFormat: MatchFormat;
+  roomCode: string | null; roomName: string | null;
+  handCount: number;
+  standings: { place: number; playerId: string; displayName: string; chips: number; ratingBefore?: number | null; ratingAfter?: number | null; ratingDelta?: number | null }[];
+  hands: Record<string, unknown>[];
+  viewerSeat: number | null;
+  replayToken: string | null;
+  chat: LobbyChatEntry[];
+}
+export async function getGame(token: string, matchId: string): Promise<GameDetail> {
+  return apiFetch(`games/${encodeURIComponent(matchId)}`, { token });
 }
 
 /* ── the table socket ─────────────────────────────────────────────────── */

@@ -26,5 +26,13 @@ done
 rm -rf "$dst/assets"
 cp -R "$src/assets" "$dst/assets"
 
+# shell/theme.css — the only shell/ file that isn't bundled by esbuild (it's
+# a stylesheet, loaded via <link>, not imported by any .ts). Every shell/*.ts
+# module IS bundled into game.js already (game.ts imports both table.ts and
+# shell/router.ts directly; router.ts pulls in the rest of shell/), so this
+# is the one extra copy needed.
+mkdir -p "$dst/shell"
+cp "$src/shell/theme.css" "$dst/shell/theme.css"
+
 printf '  %-14s %6s KB\n' game.js "$(( $(wc -c < "$dst/game.js") / 1024 ))"
 echo "assets/ ready — $(du -sh "$dst" | cut -f1)"

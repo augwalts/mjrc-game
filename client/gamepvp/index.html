@@ -257,7 +257,16 @@ body{background:radial-gradient(ellipse at 50% 30%, #1e1b17 0%, #131110 55%, #0a
    the panel starts at the top and the veil scrolls. Centring with
    `align-items:center` clips the overflow ABOVE the container, which no amount
    of scrolling can reach. */
-.veil{position:fixed;inset:0;background:rgba(4,12,9,.82);display:flex;
+/* `display:none` by default (2026-09-02 shell rebuild) — every screen that
+   uses this (table.ts's waiting room/match end/fatal/settings,
+   shell/pages/newtable.ts's New table/Join modals) already sets
+   `style.display = "flex"` itself before painting #panel and "none" when it
+   closes, so this only changes the state before any of that JS has run yet.
+   Before the shell existed the whole app WAS this veil (every boot path led
+   straight into one of those screens), so defaulting to visible was
+   harmless; now the shell's own pages render behind it while nothing has
+   claimed it, and a `flex` default painted an empty dark #panel over them. */
+.veil{position:fixed;inset:0;background:rgba(4,12,9,.82);display:none;
   align-items:flex-start;justify-content:center;overflow-y:auto;
   -webkit-overflow-scrolling:touch;z-index:40;padding:16px}
 .panel{background:linear-gradient(180deg,#1b3a30,#12281f);border:1px solid rgba(216,181,106,.35);
@@ -851,8 +860,22 @@ body.devmode #mine{padding-top:2px}
   .seat.e .meldrow>span[style*="width"],.seat.w .meldrow>span[style*="width"]{height:5px}
 }
 </style>
+<!-- The shell's own stylesheet — every token and component class in it is
+     scoped under #shell{…}, so it can never touch the table's :root palette
+     above. Absolute path: this page is also served at /j/<code>, /r/<code>,
+     and every shell route (task brief §11.3). -->
+<link rel="stylesheet" href="/shell/theme.css">
 </head>
 <body>
+<!-- The shell (router-driven pages: Home, Rooms, Friends, Stats, Messages,
+     Profile, …) and the table (everything from here through #veil, unchanged
+     by the 2026-09-02 shell rebuild) are SIBLINGS, never nested — the
+     bootstrap (game.ts) toggles which one is visible via #tableRoot/#shell,
+     see its own header comment. #veil/#panel stay OUTSIDE #tableRoot: the
+     table's own waiting-room/match-end/fatal screens and the shell's New
+     table/Join modals (shell/pages/newtable.ts) both render into it. -->
+<div id="shell" hidden></div>
+<div id="tableRoot" style="display:none;flex:1 1 auto;min-height:0;flex-direction:column">
 <div id="hud">
   <span id="netStatus" class="mut"></span>
   <span class="spacer"></span>
@@ -907,6 +930,7 @@ body.devmode #mine{padding-top:2px}
   <div id="myhand"></div>
 </div>
 <div id="fly"></div>
+</div> <!-- /#tableRoot -->
 <div class="veil" id="veil"><div class="panel" id="panel"></div></div>
 <script>
 // ABSOLUTE paths (leading "/"), not page-relative ones: this same index.html

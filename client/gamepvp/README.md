@@ -11,20 +11,167 @@ outcome, and never mutates the UI on a button press — only on the server's
 reply. `snap` (a `SeatSnapshot`) is the server's redacted fold of the match
 for *this seat only*; it is replaced whole, never patched.
 
+## 2026-09-02 — the shell rebuild
+
+Everything above still holds for **the table** — the screen from the moment
+a match is joined through pause/auto/chat/reveal/start-card to the match-end
+scoreboard. What changed this pass is everything AROUND it: the old
+tabs-in-a-veil lobby (`lobbyScreen()`, five pills, all painted into
+`#panel`) is gone, replaced by a real router-driven app shell matching
+`lobby-lab.html` (design of record) — real URL paths, a bottom nav
+(Home · Rooms · Friends · Stats), and one page per route under `shell/`.
+
+**The split, and why it's safe:** `table.ts` is the old `game.ts` almost
+verbatim (see `git log` on this file if you need the literal diff) — same
+DOM (`#hud #table #felt #mine #fly #veil`), same functions, same behaviour.
+`shell/` is new. The two talk through exactly one seam, `table.ts`'s
+`hostHooks` (an object of four callbacks: `enterTable`, `leaveToShell`,
+`goToPlayer`, `goToSettings`), wired once by the bootstrap (`game.ts`) after
+both halves exist. This keeps the dependency graph one-directional —
+`shell/*` imports from `table.ts` freely (constants like `RULE_PICKS`/
+`SPEED_INFO`, and `connectToMatch()` itself, to open a table from a shell
+page), but `table.ts` never imports anything under `shell/` except the
+app-wide state in `shell/session.ts` (identity, `SETTINGS`, theme, the mute
+list — needed on both sides of "is a match open"). If you're touching the
+table screen: nothing here changes how. If you're touching the shell: don't
+import `table.ts`'s internals other than what it already exports.
+
+**`index.html`'s DOM** now has three top-level siblings inside `<body>`:
+`#shell` (the router's mount point, hidden by default), `#tableRoot` (wraps
+`#hud`/`#table`/.../`#fly` — same table DOM as always, `display:none` by
+default), and `#veil`/`#panel` (OUTSIDE `#tableRoot` on purpose — both the
+table's own waiting-room/match-end/fatal/quick-settings screens AND the
+shell's New table/Join-by-code modals, `shell/pages/newtable.ts`, render
+into this one shared overlay). The bootstrap toggles `#tableRoot`/`#shell`
+visibility via `hostHooks`; `#veil` defaults to `display:none` now (a fix
+made this pass — see "Known gaps" below, it used to default to `flex` and
+painted an empty dark panel over the shell on first load).
+
+### Worker paths this needs (task brief §11.3)
+
+The client is a single-page app now with real, shareable URLs. The Worker
+already serves `index.html` for `/j/<code>` and `/r/<code>` — it needs to do
+the **exact same thing** (serve the SPA shell, not 404) for every path
+below, since a hard refresh or a pasted link on any of them has to boot the
+app fresh rather than hit the static-file layer:
+
+```
+/
+/rooms
+/rooms/:code
+/friends
+/stats
+/games/:id
+/players/:id
+/messages
+/messages/:playerId
+/me
+/me/account
+/me/settings
+```
+
+Simplest correct implementation: a catch-all — any GET that isn't
+`/api/*`, `/table/*`, or a real static asset (`.js`/`.css`/`.png`/etc.)
+serves `index.html`. The client-side router (`shell/router.ts`) already
+falls back an *unrecognised* path to `/` on its own, so the Worker doesn't
+need to validate the exact shape of `:code`/`:id` — it only needs to not
+404 before the SPA gets a chance to boot and redirect.
+
+### API contract this client codes to, and what degrades
+
+`net.ts` was written to the FULL contract in
+`PVP-LOBBY-PROPOSAL-2026-09-02.md` §7.2/§8/§8b/§10 and this task's own
+wiring list, including several endpoints not yet live on `worker/src/
+index.ts` as of this pass (`GET /api/stats/record|histograms|series`,
+`GET /api/games/:id`, `GET/POST /api/friends`+`star`, `GET /api/rooms/:code`,
+`GET /api/inbox`+`accept`/`dismiss`, `GET/POST /api/dm/:playerId`). Every
+page that calls one of these catches the failure and shows a quiet empty
+state (`"nothing here yet"`) rather than an error — never fake data, per
+the task brief. Two things worth knowing if you're building the server side
+of this:
+
+- **`identify`/`postPresence` now send `tzOffsetMin`** (a new field on both
+  request bodies) — `Date().getTimezoneOffset()` convention (positive WEST
+  of UTC). Ignoring it is harmless; reading it is what §11.5 asks for
+  (streaks/"today" counted in the player's own day).
+- **`GET /api/lobby` and `POST /api/lobby/chat` take an optional
+  `room`/`?room=` param** (§8b) — already true of the pre-rebuild client's
+  contract, now actually exercised (Rooms/Room/Friends pages).
+- **The Room page's "a room with presets hides the length/rules/speed
+  pickers"** (task brief §11 build item 5) reads `GET /api/rooms/:code`'s
+  `game` field: non-null hides those three pickers and fixes
+  `rulesetId`/`matchFormat` from it. The proposal's own room schema (§9,
+  §8b) only names `rulesetId`/`matchFormat`/`access` under `game` — nothing
+  for a fixed *speed* yet, so the picker hides its UI on a locked room but
+  there is currently no server field to source a fixed speed FROM. Worth a
+  schema note if rooms grow a fixed speed later.
+- **Rooms/friends "star"** (`POST`/`DELETE /api/rooms/:code/star`,
+  `/api/friends/:id/star`) is this client's own naming — the proposal never
+  named a star endpoint explicitly, only the UI requirement ("star to pin").
+
 ## Files
 
 - `net.ts` — the wire layer. Identity + lobby HTTP calls (`identify`,
   `createTable`, `joinTable`, `listMatches`, `matchDetail`, `getLobby`,
-  `postPresence`, `startTable`, `leaveTable`, `postLobbyChat`), and
-  `TableSocket`: connect, `join`, reconnect with backoff, `resync`, heartbeat
-  echo, `sendChat`, and a typed callback per server message (`onChat`/
-  `onChatHistory` included). Holds no game state.
-- `game.ts` — the client: DOM rendering, tile art, animations, screens, and
+  `postPresence`, `startTable`, `leaveTable`, `postLobbyChat`), the new
+  stats/social surface this pass added (`getStatsRecord`/`Histograms`/
+  `Series`, `getGame`, `getFriends`/`star`/`unstarFriend`, `getRoom`,
+  `getInbox`/`accept`/`dismissInbox`, `getDm`/`postDm`, `starRoom`/
+  `unstarRoom`), and `TableSocket`: connect, `join`, reconnect with backoff,
+  `resync`, heartbeat echo, `sendChat`, and a typed callback per server
+  message. Holds no game state. `identify()`/`postPresence()` now also send
+  `tzOffsetMin` (`Date().getTimezoneOffset()` convention) per task brief
+  §11.5.
+- `table.ts` — the table runtime (was `game.ts`; see above). DOM rendering,
+  tile art, animations, the waiting room, match-end scoreboard, chat overlay,
   the coach. Everything it knows about the match comes from `net.ts`'s
-  callbacks.
-- `index.html`, `tile-engine.js`, `bots.js` — unchanged from Solo except the
-  `<title>` and two small HUD spans (`#netStatus`, `#hudNote`) for connection
-  state and transient notes.
+  callbacks. Exports `connectToMatch`, `resumeActiveSession`,
+  `initTableChrome`, `hostHooks`/`setHostHooks`, and a handful of small
+  display constants (`RULE_PICKS`, `SPEED_INFO`, `WIND_CH`, `PAYMENT_LABELS`,
+  `DEFAULT_BOT_LINEUP`, `matchFormatLabel`, `handLabel`, `ruleLabel`,
+  `loadBotCatalogue`) the shell reuses rather than re-deriving.
+- `game.ts` — the bootstrap now, not the client. Resolves identity, wires
+  `hostHooks`, decides table-vs-shell at boot (a resumed session, or
+  `/j`/`/r`, wins over the shell), then hands off.
+- `shell/session.ts` — app-wide state both halves need: `identity`,
+  `SETTINGS`/`saveSettings` (tile size, handicaps, sound/haptics/coaching/
+  language — the last three are new prefs recorded for when audio/haptics
+  exist, inert today), theme (`getThemeChoice`/`setThemeChoice`/
+  `applyTheme`, `system`/`light`/`dark`, `localStorage`), the chat mute list,
+  and `$`/`esc`/`fmtChips`/`describeError`.
+- `shell/strings.ts` — every shell-facing string in one table, `{ en, zh }`
+  (task brief §11.6); `t(S.key)` reads `SETTINGS.language`, falling back to
+  `en` silently wherever `zh` is still `null`.
+- `shell/theme.css` — light/dark tokens + every shell component class, ported
+  from `lobby-lab.html`. **Every selector is scoped under `#shell{…}`**,
+  never `:root`/`body` — `index.html`'s own `:root` already owns those names
+  for the table's felt/tile palette; scoping is what keeps this stylesheet
+  from silently recolouring the table. Not bundled by esbuild (it's a
+  stylesheet, not a module) — `build.sh` copies it to `assets/shell/theme.css`
+  and `index.html` links it directly.
+- `shell/ui.ts` — shared chrome: `pageTop()` (title + colour square + back +
+  the envelope/name corner), `navHtml()` (the bottom nav), `secCard()` (a
+  section title folded into its card, matching the lab's `foldTitles()`),
+  `wireNav()` (binds every `[data-nav]` element to `router.navigate`).
+- `shell/charts.ts` — the standard inline-SVG chart set (§10): `barsChart`,
+  `lineChartSvg`, `progressionSvg` (faint per-game lines + a bold aggregate).
+  Reads colours off `#shell`'s own CSS custom properties, never hard-coded,
+  so both themes render correctly.
+- `shell/router.ts` — real paths, `history.pushState`, `popstate`, an
+  unknown path falls back to `/`. `/j/<code>`/`/r/<code>` are handled here
+  too (not real shell pages) — read once, URL rewritten, then acted on,
+  mirroring the old `boot()`'s own `pendingJoinCodeFromUrl()`.
+- `shell/pages/*.ts` — one module per route (see the table below), each
+  exporting `mount(container, params, router)`, optionally returning a
+  cleanup (stops a poll). `home`, `rooms`, `room`, `friends`, `stats`,
+  `game-detail`, `player`, `messages`, `dm`, `profile`, `account`, `settings`,
+  plus `newtable.ts` (New table + Join-by-code — NOT a route; a `#veil`/
+  `#panel` modal opened from Home/Rooms' CTAs and from `/j/<code>`, reusing
+  the pre-rebuild `newTableScreen()`/`joinScreen()` almost verbatim per task
+  brief §11 build item 5, with a room picker added at the top).
+- `index.html`, `tile-engine.js`, `bots.js` — the table's own DOM/CSS/tile
+  art, unchanged in substance (see "the shell rebuild" above for the DOM
+  wrapper this pass added around it).
 - `SPEC.md` — Solo's spec of record; still the authority on the animation
   system, layout conventions and known gaps that this retrofit inherited
   unchanged (the pile-packing algorithm, the wall's decorative erosion,
@@ -40,34 +187,26 @@ for *this seat only*; it is replaced whole, never patched.
 
 ## Message flow
 
-1. Boot: read a stored device token + display name from `localStorage`
-   (`mjrc.gamepvp.deviceToken`/`displayName`); if present, call
-   `identify()` to confirm/refresh; else show the name screen. Opening the
-   app at `/j/<code>` (an invite link — see "Waiting room" below) is read
-   once here, before anything else, and the URL is immediately rewritten to
-   `/` with `history.replaceState`; after identity resolves this sends the
-   player straight to `joinScreen(code)` (code pre-filled, not auto-submitted)
-   instead of the lobby or a resumed session — a deep link is a deliberate
-   act and wins over both.
-2. **Lobby** (`lobbyScreen()`/`renderLobby()`) — reworked 2026-09-02 (task
-   brief item 3) into five tabs across the top, a horizontally scrollable
-   row of pills on a phone (`.tabbar`/`.tabpill`, `#panel .tabpill` paired
-   with the ID — see the CSS comment on that rule for why: the bare class
-   used to lose to `.panel button`'s own background and every INACTIVE pill
-   rendered as a bold gold button, caught live-testing this rework), a plain
-   row ≥900px: **Play** (**Here now** — everyone seen in the last 90s, from
-   `GET /api/lobby`'s `here[]`, tapping a name waiting at an *open* table
-   sits down at it; **Open tables** — `tables[]`, a lock icon for private
-   tables, a **Sit down** button only when open and waiting, seats as four
-   small tiles; **New table** / **Join by code**), **Chat** (the lobby
-   chat, unchanged — see item 14 for what "chat" means on the table itself),
-   **Stats** (**Your stats** / **Leaderboard**, both still their own full
-   screens — `yourStatsScreen()`/`leaderboardScreen()` — reached from a card
-   here), **Games** (**Your games**, likewise its own screen —
-   `statsScreen()` — plus the **Recent results** strip, `recent[]`, last 5,
-   inline in this tab), **Rooms** (a placeholder — see below). The active
-   tab is remembered in `sessionStorage` (`setLobbyTab`/`loadLobbyTab`,
-   `mjrc.gamepvp.lobbyTab`) so a reload, or "back to lobby" from anywhere,
+1. **Boot (2026-09-02 rewrite — see "the shell rebuild" above).**
+   `game.ts`'s `boot()`: apply the saved theme, `initTableChrome()` (wires
+   the HUD's pause/auto/settings/quit/feedback buttons — always present,
+   regardless of which half is showing), `setHostHooks()`, resolve identity
+   (`shell/session.ts`'s `bootIdentity()` — a stored device token +
+   display name is confirmed/refreshed via `identify()`; no stored identity
+   shows the shell's own name-gate, inline in `shell/router.ts`'s
+   `renderNameGate()`, in place of whatever route was requested), then
+   `initRouter()`. A resumed session (`resumeActiveSession()`,
+   `sessionStorage`'s `mjrc.gamepvp.activeMatch`) wins over the router's own
+   first dispatch — UNLESS the URL is `/j/<code>`/`/r/<code>`, which always
+   wins over both (a deep link is a deliberate act), handled inside the
+   router itself (`shell/router.ts`'s `handleInviteLink`).
+2. **The shell, not a lobby screen anymore.** The old five-tab
+   `lobbyScreen()` is gone outright, replaced by the router-driven pages
+   under `shell/pages/` — see "the shell rebuild" above and the route table
+   below for what lives where. `GET /api/lobby`'s `here[]`/`tables[]`/
+   `recent[]`/`chat[]` still feed the same information, now split across
+   Home (a slice), Rooms, a Room's own page, and Friends (which doubles as
+   the lobby chat's home) rather than one screen's four panels.
    returns to the same one. Each pane is built once with the rest of the
    shell and only ever hidden/shown (`.tabpane`/`.tabpane.on`) — a switch
    never rebuilds `#lobbyHere`/`#lobbyTables`/`#lobbyChat`/`#lobbyRecent`,
@@ -480,6 +619,52 @@ Touch: the hover-only coach interactions (count-tiles glow, what-if) now also
 fire on a ~260 ms long-press, per the "touch first" client rule
 (PVP-MULTIPLAYER-PLAN §2.2) — Solo's version was mouse-only.
 
+## Known gaps — 2026-09-02 shell rebuild
+
+- **`#veil` used to default to `display:flex` in `index.html`'s CSS.**
+  Harmless before this pass (the whole pre-rebuild app WAS this veil — every
+  boot path led into a screen that painted it), but with the shell rendering
+  behind it, an unclaimed veil showed an empty dark `#panel` over every shell
+  page. Fixed by defaulting it to `display:none` — every screen that uses it
+  (table.ts's waiting room/match end/fatal/quick-settings,
+  `shell/pages/newtable.ts`'s two modals) already sets `style.display`
+  explicitly both ways, so this is a one-line CSS change, not a behaviour
+  change, for any of them.
+- **Create a room** (Rooms page's "create a room ›") is three
+  `window.prompt()`s, not a form — a full ruleset/length picker belongs
+  next to New table's own (task brief didn't specify one for this entry
+  point, and rooms are still landing server-side).
+- **Account page** is entirely the lab's own stub rows (display name,
+  handle, sign-in, devices, Almanac link, export, delete) — none of them do
+  anything yet, per the lab's own note ("verify the list against the live
+  site before building").
+- **The pre-rebuild "About" screen was dropped** — it isn't in the lab's
+  page list or the §11.3 route table, and the shell's own onboarding (the
+  name gate) covers the "what is this" first-run moment now.
+- **DM invite bubbles** (§8's "Table invites are inbox items... never a bare
+  code", shown as a `sys`-styled bubble with a Sit button in the lab's DM
+  mock) are not modelled as a distinct message type on the DM thread here —
+  a table invite reaches a player through the inbox (`GET /api/inbox`,
+  `messages.ts`) same as any other `InboxEntry`; the DM thread itself
+  (`dm.ts`) only ever renders `DmMessage` text bubbles. Worth revisiting once
+  `dm_messages` and invite-minting are both live and their relationship is
+  confirmed server-side.
+- **A game's replay/share buttons** open `/replay/:token` and copy that URL,
+  gated on `GameDetail.replayToken` — never built or tested against a real
+  token since `GET /api/games/:id` isn't live yet.
+- **Stats page's leaderboard section** only ever fetches `mode=ranked` —
+  the lab's own toggle between ranked/casual leaderboards isn't wired; "full
+  leaderboard ›" has no destination page yet (there is no `/leaderboard`
+  route in the §11.3 list).
+- **Language switch (`SETTINGS.language`) only affects `shell/strings.ts`'s
+  own table** — most `zh` slots are filled for nav/page-chrome strings, left
+  `null` (falls back to English silently) for longer prose. Hand names,
+  ruleset labels and the tile art were already bilingual before this pass
+  and are untouched.
+- **No `noUnusedLocals` in this project's `tsconfig.base.json`** — a few
+  imports across `shell/pages/*.ts` may be unused after your own edits;
+  `tsc --noEmit` won't catch it, only a lint pass would.
+
 ## Known gaps / protocol assumptions made beyond the brief
 
 - **`events`/`restore` snapshot field — resolved.** This used to be a local
@@ -530,6 +715,11 @@ fire on a ~260 ms long-press, per the "touch first" client rule
 npx tsc --noEmit -p client/gamepvp
 ```
 
-Both must pass clean. Bundle is ~136 KB (esbuild, bundled+iife), down from
-Solo's ~189 KB — the local reducer, bot decision code and the `tools/sim`
-view adapter are no longer part of the client.
+Both must pass clean. Bundle is ~244 KB (esbuild, bundled+iife) as of the
+2026-09-02 shell rebuild — up from ~136 KB before it (the entire router-
+driven shell, `shell/pages/*.ts` × 13, is now bundled into `game.js` too;
+`shell/theme.css` is the one file `build.sh` copies separately, since
+esbuild only bundles what `game.ts` imports and a stylesheet isn't a
+module). Still under the ≤300 KB client performance budget
+(`PVP-MULTIPLAYER-PLAN-2026-09-01.md` §2.2); worth watching as more shell
+pages grow rather than a one-time note.

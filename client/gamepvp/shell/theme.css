@@ -1,0 +1,194 @@
+/**
+ * Shell tokens + component styles — design of record: lobby-lab.html
+ * (Variant D, PVP-LOBBY-PROPOSAL-2026-09-02.md §11). Ported close to
+ * verbatim from the lab, with two changes: every selector is scoped under
+ * `#shell` (never `:root`/`body`), and light/dark switching uses
+ * `#shell.theme-light`/`#shell.theme-dark` (an explicit choice) with
+ * `@media (prefers-color-scheme: dark)` as the *default* (system) fallback
+ * — see shell/session.ts's `applyTheme()`.
+ *
+ * Scoping under `#shell` (rather than `:root`) is load-bearing, not a style
+ * choice: `index.html`'s own `:root` already defines `--ink`/`--gold`/
+ * `--dim`/etc. for the TABLE screen's dark-felt palette. If this file set
+ * those names on `:root` too, the last stylesheet loaded would win and
+ * silently recolour the table — the one screen this whole rebuild is
+ * forbidden from changing. Scoped to `#shell`, these names only resolve
+ * inside the shell's own subtree; the table DOM (a sibling, `#tableRoot`)
+ * keeps reading its own `:root` tokens exactly as before.
+ */
+
+/* ── tokens: light (default) ──────────────────────────────────────────── */
+#shell{
+  --bg:#fffdf7; --panel:#f6f1e4; --panel2:#efeade; --line:#ddd6c4; --ink:#1a1a18; --dim:#777770;
+  --gold:#1845a5; --green:#127a30; --red:#c1272d; --blue:#1845a5; --chrome:#e7dfc9;
+  --primary:#1a1a18; --primary-ink:#fffdf7; --grid:rgba(26,26,24,.12);
+  --accent-soft:#e2e8f8; --gild:#9a7318; --series2:#9a7318; --series3:#127a30;
+}
+/* ── tokens: dark, system default ─────────────────────────────────────── */
+@media (prefers-color-scheme: dark){
+  #shell:not(.theme-light){
+    --bg:#1e1f1d; --panel:#2a2b29; --panel2:#363733; --line:#4a4b46; --ink:#f3efe4; --dim:#b3b0a5;
+    --gold:#9fbaf0; --green:#7fdc97; --red:#f19c9c; --blue:#9fbaf0; --chrome:#111210;
+    --primary:#f3efe4; --primary-ink:#1e1f1d; --grid:rgba(243,239,228,.18);
+    --accent-soft:#363733; --gild:#ffdf8a; --series2:#ffdf8a; --series3:#7fdc97;
+  }
+}
+/* ── tokens: dark, explicit choice ────────────────────────────────────── */
+#shell.theme-dark{
+  --bg:#1e1f1d; --panel:#2a2b29; --panel2:#363733; --line:#4a4b46; --ink:#f3efe4; --dim:#b3b0a5;
+  --gold:#9fbaf0; --green:#7fdc97; --red:#f19c9c; --blue:#9fbaf0; --chrome:#111210;
+  --primary:#f3efe4; --primary-ink:#1e1f1d; --grid:rgba(243,239,228,.18);
+  --accent-soft:#363733; --gild:#ffdf8a; --series2:#ffdf8a; --series3:#7fdc97;
+}
+
+/* ── layout shell ──────────────────────────────────────────────────────── */
+#shell{
+  position:fixed; inset:0; background:var(--bg); color:var(--ink);
+  font:14px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  display:flex; flex-direction:column; z-index:5; overflow:hidden;
+}
+#shell *{box-sizing:border-box}
+#shell[hidden]{display:none}
+#shell .view{flex:1; overflow:auto; padding:14px 14px calc(84px + env(safe-area-inset-bottom))}
+#shell a{color:inherit}
+#shell .mut{color:var(--dim)}
+#shell .up{color:var(--green)} #shell .down{color:var(--red)}
+#shell .spinner{color:var(--dim); font-size:13px; padding:24px 0; text-align:center}
+#shell .empty{color:var(--dim); font-size:13px; padding:18px 4px; text-align:center}
+
+/* ── top bar ───────────────────────────────────────────────────────────── */
+#shell .top{display:flex; align-items:center; gap:10px; margin-bottom:12px}
+#shell .top h2{font-size:18px; margin:0; display:flex; align-items:center}
+#shell .top h2 .k{display:inline-block; width:8px; height:8px; border-radius:2px; margin-right:8px}
+#shell .top .back{font:inherit; font-size:22px; line-height:1; background:none; border:0; color:var(--blue); padding:0 6px 0 0; cursor:pointer}
+#shell .me{margin-left:auto; display:flex; align-items:center; gap:8px; color:var(--dim); white-space:nowrap}
+#shell .me .inbox{position:relative; background:none; border:0; color:var(--dim); padding:0; margin:0 4px 0 0; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; width:26px; height:26px; line-height:0}
+#shell .me .inbox svg{display:block}
+#shell .me .inbox .n{position:absolute; top:-3px; right:-5px; background:var(--red); color:#fff; font-size:10px; font-weight:700; border-radius:8px; padding:0 4px; line-height:14px; min-width:14px; text-align:center}
+#shell .me .name{font:inherit; background:none; border:0; color:var(--dim); cursor:pointer; display:inline-flex; align-items:center; gap:6px; padding:0}
+#shell .me .dot{margin-left:2px}
+
+/* ── dots, avatars, badges ─────────────────────────────────────────────── */
+#shell .dot{width:8px; height:8px; border-radius:50%; background:var(--green); display:inline-block; flex:0 0 auto}
+#shell .dot.wait{background:#e3cf70} #shell .dot.play{background:#1a8b3a}
+#shell .avatar{width:28px; height:28px; border-radius:50%; background:var(--accent-soft); display:flex; align-items:center; justify-content:center; font-size:12px; color:var(--ink); flex:0 0 auto}
+#shell .badge{font-size:10px; letter-spacing:.08em; text-transform:uppercase; border:1px solid var(--line); border-radius:6px; padding:2px 6px; color:var(--dim)}
+#shell .badge.ranked{color:var(--blue); border-color:var(--blue)}
+#shell .star{color:var(--dim); font-size:16px; width:20px; text-align:center; cursor:pointer; background:none; border:0}
+#shell .star.on{color:var(--gild)}
+
+/* ── section headers, cards ────────────────────────────────────────────── */
+#shell .sec{font-size:11px; letter-spacing:.12em; color:var(--dim); text-transform:uppercase; margin:16px 0 8px}
+#shell .sec.in{margin:0 0 8px}
+#shell .card{background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:12px 14px; margin-top:10px}
+#shell .card:first-child{margin-top:0}
+#shell .more{display:block; margin-top:8px; color:var(--blue); font-size:12px; text-decoration:none; background:none; border:0; font:inherit; cursor:pointer; padding:0}
+
+/* ── CTA tiles (Play now / Join by code) ──────────────────────────────── */
+#shell .cta{display:grid; grid-template-columns:1fr 1fr; gap:10px}
+#shell .cta button{font:inherit; padding:16px 12px; border-radius:14px; border:1px solid var(--line); background:var(--panel2); color:var(--ink); text-align:left; cursor:pointer}
+#shell .cta button b{display:block; font-size:16px; margin-bottom:2px}
+#shell .cta button.primary{background:var(--primary); color:var(--primary-ink); border-color:transparent}
+#shell .cta button small{color:inherit; opacity:.75}
+
+/* ── generic rows and lists ───────────────────────────────────────────── */
+#shell .row{display:flex; align-items:center; gap:8px}
+#shell .frow{cursor:pointer}
+#shell .frow:hover{color:var(--gold)}
+#shell input[type=text],#shell input[type=search]{font:inherit; padding:9px 10px; border-radius:10px; border:1px solid var(--line); background:var(--panel2); color:var(--ink)}
+#shell button.sit{font:inherit; font-weight:600; padding:8px 14px; border-radius:10px; border:0; background:var(--blue); color:#fff; cursor:pointer}
+#shell button.sit.sm{padding:6px 10px; font-size:12px}
+#shell button.sit.ghost{background:var(--panel2); color:var(--ink)}
+#shell button.sit:disabled{opacity:.55; cursor:default}
+
+/* ── filter pills / tabs ──────────────────────────────────────────────── */
+#shell .tabs{display:flex; gap:6px; overflow-x:auto; margin-bottom:12px}
+#shell .tabs button{font:inherit; padding:6px 12px; border-radius:20px; border:1px solid var(--line); background:none; color:var(--dim); white-space:nowrap; cursor:pointer}
+#shell .tabs button.on{background:var(--ink); color:var(--bg); border-color:transparent; font-weight:600}
+#shell .toggle button{font:inherit; font-size:11px; padding:2px 8px; border-radius:10px; border:1px solid var(--line); background:none; color:var(--dim); cursor:pointer}
+#shell .toggle button.on{background:var(--ink); color:var(--bg); border-color:transparent}
+
+/* ── rooms ─────────────────────────────────────────────────────────────── */
+#shell .rooms .room{display:flex; align-items:center; gap:10px; padding:10px 0; border-bottom:1px solid var(--line); cursor:pointer}
+#shell .rooms .room:last-child{border:0}
+#shell .rooms .room b{font-size:15px}
+#shell .rooms .room small{color:var(--dim); display:block}
+#shell .rooms .room .n{margin-left:auto; color:var(--dim); font-size:12px; text-align:right; white-space:nowrap}
+
+/* ── tables (rooms page, room page) ───────────────────────────────────── */
+#shell .trow{display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid var(--line)}
+#shell .trow:last-child{border:0}
+#shell .trow-l{flex:1; min-width:0; display:flex; flex-wrap:wrap; align-items:center; gap:6px}
+#shell .trow-l small{color:var(--dim); font-size:12px; width:100%}
+#shell .mini{display:flex; gap:3px}
+#shell .ms{width:34px; height:22px; border-radius:5px; border:1px dashed var(--line); font-size:10px; display:flex; align-items:center; justify-content:center; color:var(--dim); overflow:hidden}
+#shell .ms.human{border-style:solid; color:var(--ink); background:rgba(0,0,0,.04)}
+#shell .ms.bot{border-style:solid; background:rgba(24,69,165,.08)}
+#shell .trow .playing{color:var(--dim); font-size:12px; white-space:nowrap}
+
+/* ── stats: tiles + streak ────────────────────────────────────────────── */
+#shell .stats .tiles{display:grid; grid-template-columns:repeat(4,1fr); gap:8px; text-align:center}
+#shell .stats .tiles b{display:block; font-size:18px}
+#shell .stats .tiles small{color:var(--dim); font-size:11px}
+#shell .stats .streak{display:flex; align-items:center; gap:8px; margin-top:10px; padding-top:10px; border-top:1px solid var(--line); color:var(--dim); font-size:12px}
+#shell .stats .streak .flame{color:var(--gild); display:flex}
+#shell .stats .streak b{color:var(--ink); font-size:13px}
+
+/* ── leaderboard table ─────────────────────────────────────────────────── */
+#shell table.lb{width:100%; border-collapse:collapse; font-size:12px}
+#shell table.lb th{text-align:left; color:var(--dim); font-weight:500; font-size:10px; letter-spacing:.06em; text-transform:uppercase; padding:2px 6px 6px 0}
+#shell table.lb td{padding:4px 6px 4px 0; border-top:1px solid var(--line)}
+#shell table.lb tr.me td{color:var(--gold)}
+
+/* ── heat grid (wins by seat × round) ─────────────────────────────────── */
+#shell .heat{display:grid; grid-template-columns:auto repeat(4,1fr); gap:3px; margin-top:6px; font-size:11px}
+#shell .heat .hl{color:var(--dim); display:flex; align-items:center; justify-content:center; padding:2px}
+#shell .heat .cell{height:26px; border-radius:4px; display:flex; align-items:center; justify-content:center; color:var(--ink)}
+
+/* ── DM thread bubbles ─────────────────────────────────────────────────── */
+#shell .thread{display:flex; flex-direction:column; gap:8px}
+#shell .bub{max-width:78%; padding:8px 12px; border-radius:14px; background:var(--panel2); display:flex; flex-direction:column; gap:2px}
+#shell .bub small{color:var(--dim); font-size:10px}
+#shell .bub.me{align-self:flex-end; background:var(--accent-soft)}
+#shell .bub.them{align-self:flex-start}
+#shell .bub.sys{align-self:center; max-width:100%; flex-direction:row; align-items:center; gap:10px; background:var(--accent-soft); font-size:12px}
+
+/* ── messages list ─────────────────────────────────────────────────────── */
+#shell .msg{padding:8px 0; border-bottom:1px solid var(--line); align-items:flex-start}
+#shell .msg:last-child{border:0}
+#shell .msg.unread b{color:var(--gold)}
+
+/* ── list rows (Account / Game settings) ──────────────────────────────── */
+#shell .listrow{padding:9px 0; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:10px}
+#shell .listrow:last-child{border:0}
+#shell .listrow > span:first-child{flex:1}
+#shell .listrow b{margin-left:auto; font-weight:600}
+#shell .listrow select,#shell .listrow input[type=range]{font:inherit}
+#shell .switch{position:relative; width:38px; height:22px; border-radius:11px; background:var(--line); border:0; cursor:pointer; flex:0 0 auto}
+#shell .switch::after{content:""; position:absolute; top:2px; left:2px; width:18px; height:18px; border-radius:50%; background:#fff; transition:transform .15s}
+#shell .switch.on{background:var(--green)}
+#shell .switch.on::after{transform:translateX(16px)}
+
+/* ── bottom nav ────────────────────────────────────────────────────────── */
+#shell .nav{position:absolute; left:0; right:0; bottom:0; display:flex; background:var(--panel); border-top:1px solid var(--line); padding:8px 6px calc(8px + env(safe-area-inset-bottom)); z-index:2}
+#shell .nav button{flex:1; font:inherit; font-size:11px; background:none; border:0; color:var(--dim); display:flex; flex-direction:column; align-items:center; gap:3px; cursor:pointer}
+#shell .nav button span.i{display:block; height:22px}
+#shell .nav button.on{color:var(--ink); font-weight:600}
+#shell .nav button[data-k="home"].on{color:var(--ink)}
+#shell .nav button[data-k="rooms"].on{color:#1a8b3a}
+#shell .nav button[data-k="friends"].on{color:#1845a5}
+#shell .nav button[data-k="stats"].on{color:#7a5a12}
+@media (prefers-color-scheme: dark){ #shell:not(.theme-light) .nav button[data-k="home"].on{color:#e0d5c8} }
+#shell.theme-dark .nav button[data-k="home"].on{color:#e0d5c8}
+
+/* ── desktop (≥1100px): two/three column dashboards, top nav row ───────── */
+@media (min-width:1100px){
+  #shell .view{padding:20px 28px 28px; max-width:1320px; margin:0 auto; width:100%}
+  #shell .nav{position:static; background:none; border:0; justify-content:flex-start; gap:14px; padding:0 0 16px; width:auto}
+  #shell .nav button{flex:0 0 auto; flex-direction:row; font-size:13px; gap:6px}
+  #shell .cols{display:grid; grid-template-columns:1.4fr 1fr; gap:20px}
+  #shell .dash{display:grid; grid-template-columns:repeat(3,1fr); gap:18px 22px; align-items:start}
+  #shell .dash > .cell{min-width:0}
+  #shell .dash .span3{grid-column:1 / -1}
+  #shell .dash .stats .tiles{grid-template-columns:repeat(8,1fr)}
+}
