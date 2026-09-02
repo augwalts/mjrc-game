@@ -44,7 +44,7 @@
 import { connectToMatch, playtestHooks, liveSocket } from "./table.js";
 import { createTable, joinTable, type MatchFormat, type SeatSpec, type TableSpeed } from "./net.js";
 import type { Router } from "./shell/router.js";
-import { ensurePresenceHeartbeat, setIdentity } from "./shell/session.js";
+import { applyTheme, ensurePresenceHeartbeat, setIdentity, type ThemeChoice } from "./shell/session.js";
 
 export type PlaytestRole = "a" | "b";
 
@@ -188,6 +188,38 @@ function onEvents(events: readonly { type: string; seq: number }[]): void {
   }
 }
 
+/** Scroll `box` to `to` over ~700ms, stepped by hand.
+ *
+ *  Two things that do not work here, both measured rather than guessed:
+ *  `scrollTo({ behavior: "smooth" })` is a silent no-op in these panes, and
+ *  `requestAnimationFrame` never fires at all while the harness's own tab is
+ *  in the background — either way the scroll simply does not happen, with no
+ *  error to notice. `setTimeout` is only THROTTLED when hidden (to about a
+ *  second), so it still finishes: smooth when you are watching, a couple of
+ *  jumps when you are not, and never nothing. */
+function glideScroll(box: Element, to: number, ms = 700): Promise<void> {
+  const from = box.scrollTop;
+  if (Math.abs(to - from) < 2) return Promise.resolve();
+  const t0 = Date.now();
+  return new Promise((done) => {
+    const step = (): void => {
+      const k = Math.min(1, (Date.now() - t0) / ms);
+      box.scrollTop = from + (to - from) * (1 - Math.pow(1 - k, 3));
+      if (k < 1) setTimeout(step, 16); else done();
+    };
+    step();
+  });
+}
+
+/** The nearest element at or above `el` that actually scrolls. */
+function scrollableFrom(el: HTMLElement | null): Element | null {
+  for (let n: HTMLElement | null = el; n; n = n.parentElement) {
+    const oy = getComputedStyle(n).overflowY;
+    if ((oy === "auto" || oy === "scroll") && n.scrollHeight > n.clientHeight + 4) return n;
+  }
+  return null;
+}
+
 /* ── identity without touching storage — see rule 3 in the header ─────── */
 async function playtestIdentify(r: PlaytestRole): Promise<void> {
   const res = await fetch("/api/identity", {
@@ -255,6 +287,16 @@ async function handle(m: ToPane, ctx: PlaytestContext, router: Router): Promise<
         ctx.showTable();
         break;
 
+      /** The shell's paper/dark palette. `session.ts`'s own `setThemeChoice`
+       *  would persist it, and this pane never writes storage (rule 3), so
+       *  call the pure half — `applyTheme` only toggles the two classes
+       *  `shell/theme.css` keys off. The harness sets this on every pane at
+       *  start, so what you are looking at does not depend on what the OS
+       *  happens to have `prefers-color-scheme` set to today. */
+      case "theme":
+        applyTheme(document.getElementById("shell")!, m.choice as ThemeChoice);
+        break;
+
       /** A generic "press this" — the harness's escape hatch for showing a
        *  panel that only a real button opens (the New table modal, the
        *  in-match settings sheet, the chat overlay). Keeping it generic is
@@ -263,6 +305,25 @@ async function handle(m: ToPane, ctx: PlaytestContext, router: Router): Promise<
         const el = document.querySelector<HTMLElement>(String(m.selector));
         if (el) el.click();
         else emit("miss", { selector: m.selector });
+        break;
+      }
+
+      /** Scroll a stop into the part of itself you cannot see. On a 393px
+       *  pane most screens overflow — the New table modal's seat plan is
+       *  1770px of panel in an 852px window — so without this the reel
+       *  shows the top of everything and the bottom of nothing.
+       *
+       *  `selector` names the interesting element, not necessarily the
+       *  scrolling one: the New table panel itself has `overflow: visible`
+       *  and it is `#veil` around it that scrolls. So resolve upward to
+       *  whatever actually has the overflow, and fall back to the document. */
+      case "scroll": {
+        const sel = String(m.selector ?? "");
+        const el = sel ? document.querySelector<HTMLElement>(sel) : null;
+        const box = scrollableFrom(el) ?? document.scrollingElement;
+        if (!box) { emit("miss", { selector: sel }); break; }
+        const to = m.to === "top" ? 0 : box.scrollHeight - box.clientHeight;
+        void glideScroll(box, to);
         break;
       }
 

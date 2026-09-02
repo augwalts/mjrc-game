@@ -28,6 +28,9 @@
     click   a CSS selector to press in both panes, after the page paints
     then    a second selector, pressed shortly after `click`
     hold    how long to sit there (ms) — a freeze suspends this
+    scroll  a selector to scroll to the bottom and back, holding at each —
+            most screens overflow a 393px pane, and this is the only way
+            the reel ever sees below the fold
     close   (INTERLUDE only) the selector that shuts the panel again
     do      "match" — the one stop that plays a whole game
 
@@ -138,6 +141,17 @@ button.stop{background:rgba(208,104,92,.2);border-color:var(--red);color:#f0a99f
     <label class="chk" title="a freeze pauses the table for real, and the pause screen covers the board — this hides that screen so you can see what you froze"><input type="checkbox" id="chkPeek" checked> peek</label>
   </div>
   <div class="grp">
+    <label>theme</label>
+    <select id="selTheme">
+      <option value="light" selected>paper</option>
+      <option value="dark">dark</option>
+      <option value="system">system</option>
+    </select>
+  </div>
+  <div class="grp">
+    <button id="btnReload" title="rebuild first, then press this — the panes reload with the new bundle">↻ panes</button>
+  </div>
+  <div class="grp">
     <label>zoom</label>
     <select id="selZoom">
       <option value="fit" selected>fit</option>
@@ -213,7 +227,12 @@ function buildPanes() {
   for (const [role, p] of Object.entries(PANES)) {
     p.el.innerHTML = "";
     const f = document.createElement("iframe");
-    f.src = `/?playtest=${role}`;
+    // Cache-busted on every build: `↻ panes` is the button you press after
+    // `./gamepvp/build.sh`, and it has to be able to promise you are looking
+    // at the code you just wrote. (index.html already appends its own
+    // `?v=Date.now()` to the scripts, but only when the DOCUMENT is
+    // re-fetched — a restored iframe re-runs nothing.)
+    f.src = `/?playtest=${role}&t=${Date.now()}`;
     // Sized in CSS pixels and then scaled — never resized. See the comment
     // above PANES: the layout viewport must stay at 393 / 1280 or you are
     // looking at a different breakpoint than the one you meant to check.
@@ -284,7 +303,8 @@ window.addEventListener("message", (e) => {
       log("sys", `⏸ frozen on ${m.what} — look, then thaw`);
     }
   }
-  else if (m.t !== "ready" && m.t !== "trapset") log("sys", `${m.role} · ${m.t}${m.code ? " " + m.code : ""}`);
+  else if (m.t === "ready") send(m.role, "theme", { choice: document.getElementById("selTheme").value });
+  else if (m.t !== "trapset") log("sys", `${m.role} · ${m.t}${m.code ? " " + m.code : ""}`);
 
   for (let i = waiters.length - 1; i >= 0; i--) {
     const w = waiters[i];
@@ -331,12 +351,12 @@ const REEL = [
   { name: "Home",           route: "/",             hold: 4000 },
   { name: "Rooms",          route: "/rooms",        hold: 3500 },
   { name: "Friends",        route: "/friends",      hold: 3500 },
-  { name: "Stats",          route: "/stats",        hold: 5000 },
+  { name: "Stats",          route: "/stats",        hold: 5000, scroll: ".view" },
   { name: "Messages",       route: "/messages",     hold: 3000 },
   { name: "Profile",        route: "/me",           hold: 3000 },
   { name: "Account",        route: "/me/account",   hold: 3000 },
   { name: "Game settings",  route: "/me/settings",  hold: 4000 },
-  { name: "New table modal", route: "/", click: "#ctaPlay", hold: 6000 },
+  { name: "New table modal", route: "/", click: "#ctaPlay", hold: 5000, scroll: "#panel" },
   { name: "Join by code",   click: "#mBack", then: "#ctaJoin", hold: 3500 },
   { name: "The match",      do: "match" },
 ];
@@ -481,6 +501,15 @@ async function runReel() {
         if (stop.click) both("click", { selector: stop.click });
         if (stop.then) { await sleep(600); both("click", { selector: stop.then }); }
         await hold(stop.hold ?? 3000);
+        // A stop with `scroll` is shown twice: the top, then the bottom.
+        // On a 393px pane most screens overflow, so without this the reel
+        // shows the top of everything and the bottom of nothing.
+        if (stop.scroll) {
+          both("scroll", { selector: stop.scroll, to: "end" });
+          await hold(stop.hold ?? 3000);
+          both("scroll", { selector: stop.scroll, to: "top" });
+          await hold(900);
+        }
       }
       if (!stopRequested && looping) { both("route", { path: "/" }); await hold(1500); }
     } while (looping && !stopRequested);
@@ -529,6 +558,12 @@ document.getElementById("chkPeek").onchange = (e) => { if (frozen) setPeek(e.cur
 document.getElementById("selDelay").onchange = (e) =>
   both("tune", { answerDelayMs: Number(e.currentTarget.value) });
 document.getElementById("selZoom").onchange = (e) => { zoomChoice = e.currentTarget.value; layoutPanes(); };
+document.getElementById("selTheme").onchange = (e) => both("theme", { choice: e.currentTarget.value });
+document.getElementById("btnReload").onclick = () => {
+  if (running) document.getElementById("btnStop").click();
+  log("sys", "↻ reloading both panes");
+  buildPanes();
+};
 
 buildPanes();
 log("sys", "panes loading — press ▶ run");
