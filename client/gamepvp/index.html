@@ -140,7 +140,7 @@ body{background:radial-gradient(ellipse at 50% 30%, #1e1b17 0%, #131110 55%, #0a
  * time", owner 2026-09-02). `cubic-bezier(.15,0,.85,.85)`: a short push off
  * the finger for about the first 15% of the 380ms, constant speed through
  * the middle, then a dead stop exactly on the slot — no separate skid. */
-#pile .tile.fresh{animation:toss var(--tossms,380ms) cubic-bezier(.15,0,.85,.85) backwards,
+#pile .tile.fresh{animation:toss var(--tossms,480ms) cubic-bezier(.2,.8,.3,1.1) backwards,
                             tossFade 120ms ease-out backwards;
                   animation-delay:var(--tossdelay,0ms), var(--tossdelay,0ms)}
 @keyframes tossFade{from{opacity:0}to{opacity:1}}

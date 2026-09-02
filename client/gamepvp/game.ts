@@ -703,7 +703,7 @@ function devPanel(): string {
  * no longer has an early "settled" plateau the old three-phase keyframe
  * did, a queued draw simply waits out the toss's FULL duration, not some
  * fraction of it. */
-const TOSS_MS = 380;
+const TOSS_MS = 480;   // one motion, ease with a tiny overshoot, minimal spin (Augustine, 2026-09-02)
 const DRAW_MS = 900;
 /** When the most recent toss started (`performance.now()`), so a draw that
  *  lands in the same render pass — or the very next one — queues behind it
@@ -1561,7 +1561,7 @@ function render(): void {
       for (let i = 0; i < 220; i++) {
         const c: Placed = {
           x: best.x + (jr() - 0.5) * 14, y: best.y + (jr() - 0.5) * 14,
-          rot: best.rot + (jr() - 0.5) * 22, spin: 0,
+          rot: best.rot + (jr() - 0.5) * 12, spin: 0,
         };
         if (!fits(c)) continue;
         const settled = drop(c);
@@ -1569,7 +1569,7 @@ function render(): void {
       }
     }
     d.pos = best ?? { x: boxW / 2, y: boxH / 2, rot: 0, spin: 0 };
-    d.pos.spin = jr() * 220 - 110;
+    d.pos.spin = jr() * 30 - 15;   // minimal spin in flight (Augustine, 2026-09-02)
   });
   const live = new Set(pileTiles.map((d) => d.id));
   const pid = (el: Element): number => Number((el as HTMLElement).dataset.pid);

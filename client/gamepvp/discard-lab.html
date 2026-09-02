@@ -46,19 +46,19 @@
   <button class="seat" data-seat="3">toss from W</button>
   <button id="auto" class="primary">auto (round the table)</button>
   <button id="reset">reset pile</button>
-  <label>duration <input id="dur" type="range" min="200" max="1400" step="20" value="380"><span id="durv">380 ms</span></label>
+  <label>duration <input id="dur" type="range" min="200" max="1400" step="20" value="480"><span id="durv">480 ms</span></label>
   <label>easing
     <select id="ease">
-      <option value="cubic-bezier(.15,0,.85,.85)">fling: short push, then constant speed, hard stop (proposed)</option>
+      <option value="cubic-bezier(.2,.8,.3,1.1)">ease with a tiny overshoot (chosen 2026-09-02)</option>
+      <option value="cubic-bezier(.15,0,.85,.85)">fling: short push, then constant speed, hard stop</option>
       <option value="cubic-bezier(.08,0,.92,.92)">fling, sharper push</option>
       <option value="cubic-bezier(.6,0,1,.6)">accelerate all the way (previous)</option>
       <option value="cubic-bezier(.4,0,1,.8)">accelerate, hard stop</option>
       <option value="cubic-bezier(.3,0,.9,1)">accelerate, slight settle</option>
       <option value="linear">linear</option>
-      <option value="cubic-bezier(.2,.8,.3,1.1)">current ease with overshoot (bad)</option>
     </select>
   </label>
-  <label>spin <input id="spin" type="range" min="0" max="40" step="1" value="14"><span id="spinv">14°</span></label>
+  <label>spin <input id="spin" type="range" min="0" max="40" step="1" value="5"><span id="spinv">5°</span></label>
   <label><input id="twostage" type="checkbox"> current (two-stage) for comparison</label>
   <label><input id="trails" type="checkbox" checked> show path</label>
 </div>
@@ -175,7 +175,7 @@
     autoTimer = setInterval(() => { toss(autoSeat); autoSeat = (autoSeat + 1) % 4; }, Math.max(700, Number($('dur').value) + 350));
   };
   window.addEventListener('resize', drawSlots);
-  readout.textContent = 'Proposed: fling — cubic-bezier(.15, 0, .85, .85), ~380 ms. A short push off the finger (~15% of the time), then constant speed, then it stops dead on the slot.';
+  readout.textContent = 'Chosen: one motion, cubic-bezier(.2, .8, .3, 1.1) over ~480 ms, spin about 5°. The overshoot is the ease; the fix was removing the second move.';
 })();
 </script>
 </body>
