@@ -298,6 +298,13 @@ CREATE TABLE matches (
   -- precedence — and carried into the table's TableInit verbatim.
   speed               TEXT NOT NULL DEFAULT 'normal',
 
+  -- Optional display name the creator gives the table (owner request,
+  -- 2026-09-04). Null means none — the lobby falls back to its usual
+  -- host/format label. Sanitised at the API boundary: trimmed, control
+  -- characters stripped, ≤ 40 chars; empty after trimming is stored as null,
+  -- not ''. Added by migrations/remote-2026-09-04-table-name.sql.
+  name                TEXT,
+
   -- The omniscient event log blob in R2 (server-only serializer, §5.5).
   log_key             TEXT,                  -- null until the outbox confirms the write
   log_bytes           INTEGER,               -- truncated-write detection

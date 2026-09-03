@@ -210,6 +210,9 @@ export interface CreateTableResult {
   rulesetHash: string;
   engineVersion: string;
   matchFormat: MatchFormat;
+  /** Optional display name the creator gave the table (owner request
+   *  2026-09-04) — worker/src/index.ts postTable, schema.sql matches.name. */
+  name?: string | null;
 }
 
 /** One of the four seats as the creator laid them out — PVP-LOBBY-PROPOSAL
@@ -225,6 +228,9 @@ export async function createTable(
     /** §8a-2. Optional here only so an older caller of this module still
      *  compiles; `game.ts`'s `doCreateTable()` always sends one now. */
     speed?: TableSpeed;
+    /** Optional display name (owner request 2026-09-04) — server trims,
+     *  strips control characters and rejects it past 40 chars. */
+    name?: string;
   },
 ): Promise<CreateTableResult> {
   return apiFetch("tables", { method: "POST", token, body: opts });
@@ -321,6 +327,10 @@ export interface LobbyTable {
    *  display name. The lobby screen resolves a name from `seats` instead. */
   createdBy: string;
   startedAt: number;
+  /** Optional display name the creator gave the TABLE (owner request
+   *  2026-09-04, schema.sql `matches.name`) — distinct from `createdBy`
+   *  above, which is a player id. Null/absent means no name was set. */
+  name?: string | null;
 }
 
 export interface LobbyRecentStanding {
@@ -392,6 +402,9 @@ export interface MatchListItem {
   hasLog: boolean;
   startedAt: number;
   endedAt: number | null;
+  /** Optional display name (owner request 2026-09-04, schema.sql
+   *  `matches.name`); null/absent means none was set. */
+  name?: string | null;
   seat: number | null;
   place: number | null;
   finalChips: number | null;

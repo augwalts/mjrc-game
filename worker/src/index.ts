@@ -505,6 +505,25 @@ const MAX_DISPLAY_NAME = 40;
 const DEFAULT_PAGE = 25;
 const MAX_PAGE = 100;
 
+/* ── table name ───────────────────────────────────────────────────────────
+ * Optional display name for a table (owner request 2026-09-04). schema.sql
+ * matches.name: trimmed, control characters stripped, <= 40 chars, null for
+ * none. Sanitised here rather than trusting `str()` alone — a pasted name can
+ * carry control characters `str()`'s plain trim would let through.
+ */
+const MAX_TABLE_NAME = 40;
+
+/** `undefined`/non-string/blank-after-cleanup all fold to `null` ("no name"),
+ *  matching `str()`'s "empty means absent" convention elsewhere in this file.
+ *  Length is checked by the caller so it can return `fail("bad_name", 400)`
+ *  in the same style as `postRooms`'s `name`, rather than silently truncating. */
+function cleanTableName(v: unknown): string | null {
+  if (typeof v !== "string") return null;
+  // eslint-disable-next-line no-control-regex
+  const stripped = v.replace(/[\x00-\x1f\x7f]/g, "").trim();
+  return stripped === "" ? null : stripped;
+}
+
 /* ── avatar ───────────────────────────────────────────────────────────────
  * Profile pictures (owner request 2026-09-03). schema.sql players.avatar: a
  * JPEG data URI, <= 12 KB, or null for the letter-avatar fallback. The client
@@ -591,6 +610,7 @@ function matchListView(r: MatchListRow) {
     hasLog: r.log_key !== null,
     startedAt: r.started_at,
     endedAt: r.ended_at,
+    name: r.name,
     seat: r.seat,
     place: r.place,
     finalChips: r.final_chips,
@@ -620,6 +640,7 @@ function matchView(r: MatchRow) {
     startedAt: r.started_at,
     endedAt: r.ended_at,
     speed: r.speed,
+    name: r.name,
   };
 }
 
@@ -1124,6 +1145,9 @@ async function postTable(req: Request, p: Platform, player: PlayerRow): Promise<
 
   const speed = resolveSpeed(body.speed, roomGame?.speed, seatPlan);
 
+  const name = cleanTableName(body.name);
+  if (name !== null && name.length > MAX_TABLE_NAME) return fail("bad_name", 400);
+
   const now = p.now();
   const hash = await rulesetHash(rules);
   await archiveRuleset(p.db, hash, rules, now);
@@ -1152,6 +1176,7 @@ async function postTable(req: Request, p: Platform, player: PlayerRow): Promise<
     randomizeSeats,
     createdBy: player.id,
     speed,
+    name,
   });
 
   if (!(await claimSeat(p.db, matchId, creatorSeat as SeatIndex, player.id))) return fail("conflict", 409);
@@ -1207,6 +1232,7 @@ async function postTable(req: Request, p: Platform, player: PlayerRow): Promise<
       access,
       roomCode: room.code,
       speed,
+      name,
     },
     201,
   );
@@ -2437,6 +2463,7 @@ async function tableViewOf(p: Platform, m: LobbyMatchRow, here: Map<string, Here
     startedAt: m.started_at,
     roomCode: m.room_code,
     speed: m.speed,
+    name: m.name,
   };
 }
 

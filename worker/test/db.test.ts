@@ -87,7 +87,7 @@ const MATCH_COLUMNS = [
   "log_schema_version", "room_code", "join_code", "rated", "bot_seats", "hand_count",
   "log_key", "log_bytes", "log_sha256", "started_at", "ended_at",
   "access", "mode", "lobby_status", "current_hand", "hands_base", "seat_plan",
-  "randomize_seats", "created_by", "speed",
+  "randomize_seats", "created_by", "speed", "name",
 ] as const;
 
 const HANDLERS = new Map<string, Handler>([
@@ -172,7 +172,7 @@ const HANDLERS = new Map<string, Handler>([
       log_sha256: null, started_at: a[11], ended_at: null,
       access: a[12], mode: a[13], lobby_status: a[14], current_hand: 0,
       hands_base: a[15], seat_plan: a[16], randomize_seats: a[17], created_by: a[18],
-      speed: a[19],
+      speed: a[19], name: a[20],
     });
     return wrote(1);
   }],
@@ -287,7 +287,7 @@ const HANDLERS = new Map<string, Handler>([
         .map((m) => pick(m, [
           "id", "match_format", "ruleset_id", "access", "mode", "lobby_status",
           "current_hand", "hands_base", "seat_plan", "bot_seats", "created_by",
-          "started_at", "join_code", "room_code", "speed",
+          "started_at", "join_code", "room_code", "speed", "name",
         ])),
     )],
 
@@ -300,7 +300,7 @@ const HANDLERS = new Map<string, Handler>([
         .map((m) => pick(m, [
           "id", "match_format", "ruleset_id", "access", "mode", "lobby_status",
           "current_hand", "hands_base", "seat_plan", "bot_seats", "created_by",
-          "started_at", "join_code", "room_code", "speed",
+          "started_at", "join_code", "room_code", "speed", "name",
         ])),
     )],
 
@@ -787,7 +787,7 @@ function matchPage(s: Store, playerId: SqlValue, before: string | null, limit: n
     .slice(0, limit)
     .map((j) => ({
       ...pick(j.m, ["id", "status", "match_format", "ruleset_id", "rated", "bot_seats",
-        "hand_count", "room_code", "join_code", "log_key", "started_at", "ended_at"]),
+        "hand_count", "room_code", "join_code", "log_key", "started_at", "ended_at", "name"]),
       ...pick(j.mp, ["seat", "place", "final_chips", "faan_won", "rating_before", "rating_after"]),
     }));
 }

@@ -287,6 +287,8 @@ export interface MatchListRow {
   log_key: string | null;
   started_at: string;
   ended_at: string | null;
+  /** Optional display name (owner request 2026-09-04); null means none. */
+  name: string | null;
   /** The caller's own seat, carried along so the list screen needs one query. */
   seat: number;
   place: number | null;
@@ -325,6 +327,8 @@ export interface MatchRow {
   /** §8a-2's clock speed, fixed at creation (`postTable`'s default rule, or a
    *  room's `settings.game.speed`) and carried into the table's `TableInit`. */
   speed: string;
+  /** Optional display name (owner request 2026-09-04); null means none. */
+  name: string | null;
 }
 
 /** Just enough of a match to decide whether its log may be served, and where
@@ -441,15 +445,15 @@ export const SQL = Object.freeze({
     INSERT INTO matches
       (id, status, match_format, ruleset_hash, ruleset_id, engine_version,
        log_schema_version, room_code, join_code, rated, bot_seats, started_at,
-       access, mode, lobby_status, hands_base, seat_plan, randomize_seats, created_by, speed)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       access, mode, lobby_status, hands_base, seat_plan, randomize_seats, created_by, speed, name)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 
   matchById: `
     SELECT id, status, match_format, ruleset_hash, ruleset_id, engine_version,
            log_schema_version, room_code, join_code, rated, bot_seats,
            hand_count, log_key, log_bytes, log_sha256, started_at, ended_at,
            access, mode, lobby_status, current_hand, hands_base, seat_plan,
-           randomize_seats, created_by, speed
+           randomize_seats, created_by, speed, name
       FROM matches
      WHERE id = ?`,
 
@@ -472,14 +476,14 @@ export const SQL = Object.freeze({
            log_schema_version, room_code, join_code, rated, bot_seats,
            hand_count, log_key, log_bytes, log_sha256, started_at, ended_at,
            access, mode, lobby_status, current_hand, hands_base, seat_plan,
-           randomize_seats, created_by, speed
+           randomize_seats, created_by, speed, name
       FROM matches
      WHERE status = 'running' AND join_code = ?`,
 
   /* "My matches", newest first — idx_match_players_player then PK lookups. */
   matchesForPlayer: `
     SELECT m.id, m.status, m.match_format, m.ruleset_id, m.rated, m.bot_seats,
-           m.hand_count, m.room_code, m.join_code, m.log_key, m.started_at, m.ended_at,
+           m.hand_count, m.room_code, m.join_code, m.log_key, m.started_at, m.ended_at, m.name,
            mp.seat, mp.place, mp.final_chips, mp.faan_won, mp.rating_before, mp.rating_after
       FROM match_players mp
       JOIN matches m ON m.id = mp.match_id
@@ -491,7 +495,7 @@ export const SQL = Object.freeze({
    * spliced into the one above — see rule 1 at the top of this file. */
   matchesForPlayerBefore: `
     SELECT m.id, m.status, m.match_format, m.ruleset_id, m.rated, m.bot_seats,
-           m.hand_count, m.room_code, m.join_code, m.log_key, m.started_at, m.ended_at,
+           m.hand_count, m.room_code, m.join_code, m.log_key, m.started_at, m.ended_at, m.name,
            mp.seat, mp.place, mp.final_chips, mp.faan_won, mp.rating_before, mp.rating_after
       FROM match_players mp
       JOIN matches m ON m.id = mp.match_id
@@ -587,7 +591,7 @@ export const SQL = Object.freeze({
   matchesWaitingOrPlaying: `
     SELECT id, match_format, ruleset_id, access, mode, lobby_status,
            current_hand, hands_base, seat_plan, bot_seats, created_by,
-           started_at, join_code, room_code, speed
+           started_at, join_code, room_code, speed, name
       FROM matches
      WHERE lobby_status IN ('waiting', 'playing')
      ORDER BY started_at DESC
@@ -599,7 +603,7 @@ export const SQL = Object.freeze({
   matchesWaitingOrPlayingInRoom: `
     SELECT id, match_format, ruleset_id, access, mode, lobby_status,
            current_hand, hands_base, seat_plan, bot_seats, created_by,
-           started_at, join_code, room_code, speed
+           started_at, join_code, room_code, speed, name
       FROM matches
      WHERE lobby_status IN ('waiting', 'playing') AND room_code = ?
      ORDER BY started_at DESC
@@ -1154,6 +1158,10 @@ export interface NewMatch {
   createdBy: string;
   /** §8a-2's clock speed, resolved by `postTable` before the row is written. */
   speed: Speed;
+  /** Optional display name (owner request 2026-09-04), already sanitised by
+   *  `postTable` — trimmed, control characters stripped, ≤ 40 chars. Null
+   *  means none. */
+  name: string | null;
 }
 
 export async function insertMatch(db: D1Like, m: NewMatch): Promise<void> {
@@ -1182,6 +1190,7 @@ export async function insertMatch(db: D1Like, m: NewMatch): Promise<void> {
       m.randomizeSeats ? 1 : 0,
       m.createdBy,
       m.speed,
+      m.name,
     )
     .run();
 }
@@ -1386,6 +1395,8 @@ export interface LobbyMatchRow {
   room_code: string | null;
   /** §8a-2's clock speed — the lobby's table entries show it directly. */
   speed: string;
+  /** Optional display name (owner request 2026-09-04); null means none. */
+  name: string | null;
 }
 
 /** Every table still looking for humans or still playing, newest first,

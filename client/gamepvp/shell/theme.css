@@ -283,3 +283,84 @@
 #shell .me .name{gap:6px}
 #shell table.lb td.lbname{display:flex; align-items:center; gap:8px}
 #shell table.lb td.lbname .avatar{width:22px; height:22px; font-size:10px}
+
+/* ── New table modal (shell/pages/newtable.ts; design: newtable-lab.html) ──
+ * Three groups, blue as the one config colour, Chinese paired with English,
+ * basic/advanced split, the Almanac-style rules summary + payout band. */
+#shell .shellpanel.nt-panel{padding:0; max-width:920px; overflow:hidden; display:flex; flex-direction:column; max-height:calc(100vh - 32px)}
+#shell .nt{display:flex; flex-direction:column; min-height:0; max-height:calc(100vh - 34px); --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace}
+#shell .nt-head{display:flex; align-items:center; gap:12px; padding:14px 18px 10px; border-bottom:1px solid var(--line); flex:0 0 auto}
+#shell .nt-head h1{font-size:18px; margin:0; padding:0; white-space:nowrap}
+#shell .nt-head .mclose{position:static; margin-left:auto}
+#shell .nt-sum{color:var(--dim); font-size:12px; flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-family:var(--mono)}
+#shell .nt-body{padding:6px 18px 12px; overflow:auto; flex:1 1 auto; min-height:0}
+#shell .nt-h{font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:var(--dim); margin:14px 0 4px; font-weight:600; font-family:var(--mono)}
+#shell .nt-h span{letter-spacing:.06em}
+#shell .nt-row{display:grid; grid-template-columns:104px 1fr; align-items:center; gap:10px; min-height:40px; padding:3px 0}
+#shell .nt-lbl{font-size:13px; color:var(--ink)} #shell .nt-lbl span{color:var(--dim); font-size:12px}
+#shell .nt-cap{grid-column:2; color:var(--dim); font-size:11.5px; margin:-2px 0 4px; line-height:1.35}
+#shell .nt-row.nt-switch{grid-template-columns:1fr auto}
+#shell .nt:not(.showadv) .nt-adv{display:none}
+#shell .nt-txt,#shell .nt-sel{font:inherit; padding:7px 10px; border-radius:9px; border:1px solid var(--line); background:var(--panel); color:var(--ink); width:100%; min-width:0}
+#shell .nt-txt::placeholder{color:var(--dim)}
+#shell .nt-seg{display:flex; gap:6px}
+#shell .nt-seg button{flex:1; font:inherit; font-size:13px; padding:7px 8px; border-radius:9px; border:1px solid var(--line); background:none; color:var(--dim); cursor:pointer; white-space:nowrap; line-height:1.2; min-width:0}
+#shell .nt-seg button b{font-weight:600; color:inherit}
+#shell .nt-seg button small{display:block; font-size:10.5px; color:var(--dim); font-weight:400; margin-top:1px; white-space:normal}
+#shell .nt-seg button:hover{border-color:var(--blue); color:var(--ink)}
+#shell .nt-seg button.on{background:var(--blue); border-color:var(--blue); color:#fff}
+#shell .nt-seg button.on small{color:#fff; opacity:.8}
+#shell .nt-seg button:disabled{opacity:.5; cursor:default} #shell .nt-seg button:disabled:hover{border-color:var(--line); color:var(--dim)}
+#shell .nt-seg button.on:disabled{opacity:.7}
+#shell .nt-sw{width:40px; height:24px; border-radius:12px; background:var(--panel2); border:1px solid var(--line); position:relative; cursor:pointer; justify-self:end; flex:0 0 auto; padding:0}
+#shell .nt-sw::after{content:""; position:absolute; top:2px; left:2px; width:18px; height:18px; border-radius:9px; background:var(--dim); transition:left .12s,background .12s}
+#shell .nt-sw.on{background:var(--blue); border-color:var(--blue)} #shell .nt-sw.on::after{left:18px; background:#fff}
+#shell .nt-sw:disabled{opacity:.6; cursor:default}
+#shell .nt-rsum{display:flex; align-items:center; justify-content:space-between; gap:8px; min-height:40px; padding:8px 12px; border:1px solid var(--line); border-radius:9px; background:var(--panel); cursor:pointer; font:inherit; color:var(--ink); text-align:left; width:100%; margin:2px 0 6px}
+#shell .nt-rsum .s{font-family:var(--mono); font-size:12px; color:var(--ink)}
+#shell .nt-rsum .l{font-family:var(--mono); font-size:12px; color:var(--blue); text-decoration:underline; text-underline-offset:2px; white-space:nowrap}
+#shell .nt-band{grid-column:1 / -1; display:flex; flex-direction:column; gap:8px; margin-top:10px; padding-top:12px; border-top:1px solid var(--line)}
+#shell .nt-band[hidden]{display:none}
+#shell .nt-paywrap{display:grid; grid-template-columns:1fr; gap:10px}
+#shell .nt-curve{border:1px solid var(--line); border-radius:8px; padding:8px 10px 4px; background:var(--bg)}
+#shell .nt-curve .t{font-family:var(--mono); font-size:10px; letter-spacing:.06em; text-transform:uppercase; color:var(--dim); display:flex; justify-content:space-between; gap:8px; white-space:nowrap}
+#shell .nt-curve svg{width:100%; height:120px; display:block; overflow:visible}
+#shell .nt-paytable{border:1px solid var(--line); border-radius:8px; display:grid; grid-template-columns:56px 1fr 1fr; overflow:hidden; font-family:var(--mono); font-size:12px}
+#shell .nt-paytable > span{padding:6px 10px; border-bottom:1px solid var(--line); display:flex; align-items:center}
+#shell .nt-paytable > span:nth-last-child(-n+3){border-bottom:0}
+#shell .nt-paytable .h{font-size:10px; letter-spacing:.08em; text-transform:uppercase; color:var(--dim); background:var(--panel)}
+#shell .nt-paytable .v{justify-content:flex-end; font-variant-numeric:tabular-nums}
+#shell .nt-paytable .f{color:var(--dim)} #shell .nt-paytable .capf{color:var(--blue)}
+#shell .nt-ptsub{font-family:var(--mono); font-size:10px; color:var(--dim); line-height:1.5} #shell .nt-ptsub a{color:var(--blue)}
+#shell .nt-seats{display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:4px}
+#shell .nt-seat{border:1px solid var(--line); border-radius:12px; padding:8px 10px; display:flex; flex-direction:column; gap:6px; background:var(--panel)}
+#shell .nt-seat .w{display:flex; align-items:center; gap:8px; min-width:0}
+#shell .nt-seat .w[role=button]{cursor:pointer}
+#shell .nt-seat .w b{font-size:16px; color:var(--blue)} #shell .nt-seat.you .w b{color:var(--ink)}
+#shell .nt-seat .w span{font-size:12.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+#shell .nt-seat .w .tag{margin-left:auto; font-size:10px; letter-spacing:.08em; text-transform:uppercase; color:var(--dim); font-family:var(--mono); flex:0 0 auto}
+#shell .nt-seat .nt-seg button{padding:5px 6px; font-size:12px}
+#shell .nt-bot,#shell .nt-speed{display:flex; flex-direction:column; gap:2px}
+#shell .nt-speed{padding:4px 0}
+#shell .nt-bot input[type=range],#shell .nt-speed input[type=range]{width:100%; accent-color:var(--blue); margin:4px 0 0}
+#shell .nt-bot .ends,#shell .nt-speed .ends{display:flex; justify-content:space-between; font-size:10px; color:var(--dim); letter-spacing:.04em; text-transform:uppercase; font-family:var(--mono)}
+#shell .nt-bot .who,#shell .nt-speed .who{font-size:12px; margin-top:2px} #shell .nt-bot .who b,#shell .nt-speed .who b{font-weight:600} #shell .nt-bot .who span,#shell .nt-speed .who span{color:var(--dim)}
+#shell .nt-seatsum{color:var(--dim); font-size:12px; margin:8px 0 0}
+#shell .nt-foot{padding:10px 18px 14px; border-top:1px solid var(--line); display:flex; align-items:center; gap:12px; background:var(--bg); flex:0 0 auto}
+#shell .nt-advtog{font-size:12px; color:var(--blue); text-decoration:none; white-space:nowrap; font-family:var(--mono)}
+#shell .nt-hint{color:var(--dim); font-size:12px; flex:1}
+#shell .nt-foot .primary{margin:0; width:auto; font-size:15px; padding:11px 22px}
+#shell .nt-err{margin:0; padding:0 18px 10px} #shell .nt-err:empty{display:none}
+@media (max-width:640px){
+  #shell .nt-row{grid-template-columns:92px 1fr}
+  #shell .nt-hint{display:none}
+  #shell .nt-foot .primary{flex:1}
+  #shell .nt-speed .ends span:nth-child(2),#shell .nt-speed .ends span:nth-child(4){visibility:hidden}
+  #shell .shellveil{padding:8px}
+  #shell .shellpanel.nt-panel{max-height:calc(100vh - 16px)} #shell .nt{max-height:calc(100vh - 18px)}
+}
+@media (min-width:900px){
+  #shell .nt-body{display:grid; grid-template-columns:1fr 1.15fr; gap:6px 28px; align-content:start}
+  #shell .nt-paywrap{grid-template-columns:1.4fr 1fr; align-items:start}
+  #shell .nt-curve svg{height:170px}
+}
