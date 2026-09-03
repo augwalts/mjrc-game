@@ -44,7 +44,23 @@ body{background:var(--c-bg);
    pills (no emoji) filled only when on, and quit as the one seal-red pill —
    with a real tap target: 36px tall, the old one was 24. */
 #hud{display:flex;align-items:center;gap:8px;padding:7px 10px;font-size:12px;color:var(--c-dim);
-  background:var(--c-panel);border-bottom:1px solid var(--c-line);flex:0 0 auto;min-height:50px}
+  background:var(--c-panel);border-bottom:1px solid var(--c-line);flex:0 0 auto;min-height:50px;
+  /* ABOVE EVERYTHING — the veil (40), the chat overlay (13), flying tiles —
+     so nothing ever paints over the gear (owner, 2026-09-03). */
+  position:relative;z-index:70}
+#hud .gear{width:40px;height:40px;padding:0;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  color:var(--c-ink);border:1px solid var(--c-line);background:none;cursor:pointer;flex:0 0 auto}
+#hud .gear:hover,#hud .gear[aria-expanded="true"]{border-color:var(--c-ink);background:var(--c-panel2)}
+/* the dropdown: a small panel under the gear, one text row per action */
+#hudMenu{position:absolute;right:10px;top:calc(100% + 6px);z-index:71;min-width:180px;
+  background:var(--c-bg);border:1px solid var(--c-line);border-radius:12px;padding:6px;
+  box-shadow:0 14px 40px rgba(0,0,0,.28);display:flex;flex-direction:column;gap:2px}
+#hudMenu[hidden]{display:none}
+#hudMenu button{width:100%;text-align:left;border:0;border-radius:8px;padding:11px 12px;min-height:42px;font-size:14px;
+  color:var(--c-ink);background:none}
+#hudMenu button:hover{background:var(--c-panel2);border-color:transparent}
+#hudMenu button.on{background:var(--c-panel2);color:var(--c-ink);border-color:transparent;font-weight:600}
+#hudMenu #btnQuit{color:var(--c-danger);border-top:1px solid var(--c-line);border-radius:0 0 8px 8px;margin-top:2px;padding-top:12px;font-weight:600}
 #hud b{color:var(--c-ink)}
 #hud .spacer{flex:1}
 #hud .tt{font-family:var(--mono);font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--c-dim);
@@ -57,7 +73,6 @@ body{background:var(--c-bg);
   background:none;color:var(--c-dim);cursor:pointer;white-space:nowrap}
 #hud button:hover{color:var(--c-ink);border-color:var(--c-dim)}
 #hud button.on{background:none;color:var(--c-ink);border-color:var(--c-ink)}
-#hud #btnQuit{border-color:var(--c-danger);color:var(--c-danger);padding:7px 18px;font-weight:600}
 #hud #btnQuit:hover{background:color-mix(in srgb, var(--c-danger) 12%, transparent)}
 .panel textarea{width:100%;min-height:110px;padding:10px 12px;font:14px/1.45 inherit;
   border-radius:9px;background:rgba(255,255,255,.07);color:var(--ink);
@@ -1046,10 +1061,18 @@ body.devmode #mine{padding-top:2px}
   <span id="netStatus" class="netchip"></span>
   <span class="spacer"></span>
   <span id="hudNote" class="mut"></span>
-  <button id="btnPause" style="display:none">pause</button>
-  <button id="btnAuto" style="display:none">auto</button>
-  <button id="btnSettings">settings</button>
-  <button id="btnQuit">quit</button>
+  <!-- One gear (owner, 2026-09-03: "bury pause, auto and quit under a settings
+       gear to keep it simple"). The four actions keep their ids — table.ts
+       wires them once at boot — and live in a dropdown the gear toggles
+       (wireHudMenu). The HUD sits above everything, the veil included, so
+       nothing ever paints over the gear. -->
+  <button id="btnMenu" class="gear" aria-label="menu" aria-expanded="false"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M19.4 13a7.6 7.6 0 0 0 .1-1 7.6 7.6 0 0 0-.1-1l2.1-1.6a.5.5 0 0 0 .1-.7l-2-3.4a.5.5 0 0 0-.6-.2l-2.5 1a7.3 7.3 0 0 0-1.7-1l-.4-2.6a.5.5 0 0 0-.5-.5h-4a.5.5 0 0 0-.5.4l-.4 2.7a7.3 7.3 0 0 0-1.7 1l-2.5-1a.5.5 0 0 0-.6.2l-2 3.4a.5.5 0 0 0 .1.7L4.6 11a7.6 7.6 0 0 0-.1 1 7.6 7.6 0 0 0 .1 1l-2.1 1.6a.5.5 0 0 0-.1.7l2 3.4c.1.2.4.3.6.2l2.5-1a7.3 7.3 0 0 0 1.7 1l.4 2.6c0 .3.2.5.5.5h4c.2 0 .5-.2.5-.4l.4-2.7a7.3 7.3 0 0 0 1.7-1l2.5 1c.2.1.5 0 .6-.2l2-3.4a.5.5 0 0 0-.1-.7L19.4 13zM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z"/></svg></button>
+  <div id="hudMenu" hidden>
+    <button id="btnPause" style="display:none">pause</button>
+    <button id="btnAuto" style="display:none">auto</button>
+    <button id="btnSettings">settings</button>
+    <button id="btnQuit">quit</button>
+  </div>
 </div>
 <div id="table"><div id="felt">
   <div id="state"></div>

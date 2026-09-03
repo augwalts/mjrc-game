@@ -2923,6 +2923,26 @@ function settingsScreen(back: () => void): void {
   };
 }
 
+/** The gear toggles `#hudMenu`; a tap on any row, a tap outside, or Esc
+ *  closes it. The rows are the same four buttons that always existed
+ *  (pause, auto, settings, quit) with their own wiring untouched. */
+function wireHudMenu(): void {
+  const gear = document.getElementById("btnMenu") as HTMLButtonElement | null;
+  const menu = document.getElementById("hudMenu") as HTMLElement | null;
+  if (!gear || !menu) return;
+  const setOpen = (open: boolean): void => {
+    menu.hidden = !open;
+    gear.setAttribute("aria-expanded", open ? "true" : "false");
+  };
+  gear.onclick = (e) => { e.stopPropagation(); setOpen(menu.hidden); };
+  menu.addEventListener("click", (e) => { if ((e.target as HTMLElement).closest("button")) setOpen(false); });
+  document.addEventListener("pointerdown", (e) => {
+    if (menu.hidden) return;
+    if (!(e.target as HTMLElement).closest("#hud")) setOpen(false);
+  });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !menu.hidden) setOpen(false); });
+}
+
 /** "Leave the table?" as the app's own dialog on `#veil/#panel`, not
  *  `window.confirm()` — Safari's system sheet on iPad, and suppressed
  *  outright in some standalone contexts, so a guest saw "quit just
@@ -3022,6 +3042,7 @@ export function initTableChrome(): void {
       leaveTable();
     }
   };
+  wireHudMenu();
   saveSettings();
   wireHover();
   // Build item 4: delegated on #myhand, which is static furniture (only its
