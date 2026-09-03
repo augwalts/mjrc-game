@@ -1911,6 +1911,7 @@ function leaveTable(): void {
   document.body.classList.remove("claimwindow");
   $("say").className = "";
   stopClock();
+  matchClockBase = null; paintHudClock();
   updateChatVisibility();
   updateHudButtons();
   hostHooks.leaveToShell();
@@ -2500,6 +2501,7 @@ function updateChatBadge(): void {
  *  on desktop now (task item 1: chat is an overlay everywhere, not a
  *  permanently-pinned sidebar on desktop any more). */
 function setChatOpen(open: boolean): void {
+  document.getElementById("chatBtn")?.classList.toggle("open", open);
   chatOpen = open;
   const overlay = document.getElementById("chatOverlay");
   if (overlay) overlay.style.display = open && currentMatchUuid !== null ? "flex" : "none";
@@ -2554,6 +2556,7 @@ function paintHudTitle(): void {
   if (snap) parts.push(`${["東", "南", "西", "北"][snap.roundWind] ?? ""}圈`);
   if (currentSpeed) parts.push(String(currentSpeed));
   el.textContent = parts.join(" · ");
+  paintHudClock();
 }
 function updateHudButtons(): void {
   const show = currentMatchUuid !== null;
@@ -2923,6 +2926,23 @@ function settingsScreen(back: () => void): void {
   };
 }
 
+/* ── the game clock (owner, 2026-09-03) ──────────────────────────────
+ * Elapsed since the first deal, mm:ss (h:mm:ss past an hour), in the HUD.
+ * Base: `starting.startsAt` when the table announced one, else the moment
+ * this client first saw a snapshot — a reconnect mid-match therefore reads
+ * a little low, which is the honest answer for a clock nobody keeps. */
+let matchClockBase: number | null = null;
+function paintHudClock(): void {
+  const el = document.getElementById("hudClock");
+  if (!el) return;
+  if (currentMatchUuid === null || !snap) { el.textContent = ""; return; }
+  matchClockBase ??= startingInfo?.startsAt ?? Date.now();
+  const s = Math.max(0, Math.floor((Date.now() - matchClockBase) / 1000));
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  const mm = String(m).padStart(2, "0"), ss = String(sec).padStart(2, "0");
+  el.textContent = h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+
 /** The gear toggles `#hudMenu`; a tap on any row, a tap outside, or Esc
  *  closes it. The rows are the same four buttons that always existed
  *  (pause, auto, settings, quit) with their own wiring untouched. */
@@ -3043,6 +3063,7 @@ export function initTableChrome(): void {
     }
   };
   wireHudMenu();
+  window.setInterval(paintHudClock, 1000);
   saveSettings();
   wireHover();
   // Build item 4: delegated on #myhand, which is static furniture (only its
