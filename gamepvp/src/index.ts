@@ -197,6 +197,12 @@ function tableNamespace(env: Env): TableNamespace {
         },
         async issueSeatToken(claim: SeatClaim): Promise<{ seatToken: string; expiresAt: string }> {
           const res = await post(stub, "/seat", claim);
+          if (res.status === 403) {
+            // the table refused THIS player (kicked, 2026-09-03) — not an outage
+            const err = new Error(`seat claim refused: ${await res.text()}`);
+            err.name = "SeatRefused";
+            throw err;
+          }
           if (!res.ok) throw new Error(`seat claim ${res.status}: ${await res.text()}`);
           return (await res.json()) as { seatToken: string; expiresAt: string };
         },

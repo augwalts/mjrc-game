@@ -58,7 +58,7 @@ import {
 } from "./net.js";
 import {
   $, describeError, esc, fmtChips, identity, mutedSet, wireMuteTaps,
-  SETTINGS, saveSettings, TILE_SCALE_MAX, TILE_SCALE_MIN } from "./shell/session.js";
+  SETTINGS, saveSettings, TILE_SCALE_MAX, TILE_SCALE_MIN, getThemeChoice, setThemeChoice, type ThemeChoice, type Language } from "./shell/session.js";
 /** The one addition to the "table.ts imports nothing under shell/ except
  *  session.ts" rule in the header above: `strings.ts` is a leaf (it imports
  *  session.ts and nothing else), so this adds no cycle — shell/pages → table
@@ -1593,6 +1593,8 @@ function syncVeil(): void {
   // and skipped the last hand's reveal entirely.
   if (overlay) { showOverlay(); return; }
   if (matchEndInfo) { showMatchEndScreen(); return; }
+  // The menu (menuScreen) stays up across events; closing it calls back here.
+  if (menuTab) { menuScreen(menuTab); return; }
   // The start card (task brief item 2, §8a-2) — above the waiting room: a
   // `starting` push only ever fires once every human seat is connected, so
   // by the time it lands `humansConnected()` is already true and the
@@ -2577,6 +2579,7 @@ function paintHudTitle(): void {
 function updateHudButtons(): void {
   const show = currentMatchUuid !== null;
   paintHudTitle();
+  if (menuTab === "game") queueMicrotask(() => { if (menuTab === "game") menuScreen("game"); });
   const p = document.getElementById("btnPause") as HTMLButtonElement | null;
   if (p) {
     p.style.display = show ? "" : "none";
@@ -2967,19 +2970,168 @@ function paintHudClock(): void {
  *  (pause, auto, settings, quit) with their own wiring untouched. */
 function wireHudMenu(): void {
   const gear = document.getElementById("btnMenu") as HTMLButtonElement | null;
-  const menu = document.getElementById("hudMenu") as HTMLElement | null;
-  if (!gear || !menu) return;
-  const setOpen = (open: boolean): void => {
-    menu.hidden = !open;
-    gear.setAttribute("aria-expanded", open ? "true" : "false");
+  if (!gear) return;
+  gear.onclick = () => { if (menuTab) closeMenu(); else menuScreen("game"); };
+}
+
+/* ── the menu behind the gear (owner, 2026-09-03; hud-quit-watch-lab §4) ──
+ * One modal, five tabs. Actions with a server round-trip (pause, auto) are
+ * BUTTONS that forward to the hidden `#btnPause`/`#btnAuto` so their
+ * boot-time wiring and `updateHudButtons()` labels stay the single source;
+ * preferences are toggles on `SETTINGS`; the rules tab is read-only. The
+ * footer is the same on every tab: leave (→ the confirm dialog) and done. */
+type MenuTab = "game" | "rules" | "table" | "coach" | "app";
+let menuTab: MenuTab | null = null;
+const onMenuKey = (e: KeyboardEvent): void => { if (e.key === "Escape" && menuTab) { e.preventDefault(); closeMenu(); } };
+function closeMenu(): void {
+  menuTab = null;
+  document.removeEventListener("keydown", onMenuKey);
+  document.getElementById("btnMenu")?.setAttribute("aria-expanded", "false");
+  $("panel").classList.remove("menu");
+  $("veil").style.display = "none";
+  syncVeil();
+}
+const menuSwitch = (id: string, on: boolean, label: string, hint = ""): string =>
+  `<div class="srow"><span class="lbl">${esc(label)}</span><div class="act"><button class="ghost ${on ? "on" : ""}" data-set="${id}" role="switch" aria-checked="${on}">${on ? "on" : "off"}</button></div></div>${hint ? `<p class="cap2">${esc(hint)}</p>` : ""}`;
+function menuBody(tab: MenuTab): string {
+  const hidden = (id: string): HTMLButtonElement | null => document.getElementById(id) as HTMLButtonElement | null;
+  if (tab === "game") {
+    const p = hidden("btnPause"), a = hidden("btnAuto");
+    const live = !!ts && currentMatchUuid !== null && !matchEndInfo;
+    const others = (directory ?? []).filter((d) => !d.bot && d.seat !== mySeat && d.playerId !== "");
+    return `<div class="act"><button class="ghost ${paused ? "on" : ""}" data-fwd="btnPause" ${live ? "" : "disabled"}>${esc(p?.textContent ?? "pause")} ${paused ? "" : "the table"}</button>
+        <button class="ghost ${myAuto ? "on" : ""}" data-fwd="btnAuto" ${live ? "" : "disabled"}>auto-play · ${myAuto ? "on" : "off"}</button></div>
+      <p class="cap2">${esc(t(S.menuGameHint))}</p>
+      ${isCreatorOfCurrentTable && live ? `<div class="hostblk"><p class="cap">${esc(t(S.menuHostCap))}</p>
+        <div class="srow"><span class="lbl">${esc(t(S.quitKick))}</span><div class="act">${others.map((d) => `<button class="ghost" data-kick="${d.seat}">${esc(d.displayName)}</button>`).join("") || `<span class="cap2">${esc(t(S.nothingHere))}</span>`}</div></div>
+        <p class="cap2">${esc(t(S.quitKickHint))}</p>
+        <div class="srow"><span class="lbl">${esc(t(S.quitEndAll))}</span><div class="act"><button class="ghost danger" id="quitEndAll">${esc(t(S.quitEndConfirm))}</button></div></div>
+        <p class="cap2">${esc(t(S.quitEndAllHint))}</p></div>` : ""}`;
+  }
+  if (tab === "rules") {
+    const pick = RULE_PICKS.find(([rid]) => rid === currentRulesetId);
+    const speeds = Object.keys(SPEED_INFO) as TableSpeed[];
+    const si = currentSpeed ? speeds.indexOf(currentSpeed) : -1;
+    return `<div class="rules"><b>${esc(pick?.[1] ?? currentRulesetId)}</b><p>${esc(pick?.[2] ?? "")}</p>
+      <div class="srow"><span class="lbl">${esc(t(S.menuFormat))}</span><span>${esc(matchFormatLabel(currentMatchFormat))}</span></div>
+      <div class="srow"><span class="lbl">${esc(t(S.menuSpeed))}</span><div>
+        <input type="range" min="0" max="${speeds.length - 1}" step="1" value="${Math.max(si, 0)}" disabled aria-label="${esc(t(S.menuSpeed))}">
+        <p class="cap2">${currentSpeed ? `${esc(SPEED_INFO[currentSpeed].label)} · ${esc(SPEED_INFO[currentSpeed].caption)}` : "—"} · ${esc(t(S.menuSpeedFixed))}</p></div></div>
+      ${currentRulesetId === "mjrc-standard" ? `<p><a href="https://mahjongresearch.com/scoring" target="_blank" rel="noopener" style="color:var(--c-blue)">${esc(t(S.menuScoringRef))} ›</a></p>` : ""}</div>`;
+  }
+  if (tab === "table") {
+    return `<div class="srow"><span class="lbl">${esc(t(S.tileSize))}</span><div>
+        <input type="range" id="setScale" min="${TILE_SCALE_MIN}" max="${TILE_SCALE_MAX}" step="0.05" value="${SETTINGS.tileScale}">
+        <p class="cap2"><span id="setScaleV">${Math.round(SETTINGS.tileScale * 100)}%</span> · ${esc(t(S.menuOwnHandOnly))} · <a href="#" id="setScaleReset" style="color:var(--c-dim)">reset</a></p></div></div>
+      ${menuSwitch("discardDoubleTapMobile", SETTINGS.discardDoubleTapMobile, t(S.doubleTapDiscardPhone))}
+      ${menuSwitch("discardDoubleTapDesktop", SETTINGS.discardDoubleTapDesktop, t(S.doubleTapDiscardDesktop), t(S.menuDoubleTapHint))}
+      <div class="srow"><span class="lbl">${esc(t(S.menuHandOrder))}</span><div class="act"><button class="ghost" id="menuSort" ${handOrder.length ? "" : "disabled"}>${esc(t(S.sortHand))}</button></div></div>`;
+  }
+  if (tab === "coach") {
+    return `<p class="cap2">${esc(t(S.menuCoachIntro))}</p>
+      ${menuSwitch("hcCount", SETTINGS.hcCount, t(S.menuCount), t(S.menuCountHint))}
+      ${menuSwitch("hcCalling", SETTINGS.hcCalling, t(S.menuCalling), t(S.menuCallingHint))}
+      ${menuSwitch("hcWhatIf", SETTINGS.hcWhatIf, t(S.menuWhatIf), t(S.menuWhatIfHint))}
+      ${menuSwitch("dev", SETTINGS.dev, t(S.menuDev), t(S.menuDevHint))}`;
+  }
+  const theme = getThemeChoice();
+  return `<div class="srow"><span class="lbl">${esc(t(S.menuTheme))}</span><div class="seg">${(["system", "light", "dark"] as const).map((c) =>
+      `<button data-theme="${c}" class="${theme === c ? "on" : ""}">${esc(t(c === "system" ? S.themeSystem : c === "light" ? S.themeLight : S.themeDark))}</button>`).join("")}</div></div>
+    <div class="srow"><span class="lbl">${esc(t(S.language))}</span><div class="seg"><button data-lang="en" class="${SETTINGS.language === "en" ? "on" : ""}">English</button><button data-lang="zh" class="${SETTINGS.language === "zh" ? "on" : ""}">廣東話</button></div></div>
+    ${menuSwitch("sound", SETTINGS.sound, t(S.sound))}
+    ${menuSwitch("haptics", SETTINGS.haptics, t(S.haptics))}
+    <div class="srow"><span class="lbl">${esc(t(S.menuAccount))}</span><div><a href="#" id="menuAccount" style="color:var(--c-blue)">${esc(t(S.menuAccountLink))} ›</a></div></div>`;
+}
+function menuScreen(tab: MenuTab): void {
+  beforeScreen();
+  const first = menuTab === null;
+  menuTab = tab;
+  $("veil").style.display = "flex";
+  $("panel").classList.add("modal", "menu");
+  const title = document.getElementById("hudTitle")?.textContent ?? "";
+  const clock = document.getElementById("hudClock")?.textContent ?? "";
+  $("panel").innerHTML = `
+    <div class="mhead"><h2>${esc(t(S.menuTitle))}</h2><span class="sum">${esc([title, clock].filter(Boolean).join(" · "))}</span><button class="x" id="menuClose" aria-label="close">×</button></div>
+    <div class="tabs">${(["game", "rules", "table", "coach", "app"] as MenuTab[]).map((k) =>
+      `<button class="tab ${k === tab ? "on" : ""}" data-tab="${k}">${esc(t(S[`menuTab_${k}` as keyof typeof S] as never))}</button>`).join("")}</div>
+    <div class="mbody">${menuBody(tab)}</div>
+    <div class="mfoot"><button id="menuLeave" class="ghost danger">${esc(t(S.menuLeave))}</button><span class="hint2">esc · ${esc(t(S.menuDone))}</span><button id="menuDone" class="primary">${esc(t(S.menuDone))} ▸</button></div>`;
+  if (first) document.addEventListener("keydown", onMenuKey);
+  document.getElementById("btnMenu")?.setAttribute("aria-expanded", "true");
+  const panel = $("panel");
+  for (const b of Array.from(panel.querySelectorAll<HTMLButtonElement>("[data-tab]"))) b.onclick = () => menuScreen(b.dataset.tab as MenuTab);
+  ($("menuClose") as HTMLButtonElement).onclick = closeMenu;
+  ($("menuDone") as HTMLButtonElement).onclick = closeMenu;
+  ($("menuLeave") as HTMLButtonElement).onclick = () => {
+    menuTab = null; document.removeEventListener("keydown", onMenuKey); panel.classList.remove("menu");
+    document.getElementById("btnMenu")?.setAttribute("aria-expanded", "false");
+    if (ts && currentMatchUuid && !matchEndInfo) quitScreen(() => syncVeil()); else { $("veil").style.display = "none"; leaveTable(); }
   };
-  gear.onclick = (e) => { e.stopPropagation(); setOpen(menu.hidden); };
-  menu.addEventListener("click", (e) => { if ((e.target as HTMLElement).closest("button")) setOpen(false); });
-  document.addEventListener("pointerdown", (e) => {
-    if (menu.hidden) return;
-    if (!(e.target as HTMLElement).closest("#hud")) setOpen(false);
-  });
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !menu.hidden) setOpen(false); });
+  // forwarded actions: pause / auto → the hidden buttons' own handlers
+  for (const b of Array.from(panel.querySelectorAll<HTMLButtonElement>("[data-fwd]"))) {
+    b.onclick = () => { (document.getElementById(b.dataset.fwd!) as HTMLButtonElement | null)?.click(); };
+  }
+  // toggles on SETTINGS
+  for (const b of Array.from(panel.querySelectorAll<HTMLButtonElement>("[data-set]"))) {
+    b.onclick = () => {
+      const key = b.dataset.set as keyof typeof SETTINGS;
+      (SETTINGS as unknown as Record<string, boolean>)[key] = !(SETTINGS as unknown as Record<string, boolean>)[key];
+      saveSettings(); if (snap) render(); menuScreen(tab);
+    };
+  }
+  const sc = document.getElementById("setScale") as HTMLInputElement | null;
+  if (sc) {
+    sc.oninput = () => { SETTINGS.tileScale = Number(sc.value); $("setScaleV").textContent = `${Math.round(SETTINGS.tileScale * 100)}%`; saveSettings(); if (snap) render(); };
+    (document.getElementById("setScaleReset") as HTMLElement).onclick = (e) => { e.preventDefault(); sc.value = "1"; sc.oninput!(new Event("input")); };
+  }
+  const sort = document.getElementById("menuSort") as HTMLButtonElement | null;
+  if (sort) sort.onclick = () => { handOrder = []; if (snap) render(); menuScreen(tab); };
+  for (const b of Array.from(panel.querySelectorAll<HTMLButtonElement>("[data-theme]"))) {
+    b.onclick = () => { setThemeChoice(document.getElementById("shell") ?? document.body, b.dataset.theme as ThemeChoice); menuScreen(tab); };
+  }
+  for (const b of Array.from(panel.querySelectorAll<HTMLButtonElement>("[data-lang]"))) {
+    b.onclick = () => { SETTINGS.language = b.dataset.lang as Language; saveSettings(); if (snap) render(); menuScreen(tab); };
+  }
+  const acct = document.getElementById("menuAccount");
+  if (acct) acct.onclick = (e) => { e.preventDefault(); closeMenu(); hostHooks.goToSettings(); };
+  wireHostActions(panel, () => menuScreen(tab));
+}
+
+/** The host's two actions — remove a player (two taps on a name) and end
+ *  the table for everyone — wired on whichever panel drew them: the quit
+ *  dialog and the menu's game tab both do. `repaint` redraws the panel
+ *  after a change. */
+function wireHostActions(panel: HTMLElement, repaint: () => void): void {
+  void repaint;
+  // Kick: two taps on the same name — the first arms it (label swaps to the
+  // confirm text), the second sends. Any other tap disarms.
+  for (const b of Array.from(panel.querySelectorAll<HTMLButtonElement>("[data-kick]"))) {
+    b.onclick = () => {
+      if (!b.dataset.armed) {
+        for (const o of Array.from(panel.querySelectorAll<HTMLButtonElement>("[data-kick]"))) { delete o.dataset.armed; o.textContent = o.dataset.name ?? o.textContent; }
+        b.dataset.name = b.textContent ?? ""; b.dataset.armed = "1"; b.textContent = t(S.quitKickConfirm);
+        b.style.borderColor = "var(--c-danger)"; b.style.color = "var(--c-danger)";
+        return;
+      }
+      b.disabled = true;
+      if (identity && currentMatchUuid) {
+        void apiKickSeat(identity.deviceToken, currentMatchUuid, Number(b.dataset.kick) as SeatIndex)
+          .then(() => { b.textContent = `${b.dataset.name} · ${t(S.quitKicked)}`; })
+          .catch(() => { b.disabled = false; delete b.dataset.armed; b.textContent = b.dataset.name ?? ""; flashHudNote("could not remove that player"); });
+      }
+    };
+  }
+  const endBtn = document.getElementById("quitEndAll") as HTMLButtonElement | null;
+  if (endBtn) endBtn.onclick = () => {
+    // The server's matchEnd does the rest: every client, this one included,
+    // gets the scoreboard through the normal event path.
+    endBtn.disabled = true;
+    if (identity && currentMatchUuid) {
+      void apiEndTable(identity.deviceToken, currentMatchUuid)
+        .then(() => close())
+        .catch(() => { endBtn.disabled = false; flashHudNote("could not end the table"); });
+    }
+  };
 }
 
 /** "Leave the table?" as the app's own dialog on `#veil/#panel`, not
@@ -3013,35 +3165,7 @@ function quitScreen(back: () => void): void {
     $("veil").style.display = "none";
     void leaveTableAndReturn(currentMatchUuid);
   };
-  // Kick: two taps on the same name — the first arms it (label swaps to the
-  // confirm text), the second sends. Any other tap disarms.
-  for (const b of Array.from($("panel").querySelectorAll<HTMLButtonElement>("[data-kick]"))) {
-    b.onclick = () => {
-      if (!b.dataset.armed) {
-        for (const o of Array.from($("panel").querySelectorAll<HTMLButtonElement>("[data-kick]"))) { delete o.dataset.armed; o.textContent = o.dataset.name ?? o.textContent; }
-        b.dataset.name = b.textContent ?? ""; b.dataset.armed = "1"; b.textContent = t(S.quitKickConfirm);
-        b.style.borderColor = "var(--c-danger)"; b.style.color = "var(--c-danger)";
-        return;
-      }
-      b.disabled = true;
-      if (identity && currentMatchUuid) {
-        void apiKickSeat(identity.deviceToken, currentMatchUuid, Number(b.dataset.kick) as SeatIndex)
-          .then(() => { b.textContent = `${b.dataset.name} · ${t(S.quitKicked)}`; })
-          .catch(() => { b.disabled = false; delete b.dataset.armed; b.textContent = b.dataset.name ?? ""; flashHudNote("could not remove that player"); });
-      }
-    };
-  }
-  const endBtn = document.getElementById("quitEndAll") as HTMLButtonElement | null;
-  if (endBtn) endBtn.onclick = () => {
-    // The server's matchEnd does the rest: every client, this one included,
-    // gets the scoreboard through the normal event path.
-    endBtn.disabled = true;
-    if (identity && currentMatchUuid) {
-      void apiEndTable(identity.deviceToken, currentMatchUuid)
-        .then(() => close())
-        .catch(() => { endBtn.disabled = false; flashHudNote("could not end the table"); });
-    }
-  };
+  wireHostActions($("panel"), () => quitScreen(back));
 }
 
 /** Wires the HUD chrome that is always present regardless of shell/table —

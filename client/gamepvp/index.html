@@ -51,11 +51,11 @@ body{background:var(--c-bg);
 #hud .gear{width:40px;height:40px;padding:0;border-radius:50%;display:flex;align-items:center;justify-content:center;
   color:var(--c-ink);border:1px solid var(--c-line);background:none;cursor:pointer;flex:0 0 auto}
 #hud .gear:hover,#hud .gear[aria-expanded="true"]{border-color:var(--c-ink);background:var(--c-panel2)}
-/* the dropdown: a small panel under the gear, one text row per action */
-#hudMenu{position:absolute;right:10px;top:calc(100% + 6px);z-index:71;min-width:180px;
-  background:var(--c-bg);border:1px solid var(--c-line);border-radius:12px;padding:6px;
-  box-shadow:0 14px 40px rgba(0,0,0,.28);display:flex;flex-direction:column;gap:2px}
-#hudMenu[hidden]{display:none}
+/* #hudMenu is now only a WIRING HOST (owner, 2026-09-03: the gear opens a
+   full tabbed menu instead of a dropdown): the four buttons keep their ids
+   and their boot-time handlers, stay hidden, and the menu's own buttons
+   forward clicks to them (menuScreen). */
+#hudMenu{display:none !important}
 /* `#hud #hudMenu …` outranks the pill rule `#hud button` below, which
    would otherwise win on source order and draw the rows as pills */
 #hud #hudMenu button{width:100%;text-align:left;border:0;border-radius:8px;padding:11px 12px;min-height:42px;font-size:14px;
@@ -415,6 +415,30 @@ body{background:var(--c-bg);
 #panel.modal .ghost{font:inherit;font-size:13px;padding:10px 16px;border-radius:10px;border:1px solid var(--c-line);
   background:none;color:var(--c-ink);cursor:pointer;min-height:42px}
 @media (max-width:520px){#panel.modal .mfoot .primary{flex:1 1 100%;order:-1}#panel.modal .mfoot .ghost{flex:1}}
+/* ── the tabbed menu behind the gear (hud-quit-watch-lab.html §4) ── */
+#panel.menu{max-width:560px}
+#panel.menu .mhead .sum{color:var(--c-dim);font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#panel.menu .mhead .x{margin-left:auto;width:32px;height:32px;border-radius:16px;border:1px solid var(--c-line);background:var(--c-panel);color:var(--c-ink);font:inherit;font-size:18px;line-height:1;padding:0;cursor:pointer;flex:0 0 auto}
+#panel.menu .tabs{display:flex;gap:4px;padding:8px 12px 0;border-bottom:1px solid var(--c-line);overflow-x:auto}
+#panel.menu .tab{font-family:var(--mono);font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--c-dim);padding:8px 10px;border:0;background:none;border-bottom:2px solid transparent;margin:0 0 -1px;white-space:nowrap;cursor:pointer;border-radius:0;min-height:0}
+#panel.menu .tab.on{color:var(--c-ink);border-bottom-color:var(--c-ink)}
+#panel.menu .mbody{max-height:min(60vh,480px);overflow:auto}
+#panel.menu .srow{display:grid;grid-template-columns:120px 1fr;align-items:center;gap:10px;min-height:42px;padding:2px 0}
+@media (max-width:520px){#panel.menu .srow{grid-template-columns:96px 1fr}}
+#panel.menu .srow .lbl{font-size:13.5px;color:var(--c-ink)}
+#panel.menu .cap2{color:var(--c-dim);font-size:11px;margin:-2px 0 6px;line-height:1.35}
+#panel.menu .act{display:flex;gap:8px;flex-wrap:wrap}
+#panel.menu .ghost.on{border-color:var(--c-ink);background:var(--c-panel2);font-weight:600}
+#panel.menu .ghost.danger{border-color:var(--c-danger);color:var(--c-danger)}
+#panel.menu .ghost:disabled{opacity:.5;cursor:default}
+#panel.menu .hostblk{margin-top:12px;padding-top:10px;border-top:1px solid var(--c-line)}
+#panel.menu .cap{font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--c-dim);font-weight:600;margin:0 0 6px}
+#panel.menu .seg{display:inline-flex;border:1px solid var(--c-line);border-radius:10px;overflow:hidden}
+#panel.menu .seg button{border:0;border-radius:0;padding:7px 12px;font-size:12.5px;color:var(--c-dim);background:none;min-height:0;cursor:pointer}
+#panel.menu .seg button.on{background:var(--c-panel2);color:var(--c-ink);font-weight:600}
+#panel.menu input[type=range]{width:100%;accent-color:var(--c-blue)}
+#panel.menu input[type=range]:disabled{opacity:.45}
+#panel.menu .rules b{color:var(--c-ink)} #panel.menu .rules p{margin:4px 0 8px;color:var(--c-dim);font-size:13px;line-height:1.5}
 .panel h2{font-size:16px;margin:0 0 10px;color:var(--gold)}
 .panel p{color:var(--dim);font-size:13px;margin:6px 0}
 .panel .tiles{display:flex;gap:4px;justify-content:center;flex-wrap:wrap;margin:12px 0}

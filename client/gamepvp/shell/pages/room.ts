@@ -90,7 +90,7 @@ export const mount: PageMount = (container, params, router) => {
     try {
       const r = await joinTable(identity.deviceToken, joinCode);
       connectToMatch({ matchUuid: r.matchUuid, joinCode, seat: r.seat, seatToken: r.seatToken, rulesetId: r.rulesetId, matchFormat: r.matchFormat });
-    } catch (e) { paint(null, String(e)); }
+    } catch (e) { paint(null, String(e).includes("kicked") ? t(S.kickedNotice) : String(e)); }
   };
 
   const tick = async (): Promise<void> => {

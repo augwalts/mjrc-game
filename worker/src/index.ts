@@ -1707,6 +1707,8 @@ async function openAndSeat(
     });
     return { tableId: id.toString(), seatToken, expiresAt };
   } catch (e) {
+    // A refusal aimed at this player (kicked) is the caller's to report, not a 503.
+    if (e instanceof Error && e.name === "SeatRefused") throw e;
     /* The caller turns this into a 503. Without a trace it is a 503 nobody can
      * ever diagnose, and the match plane is the half of the system this Worker
      * cannot see into. */
@@ -1734,7 +1736,13 @@ async function postJoin(code: string, p: Platform, player: PlayerRow): Promise<R
   if (claimed === "full") return fail("table_full", 409);
   if (claimed === "conflict") return fail("conflict", 409);
 
-  const handoff = await openAndSeat(p, match.id, claimed, player, null);
+  let handoff: Handoff | null;
+  try {
+    handoff = await openAndSeat(p, match.id, claimed, player, null);
+  } catch (e) {
+    if (e instanceof Error && e.name === "SeatRefused") return fail("kicked", 403);
+    throw e;
+  }
   if (handoff === null) return fail("table_unavailable", 503);
 
   return json({
