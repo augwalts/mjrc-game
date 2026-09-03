@@ -3,224 +3,272 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Players module lab</title>
+<title>Players module lab · round 2</title>
 <style>
-  /* ── token bridge: the shell's names on the left, the site kit's values are the same colours ── */
-  body.light{--bg:#fffdf7;--panel:#f6f1e4;--panel2:#efeade;--line:#ddd6c4;--ink:#1a1a18;--dim:#777770;--blue:#1845a5;--on-blue:#fff;--red:#c1272d;--green:#127a30;--gild:#9a7318;--chrome:#e7dfc9;--mono:"IBM Plex Mono",ui-monospace,Menlo,monospace}
-  body:not(.light){--bg:#1e1f1d;--panel:#2a2b29;--panel2:#363733;--line:#4a4b46;--ink:#f3efe4;--dim:#b3b0a5;--blue:#9fbaf0;--on-blue:#1e1f1d;--red:#f19c9c;--green:#7fdc97;--gild:#ffdf8a;--chrome:#111210;--mono:"IBM Plex Mono",ui-monospace,Menlo,monospace}
+  body.light{--bg:#fffdf7;--panel:#f6f1e4;--panel2:#efeade;--line:#ddd6c4;--ink:#1a1a18;--dim:#777770;--blue:#1845a5;--on-blue:#fff;--red:#c1272d;--green:#1a8b3a;--queue:#e3cf70;--gild:#9a7318;--site:#f6f6f1;--mono:"IBM Plex Mono",ui-monospace,Menlo,monospace}
+  body:not(.light){--bg:#1e1f1d;--panel:#2a2b29;--panel2:#363733;--line:#4a4b46;--ink:#f3efe4;--dim:#b3b0a5;--blue:#9fbaf0;--on-blue:#1e1f1d;--red:#f19c9c;--green:#7fdc97;--queue:#e3cf70;--gild:#ffdf8a;--site:#181917;--mono:"IBM Plex Mono",ui-monospace,Menlo,monospace}
   *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:20px 24px 60px}
-  h1{font-size:18px;margin:0 0 4px} h2{font-size:14px;margin:30px 0 8px;padding-top:16px;border-top:1px solid var(--line)}
-  p.lede{color:var(--dim);margin:0 0 10px;max-width:880px;font-size:13px}
+  body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:20px 24px 60px;min-width:1880px}
+  h1{font-size:18px;margin:0 0 4px} h2{font-size:14px;margin:30px 0 10px;padding-top:16px;border-top:1px solid var(--line)}
+  p.lede{color:var(--dim);margin:0 0 10px;max-width:900px;font-size:13px}
   #controls{display:flex;gap:8px;margin:8px 0 6px}
   #controls button{font:inherit;padding:5px 12px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--ink);cursor:pointer}
   #controls button.on{background:var(--blue);border-color:var(--blue);color:var(--on-blue);font-weight:600}
-  .row{display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start}
-  .frame{position:relative;border:2px solid var(--line);border-radius:18px;background:var(--bg);overflow:hidden;flex:0 0 auto}
-  .frame .lab{position:absolute;top:8px;right:12px;font:10px var(--mono);color:var(--dim);letter-spacing:.06em;text-transform:uppercase}
-  .phone{width:375px;min-height:520px;padding:14px 14px 20px}
-  .web{width:760px;min-height:360px;padding:18px 22px}
-  .site{background:#f6f6f1;color:#1a1a18;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif} /* the site's ivory ground; same module inside */
-  .site .card{background:#fffdf7}
-  .tabs{display:flex;gap:6px;margin:8px 0 10px;flex-wrap:wrap}
-  .tabs button{font:inherit;font-size:12.5px;padding:5px 11px;border-radius:20px;border:1px solid var(--line);background:none;color:var(--dim);cursor:pointer}
+  /* the four surfaces, always in this order: app phone · app web · site phone · site web */
+  .four{display:grid;grid-template-columns:300px 600px 300px 600px;gap:20px;align-items:start}
+  .frame{position:relative;border:2px solid var(--line);border-radius:16px;background:var(--bg);overflow:hidden;padding:12px 12px 16px}
+  .frame .lab{display:block;font:10px var(--mono);color:var(--dim);letter-spacing:.06em;text-transform:uppercase;margin:0 0 8px}
+  .frame.site{background:var(--site)}
+  .web{padding:14px 18px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:4px 12px;margin:0 0 10px}
+  .site .card{background:var(--bg)}
+  .top{display:flex;align-items:center;gap:8px;margin-bottom:4px} .top h3{font-size:16px;margin:0} .top h3 span{color:var(--dim);font-weight:400;font-size:13px}
+  .tabs{display:flex;gap:5px;margin:6px 0 8px;flex-wrap:wrap}
+  .tabs button{font:inherit;font-size:12px;padding:4px 10px;border-radius:20px;border:1px solid var(--line);background:none;color:var(--dim);cursor:pointer;white-space:nowrap}
   .tabs button.on{background:var(--blue);border-color:var(--blue);color:var(--on-blue);font-weight:600}
-  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:6px 14px;margin:0 0 12px}
-  .sec{font:600 11px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--dim);margin:6px 0 4px}
-  .top{display:flex;align-items:center;gap:10px;margin-bottom:6px} .top h3{font-size:18px;margin:0}
+  .search{display:flex;gap:6px;margin:0 0 8px} .search input{flex:1;font:inherit;font-size:12.5px;padding:6px 10px;border-radius:9px;border:1px solid var(--line);background:var(--panel);color:var(--ink);min-width:0}
+  .site .search input{background:var(--bg)}
+  .sec{font:600 10px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--dim);margin:6px 0 4px}
+  .note{font-size:11.5px;color:var(--dim);margin:8px 0 0}
 
-  /* ═══ THE MODULE ═══ everything below is what both platforms share ═══ */
-  /* 1 · identity cell: avatar · name · @handle · member no. Unlinked (typed) names get a dashed avatar. */
-  .pid{display:flex;align-items:center;gap:10px;min-width:0}
-  .pid .av{width:28px;height:28px;border-radius:50%;background:var(--panel2);display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--ink);flex:0 0 auto;overflow:hidden}
-  .pid .av img{width:100%;height:100%;object-fit:cover}
+  /* ═══ THE MODULE ═══ */
+  .pid{display:flex;align-items:center;gap:9px;min-width:0}
+  .pid .av{width:26px;height:26px;border-radius:50%;background:var(--panel2);display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--ink);flex:0 0 auto}
   .pid .av.unlinked{background:none;border:1px dashed var(--dim);color:var(--dim)}
   .pid .nm{min-width:0;display:flex;flex-direction:column;line-height:1.2}
-  .pid .nm b{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .pid .nm small{font:11px var(--mono);color:var(--dim);white-space:nowrap}
-  .pid.lg .av{width:56px;height:56px;font-size:22px} .pid.lg .nm b{font-size:18px} .pid.lg .nm small{font-size:12px}
-  /* 2 · presence: dot + phrase; green=lobby, gold=waiting, tile-green=playing, hollow=offline */
-  .pres{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--dim);white-space:nowrap}
-  .pres i{width:8px;height:8px;border-radius:50%;background:var(--green);display:inline-block}
-  .pres i.wait{background:#e3cf70} .pres i.play{background:#1a8b3a} .pres i.off{background:none;border:1px solid var(--dim)}
-  /* 3 · numbers: two ratings, mono, right-aligned, labelled; "—" when null; ·p when provisional */
-  .nums{display:flex;gap:14px;margin-left:auto;font-family:var(--mono);font-size:13px;font-variant-numeric:tabular-nums;white-space:nowrap}
-  .nums span{display:flex;flex-direction:column;align-items:flex-end;line-height:1.1}
-  .nums span small{font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
-  .nums .on{color:var(--blue)} .nums .p::after{content:"·p";color:var(--dim);font-size:10px}
-  /* 4 · list row: star · identity · presence · numbers. 44px on phone, 40 on web. Hairlines, never a card per row. */
-  .prow{display:flex;align-items:center;gap:10px;min-height:44px;padding:4px 0;border-bottom:1px solid var(--line);cursor:pointer}
-  .prow:last-child{border-bottom:0}
-  .prow .star{font-size:16px;color:var(--dim);width:24px;text-align:center;background:none;border:0;cursor:pointer;flex:0 0 auto}
-  .prow .star.on{color:var(--gild)}
-  .prow .pid{flex:1}
-  .web .prow{min-height:40px}
-  /* 5 · rank row: # · identity · games · rating · trend. Header in mono caps, sortable. Same on the game's Stats and the site's room board. */
-  .rank{display:grid;grid-template-columns:28px 1fr 60px 84px 84px;gap:10px;align-items:center;font-variant-numeric:tabular-nums}
-  .rank.h{font:500 10px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--dim);padding:6px 0 8px;border-bottom:1px solid var(--line)}
-  .rank.h .r{text-align:right} .rank.h .srt{text-decoration:underline;text-underline-offset:2px;color:var(--ink)}
-  .rank.b{min-height:40px;border-bottom:1px solid var(--line)} .rank.b:last-child{border-bottom:0}
-  .rank .no{font:12px var(--mono);color:var(--dim)} .rank .num{font:13px var(--mono);text-align:right}
-  .rank .num b{font-weight:600} .rank .num.up{color:var(--green)} .rank .num.dn{color:var(--red)}
-  .rank .num small{display:block;font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
-  .rank.me{background:var(--panel2);margin:0 -14px;padding:0 14px;border-radius:8px}
-  .phone .rank{grid-template-columns:24px 1fr 64px 72px} .phone .rank .hide{display:none}
-  /* 6 · header card on a player page: big identity, actions, record tiles */
-  .phead{display:flex;flex-direction:column;gap:12px;padding:10px 0 4px}
-  .phead .acts{display:flex;gap:6px} .phead .acts button{font:inherit;font-size:12px;padding:6px 12px;border-radius:10px;border:1px solid var(--line);background:none;color:var(--ink);cursor:pointer}
-  .phead .acts button.pri{background:var(--blue);border-color:var(--blue);color:var(--on-blue);font-weight:600}
-  .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
-  .tiles div{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 6px;text-align:center}
-  .tiles b{display:block;font:600 16px var(--mono)} .tiles small{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--dim)}
-  /* 7 · research table (the site's players page) keeps its columns, takes the identity cell and the mono numerals */
-  .rt{display:grid;grid-template-columns:minmax(150px,1.4fr) repeat(6,minmax(52px,1fr));gap:6px 10px;font-variant-numeric:tabular-nums;font-size:12.5px}
-  .rt .h{font:500 10px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--dim);text-align:right;padding-bottom:6px;border-bottom:1px solid var(--line)} .rt .h:first-child{text-align:left}
-  .rt .c{text-align:right;font-family:var(--mono);padding:7px 0;border-bottom:1px solid var(--line)} .rt .c:first-child{text-align:left}
+  .pid .nm b{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:13px}
+  .pid .nm small{font:10.5px var(--mono);color:var(--dim);white-space:nowrap}
+  .pid.lg .av{width:52px;height:52px;font-size:20px} .pid.lg .nm b{font-size:18px} .pid.lg .nm small{font-size:12px}
+  /* presence: online · queue · playing · hand N/M · offline */
+  .pres{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:var(--dim);white-space:nowrap}
+  .pres i{width:7px;height:7px;border-radius:50%;background:var(--green);display:inline-block;flex:0 0 auto}
+  .pres i.q{background:var(--queue)} .pres i.off{background:none;border:1px solid var(--dim)}
+  /* rank: one number, mono, under a column header */
+  .rk{font:600 13px var(--mono);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap} .rk.none{color:var(--dim);font-weight:400}
+  /* list: header row + rows; identical on all four surfaces */
+  .lh{display:grid;grid-template-columns:22px 1fr 96px 52px;gap:8px;font:500 9.5px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--dim);padding:6px 0 5px;border-bottom:1px solid var(--line)}
+  .lh .r{text-align:right}
+  .lr{display:grid;grid-template-columns:22px 1fr 96px 52px;gap:8px;align-items:center;min-height:42px;border-bottom:1px solid var(--line);cursor:pointer}
+  .lr:last-child{border-bottom:0}
+  .web .lh,.web .lr{grid-template-columns:22px minmax(150px,1fr) 170px 64px}
+  .star{font-size:15px;color:var(--dim);background:none;border:0;cursor:pointer;padding:0;text-align:center} .star.on{color:var(--gild)}
+  .me{background:var(--panel2);margin:0 -12px;padding:0 12px;border-radius:6px}
+  /* rank table: # · player · status · games · rank */
+  .rh{display:grid;grid-template-columns:22px 1fr 96px 46px 52px;gap:8px;font:500 9.5px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--dim);padding:6px 0 5px;border-bottom:1px solid var(--line)} .rh .r{text-align:right}
+  .rr{display:grid;grid-template-columns:22px 1fr 96px 46px 52px;gap:8px;align-items:center;min-height:40px;border-bottom:1px solid var(--line)} .rr:last-child{border-bottom:0}
+  .web .rh,.web .rr{grid-template-columns:22px minmax(140px,1fr) 150px 54px 64px 64px}
+  .no{font:11px var(--mono);color:var(--dim)} .num{font:12.5px var(--mono);text-align:right;font-variant-numeric:tabular-nums} .num.up{color:var(--green)} .num.dn{color:var(--red)}
+  /* research table (site) with status + source + search + sort chips */
+  .rt{display:grid;grid-template-columns:1fr 96px 46px 46px 46px 56px 62px;gap:6px 8px;font-size:12px;font-variant-numeric:tabular-nums}
+  .rt .h{font:500 9.5px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--dim);text-align:right;padding-bottom:5px;border-bottom:1px solid var(--line)} .rt .h:first-child,.rt .h:nth-child(2){text-align:left}
+  .rt .c{text-align:right;font-family:var(--mono);padding:7px 0;border-bottom:1px solid var(--line);font-size:12px} .rt .c:first-child,.rt .c.l{text-align:left}
   .rt .c.dn{color:var(--red)} .rt .c b{font-weight:600}
-  .note{font-size:12px;color:var(--dim);margin:8px 0 0;max-width:760px}
-  table.spec{border-collapse:collapse;font-size:12.5px;max-width:900px} table.spec th{text-align:left;color:var(--dim);font-weight:500;font-size:10px;letter-spacing:.08em;text-transform:uppercase;padding:4px 10px 4px 0} table.spec td{padding:5px 10px 5px 0;border-top:1px solid var(--line);vertical-align:top}
-  code{font:11px var(--mono);background:var(--panel2);padding:1px 4px;border-radius:4px}
-  pre{font:11.5px/1.5 var(--mono);background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px;overflow:auto;max-width:900px}
+  .phone .rt{grid-template-columns:1fr 46px 56px} .phone .rt .hide{display:none}
+  /* player header + per-format ranks */
+  .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:10px}
+  .tiles div{background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:7px 4px;text-align:center} .site .tiles div{background:var(--panel)}
+  .tiles b{display:block;font:600 15px var(--mono)} .tiles small{font:9px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--dim)}
+  .acts{display:flex;gap:6px;margin-top:10px} .acts button{font:inherit;font-size:12px;padding:6px 11px;border-radius:9px;border:1px solid var(--line);background:none;color:var(--ink);cursor:pointer} .acts button.pri{background:var(--blue);border-color:var(--blue);color:var(--on-blue);font-weight:600}
+  /* phone: status moves under the name (named grid areas), header loses the status cell */
+  .phone .lh{grid-template-columns:22px 1fr 52px} .phone .lh span:nth-child(3){display:none}
+  .phone .lr{grid-template-columns:22px 1fr 52px;grid-template-areas:"s p r" "s st r";row-gap:0;padding:5px 0}
+  .phone .lr .star{grid-area:s} .phone .lr .pid{grid-area:p} .phone .lr .pres{grid-area:st;padding-left:35px;margin-top:-2px} .phone .lr .rk{grid-area:r}
+  .phone .lr .pid .nm small{display:none}
+  .phone .rh{grid-template-columns:22px 1fr 46px 52px} .phone .rh span:nth-child(3){display:none}
+  .phone .rr{grid-template-columns:22px 1fr 46px 52px;grid-template-areas:"n p g r" "n st g r";row-gap:0;padding:5px 0}
+  .phone .rr .no{grid-area:n} .phone .rr .pid{grid-area:p} .phone .rr .pres{grid-area:st;padding-left:35px;margin-top:-2px} .phone .rr .num{grid-area:g} .phone .rr .rk{grid-area:r}
+  .phone .rr .pid .nm small{display:none}
+  /* player header: identity row, then tiles */
+  .card.hdr{padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+  .card.hdr .idrow{display:flex;align-items:center;gap:14px} .card.hdr .idrow .acts{margin:0 0 0 auto}
+  .card.hdr .tiles{margin-top:2px}
+  table.spec{border-collapse:collapse;font-size:12.5px;max-width:960px} table.spec th{text-align:left;color:var(--dim);font-weight:500;font-size:10px;letter-spacing:.08em;text-transform:uppercase;padding:4px 10px 4px 0} table.spec td{padding:5px 10px 5px 0;border-top:1px solid var(--line);vertical-align:top}
+  pre{font:11.5px/1.5 var(--mono);background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px;max-width:960px}
 </style>
 </head>
 <body class="light">
-<h1>Players module — one anatomy for the game and the Almanac</h1>
-<p class="lede">Seven parts, in a fixed order, and both platforms render them from the same row shape. The site's editorial ground and the shell's paper are shown side by side so you can check they read as one product.</p>
+<h1>Players module · round 2 — four surfaces side by side</h1>
+<p class="lede">Left to right, always: <b>app · phone</b>, <b>app · web</b>, <b>site · phone</b>, <b>site · web</b>. The rows are identical on all four; only the ground and the width change. Rulings folded in (2026-09-04): four presence states, one rank number under a header, no member numbers, status everywhere including the research table, source filter + search + sort chips, identical sorting on phone and desktop.</p>
 <div id="controls"><button data-theme="light" class="on">Light</button><button data-theme="dark">Dark</button></div>
 
-<h2>1 · The parts</h2>
-<div class="row">
-  <div class="frame web" style="width:auto;min-height:0;padding:14px 20px">
-    <div class="sec">identity cell · linked · unlinked · bot</div>
-    <div style="display:flex;gap:28px;flex-wrap:wrap;margin-bottom:10px">
-      <div class="pid"><span class="av">S</span><span class="nm"><b>sable</b><small>@sable · #12</small></span></div>
-      <div class="pid"><span class="av unlinked">W</span><span class="nm"><b>Wen L</b><small>typed name · not linked</small></span></div>
-      <div class="pid"><span class="av" style="background:var(--panel)">L</span><span class="nm"><b>Ling</b><small>bot · disciplined</small></span></div>
-    </div>
-    <div class="sec">presence</div>
-    <div style="display:flex;gap:18px;flex-wrap:wrap;margin-bottom:10px">
-      <span class="pres"><i></i>in the lobby</span><span class="pres"><i class="wait"></i>waiting at a table</span><span class="pres"><i class="play"></i>playing · hand 3/4</span><span class="pres"><i class="play"></i>at a live table · Demo room</span><span class="pres"><i class="off"></i>offline · Tue</span>
-    </div>
-    <div class="sec">numbers · online rating (blue) · offline estimate (ink) · provisional · none</div>
-    <div style="display:flex;gap:28px;flex-wrap:wrap">
-      <div class="nums" style="margin:0"><span class="on">1512<small>online</small></span><span>1490<small>est.</small></span></div>
-      <div class="nums" style="margin:0"><span class="on p">1508<small>online</small></span><span>—<small>est.</small></span></div>
-      <div class="nums" style="margin:0"><span class="on">—<small>online</small></span><span>1610<small>est.</small></span></div>
-    </div>
-  </div>
-</div>
-
-<h2>2 · List row — the game's Players tab (phone) and the same list on the site (web)</h2>
-<div class="row">
-  <div class="frame phone"><span class="lab">game · phone</span>
-    <div class="top"><h3>Players <span style="color:var(--dim);font-weight:400">玩家</span></h3></div>
+<h2>1 · Players list — status and one rank</h2>
+<div class="four">
+  <div class="frame phone"><span class="lab">app · phone</span>
+    <div class="top"><h3>Players <span>玩家</span></h3></div>
     <div class="tabs"><button class="on">Friends</button><button>Online</button><button>Room</button><button>All</button></div>
+    <div class="search"><input placeholder="search players 搜尋"></div>
     <div class="card">
-      <div class="prow"><button class="star on">★</button><div class="pid"><span class="av">S</span><span class="nm"><b>sable</b><span class="pres"><i></i>in the lobby</span></span></div><div class="nums"><span class="on">1512<small>online</small></span><span>1490<small>est.</small></span></div></div>
-      <div class="prow"><button class="star">☆</button><div class="pid"><span class="av">A</span><span class="nm"><b>augie</b><span class="pres"><i class="play"></i>playing · hand 3/4</span></span></div><div class="nums"><span class="on">—<small>online</small></span><span>1530<small>est.</small></span></div></div>
-      <div class="prow"><button class="star">☆</button><div class="pid"><span class="av unlinked">W</span><span class="nm"><b>Wen L</b><span class="pres"><i class="play"></i>at a live table · LAMJ</span></span></div><div class="nums"><span class="on">—<small>online</small></span><span>1610<small>est.</small></span></div></div>
-      <div class="prow"><button class="star">☆</button><div class="pid"><span class="av">K</span><span class="nm"><b>Kelvin</b><span class="pres"><i class="off"></i>offline · Tue</span></span></div><div class="nums"><span class="on p">1508<small>online</small></span><span>—<small>est.</small></span></div></div>
+      <div class="lh"><span></span><span>player</span><span>status</span><span class="r">rank</span></div>
+      <div class="lr"><button class="star on">★</button><div class="pid"><span class="av">S</span><span class="nm"><b>sable</b><small>@sable</small></span></div><span class="pres"><i></i>online</span><span class="rk">1512</span></div>
+      <div class="lr me"><button class="star">☆</button><div class="pid"><span class="av">A</span><span class="nm"><b>augie</b><small>@augie</small></span></div><span class="pres"><i></i>playing · hand 3/4</span><span class="rk">1504</span></div>
+      <div class="lr"><button class="star">☆</button><div class="pid"><span class="av">K</span><span class="nm"><b>Kelvin</b><small>@kelvin</small></span></div><span class="pres"><i class="q"></i>queue · 2/4</span><span class="rk">1498</span></div>
+      <div class="lr"><button class="star">☆</button><div class="pid"><span class="av unlinked">W</span><span class="nm"><b>Wen L</b><small>not linked</small></span></div><span class="pres"><i class="off"></i>offline · Tue</span><span class="rk">1610</span></div>
     </div>
-    <p class="note">On the phone the handle gives way to presence under the name; tap opens the player page. Star is the only action in the row.</p>
   </div>
-  <div class="frame web site"><span class="lab">almanac · web · signed in</span>
-    <div class="top"><h3>Players</h3><span style="color:var(--dim);font-size:12px">LAMJ — Wen · 30 players</span></div>
+  <div class="frame web"><span class="lab">app · web</span>
+    <div class="top"><h3>Players <span>玩家</span></h3><span style="margin-left:auto;font-size:12px;color:var(--dim)">4 shown · 61 in all</span></div>
+    <div class="tabs"><button class="on">Friends</button><button>Online</button><button>Room</button><button>All</button><span style="flex:1"></span><button>sort: rank</button><button>name</button><button>recent</button></div>
+    <div class="search"><input placeholder="search players 搜尋"></div>
+    <div class="card">
+      <div class="lh"><span></span><span>player</span><span>status</span><span class="r">rank</span></div>
+      <div class="lr"><button class="star on">★</button><div class="pid"><span class="av">S</span><span class="nm"><b>sable</b><small>@sable</small></span></div><span class="pres"><i></i>online</span><span class="rk">1512</span></div>
+      <div class="lr me"><button class="star">☆</button><div class="pid"><span class="av">A</span><span class="nm"><b>augie</b><small>@augie</small></span></div><span class="pres"><i></i>playing · hand 3/4 · Open hall</span><span class="rk">1504</span></div>
+      <div class="lr"><button class="star">☆</button><div class="pid"><span class="av">K</span><span class="nm"><b>Kelvin</b><small>@kelvin</small></span></div><span class="pres"><i class="q"></i>queue · 2/4 · Demo room</span><span class="rk">1498</span></div>
+      <div class="lr"><button class="star">☆</button><div class="pid"><span class="av unlinked">W</span><span class="nm"><b>Wen L</b><small>not linked</small></span></div><span class="pres"><i class="off"></i>offline · Tue</span><span class="rk">1610</span></div>
+    </div>
+    <p class="note">Same four rows. Web adds the room name to the status and the sort chips in the same pill row; the columns do not change.</p>
+  </div>
+  <div class="frame phone site"><span class="lab">site · phone</span>
+    <div class="top"><h3>Players</h3></div>
     <div class="tabs"><button>Friends</button><button>Online</button><button class="on">Room</button><button>All</button></div>
+    <div class="search"><input placeholder="search players 搜尋"></div>
     <div class="card">
-      <div class="prow"><button class="star on">★</button><div class="pid"><span class="av unlinked">W</span><span class="nm"><b>Wen L</b><small>typed name · not linked</small></span></div><span class="pres"><i class="play"></i>at a live table · S4 T6 R2</span><div class="nums"><span class="on">—<small>online</small></span><span>1610<small>est.</small></span></div></div>
-      <div class="prow"><button class="star">☆</button><div class="pid"><span class="av">J</span><span class="nm"><b>Jason Y</b><small>@jasony</small></span></div><span class="pres"><i class="off"></i>offline · last week</span><div class="nums"><span class="on">1470<small>online</small></span><span>1585<small>est.</small></span></div></div>
-      <div class="prow"><button class="star">☆</button><div class="pid"><span class="av">A</span><span class="nm"><b>augie</b><small>@augie · #0</small></span></div><span class="pres"><i class="play"></i>playing · hand 3/4</span><div class="nums"><span class="on">—<small>online</small></span><span>1530<small>est.</small></span></div></div>
+      <div class="lh"><span></span><span>player</span><span>status</span><span class="r">rank</span></div>
+      <div class="lr"><button class="star on">★</button><div class="pid"><span class="av unlinked">W</span><span class="nm"><b>Wen L</b><small>not linked</small></span></div><span class="pres"><i class="off"></i>offline · Tue</span><span class="rk">1610</span></div>
+      <div class="lr"><button class="star">☆</button><div class="pid"><span class="av">J</span><span class="nm"><b>Jason Y</b><small>@jasony</small></span></div><span class="pres"><i></i>online</span><span class="rk">1585</span></div>
+      <div class="lr"><button class="star">☆</button><div class="pid"><span class="av">A</span><span class="nm"><b>augie</b><small>@augie</small></span></div><span class="pres"><i></i>playing · hand 3/4</span><span class="rk">1504</span></div>
     </div>
-    <p class="note">Same row, same order, same numbers. Only the ground differs: the site's ivory behind the same paper card.</p>
+  </div>
+  <div class="frame web site"><span class="lab">site · web</span>
+    <div class="top"><h3>Players</h3><span style="margin-left:auto;font-size:12px;color:var(--dim)">LAMJ — Wen · 30 players</span></div>
+    <div class="tabs"><button>Friends</button><button>Online</button><button class="on">Room</button><button>All</button><span style="flex:1"></span><button>sort: rank</button><button>name</button><button>recent</button></div>
+    <div class="search"><input placeholder="search players 搜尋"></div>
+    <div class="card">
+      <div class="lh"><span></span><span>player</span><span>status</span><span class="r">rank</span></div>
+      <div class="lr"><button class="star on">★</button><div class="pid"><span class="av unlinked">W</span><span class="nm"><b>Wen L</b><small>not linked</small></span></div><span class="pres"><i class="off"></i>offline · Tue</span><span class="rk">1610</span></div>
+      <div class="lr"><button class="star">☆</button><div class="pid"><span class="av">J</span><span class="nm"><b>Jason Y</b><small>@jasony</small></span></div><span class="pres"><i></i>online</span><span class="rk">1585</span></div>
+      <div class="lr"><button class="star">☆</button><div class="pid"><span class="av">A</span><span class="nm"><b>augie</b><small>@augie</small></span></div><span class="pres"><i></i>playing · hand 3/4 · Open hall</span><span class="rk">1504</span></div>
+    </div>
   </div>
 </div>
 
-<h2>3 · Rank row — the game's leaderboard and the site's room board are one table</h2>
-<div class="row">
-  <div class="frame phone"><span class="lab">game · stats › leaderboard</span>
-    <div class="sec">leaderboard · online rating</div>
+<h2>2 · Rank table — the game's leaderboard and the room board</h2>
+<div class="four">
+  <div class="frame phone"><span class="lab">app · phone</span>
+    <div class="top"><h3>Leaderboard <span>排名</span></h3></div>
+    <div class="tabs"><button class="on">Hong Kong</button><button>Taiwan</button><button>Offline</button></div>
     <div class="card">
-      <div class="rank h"><span>#</span><span>player</span><span class="r">games</span><span class="r srt">rating ↓</span></div>
-      <div class="rank b"><span class="no">1</span><div class="pid"><span class="av">S</span><span class="nm"><b>sable</b></span></div><span class="num">14</span><span class="num"><b>1512</b><small>+8 wk</small></span></div>
-      <div class="rank b me"><span class="no">2</span><div class="pid"><span class="av">A</span><span class="nm"><b>augie</b></span></div><span class="num">9</span><span class="num"><b>1504</b><small>−3 wk</small></span></div>
-      <div class="rank b"><span class="no">3</span><div class="pid"><span class="av">K</span><span class="nm"><b>Kelvin</b></span></div><span class="num">5</span><span class="num"><b>1498</b><small>prov.</small></span></div>
+      <div class="rh"><span>#</span><span>player</span><span>status</span><span class="r">games</span><span class="r">rank</span></div>
+      <div class="rr"><span class="no">1</span><div class="pid"><span class="av">S</span><span class="nm"><b>sable</b></span></div><span class="pres"><i></i>online</span><span class="num">14</span><span class="rk">1512</span></div>
+      <div class="rr me"><span class="no">2</span><div class="pid"><span class="av">A</span><span class="nm"><b>augie</b></span></div><span class="pres"><i></i>playing · 3/4</span><span class="num">9</span><span class="rk">1504</span></div>
+      <div class="rr"><span class="no">3</span><div class="pid"><span class="av">K</span><span class="nm"><b>Kelvin</b></span></div><span class="pres"><i class="q"></i>queue</span><span class="num">5</span><span class="rk">1498</span></div>
     </div>
   </div>
-  <div class="frame web site"><span class="lab">almanac · room › leaderboard</span>
-    <div class="sec">leaderboard · 30 players · sort: est. rating</div>
+  <div class="frame web"><span class="lab">app · web</span>
+    <div class="top"><h3>Leaderboard <span>排名</span></h3></div>
+    <div class="tabs"><button class="on">Hong Kong</button><button>Taiwan</button><button>Offline</button><span style="flex:1"></span><button>sort: rank</button><button>games</button><button>Δ week</button></div>
     <div class="card">
-      <div class="rank h" style="grid-template-columns:28px 1fr 70px 70px 90px 90px"><span>#</span><span>player</span><span class="r">hands</span><span class="r">net</span><span class="r">net/hand</span><span class="r srt">est. ↓</span></div>
-      <div class="rank b" style="grid-template-columns:28px 1fr 70px 70px 90px 90px"><span class="no">1</span><div class="pid"><span class="av unlinked">W</span><span class="nm"><b>Wen L</b><small>S4 T6 R2</small></span></div><span class="num">287</span><span class="num up">+238</span><span class="num up">+0.8</span><span class="num"><b>1610</b><small>+12 wk</small></span></div>
-      <div class="rank b" style="grid-template-columns:28px 1fr 70px 70px 90px 90px"><span class="no">2</span><div class="pid"><span class="av">J</span><span class="nm"><b>Jason Y</b><small>@jasony</small></span></div><span class="num">89</span><span class="num up">+145</span><span class="num up">+1.6</span><span class="num"><b>1585</b><small>+4 wk</small></span></div>
-      <div class="rank b" style="grid-template-columns:28px 1fr 70px 70px 90px 90px"><span class="no">3</span><div class="pid"><span class="av unlinked">L</span><span class="nm"><b>Lisa T</b><small>S3 T3 R2</small></span></div><span class="num">29</span><span class="num up">+92</span><span class="num up">+3.2</span><span class="num"><b>1541</b><small>prov.</small></span></div>
-      <div class="rank b" style="grid-template-columns:28px 1fr 70px 70px 90px 90px"><span class="no">4</span><div class="pid"><span class="av">A</span><span class="nm"><b>augie</b><small>@augie</small></span></div><span class="num">74</span><span class="num up">+61</span><span class="num up">+0.8</span><span class="num"><b>1530</b><small>−2 wk</small></span></div>
+      <div class="rh"><span>#</span><span>player</span><span>status</span><span class="r">games</span><span class="r">Δ week</span><span class="r">rank</span></div>
+      <div class="rr"><span class="no">1</span><div class="pid"><span class="av">S</span><span class="nm"><b>sable</b><small>@sable</small></span></div><span class="pres"><i></i>online</span><span class="num">14</span><span class="num up">+8</span><span class="rk">1512</span></div>
+      <div class="rr me"><span class="no">2</span><div class="pid"><span class="av">A</span><span class="nm"><b>augie</b><small>@augie</small></span></div><span class="pres"><i></i>playing · hand 3/4</span><span class="num">9</span><span class="num dn">−3</span><span class="rk">1504</span></div>
+      <div class="rr"><span class="no">3</span><div class="pid"><span class="av">K</span><span class="nm"><b>Kelvin</b><small>@kelvin</small></span></div><span class="pres"><i class="q"></i>queue · 2/4</span><span class="num">5</span><span class="num">—</span><span class="rk">1498</span></div>
     </div>
-    <p class="note">The site's board keeps its net and net/hand columns; the game's board has no net. Both carry #, identity, a count, the rating with its weekly change, sortable by the underlined column, and the viewer's own row on panel2.</p>
+  </div>
+  <div class="frame phone site"><span class="lab">site · phone</span>
+    <div class="top"><h3>Leaderboard</h3></div>
+    <div class="tabs"><button>Hong Kong</button><button class="on">Taiwan</button><button>Offline</button></div>
+    <div class="card">
+      <div class="rh"><span>#</span><span>player</span><span>status</span><span class="r">hands</span><span class="r">rank</span></div>
+      <div class="rr"><span class="no">1</span><div class="pid"><span class="av unlinked">W</span><span class="nm"><b>Wen L</b></span></div><span class="pres"><i class="off"></i>offline</span><span class="num">287</span><span class="rk">1610</span></div>
+      <div class="rr"><span class="no">2</span><div class="pid"><span class="av">J</span><span class="nm"><b>Jason Y</b></span></div><span class="pres"><i></i>online</span><span class="num">89</span><span class="rk">1585</span></div>
+      <div class="rr"><span class="no">3</span><div class="pid"><span class="av unlinked">L</span><span class="nm"><b>Lisa T</b></span></div><span class="pres"><i class="off"></i>offline</span><span class="num">29</span><span class="rk">1541</span></div>
+    </div>
+  </div>
+  <div class="frame web site"><span class="lab">site · web · room board</span>
+    <div class="top"><h3>Leaderboard</h3><span style="margin-left:auto;font-size:12px;color:var(--dim)">LAMJ — Wen · 30 players</span></div>
+    <div class="tabs"><button>Hong Kong</button><button class="on">Taiwan</button><button>Offline</button><span style="flex:1"></span><button>sort: rank</button><button>net</button><button>hands</button></div>
+    <div class="card">
+      <div class="rh"><span>#</span><span>player</span><span>status</span><span class="r">hands</span><span class="r">net</span><span class="r">rank</span></div>
+      <div class="rr"><span class="no">1</span><div class="pid"><span class="av unlinked">W</span><span class="nm"><b>Wen L</b><small>S4 T6 R2</small></span></div><span class="pres"><i class="off"></i>offline · Tue</span><span class="num">287</span><span class="num up">+238</span><span class="rk">1610</span></div>
+      <div class="rr"><span class="no">2</span><div class="pid"><span class="av">J</span><span class="nm"><b>Jason Y</b><small>@jasony</small></span></div><span class="pres"><i></i>online</span><span class="num">89</span><span class="num up">+145</span><span class="rk">1585</span></div>
+      <div class="rr"><span class="no">3</span><div class="pid"><span class="av unlinked">L</span><span class="nm"><b>Lisa T</b><small>S3 T3 R2</small></span></div><span class="pres"><i class="off"></i>offline</span><span class="num">29</span><span class="num up">+92</span><span class="rk">1541</span></div>
+    </div>
+    <p class="note">The format pills (Hong Kong · Taiwan · Offline) pick which rank the column shows. The site's board keeps net; the game's has none. Rows and headers otherwise identical.</p>
   </div>
 </div>
 
-<h2>4 · Player header — the player page on both</h2>
-<div class="row">
-  <div class="frame phone"><span class="lab">game · /players/:id</span>
-    <div class="card"><div class="phead">
-      <div class="pid lg"><span class="av">S</span><span class="nm"><b>sable</b><small>@sable · member #12 · <span class="pres" style="font-size:12px"><i></i>in the lobby</span></small></span></div>
-      <div class="acts"><button class="pri">Invite to table</button><button>Message</button><button>☆ Star</button></div>
-      <div class="tiles"><div><b style="color:var(--blue)">1512</b><small>online</small></div><div><b>1490</b><small>est.</small></div><div><b>14</b><small>games</small></div><div><b>+0.4</b><small>worth/hand</small></div></div>
+<h2>3 · Research table — status column, source filter, search, sort chips</h2>
+<div class="four">
+  <div class="frame phone site"><span class="lab">site · phone</span>
+    <div class="top"><h3>All players</h3></div>
+    <div class="tabs"><button class="on">All</button><button>Online games</button><button>Offline games</button></div>
+    <div class="search"><input placeholder="search players 搜尋"></div>
+    <div class="tabs"><button class="on">sort: worth/hand</button><button>games</button><button>win%</button></div>
+    <div class="card"><div class="rt">
+      <span class="h">player</span><span class="h">games</span><span class="h">worth/hand</span>
+      <div class="c pid"><span class="av unlinked">G</span><span class="nm"><b>Gus</b><span class="pres"><i class="off"></i>offline</span></span></div><span class="c">2</span><span class="c"><b>+0.26</b></span>
+      <div class="c pid"><span class="av">A</span><span class="nm"><b>augie</b><span class="pres"><i></i>playing · 3/4</span></span></div><span class="c">3</span><span class="c"><b>+0.17</b></span>
+      <div class="c pid"><span class="av unlinked">W</span><span class="nm"><b>Wen L</b><span class="pres"><i class="off"></i>offline</span></span></div><span class="c">19</span><span class="c"><b>+0.11</b></span>
+      <div class="c pid"><span class="av unlinked">K</span><span class="nm"><b>Katrina</b><span class="pres"><i class="off"></i>offline</span></span></div><span class="c">3</span><span class="c dn"><b>−0.16</b></span>
     </div></div>
-    <div class="sec">record · games together · rating history</div>
-    <div class="card" style="min-height:90px;color:var(--dim);font-size:12px;display:flex;align-items:center;justify-content:center">the Stats datasets, scoped to this player</div>
+    <p class="note">Phone shows the sorted column only; status sits under the name.</p>
   </div>
-  <div class="frame web site" style="min-height:0"><span class="lab">almanac · /almanac/p/:name</span>
-    <div class="card"><div class="phead" style="flex-direction:row;align-items:center;gap:22px">
-      <div class="pid lg"><span class="av unlinked">W</span><span class="nm"><b>Wen L</b><small>typed name · not linked · <a href="#" style="color:var(--blue)">claim this name ›</a></small></span></div>
-      <div class="tiles" style="flex:1"><div><b style="color:var(--blue)">—</b><small>online</small></div><div><b>1610</b><small>est.</small></div><div><b>19</b><small>games</small></div><div><b>+0.11</b><small>worth/hand</small></div></div>
+  <div class="frame web site" style="grid-column:2 / span 3"><span class="lab">site · web (the app's Stats page links here as "full table ›")</span>
+    <div class="top"><h3>All players</h3><span style="margin-left:auto;font-size:12px;color:var(--dim)">65 names · 32 games</span></div>
+    <div class="tabs"><button class="on">All</button><button>Online games</button><button>Offline games</button><span style="flex:1"></span><button class="on">sort: worth/hand</button><button>games</button><button>win%</button><button>in%</button><button>net/hand</button><button>all columns ›</button></div>
+    <div class="search"><input placeholder="search players 搜尋"></div>
+    <div class="card"><div class="rt">
+      <span class="h">player</span><span class="h">status</span><span class="h">games</span><span class="h">hands</span><span class="h">win%</span><span class="h">net/hand</span><span class="h">worth/hand ↓</span>
+      <div class="c pid"><span class="av unlinked">G</span><span class="nm"><b>Gus</b></span></div><span class="c l pres"><i class="off"></i>offline · Aug</span><span class="c">2</span><span class="c">32</span><span class="c">38%</span><span class="c">+5.8</span><span class="c"><b>+0.26</b></span>
+      <div class="c pid"><span class="av">A</span><span class="nm"><b>augie</b><small>@augie</small></span></div><span class="c l pres"><i></i>playing · hand 3/4</span><span class="c">3</span><span class="c">74</span><span class="c">22%</span><span class="c">+11.4</span><span class="c"><b>+0.17</b></span>
+      <div class="c pid"><span class="av unlinked">W</span><span class="nm"><b>Wen L</b></span></div><span class="c l pres"><i class="off"></i>offline · Tue</span><span class="c">19</span><span class="c">287</span><span class="c">30%</span><span class="c">+0.8</span><span class="c"><b>+0.11</b></span>
+      <div class="c pid"><span class="av unlinked">K</span><span class="nm"><b>Katrina</b></span></div><span class="c l pres"><i class="off"></i>offline · Jul</span><span class="c">3</span><span class="c">41</span><span class="c">15%</span><span class="c">−13.2</span><span class="c dn"><b>−0.16</b></span>
     </div></div>
-    <p class="note">Identical header. A typed offline name has no account behind it: dashed avatar, no handle, "claim this name" once the player signs in, which links the typed name to their account and merges both histories.</p>
+    <p class="note">Sorting is chips on every surface, never clickable headers, so phone and desktop behave the same. "Online games / Offline games" filters which games feed the numbers. "all columns ›" reveals the W:L ratios.</p>
   </div>
 </div>
 
-<h2>5 · Research table — the site's players page keeps its depth, takes the module's cell and numerals</h2>
-<div class="frame web site" style="width:100%;max-width:980px;min-height:0"><span class="lab">almanac · /almanac/players</span>
-  <div class="sec">all players · 65 names across 32 games · sort: worth/hand</div>
-  <div class="card"><div class="rt">
-    <span class="h">player</span><span class="h">games</span><span class="h">hands</span><span class="h">win%</span><span class="h">in%</span><span class="h">net/hand</span><span class="h">worth/hand ↓</span>
-    <div class="c pid"><span class="av unlinked">G</span><span class="nm"><b>Gus</b></span></div><span class="c">2</span><span class="c">32</span><span class="c">38%</span><span class="c">6%</span><span class="c">+5.8</span><span class="c"><b>+0.26</b></span>
-    <div class="c pid"><span class="av">A</span><span class="nm"><b>augie</b><small>@augie</small></span></div><span class="c">3</span><span class="c">74</span><span class="c">22%</span><span class="c">18%</span><span class="c">+11.4</span><span class="c"><b>+0.17</b></span>
-    <div class="c pid"><span class="av unlinked">W</span><span class="nm"><b>Wen L</b></span></div><span class="c">19</span><span class="c">287</span><span class="c">30%</span><span class="c">13%</span><span class="c">+0.8</span><span class="c"><b>+0.11</b></span>
-    <div class="c pid"><span class="av unlinked">K</span><span class="nm"><b>Katrina</b></span></div><span class="c">3</span><span class="c">41</span><span class="c">15%</span><span class="c">24%</span><span class="c dn">−13.2</span><span class="c dn"><b>−0.16</b></span>
-  </div></div>
-  <p class="note">Eleven columns become seven by default (the W:L ratios move under an "all columns" toggle). The game's Stats page links here as "full table ›" instead of growing its own.</p>
+<h2>4 · Player page header — one rank, then the breakdown</h2>
+<div class="four">
+  <div class="frame phone"><span class="lab">app · phone</span>
+    <div class="card" style="padding:12px">
+      <div class="pid lg"><span class="av">S</span><span class="nm"><b>sable</b><small>@sable · <span class="pres"><i></i>online</span></small></span></div>
+      <div class="acts"><button class="pri">Invite to table</button><button>Message</button><button>☆</button></div>
+      <div class="tiles"><div><b>1512</b><small>rank</small></div><div><b>1512</b><small>Hong Kong</small></div><div><b>—</b><small>Taiwan</small></div><div><b>1490</b><small>offline</small></div></div>
+    </div>
+  </div>
+  <div class="frame web"><span class="lab">app · web</span>
+    <div class="card hdr">
+      <div class="idrow"><div class="pid lg"><span class="av">S</span><span class="nm"><b>sable</b><small>@sable · <span class="pres"><i></i>online</span></small></span></div><div class="acts"><button class="pri">Invite to table</button><button>Message</button><button>☆</button></div></div>
+      <div class="tiles" style="grid-template-columns:repeat(5,1fr)"><div><b>1512</b><small>rank</small></div><div><b>1512</b><small>Hong Kong</small></div><div><b>—</b><small>Taiwan</small></div><div><b>1490</b><small>offline HK</small></div><div><b>—</b><small>offline TW</small></div></div>
+    </div>
+  </div>
+  <div class="frame phone site"><span class="lab">site · phone</span>
+    <div class="card" style="padding:12px">
+      <div class="pid lg"><span class="av unlinked">W</span><span class="nm"><b>Wen L</b><small>not linked · <a href="#" style="color:var(--blue)">claim this name ›</a></small></span></div>
+      <div class="tiles"><div><b>1610</b><small>rank</small></div><div><b>—</b><small>Hong Kong</small></div><div><b>—</b><small>Taiwan</small></div><div><b>1610</b><small>offline TW</small></div></div>
+    </div>
+  </div>
+  <div class="frame web site"><span class="lab">site · web</span>
+    <div class="card hdr">
+      <div class="idrow"><div class="pid lg"><span class="av unlinked">W</span><span class="nm"><b>Wen L</b><small>not linked · <a href="#" style="color:var(--blue)">claim this name ›</a> · <span class="pres"><i class="off"></i>offline · Tue</span></small></span></div></div>
+      <div class="tiles" style="grid-template-columns:repeat(5,1fr)"><div><b>1610</b><small>rank</small></div><div><b>—</b><small>Hong Kong</small></div><div><b>—</b><small>Taiwan</small></div><div><b>—</b><small>offline HK</small></div><div><b>1610</b><small>offline TW</small></div></div>
+    </div>
+    <p class="note">"rank" in lists is the player's best-supported format for now (the one with the most games); the page shows every format. A typed name with no account gets the dashed avatar and "claim this name".</p>
+  </div>
 </div>
 
-<h2>6 · The contract both read</h2>
-<pre>PlayerSummary {
-  id            string            // game player id; the Almanac resolves typed names to one when linked
-  displayName   string
-  handle        string | null     // @handle from the account; null for a typed offline name
-  userNo        number | null     // member number; 0 = augwalts
-  avatar        string | null     // data URI (game) or Google picture; null → letter
-  linked        boolean           // false = an Almanac typed name with no account behind it
-  bot           boolean
-  presence      { state: "lobby"|"waiting"|"playing"|"live-table"|"offline",
-                  hand?: number, handsBase?: number, room?: string, lastSeenAt?: string } | null
-  rating        { online: number | null, provisional: boolean,
-                  estimate: number | null, estimateGames: number, weekDelta?: number }
-  record        { games: number, hands: number, worthPerHand: number | null } | null
-  starred       boolean           // viewer-relative; false when signed out
-}
-
-GET /api/players?scope=friends|online|room:&lt;code&gt;|all&amp;sort=rating|estimate|name   → PlayerSummary[]
-GET /api/players/:id                                                          → PlayerSummary + datasets</pre>
+<h2>5 · Rules</h2>
 <table class="spec">
-  <tr><th>Rule</th><th>Why</th></tr>
-  <tr><td>Order inside a row is fixed: star · identity · presence · numbers</td><td>Eyes learn one scan path across both products</td></tr>
-  <tr><td>Two ratings always, side by side, online in blue and estimate in ink, never blended</td><td>They measure different things; blue marks the number the game itself earned</td></tr>
-  <tr><td>Numbers are mono and right-aligned; "—" for none; "·p" for provisional</td><td>Columns line up in any list length</td></tr>
-  <tr><td>Rows are hairline-separated inside one card, never a card each</td><td>Thirty players must fit on a phone</td></tr>
-  <tr><td>Unlinked typed names get a dashed avatar and no handle</td><td>Honest about what is an account and what is a name someone typed at a table</td></tr>
-  <tr><td>Presence phrases are shared strings: in the lobby · waiting at a table · playing · hand N/M · at a live table · offline · last seen</td><td>Same words on both products, bilingual through the strings table</td></tr>
-  <tr><td>Gold is the star and nothing else in this module</td><td>The palette ruling: colour carries meaning or it does not appear</td></tr>
+  <tr><th>Rule</th><th>Note</th></tr>
+  <tr><td>Row order everywhere: star · player · status · rank</td><td>Web adds columns to the right, never reorders</td></tr>
+  <tr><td>Four presence states: online · queue · playing hand N/M · offline</td><td>Green, yellow, green, hollow. Nothing else until a need appears</td></tr>
+  <tr><td>One rank per row under a header; formats are pills above the table, full breakdown on the player page</td><td>Hong Kong, Taiwan, offline Hong Kong, offline Taiwan for now</td></tr>
+  <tr><td>No member numbers</td><td>Removed until there is a system for them</td></tr>
+  <tr><td>Status appears in every table, including the research table</td><td>Under the name on phone, its own column on web</td></tr>
+  <tr><td>Sorting is chips on every surface; search box on every list</td><td>Identical behaviour phone and desktop</td></tr>
+  <tr><td>Dashed avatar + "not linked" = a name typed into a scoresheet with no signed-in account behind it</td><td>"claim this name" on the player page links it on sign-in</td></tr>
+  <tr><td>Gold is the star only</td><td></td></tr>
 </table>
+<pre>PlayerSummary {
+  id, displayName, handle | null, avatar | null, linked: boolean, bot: boolean
+  status: { state: "online" | "queue" | "playing" | "offline", hand?, handsBase?, queue?: "2/4", room?, lastSeenAt? }
+  rank:   number | null           // the format the list is showing
+  ranks:  { hk, tw, offlineHk, offlineTw: number | null }
+  games:  number
+  starred: boolean
+}
+GET /api/players?scope=friends|online|room:CODE|all&amp;format=hk|tw|offline&amp;sort=rank|name|recent&amp;q=</pre>
 
 <script>
   for (const b of document.querySelectorAll('#controls [data-theme]')) b.onclick = () => {
