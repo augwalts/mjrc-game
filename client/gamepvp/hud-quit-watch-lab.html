@@ -40,11 +40,33 @@ body{background:var(--c-bg);
    pills (no emoji) filled only when on, and quit as the one seal-red pill —
    with a real tap target: 36px tall, the old one was 24. */
 .hud{display:flex;align-items:center;gap:8px;padding:7px 10px;font-size:12px;color:var(--c-dim);
-  background:var(--c-panel);border-bottom:1px solid var(--c-line);flex:0 0 auto;min-height:50px}
+  background:var(--c-panel);border-bottom:1px solid var(--c-line);flex:0 0 auto;min-height:50px;
+  /* ABOVE EVERYTHING — the veil (40), the chat overlay (13), flying tiles —
+     so nothing ever paints over the gear (owner, 2026-09-03). */
+  position:relative;z-index:70}
+.hud .gear{width:40px;height:40px;padding:0;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  color:var(--c-ink);border:1px solid var(--c-line);background:none;cursor:pointer;flex:0 0 auto}
+.hud .gear:hover,.hud .gear[aria-expanded="true"]{border-color:var(--c-ink);background:var(--c-panel2)}
+/* the dropdown: a small panel under the gear, one text row per action */
+.hudMenu{position:absolute;right:10px;top:calc(100% + 6px);z-index:71;min-width:180px;
+  background:var(--c-bg);border:1px solid var(--c-line);border-radius:12px;padding:6px;
+  box-shadow:0 14px 40px rgba(0,0,0,.28);display:flex;flex-direction:column;gap:2px}
+.hudMenu[hidden]{display:none}
+/* `.hud .hudMenu …` outranks the pill rule `.hud button` below, which
+   would otherwise win on source order and draw the rows as pills */
+.hud .hudMenu button{width:100%;text-align:left;border:0;border-radius:8px;padding:11px 12px;min-height:42px;font-size:14px;
+  color:var(--c-ink);background:none;font-weight:400}
+.hud .hudMenu button:hover{background:var(--c-panel2);color:var(--c-ink)}
+.hud .hudMenu button.on{background:var(--c-panel2);color:var(--c-ink);font-weight:600}
+.hud .hudMenu .btnQuit{color:var(--c-danger);border-top:1px solid var(--c-line);border-radius:0 0 8px 8px;margin-top:2px;padding-top:12px;font-weight:600}
+.hud .hudMenu .btnQuit:hover{background:color-mix(in srgb, var(--c-danger) 12%, transparent)}
 .hud b{color:var(--c-ink)}
 .hud .spacer{flex:1}
 .hud .tt{font-family:var(--mono);font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--c-dim);
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+/* the game clock: elapsed since the first deal, tabular so it does not jitter */
+.hud .clock{color:var(--c-ink);font-variant-numeric:tabular-nums;flex:0 0 auto;overflow:visible}
+.hud .clock:empty{display:none}
 .hud .mut{font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--c-dim);white-space:nowrap}
 .hud .netchip{display:inline-flex;align-items:center;gap:6px;color:var(--c-danger)}
 .hud .netchip:empty{display:none}
@@ -53,7 +75,6 @@ body{background:var(--c-bg);
   background:none;color:var(--c-dim);cursor:pointer;white-space:nowrap}
 .hud button:hover{color:var(--c-ink);border-color:var(--c-dim)}
 .hud button.on{background:none;color:var(--c-ink);border-color:var(--c-ink)}
-.hud .btnQuit{border-color:var(--c-danger);color:var(--c-danger);padding:7px 18px;font-weight:600}
 .hud .btnQuit:hover{background:color-mix(in srgb, var(--c-danger) 12%, transparent)}
 /* The lab's shell modal, as a variant of #panel (gameplay-lab.html
    `.modal/.mhead/.mbody/.mfoot`): head with a hairline, body in dim ink,
@@ -81,6 +102,11 @@ body{background:var(--c-bg);
 .panel{background:linear-gradient(180deg,#1b3a30,#12281f);border:1px solid rgba(216,181,106,.35);
   border-radius:14px;padding:22px 26px;max-width:640px;width:100%;text-align:center;
   margin:auto;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+.chatBtn{position:relative}
+.chatBtn.open{border-color:var(--c-ink);background:var(--c-panel2)}
+.chatBadge{position:absolute;top:-3px;right:-3px;background:var(--danger);color:#2a1410;
+  border-radius:10px;min-width:18px;height:18px;padding:0 4px;font-size:10px;font-weight:800;
+  display:flex;align-items:center;justify-content:center;border:2px solid #171512}
 
 *{box-sizing:border-box}
 body{margin:0;background:var(--c-bg);color:var(--c-ink);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:18px 20px 60px}
@@ -128,21 +154,19 @@ h1{font-size:17px;margin:0 0 4px} .note{color:var(--c-dim);font-size:12.5px;max-
 <div id="controls"><button class="on" onclick="setT('light',this)">paper</button><button onclick="setT('dark',this)">charcoal</button></div>
 <script>function setT(t,b){document.documentElement.className='theme-'+t;for(const x of document.querySelectorAll('#controls button'))x.classList.toggle('on',x===b)}</script>
 <h1>HUD · quit dialog · watch — as built, 2026-09-03</h1>
-<p class="note">Paper by default, charcoal on the toggle — the chrome follows the shell theme, the felt never changes. The HUD and modal CSS below is copied verbatim from <code>client/gamepvp/index.html</code> at <code>3af6a6c</code> (ids swapped for classes so several frames can sit on one page). The felt, tiles and the watch page are sketched, not the real renderer.</p>
+<p class="note">Paper by default, charcoal on the toggle — the chrome follows the shell theme, the felt never changes. The HUD and modal CSS below is copied verbatim from <code>client/gamepvp/index.html</code> at <code>HEAD</code> (ids swapped for classes so several frames can sit on one page). The felt, tiles and the watch page are sketched, not the real renderer.</p>
 
 <div class="sec"><p class="cap">1 · the menu bar (HUD)</p>
-<p class="note">Panel strip with a hairline; ruleset · round wind · speed in mono caps on the left; a seal-red reconnect chip when the socket drops; text pills filled only when on; quit is the one seal-red pill, 36px tall (was 24). No emoji.</p>
+<p class="note">Panel strip with a hairline. Left: ruleset · round wind · speed in mono caps, then the <b>game clock</b> (elapsed since the first deal), then a seal-red reconnect chip when the socket drops. Right: two round icons only — <b>chat</b> (with its unread badge) and the <b>gear</b>. Pause, auto, settings and quit live in the gear's dropdown (open in the desktop frame); quit is the seal-red row. The bar sits above everything on the page, the veil included, so nothing ever paints over the icons.</p>
 <div class="row2">
 <div class="frame desk"><span class="label">desktop · 960</span><div class="screen">
-  <div class="hud"><span class="tt">MJRC standard · 東圈 · normal</span><span class="netchip"></span><span class="spacer"></span><span class="mut"></span>
-    <button>pause</button><button class="on">auto · on</button><button>settings</button><button class="btnQuit">quit</button></div>
+  <div class="hud"><span class="tt">MJRC standard · 東圈 · normal</span><span class="tt clock">12:34</span><span class="netchip"></span><span class="spacer"></span><button class="gear chatBtn"><svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M4 4h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 4v-4H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/></svg><span class="chatBadge">2</span></button><button class="gear" aria-expanded="true"><svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M19.4 13a7.6 7.6 0 0 0 .1-1 7.6 7.6 0 0 0-.1-1l2.1-1.6a.5.5 0 0 0 .1-.7l-2-3.4a.5.5 0 0 0-.6-.2l-2.5 1a7.3 7.3 0 0 0-1.7-1l-.4-2.6a.5.5 0 0 0-.5-.5h-4a.5.5 0 0 0-.5.4l-.4 2.7a7.3 7.3 0 0 0-1.7 1l-2.5-1a.5.5 0 0 0-.6.2l-2 3.4a.5.5 0 0 0 .1.7L4.6 11a7.6 7.6 0 0 0-.1 1 7.6 7.6 0 0 0 .1 1l-2.1 1.6a.5.5 0 0 0-.1.7l2 3.4c.1.2.4.3.6.2l2.5-1a7.3 7.3 0 0 0 1.7 1l.4 2.6c0 .3.2.5.5.5h4c.2 0 .5-.2.5-.4l.4-2.7a7.3 7.3 0 0 0 1.7-1l2.5 1c.2.1.5 0 .6-.2l2-3.4a.5.5 0 0 0-.1-.7L19.4 13zM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z"/></svg></button><div class="hudMenu"><button>pause</button><button class="on">auto · on</button><button>settings</button><button class="btnQuit">quit</button></div></div>
   <div class="tablearea"><div class="felt"><div class="state"><span class="wind">東</span> hand 3 · wall 42</div></div></div>
   <div class="tray"><div class="clockbar"><i></i></div><div class="hint">your turn · <b>tap a tile, tap again to discard</b></div>
   <div class="mine"><span class="t">1</span><span class="t">2</span><span class="t">3</span><span class="t b">四</span><span class="t b">五</span><span class="t g">6</span><span class="t g">7</span><span class="t r">中</span><span class="t r">中</span><span class="t">東</span><span class="t">東</span><span class="t">白</span><span class="t">白</span><span class="sortbtn">sort</span></div></div>
 </div></div>
 <div class="frame phone"><span class="label">phone · 393 · reconnecting</span><div class="screen">
-  <div class="hud"><span class="tt">TVB 2026 · 南圈</span><span class="netchip">reconnecting…</span><span class="spacer"></span>
-    <button>settings</button><button class="btnQuit">quit</button></div>
+  <div class="hud"><span class="tt">TVB 2026 · 南圈</span><span class="tt clock">41:07</span><span class="netchip">reconnecting…</span><span class="spacer"></span><button class="gear chatBtn"><svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M4 4h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 4v-4H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/></svg></button><button class="gear" aria-expanded="false"><svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M19.4 13a7.6 7.6 0 0 0 .1-1 7.6 7.6 0 0 0-.1-1l2.1-1.6a.5.5 0 0 0 .1-.7l-2-3.4a.5.5 0 0 0-.6-.2l-2.5 1a7.3 7.3 0 0 0-1.7-1l-.4-2.6a.5.5 0 0 0-.5-.5h-4a.5.5 0 0 0-.5.4l-.4 2.7a7.3 7.3 0 0 0-1.7 1l-2.5-1a.5.5 0 0 0-.6.2l-2 3.4a.5.5 0 0 0 .1.7L4.6 11a7.6 7.6 0 0 0-.1 1 7.6 7.6 0 0 0 .1 1l-2.1 1.6a.5.5 0 0 0-.1.7l2 3.4c.1.2.4.3.6.2l2.5-1a7.3 7.3 0 0 0 1.7 1l.4 2.6c0 .3.2.5.5.5h4c.2 0 .5-.2.5-.4l.4-2.7a7.3 7.3 0 0 0 1.7-1l2.5 1c.2.1.5 0 .6-.2l2-3.4a.5.5 0 0 0-.1-.7L19.4 13zM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z"/></svg></button></div>
   <div class="tablearea"><div class="felt"><div class="state"><span class="wind">南</span> hand 6</div></div></div>
   <div class="mine"><span class="t">1</span><span class="t">2</span><span class="t">3</span><span class="t b">四</span><span class="t b">五</span><span class="t g">6</span><span class="t g">7</span><span class="t r">中</span><span class="t r">中</span><span class="t">東</span><span class="t">東</span><span class="t">白</span><span class="t">白</span></div>
 </div></div>
@@ -152,7 +176,7 @@ h1{font-size:17px;margin:0 0 4px} .note{color:var(--c-dim);font-size:12.5px;max-
 <p class="note">The lab's modal: head with a hairline, body in dim ink, foot with one blue primary (stay — the default, also Esc) and one ghost (leave). The host sees two more blocks: <b>remove a player</b> (the other human seats; first tap arms the name in seal red, second tap removes) and <b>end the table for everyone</b>, its button in seal red. A bot plays the seat after leave; the seat and tiles are kept — rejoin from Home or the room page.</p>
 <div class="row2">
 <div class="frame phone"><span class="label">phone · player</span><div class="screen">
-  <div class="hud"><span class="tt">MJRC standard · 東圈</span><span class="spacer"></span><button>settings</button><button class="btnQuit">quit</button></div>
+  <div class="hud"><span class="tt">MJRC standard · 東圈</span><span class="tt clock">08:12</span><span class="netchip"></span><span class="spacer"></span><button class="gear chatBtn"><svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M4 4h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 4v-4H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/></svg></button><button class="gear" aria-expanded="false"><svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M19.4 13a7.6 7.6 0 0 0 .1-1 7.6 7.6 0 0 0-.1-1l2.1-1.6a.5.5 0 0 0 .1-.7l-2-3.4a.5.5 0 0 0-.6-.2l-2.5 1a7.3 7.3 0 0 0-1.7-1l-.4-2.6a.5.5 0 0 0-.5-.5h-4a.5.5 0 0 0-.5.4l-.4 2.7a7.3 7.3 0 0 0-1.7 1l-2.5-1a.5.5 0 0 0-.6.2l-2 3.4a.5.5 0 0 0 .1.7L4.6 11a7.6 7.6 0 0 0-.1 1 7.6 7.6 0 0 0 .1 1l-2.1 1.6a.5.5 0 0 0-.1.7l2 3.4c.1.2.4.3.6.2l2.5-1a7.3 7.3 0 0 0 1.7 1l.4 2.6c0 .3.2.5.5.5h4c.2 0 .5-.2.5-.4l.4-2.7a7.3 7.3 0 0 0 1.7-1l2.5 1c.2.1.5 0 .6-.2l2-3.4a.5.5 0 0 0-.1-.7L19.4 13zM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z"/></svg></button></div>
   <div class="tablearea"><div class="felt"></div></div>
   <div class="veil" style="position:absolute;inset:0"><div class="panel modal">
     <div class="mhead"><h2>Leave the table?</h2></div>
@@ -161,7 +185,7 @@ h1{font-size:17px;margin:0 0 4px} .note{color:var(--c-dim);font-size:12.5px;max-
   </div></div>
 </div></div>
 <div class="frame desk"><span class="label">desktop · host</span><div class="screen">
-  <div class="hud"><span class="tt">MJRC standard · 東圈 · normal</span><span class="spacer"></span><button>pause</button><button>auto</button><button>settings</button><button class="btnQuit">quit</button></div>
+  <div class="hud"><span class="tt">MJRC standard · 東圈 · normal</span><span class="tt clock">25:50</span><span class="netchip"></span><span class="spacer"></span><button class="gear chatBtn"><svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M4 4h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 4v-4H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/></svg></button><button class="gear" aria-expanded="false"><svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M19.4 13a7.6 7.6 0 0 0 .1-1 7.6 7.6 0 0 0-.1-1l2.1-1.6a.5.5 0 0 0 .1-.7l-2-3.4a.5.5 0 0 0-.6-.2l-2.5 1a7.3 7.3 0 0 0-1.7-1l-.4-2.6a.5.5 0 0 0-.5-.5h-4a.5.5 0 0 0-.5.4l-.4 2.7a7.3 7.3 0 0 0-1.7 1l-2.5-1a.5.5 0 0 0-.6.2l-2 3.4a.5.5 0 0 0 .1.7L4.6 11a7.6 7.6 0 0 0-.1 1 7.6 7.6 0 0 0 .1 1l-2.1 1.6a.5.5 0 0 0-.1.7l2 3.4c.1.2.4.3.6.2l2.5-1a7.3 7.3 0 0 0 1.7 1l.4 2.6c0 .3.2.5.5.5h4c.2 0 .5-.2.5-.4l.4-2.7a7.3 7.3 0 0 0 1.7-1l2.5 1c.2.1.5 0 .6-.2l2-3.4a.5.5 0 0 0-.1-.7L19.4 13zM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z"/></svg></button></div>
   <div class="tablearea"><div class="felt"></div></div>
   <div class="veil" style="position:absolute;inset:0"><div class="panel modal">
     <div class="mhead"><h2>Leave the table?</h2></div>

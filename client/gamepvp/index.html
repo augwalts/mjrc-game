@@ -56,11 +56,14 @@ body{background:var(--c-bg);
   background:var(--c-bg);border:1px solid var(--c-line);border-radius:12px;padding:6px;
   box-shadow:0 14px 40px rgba(0,0,0,.28);display:flex;flex-direction:column;gap:2px}
 #hudMenu[hidden]{display:none}
-#hudMenu button{width:100%;text-align:left;border:0;border-radius:8px;padding:11px 12px;min-height:42px;font-size:14px;
-  color:var(--c-ink);background:none}
-#hudMenu button:hover{background:var(--c-panel2);border-color:transparent}
-#hudMenu button.on{background:var(--c-panel2);color:var(--c-ink);border-color:transparent;font-weight:600}
-#hudMenu #btnQuit{color:var(--c-danger);border-top:1px solid var(--c-line);border-radius:0 0 8px 8px;margin-top:2px;padding-top:12px;font-weight:600}
+/* `#hud #hudMenu …` outranks the pill rule `#hud button` below, which
+   would otherwise win on source order and draw the rows as pills */
+#hud #hudMenu button{width:100%;text-align:left;border:0;border-radius:8px;padding:11px 12px;min-height:42px;font-size:14px;
+  color:var(--c-ink);background:none;font-weight:400}
+#hud #hudMenu button:hover{background:var(--c-panel2);color:var(--c-ink)}
+#hud #hudMenu button.on{background:var(--c-panel2);color:var(--c-ink);font-weight:600}
+#hud #hudMenu #btnQuit{color:var(--c-danger);border-top:1px solid var(--c-line);border-radius:0 0 8px 8px;margin-top:2px;padding-top:12px;font-weight:600}
+#hud #hudMenu #btnQuit:hover{background:color-mix(in srgb, var(--c-danger) 12%, transparent)}
 #hud b{color:var(--c-ink)}
 #hud .spacer{flex:1}
 #hud .tt{font-family:var(--mono);font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--c-dim);
