@@ -3133,11 +3133,20 @@ function botSeatLabel(p: Platform, key: string | undefined, seat: SeatIndex): st
  * over the same rows; `GET /api/rooms/:code` has no `here` panel and passes
  * `null`.
  */
-async function tableViewOf(p: Platform, m: LobbyMatchRow, here: Map<string, HereEntry> | null) {
+async function tableViewOf(
+  p: Platform,
+  m: LobbyMatchRow,
+  here: Map<string, HereEntry> | null,
+  /** The caller, when known: a player who HOLDS A SEAT at a private table
+   *  gets its code back (they were given it once already), so the Rejoin
+   *  button works there too (2026-09-03). Null for the global `here` build. */
+  viewerId: string | null = null,
+) {
   const plan = seatPlanOf(m.seat_plan, m.bot_seats);
   const humanSeats = await humanSeatsOfMatch(p.db, m.id);
   const bySeat = new Map(humanSeats.map((s) => [s.seat, s]));
-  const joinCode = codeIfOpen(m.access, m.join_code);
+  const seatedViewer = viewerId !== null && humanSeats.some((s) => s.player_id === viewerId);
+  const joinCode = codeIfOpen(m.access, m.join_code) ?? (seatedViewer ? m.join_code : null);
   const state: "waiting" | "playing" = m.lobby_status === "playing" ? "playing" : "waiting";
   /* Occupancy, for `here`'s "2/4": a bot seat is filled the moment the table
    * is created, a human seat only once somebody claims it. */
@@ -3243,7 +3252,7 @@ const chatView = (r: LobbyMessageRow) => ({
  * grounds that hiding a friend entirely because they wandered into a room is
  * worse than a harmless tag.
  */
-async function getLobby(p: Platform, roomCode: string | null): Promise<Response> {
+async function getLobby(p: Platform, roomCode: string | null, viewerId: string | null = null): Promise<Response> {
   // Authenticated caller only, checked by the router; the lobby view itself
   // has no per-viewer filtering (§6 decision 1: "everyone sees everyone").
   const now = p.now();
@@ -3278,7 +3287,7 @@ async function getLobby(p: Platform, roomCode: string | null): Promise<Response>
 
   const tables: Awaited<ReturnType<typeof tableViewOf>>[] = [];
   for (const m of openRows) {
-    const view = await tableViewOf(p, m, here);
+    const view = await tableViewOf(p, m, here, viewerId);
     /* Global only: `openRows` here is UNFILTERED (matchesWaitingOrPlaying),
      * on purpose, so `here` above gets tagged for a room-seated player; the
      * room-scoped call already filtered its own `openRows` in SQL, so every
@@ -3447,7 +3456,7 @@ async function postRooms(req: Request, p: Platform, player: PlayerRow): Promise<
  * recently, richened by any of them found seated at one of the room's own
  * open tables.
  */
-async function getRoom(codeRaw: string, p: Platform): Promise<Response> {
+async function getRoom(codeRaw: string, p: Platform, viewerId: string | null = null): Promise<Response> {
   const code = normaliseRoomCode(codeRaw);
   if (code === OPEN_ROOM_CODE) await ensureOpenRoom(p);
   const room = await roomByCode(p.db, code);
@@ -3467,7 +3476,7 @@ async function getRoom(codeRaw: string, p: Platform): Promise<Response> {
     here.set(row.player_id, { playerId: row.player_id, displayName: row.display_name, avatar: row.avatar, state: "lobby" });
   }
   const tables: Awaited<ReturnType<typeof tableViewOf>>[] = [];
-  for (const m of openRows) tables.push(await tableViewOf(p, m, here));
+  for (const m of openRows) tables.push(await tableViewOf(p, m, here, viewerId));
 
   const memberIdSet = new Set(memberIds);
   const players = [...here.values()].filter((e) => memberIdSet.has(e.playerId));
@@ -3795,7 +3804,7 @@ export async function handle(request: Request, p: Platform): Promise<Response> {
       const roomParam = url.searchParams.get("room");
       const roomCode = roomParam === null || roomParam.trim() === "" ? null : normaliseRoomCode(roomParam);
       if (roomCode === OPEN_ROOM_CODE) await ensureOpenMembership(p, player.id, player.display_name);
-      return getLobby(p, roomCode);
+      return getLobby(p, roomCode, player.id);
     }
     if (seg.length === 3 && seg[2] === "chat") {
       if (method !== "POST") return fail("method_not_allowed", 405);
@@ -3822,7 +3831,7 @@ export async function handle(request: Request, p: Platform): Promise<Response> {
     }
     if (seg.length === 3) {
       if (method !== "GET") return fail("method_not_allowed", 405);
-      return getRoom(seg[2], p);
+      return getRoom(seg[2], p, player.id);
     }
     if (seg.length === 4 && seg[3] === "join") {
       if (method !== "POST") return fail("method_not_allowed", 405);

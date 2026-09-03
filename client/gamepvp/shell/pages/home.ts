@@ -43,7 +43,7 @@ function recentGamesHtml(list: MatchListItem[]): string {
   if (list.length === 0) return `<p class="empty">${esc(t(S.nothingHere))}</p>`;
   return list.slice(0, 3).map((m) => {
     const chips = m.finalChips ?? 0;
-    return `<div class="row frow" data-nav="/games/${esc(m.matchId)}">${new Date(m.startedAt).toLocaleDateString()} ·
+    return `<div class="row frow" data-nav="/games/${esc(m.matchId)}">${m.name ? `<b>${esc(m.name)}</b> · ` : ""}${new Date(m.startedAt).toLocaleDateString()} ·
       <b>${m.place ? `${m.place}${["st", "nd", "rd", "th"][m.place - 1] ?? "th"}` : m.status}</b>
       <span class="${chips > 0 ? "up" : chips < 0 ? "down" : ""}">${m.finalChips === null ? "—" : fmtChips(m.finalChips)}</span>
       <span class="badge ${m.rated ? "ranked" : ""}" style="margin-left:auto">${m.rated ? "ranked" : "casual"}</span></div>`;

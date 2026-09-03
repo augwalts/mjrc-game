@@ -79,7 +79,7 @@ function recentGamesHtml(list: MatchListItem[]): string {
   return list.map((m) => {
     const chips = m.finalChips ?? 0;
     return `<div class="recent-item frow" data-nav="/games/${esc(m.matchId)}">
-      <div class="row">${new Date(m.startedAt).toLocaleDateString()} ·
+      <div class="row">${m.name ? `<b>${esc(m.name)}</b> · ` : ""}${new Date(m.startedAt).toLocaleDateString()} ·
       <b>${m.place ? `${m.place}${["st", "nd", "rd", "th"][m.place - 1] ?? "th"}` : m.status}</b>
       <span class="${chips > 0 ? "up" : chips < 0 ? "down" : ""}">${m.finalChips === null ? "—" : fmtChips(m.finalChips)}</span>
       <span class="badge ${m.rated ? "ranked" : ""}" style="margin-left:auto">${m.rated ? "ranked" : "casual"}</span>
