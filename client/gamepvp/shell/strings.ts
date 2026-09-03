@@ -161,6 +161,7 @@ export const S = {
   signedInAs: s("Signed in as", "已登入"),
   memberNo: (n: number) => s(`member #${n}`, `會員 #${n}`),
   signOut: s("Sign out", "登出"),
+  guestOnDevice: s("Guest player on this device. Sign in with Google to keep this player and its history.", "此裝置上的訪客玩家。以 Google 帳戶登入即可保留此玩家及其紀錄。"),
   signingOut: s("Signing out…", "登出中…"),
   deleteAccountWarn: s(
     "This deletes your account and your player. Games you have already played stay on the server without your name. This cannot be undone.",

@@ -422,3 +422,4 @@
 #shell .ac-danger{display:flex; flex-direction:column; gap:8px}
 #shell .ac-warn{margin:0; font-size:12.5px; line-height:1.5; color:var(--red)}
 #shell button.sit.danger{background:var(--red); color:#fff}
+#shell .ac-link{color:var(--blue); text-decoration:none; white-space:nowrap}

@@ -14,7 +14,7 @@
  *  reload rather than a router navigation: the session cookie changed under
  *  the app, and a reload is the one thing guaranteed to re-run boot's
  *  `GET /api/me` from scratch. */
-import { deleteAccount as apiDeleteAccount, identify as apiIdentify, signout as apiSignout } from "../../net.js";
+import { deleteAccount as apiDeleteAccount, forgetDevice, identify as apiIdentify, signout as apiSignout } from "../../net.js";
 import type { PageMount } from "../router.js";
 import { account, describeError, esc, identity, setIdentity, tzOffsetMin } from "../session.js";
 import { S, t } from "../strings.js";
@@ -84,7 +84,9 @@ export const mount: PageMount = (container, _params, router) => {
     const name = identity?.displayName ?? "";
     container.innerHTML = `
       ${pageTop(t(S.titleAccount), { back: "/me", displayName: name, unread: 0 })}
-      <p class="ac-who">${esc(t(S.signedInAs))} <b>${esc(account?.email ?? "—")}</b>${account?.handle ? ` · <b>@${esc(account.handle)}</b>` : ""}${account ? ` · ${esc(t(S.memberNo(account.userNo)))}` : ""}</p>
+      ${account
+        ? `<p class="ac-who">${esc(t(S.signedInAs))} <b>${esc(account.email)}</b>${account.handle ? ` · <b>@${esc(account.handle)}</b>` : ""} · ${esc(t(S.memberNo(account.userNo)))}</p>`
+        : `<p class="ac-who">${esc(t(S.guestOnDevice))} <a class="ac-link" href="/auth/google?next=%2Fme%2Faccount">${esc(t(S.signInWithGoogle))} ›</a></p>`}
       <div class="card">
         <div class="listrow">
           <span>${esc(t(S.profilePicture))}</span>
@@ -106,7 +108,7 @@ export const mount: PageMount = (container, _params, router) => {
       <div class="card ac-danger">
         <div class="row" style="gap:8px">
           <button class="sit sm ghost" id="acSignout" ${busy ? "disabled" : ""}>${esc(busy === "signout" ? t(S.signingOut) : t(S.signOut))}</button>
-          ${confirming ? "" : `<button class="sit sm danger" id="acDelete" ${busy ? "disabled" : ""}>${esc(t(S.deleteAccount))}</button>`}
+          ${confirming || !account ? "" : `<button class="sit sm danger" id="acDelete" ${busy ? "disabled" : ""}>${esc(t(S.deleteAccount))}</button>`}
         </div>
         ${confirming ? `
           <p class="ac-warn">${esc(t(S.deleteAccountWarn))}</p>
@@ -162,7 +164,12 @@ export const mount: PageMount = (container, _params, router) => {
       if (busy) return;
       busy = "signout"; error = null; paint();
       void (async () => {
+        // A grandfathered guest (device token, no account) has no session to
+        // end: signing out means forgetting the token on this device, after
+        // which the sign-in screen is the only way back in.
+        if (!account) { forgetDevice(); location.href = "/"; return; }
         try { await apiSignout(); } catch (e) { error = describeError(e); busy = false; paint(); return; }
+        forgetDevice();
         location.href = "/";
       })();
     });
