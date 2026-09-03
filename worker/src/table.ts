@@ -676,6 +676,10 @@ interface BookKeeping {
   matchSummaryPending: boolean;
   /** Why the match ended, carried from the matchEnd payload to the D1 close-out. */
   matchEndReason: MatchEndPayload["reason"] | null;
+  /** Players the creator removed, by seat (2026-09-03): a bot plays the seat
+   *  and `handleSeat` refuses that player's reclaim. Optional so a book
+   *  persisted before the field existed still hydrates. */
+  kicked?: FourSeats<string | null>;
   summaryAttempts: number;
   botTakeoverHands: FourSeats<number>;
   /** Seats a bot has played in the CURRENT hand; folded into the totals at end. */
@@ -1230,6 +1234,7 @@ export class TableCore {
     if (url.pathname.endsWith("/leave")) return this.handleLeave(request);
     if (url.pathname.endsWith("/observe")) return this.handleObserve(request);
     if (url.pathname.endsWith("/end")) return this.handleEnd(request);
+    if (url.pathname.endsWith("/kick")) return this.handleKick(request);
     if (this.tombstone) return new Response("match over", { status: 410 });
     if (request.headers.get("Upgrade") !== "websocket") {
       return new Response("expected websocket", { status: 400 });
@@ -1355,6 +1360,9 @@ export class TableCore {
     const s = seat as SeatIndex;
     const current = this.meta.header.players[s];
     if (current.bot) return new Response("seat is a bot", { status: 409 });
+    if ((this.book.kicked ?? [null, null, null, null]).includes(claim.playerId)) {
+      return new Response("kicked", { status: 403 });
+    }
     if (current.playerId !== "" && current.playerId !== claim.playerId) {
       return new Response("seat taken", { status: 409 });
     }
@@ -1654,6 +1662,59 @@ export class TableCore {
       this.outbox.set(state.handIndex, rec);
       await this.ctx.storage.put({ [outboxKey(state.handIndex)]: rec });
       this.setDeadline("outboxFlush", this.deps.clock(), "flush");
+    }
+    await this.rearm();
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { "content-type": "application/json; charset=utf-8" },
+    });
+  }
+
+  /**
+   * The creator removes a player (owner request 2026-09-03). The Worker
+   * route has checked `created_by` and that the seat is not the creator's
+   * own. What happens is exactly a leave for that seat — bot-acting for the
+   * rest of the match, socket closed 4001 — plus two things a leave does
+   * not do: the seat token is rotated so the old one cannot reclaim, and
+   * the player is remembered in `book.kicked` so `handleSeat` refuses a
+   * fresh claim through the lobby. Idempotent on a repeat.
+   */
+  private async handleKick(request: Request): Promise<Response> {
+    const secret = this.env.TABLE_SECRET;
+    if (secret && !tokensMatch(request.headers.get("x-mjrc-table-secret") ?? "", secret)) {
+      return new Response("forbidden", { status: 403 });
+    }
+    if (this.tombstone || this.book.matchOver) return new Response("match over", { status: 410 });
+    if (!this.meta) return new Response("table not initialised", { status: 409 });
+    let body: { seat?: unknown };
+    try {
+      body = (await request.json()) as typeof body;
+    } catch {
+      return new Response("malformed kick", { status: 400 });
+    }
+    const seat = body.seat;
+    if (typeof seat !== "number" || !SEATS.includes(seat as SeatIndex)) return new Response("malformed kick", { status: 400 });
+    const s = seat as SeatIndex;
+    const meta = this.meta;
+    const player = meta.header.players[s];
+    if (player.bot) return new Response("seat is a bot", { status: 409 });
+    if (player.playerId === "") return new Response("seat is empty", { status: 409 });
+
+    const kicked = four((i) => (this.book.kicked ?? [null, null, null, null])[i]);
+    kicked[s] = player.playerId;
+    this.book.kicked = kicked;
+    const seatTokens = four((i) => meta.seatTokens[i]);
+    seatTokens[s] = mintSeatToken();
+    this.meta = { ...meta, seatTokens };
+    if (!this.presence[s].botActing) {
+      this.presence[s] = { connected: false, botActing: true };
+      this.armDerived(this.deps.clock());
+    }
+    await this.persistCore();
+    this.broadcastPresence(s);
+    for (const ws of this.ctx.getWebSockets()) {
+      const att = this.attachmentOf(ws);
+      if (att?.seat === s) ws.close(4001, "left");
     }
     await this.rearm();
     return new Response(JSON.stringify({ ok: true }), {

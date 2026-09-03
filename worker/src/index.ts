@@ -255,6 +255,9 @@ export interface TableStub {
    *  ends now with reason `hostEnded`, the hand in flight void. Refused
    *  once the match is over or before it has started. */
   end(): Promise<void>;
+  /** The creator removes a player (2026-09-03): the seat is bot-played for
+   *  the rest of the match and that player cannot reclaim it. */
+  kick(seat: SeatIndex): Promise<void>;
 }
 
 export interface TableNamespace {
@@ -1837,6 +1840,30 @@ async function postEnd(matchId: string, p: Platform, player: PlayerRow): Promise
     await tableStubFor(p, matchId).end();
   } catch (e) {
     console.error("table end failed", matchId, e);
+    return fail("table_unavailable", 503);
+  }
+  return json({ ok: true });
+}
+
+/**
+ * POST /api/tables/:matchId/kick `{ seat }` — the creator removes a player
+ * (owner request 2026-09-03). Creator only, `postStart`'s 404 doctrine; the
+ * creator's own seat is refused. The table object bot-plays the seat from
+ * here on and refuses that player's reclaim.
+ */
+async function postKick(matchId: string, request: Request, p: Platform, player: PlayerRow): Promise<Response> {
+  const match = await matchById(p.db, matchId);
+  if (match === null || match.created_by !== player.id) return fail("not_found", 404);
+  if (match.lobby_status === "done") return fail("already_ended", 409);
+  const body = await readJsonObject(request);
+  const seat = body?.seat;
+  if (typeof seat !== "number" || ![0, 1, 2, 3].includes(seat)) return fail("bad_request", 400);
+  const own = await seatOf(p.db, matchId, player.id);
+  if (own === seat) return fail("bad_request", 400);
+  try {
+    await tableStubFor(p, matchId).kick(seat as SeatIndex);
+  } catch (e) {
+    console.error("table kick failed", matchId, seat, e);
     return fail("table_unavailable", 503);
   }
   return json({ ok: true });
@@ -3735,6 +3762,10 @@ export async function handle(request: Request, p: Platform): Promise<Response> {
     if (seg.length === 4 && seg[3] === "end") {
       if (method !== "POST") return fail("method_not_allowed", 405);
       return postEnd(seg[2], p, player);
+    }
+    if (seg.length === 4 && seg[3] === "kick") {
+      if (method !== "POST") return fail("method_not_allowed", 405);
+      return postKick(seg[2], request, p, player);
     }
     if (seg.length === 4 && seg[3] === "leave") {
       if (method !== "POST") return fail("method_not_allowed", 405);

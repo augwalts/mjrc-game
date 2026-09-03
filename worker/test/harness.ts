@@ -1144,6 +1144,9 @@ export class FakeTables implements TableNamespace {
       async end(): Promise<void> {
         if (ns.fail) throw new Error("table unavailable");
       },
+      async kick(): Promise<void> {
+        if (ns.fail) throw new Error("table unavailable");
+      },
       async observe(): Promise<Record<string, unknown>> {
         if (ns.fail) throw new Error("table unavailable");
         return { started: false, over: false, players: [], presence: [], seats: null };

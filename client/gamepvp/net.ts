@@ -423,6 +423,10 @@ export async function startTable(token: string, matchId: string): Promise<void> 
 export async function endTable(token: string, matchId: string): Promise<void> {
   await apiFetch<void>(`tables/${encodeURIComponent(matchId)}/end`, { method: "POST", token, body: {} });
 }
+/** POST /api/tables/:matchId/kick — the creator removes a player from a seat. */
+export async function kickSeat(token: string, matchId: string, seat: 0 | 1 | 2 | 3): Promise<void> {
+  await apiFetch<void>(`tables/${encodeURIComponent(matchId)}/kick`, { method: "POST", token, body: { seat } });
+}
 export async function leaveTable(token: string, matchId: string): Promise<void> {
   await apiFetch<void>(`tables/${encodeURIComponent(matchId)}/leave`, { method: "POST", token, body: {} });
 }

@@ -52,7 +52,7 @@ import { CHAT_PHRASES, CHAT_TEXT_MAX_LENGTH } from "../../protocol/src/messages.
 import {
   RequestRejected, TableSocket,
   createTable, joinTable,
-  endTable as apiEndTable, leaveTable as apiLeaveTable, listBots,
+  endTable as apiEndTable, kickSeat as apiKickSeat, leaveTable as apiLeaveTable, listBots,
   matchDetail, startTable as apiStartTable,
   type BotCatalogueEntry, type MatchFormat, type StartingPayload, type TableSpeed,
 } from "./net.js";
@@ -2934,7 +2934,10 @@ function quitScreen(back: () => void): void {
   $("panel").innerHTML = `
     <div class="mhead"><h2>${esc(t(S.quitTitle))}</h2></div>
     <div class="mbody">${esc(t(S.quitBody))}</div>
-    ${isCreatorOfCurrentTable ? `<div class="mbody" style="padding-top:0"><b>${esc(t(S.quitEndAll))}</b><br>${esc(t(S.quitEndAllHint))}
+    ${isCreatorOfCurrentTable ? `<div class="mbody" style="padding-top:0"><b>${esc(t(S.quitKick))}</b><br>${esc(t(S.quitKickHint))}
+      <div class="kickrow">${(directory ?? []).filter((d) => !d.bot && d.seat !== mySeat && d.playerId !== "").map((d) =>
+        `<button class="ghost" data-kick="${d.seat}">${esc(d.displayName)}</button>`).join("") || `<span class="mut">${esc(t(S.nothingHere))}</span>`}</div></div>
+    <div class="mbody" style="padding-top:0"><b>${esc(t(S.quitEndAll))}</b><br>${esc(t(S.quitEndAllHint))}
       <div style="margin-top:8px"><button id="quitEndAll" class="ghost" style="border-color:var(--c-danger);color:var(--c-danger)">${esc(t(S.quitEndConfirm))}</button></div></div>` : ""}
     <div class="mfoot">
       <button id="quitLeave" class="ghost">${esc(t(S.quitLeave))}</button>
@@ -2951,6 +2954,24 @@ function quitScreen(back: () => void): void {
     $("veil").style.display = "none";
     void leaveTableAndReturn(currentMatchUuid);
   };
+  // Kick: two taps on the same name — the first arms it (label swaps to the
+  // confirm text), the second sends. Any other tap disarms.
+  for (const b of Array.from($("panel").querySelectorAll<HTMLButtonElement>("[data-kick]"))) {
+    b.onclick = () => {
+      if (!b.dataset.armed) {
+        for (const o of Array.from($("panel").querySelectorAll<HTMLButtonElement>("[data-kick]"))) { delete o.dataset.armed; o.textContent = o.dataset.name ?? o.textContent; }
+        b.dataset.name = b.textContent ?? ""; b.dataset.armed = "1"; b.textContent = t(S.quitKickConfirm);
+        b.style.borderColor = "var(--c-danger)"; b.style.color = "var(--c-danger)";
+        return;
+      }
+      b.disabled = true;
+      if (identity && currentMatchUuid) {
+        void apiKickSeat(identity.deviceToken, currentMatchUuid, Number(b.dataset.kick) as SeatIndex)
+          .then(() => { b.textContent = `${b.dataset.name} · ${t(S.quitKicked)}`; })
+          .catch(() => { b.disabled = false; delete b.dataset.armed; b.textContent = b.dataset.name ?? ""; flashHudNote("could not remove that player"); });
+      }
+    };
+  }
   const endBtn = document.getElementById("quitEndAll") as HTMLButtonElement | null;
   if (endBtn) endBtn.onclick = () => {
     // The server's matchEnd does the rest: every client, this one included,

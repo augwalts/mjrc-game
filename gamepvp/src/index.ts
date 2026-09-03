@@ -212,6 +212,10 @@ function tableNamespace(env: Env): TableNamespace {
           const res = await post(stub, "/end", {});
           if (!res.ok) throw new Error(`table end ${res.status}: ${await res.text()}`);
         },
+        async kick(seat: SeatIndex): Promise<void> {
+          const res = await post(stub, "/kick", { seat });
+          if (!res.ok) throw new Error(`table kick ${res.status}: ${await res.text()}`);
+        },
         async observe(): Promise<Record<string, unknown>> {
           const res = await post(stub, "/observe", {});
           if (!res.ok) throw new Error(`table observe ${res.status}: ${await res.text()}`);
