@@ -3129,6 +3129,9 @@ async function tableViewOf(p: Platform, m: LobbyMatchRow, here: Map<string, Here
     return {
       seat,
       kind: "human" as const,
+      /* So a client can tell "one of these seats is MINE" — the rejoin
+       * button on a playing table hangs off this (2026-09-03). */
+      playerId: row?.player_id,
       displayName: row?.display_name,
       avatar: row?.avatar ?? null,
       connected: row !== undefined && row.connected !== 0,

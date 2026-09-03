@@ -3,7 +3,8 @@
  * code, Friends top 5, Your numbers with streak, Your recent games (3) with
  * ranked/casual badges. Desktop: two columns via `.cols` (theme.css).
  */
-import { getFriends, getInbox, getStatsRecord, listMatches, type FriendEntry, type MatchListItem, type StatsRecordRow } from "../../net.js";
+import { getFriends, getInbox, getLobby, getStatsRecord, joinTable, listMatches, type FriendEntry, type LobbyHereEntry, type MatchListItem, type StatsRecordRow } from "../../net.js";
+import { connectToMatch, handLabel } from "../../table.js";
 import type { PageMount } from "../router.js";
 import { esc, fmtChips, identity } from "../session.js";
 import { S, t } from "../strings.js";
@@ -55,10 +56,25 @@ export const mount: PageMount = (container, _params, router) => {
   const token = identity?.deviceToken ?? "";
   const playerId = identity?.playerId ?? "";
 
+  /* A seat of mine at a table still running (waiting or playing) — the
+   * global lobby's `here` says so. Shown above everything: after a quit or
+   * a dropped connection this is the way back, and a table created from
+   * Home has no room page to find it on. */
+  let rejoin: LobbyHereEntry | null = null;
+  let unreadNow = 0;
+  const rejoinHtml = (): string => {
+    if (!rejoin?.joinCode) return "";
+    const label = rejoin.state === "playing" ? `playing, ${handLabel(rejoin.hand, rejoin.handsBase)}` : "waiting at a table";
+    return `<div class="card" style="margin-bottom:10px"><div class="row">
+      <div><b>${esc(t(S.rejoinTitle))}</b><br><small class="mut">${esc(label)}</small></div>
+      <button class="sit" id="rejoinBtn" style="margin-left:auto">${esc(t(S.rejoin))}</button></div></div>`;
+  };
   const paintShell = (unread: number): void => {
     if (!alive) return;
+    unreadNow = unread;
     container.innerHTML = `
       ${pageTop(t(S.titleHome), { displayName: identity?.displayName ?? "", unread })}
+      ${rejoinHtml()}
       <div class="cta"><button class="primary" id="ctaPlay"><b>${esc(t(S.playNow))}</b><small>${esc(t(S.playNowSub))}</small></button>
       <button id="ctaJoin"><b>${esc(t(S.joinByCode))}</b><small>${esc(t(S.joinByCodeSub))}</small></button></div>
       <div class="cols">
@@ -74,8 +90,20 @@ export const mount: PageMount = (container, _params, router) => {
     wireNav(container, router);
     document.getElementById("ctaPlay")!.addEventListener("click", () => mountNewTableModal());
     document.getElementById("ctaJoin")!.addEventListener("click", () => mountJoinModal());
+    document.getElementById("rejoinBtn")?.addEventListener("click", () => {
+      const code = rejoin?.joinCode;
+      if (!code || !identity) return;
+      void joinTable(identity.deviceToken, code).then((r) => {
+        connectToMatch({ matchUuid: r.matchUuid, joinCode: code, seat: r.seat, seatToken: r.seatToken, rulesetId: r.rulesetId, matchFormat: r.matchFormat });
+      }).catch(() => { /* the room page has the same button; nothing to say here */ });
+    });
   };
   paintShell(0);
+
+  void getLobby(token).then((lobby) => {
+    const me = lobby.here.find((e) => e.playerId === playerId && (e.state === "waiting" || e.state === "playing") && !!e.joinCode);
+    if (me && alive) { rejoin = me; paintShell(unreadNow); }
+  }).catch(() => { /* degrade: no banner */ });
 
   void getInbox(token).then((inbox) => { if (alive) paintShell(inbox.filter((i) => i.unread).length); }).catch(() => { /* degrade: badge stays 0 */ });
   void getFriends(token).then((friends) => {

@@ -15,7 +15,13 @@ const ADMIN_KEY_PREFIX = "mjrc.gamepvp.roomAdmin.";
 
 function tableRow(tb: LobbyTable): string {
   const filled = tb.seats.filter((s) => s.kind === "bot" || s.connected).length;
-  const canSit = tb.access === "open" && tb.lobbyStatus === "waiting" && !!tb.joinCode;
+  // A seat that is mine at a table still running is a REJOIN, whatever the
+  // table's status: the server keeps the seat (a bot plays it meanwhile) and
+  // `/join` hands the same seat back with a fresh token. Before this, a
+  // playing table showed "playing, hand 3" and nothing to press.
+  const mine = !!identity && tb.seats.some((s) => s.kind === "human" && s.playerId === identity!.playerId);
+  const canRejoin = mine && tb.lobbyStatus !== "done" && !!tb.joinCode;
+  const canSit = !canRejoin && tb.access === "open" && tb.lobbyStatus === "waiting" && !!tb.joinCode;
   const status = tb.lobbyStatus === "playing" ? handLabel(tb.hand, tb.handsBase) : `${filled}/4 seated`;
   return `<div class="trow">
     <div class="trow-l">
@@ -24,7 +30,8 @@ function tableRow(tb: LobbyTable): string {
       <small>${esc(ruleLabel(tb.rulesetId))} · ${matchFormatLabel(tb.matchFormat)}</small>
     </div>
     <div class="mini">${tb.seats.map((s) => `<span class="ms ${s.kind}">${s.kind === "bot" ? "bot" : (s.displayName ? esc(s.displayName.slice(0, 4)) : "·")}</span>`).join("")}</div>
-    ${canSit ? `<button class="sit sm" data-sit="${tb.joinCode}">Sit ${filled}/4</button>` : `<small class="playing">${status}</small>`}
+    ${canRejoin ? `<button class="sit sm" data-sit="${tb.joinCode}">${esc(t(S.rejoin))}</button>`
+      : canSit ? `<button class="sit sm" data-sit="${tb.joinCode}">Sit ${filled}/4</button>` : `<small class="playing">${status}</small>`}
   </div>`;
 }
 function hereRow(e: LobbyHereEntry): string {

@@ -234,6 +234,15 @@ export const S = {
   tapAgainToDiscard: s("tap again to discard", "再點一次打出"),
   doubleTapDiscardDesktop: s("Double tap to discard · desktop", "雙擊打牌 · 桌面版"),
   doubleTapDiscardPhone: s("Double tap to discard · phone", "雙擊打牌 · 手機"),
+
+  /* quit and rejoin (2026-09-03) */
+  quitTitle: s("Leave the table?", "離開牌桌？"),
+  quitBody: s("A bot plays your seat until you come back. Your seat and your tiles are kept — rejoin from Home or from the room page.",
+    "你返嚟之前由電腦代打。你嘅座位同手牌會保留，可以喺主頁或房間頁面返回牌桌。"),
+  quitStay: s("stay", "留低"),
+  quitLeave: s("leave — a bot plays for me", "離開 — 由電腦代打"),
+  rejoin: s("rejoin", "返回牌桌"),
+  rejoinTitle: s("You have a seat at a live table", "你喺牌桌仲有個位"),
   sortHand: s("sort", "整理"),
   sortHandTitle: s("put your hand back in the default order", "回復預設排序"),
 

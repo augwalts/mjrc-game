@@ -448,6 +448,9 @@ export interface LobbyHereEntry {
 export interface LobbyTableSeat {
   seat: 0 | 1 | 2 | 3;
   kind: "human" | "bot";
+  /** The seated player, for a human seat that has one — absent on a server
+   *  that hasn't landed the field yet. "Is this seat mine" hangs off it. */
+  playerId?: string;
   displayName?: string;
   avatar?: string | null;
   connected: boolean;

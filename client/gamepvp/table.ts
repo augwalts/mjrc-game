@@ -2908,6 +2908,32 @@ function settingsScreen(back: () => void): void {
   };
 }
 
+/** "Leave the table?" as the app's own dialog on `#veil/#panel`, not
+ *  `window.confirm()` — Safari's system sheet on iPad, and suppressed
+ *  outright in some standalone contexts, so a guest saw "quit just
+ *  happened". Stay is the default action; Esc is stay. */
+function quitScreen(back: () => void): void {
+  beforeScreen();
+  $("veil").style.display = "flex";
+  $("panel").innerHTML = `
+    <h1>${esc(t(S.quitTitle))}</h1>
+    <p class="mut" style="font-size:14px;margin:8px 0 0">${esc(t(S.quitBody))}</p>
+    <div style="display:flex;gap:10px;justify-content:center;margin-top:18px;flex-wrap:wrap">
+      <button id="quitStay">${esc(t(S.quitStay))}</button>
+      <button id="quitLeave" style="background:rgba(255,255,255,.08);color:var(--ink);border:1px solid rgba(255,255,255,.18)">${esc(t(S.quitLeave))}</button>
+    </div>`;
+  const onKey = (e: KeyboardEvent): void => { if (e.key === "Escape") { e.preventDefault(); close(); } };
+  const close = (): void => { document.removeEventListener("keydown", onKey); $("veil").style.display = "none"; back(); };
+  document.addEventListener("keydown", onKey);
+  ($("quitStay") as HTMLButtonElement).onclick = close;
+  ($("quitStay") as HTMLButtonElement).focus();
+  ($("quitLeave") as HTMLButtonElement).onclick = () => {
+    document.removeEventListener("keydown", onKey);
+    $("veil").style.display = "none";
+    void leaveTableAndReturn(currentMatchUuid);
+  };
+}
+
 /** Wires the HUD chrome that is always present regardless of shell/table —
  *  pause, auto, settings, quit — plus the hover coach and the chat
  *  drawer. Called exactly once by the bootstrap (game.ts), after
@@ -2940,11 +2966,7 @@ export function initTableChrome(): void {
    *  which `leaveTable` already does safely with a null `ts`. */
   (document.getElementById("btnQuit") as HTMLButtonElement).onclick = () => {
     if (ts && currentMatchUuid && !matchEndInfo) {
-      const ok = window.confirm(
-        "Leave the table? A bot plays your seat for the rest of the match — you can come back.",
-      );
-      if (!ok) return;
-      void leaveTableAndReturn(currentMatchUuid);
+      quitScreen(() => syncVeil());
     } else {
       leaveTable();
     }
