@@ -1564,6 +1564,21 @@ function seedPileFromSnapshot(): void {
 }
 
 /* ── waiting room / table / overlays: what the veil shows ────────────── */
+/* Has the first deal happened? `welcome`/`restore` say so (2026-09-03,
+ * `started`); an older server does not, and then the snapshot has to do:
+ * a hand past the first, any discard on the table, or an open prompt all
+ * mean the table is playing. The waiting room keys off THIS — it used to
+ * key off "every human is connected", which is also false mid-match
+ * whenever one seat is disconnected and bot-played, so a rejoin (or a
+ * reconnect after a deploy) sat on "Waiting for the table" forever. */
+let matchStarted: boolean | null = null;
+function tableStarted(): boolean {
+  if (matchStarted !== null) return matchStarted;
+  if (!snap) return false;
+  return snap.handIndex > 0
+    || snap.seats.some((s) => s.discards.length > 0)
+    || (pending !== null && pending.length > 0);
+}
 function humansConnected(): boolean {
   if (!directory) return false;
   return directory.every((d) => d.bot || (presence[d.seat]?.connected ?? d.connected));
@@ -1584,7 +1599,7 @@ function syncVeil(): void {
   // waiting room would show nothing here anyway; this ordering is belt and
   // braces, same spirit as the reveal-before-matchEnd rule just above.
   if (startingInfo) { showStartCard(); return; }
-  if (snap && directory && !humansConnected() && !(pending && pending.length > 0)) { waitingRoomScreen(); return; }
+  if (snap && directory && !tableStarted() && !humansConnected()) { waitingRoomScreen(); return; }
   $("veil").style.display = "none";
 }
 /** The hand-end reveal (task brief item 1). `revealDeadlineTs` present means
@@ -1912,6 +1927,7 @@ function leaveTable(): void {
   $("say").className = "";
   stopClock();
   matchClockBase = null; paintHudClock();
+  matchStarted = null;
   updateChatVisibility();
   updateHudButtons();
   hostHooks.leaveToShell();
@@ -2711,6 +2727,7 @@ export function connectToMatch(r: {
   ts?.close();
   ts = new TableSocket(r.matchUuid, r.seatToken, {
     onWelcome(payload: WelcomePayload, starting) {
+      matchStarted = payload.started ?? null;
       directory = payload.directory;
       mySeat = payload.seat;
       currentRulesetId = payload.rulesetId;
@@ -2732,7 +2749,8 @@ export function connectToMatch(r: {
       updateHudButtons();
       ts?.resync(lastSeq);
     },
-    onRestore(events, snapshot, dir, pausedInfo, starting) {
+    onRestore(events, snapshot, dir, pausedInfo, starting, started) {
+      if (started !== undefined) matchStarted = started;
       // Who sits where may have changed (seats filled or shuffled) since this
       // seat's own `welcome` — `restore`'s directory is the fresh truth,
       // wholesale, same as `welcome`'s (never patched field-by-field).
@@ -2752,6 +2770,7 @@ export function connectToMatch(r: {
       // above — a real prompt could only be sent once the server's own hold
       // is over.
       closeStartCardOnPlay();
+      matchStarted = true;
       curLegal = payload.legal;
       pending = actionsOf(mySeat, payload.legal);
       if (pending.length > 0) startClock(payload.deadlineTs); else stopClock();

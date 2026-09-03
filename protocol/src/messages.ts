@@ -334,6 +334,12 @@ export interface WelcomePayload {
   paused: PausedState | null;
   /** `null` unless the start card (§8a-2) is currently holding. */
   starting: StartingPayload | null;
+  /** The first deal has happened (2026-09-03). The client's waiting room
+   *  keys off THIS, not off "every human is connected": mid-match a seat
+   *  may be disconnected (bot-played) and the table is still playing. A
+   *  server that predates the field sends nothing; the client falls back
+   *  to reading the snapshot. */
+  started?: boolean;
 }
 
 /** The reply to `resync`: snapshot + everything after it (§5.3). */
@@ -349,6 +355,8 @@ export interface RestorePayload {
   paused: PausedState | null;
   /** `null` unless the start card (§8a-2) is currently holding. */
   starting: StartingPayload | null;
+  /** As `WelcomePayload.started`. */
+  started?: boolean;
 }
 
 export interface EventsPayload {

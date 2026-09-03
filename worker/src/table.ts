@@ -1913,6 +1913,7 @@ export class TableCore {
         chat: [...this.chat],
         paused: this.pausedInfo(),
         starting: this.startingPayload(),
+        started: this.book.started,
       },
     });
     this.send(ws, accepted(msg.requestId, this.seq));
@@ -2035,6 +2036,7 @@ export class TableCore {
             chat: [...this.chat],
             paused: this.pausedInfo(),
             starting: this.startingPayload(),
+            started: this.book.started,
           },
         });
         return;

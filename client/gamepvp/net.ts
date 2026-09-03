@@ -1097,6 +1097,7 @@ export interface TableSocketCallbacks {
     directory: FourSeats<SeatDirectoryEntry>,
     paused: PausedState | null,
     starting: StartingPayload | null,
+    started?: boolean,
   ): void;
   onEvents(events: SeatVisible<RedactedGameEvent>[], snapshot: SeatVisible<SeatSnapshot> | null): void;
   onPrompt(payload: PromptPayload): void;
@@ -1340,7 +1341,7 @@ export class TableSocket {
       }
       case "restore": {
         const p = msg.payload as RestorePayload & { starting?: StartingPayload | null };
-        this.cb.onRestore(p.events, p.snapshot, p.directory, p.paused, p.starting ?? null);
+        this.cb.onRestore(p.events, p.snapshot, p.directory, p.paused, p.starting ?? null, p.started);
         this.cb.onChatHistory(p.chat);
         break;
       }
