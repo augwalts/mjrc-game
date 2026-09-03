@@ -3,6 +3,16 @@
  * back/forward works, a refresh keeps your place. One page module per route
  * under `shell/pages/`; an unknown path falls back to `/`.
  *
+ * Every route needs an onboarded identity (ACCOUNTS-GAME-SIGNIN-2026-09-04
+ * §4). `dispatch` checks `session.authState` BEFORE it matches a route, so
+ * there is exactly one gate rather than a check per page:
+ *
+ *   signed-out    → the sign-in screen, `next` = the path that was asked for
+ *   needs-signup  → `/signup`, `next` = that path, `source` = an invite code
+ *   ready         → the app, as before
+ *
+ * Nothing here mints an identity any more — the old name prompt is gone.
+ *
  * `/j/<code>` and `/r/<code>` are NOT shell pages — they are the existing
  * table/room invite-link redirects (the Worker already serves `index.html`
  * for them; see README.md for the other paths it needs to map the same way).
@@ -11,8 +21,7 @@
  * with `/`, then act on it.
  */
 import { joinRoom } from "../net.js";
-import { describeError, ensurePresenceHeartbeat, identity, identify } from "./session.js";
-import { S, t } from "./strings.js";
+import { authState, identity } from "./session.js";
 import { wireNav } from "./ui.js";
 
 import { mount as mountHome } from "./pages/home.js";
@@ -27,6 +36,8 @@ import { mount as mountDm } from "./pages/dm.js";
 import { mount as mountProfile } from "./pages/profile.js";
 import { mount as mountAccount } from "./pages/account.js";
 import { mount as mountSettings } from "./pages/settings.js";
+import { mount as mountSignin, safeNext } from "./pages/signin.js";
+import { mount as mountSignup } from "./pages/signup.js";
 import { mountJoinModal, mountNewTableModal } from "./pages/newtable.js";
 
 export type PageParams = Record<string, string>;
@@ -64,6 +75,8 @@ const ROUTES: Route[] = [
   route("/me", mountProfile),
   route("/me/account", mountAccount),
   route("/me/settings", mountSettings),
+  route("/signin", mountSignin),
+  route("/signup", mountSignup),
 ];
 
 function matchRoute(path: string): { route: Route; params: PageParams } | null {
@@ -82,6 +95,13 @@ function matchRoute(path: string): { route: Route; params: PageParams } | null {
  *  acted on, then the URL is rewritten to whatever the action lands on.
  *  Returns `true` when it consumed the path (the caller should not also try
  *  to match it as a normal route). */
+const INVITE_RE = /^\/(j|r)\/([A-Za-z0-9]+)\/?$/;
+/** The room/table code an invite path carries, for `signup`'s `source`. */
+function inviteCodeOf(path: string): string | null {
+  const m = INVITE_RE.exec(path);
+  return m ? m[2]!.toUpperCase() : null;
+}
+
 async function handleInviteLink(path: string): Promise<boolean> {
   const j = /^\/j\/([A-Za-z0-9]+)\/?$/.exec(path);
   if (j) {
@@ -100,36 +120,6 @@ async function handleInviteLink(path: string): Promise<boolean> {
     return true;
   }
   return false;
-}
-
-/** The one-time name entry, shown in place of any route while there is no
- *  identity yet — same copy as the old `nameScreen()`, now inline in the
- *  shell's own `.view` rather than a `#veil` overlay (there is no table
- *  chrome mounted at all at this point in boot). */
-function renderNameGate(container: HTMLElement, then: () => void): void {
-  container.innerHTML = `<div class="card" style="max-width:420px;margin:40px auto">
-    <h2 style="margin:0 0 6px">${t(S.titleHome)}</h2>
-    <p class="mut">${t(S.yourName)} This is a private beta — every game you play is recorded on our server, seat by seat, hand by hand.</p>
-    <div class="row" style="margin-top:12px"><input id="nameIn" type="text" maxlength="24" placeholder="your name" style="flex:1"></div>
-    <p class="mut" id="nameNote" style="margin-top:8px">No account, no email — just this name. Change it any time.</p>
-    <button class="sit" id="btnName" style="margin-top:6px">${t(S.continue_)}</button>
-  </div>`;
-  const input = document.getElementById("nameIn") as HTMLInputElement;
-  const note = document.getElementById("nameNote")!;
-  const go = async (): Promise<void> => {
-    const nm = input.value.trim();
-    if (!nm) { input.focus(); return; }
-    try {
-      await identify(nm);
-      ensurePresenceHeartbeat();
-      then();
-    } catch (e) {
-      note.innerHTML = `<b style="color:var(--red)">${t(S.couldNotReach)}</b> — ${describeError(e)}`;
-    }
-  };
-  (document.getElementById("btnName") as HTMLButtonElement).onclick = () => void go();
-  input.onkeydown = (e) => { if (e.key === "Enter") void go(); };
-  input.focus();
 }
 
 let currentCleanup: (() => void) | null = null;
@@ -151,10 +141,35 @@ const router: Router = {
   currentPath() { return currentPath; },
 };
 
-async function dispatch(path: string): Promise<void> {
+async function dispatch(rawPath: string): Promise<void> {
+  // `navigate("/signup?next=/rooms")` and a popstate to `/signup` must reach
+  // the same page with the same `next`, so the query is read off whichever of
+  // the two carried it.
+  const qi = rawPath.indexOf("?");
+  const path = qi >= 0 ? rawPath.slice(0, qi) : rawPath;
+  const query = new URLSearchParams(qi >= 0 ? rawPath.slice(qi + 1) : location.search);
   currentPath = path;
+
+  if (authState !== "ready") {
+    unmountCurrent();
+    // `next` is what the visitor actually asked for — an invite path
+    // included, so the code survives Google and sign-up both.
+    const next = path === "/signin" || path === "/signup" ? safeNext(query.get("next")) : path;
+    const params: PageParams = { next };
+    const code = inviteCodeOf(next) ?? query.get("source");
+    if (code) params.source = code;
+    const mountAuth = authState === "needs-signup" ? mountSignup : mountSignin;
+    const cleanup = mountAuth(viewEl, params, router);
+    if (typeof cleanup === "function") currentCleanup = cleanup;
+    return;
+  }
+
+  // Signed in and onboarded: nobody should sit on the auth pages any more.
+  if (path === "/signin" || path === "/signup") {
+    router.navigate(safeNext(query.get("next")), { replace: true });
+    return;
+  }
   if (await handleInviteLink(path)) return;
-  if (!identity) { unmountCurrent(); renderNameGate(viewEl, () => void dispatch(path)); return; }
   const hit = matchRoute(path);
   unmountCurrent();
   if (!hit) { router.navigate("/", { replace: true }); return; }
@@ -169,7 +184,7 @@ export function initRouter(root: HTMLElement): Router {
   root.innerHTML = `<div class="view"></div>`;
   viewEl = root.querySelector(".view")!;
   window.addEventListener("popstate", () => void dispatch(location.pathname));
-  void dispatch(location.pathname || "/");
+  void dispatch((location.pathname || "/") + location.search);
   return router;
 }
 

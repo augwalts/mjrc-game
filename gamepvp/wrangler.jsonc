@@ -20,6 +20,20 @@
 //   npx wrangler secret put GAME_PASSWORD
 //   npx wrangler secret put REPLAY_TOKEN_SECRET
 //   npx wrangler deploy
+//
+// Google sign-in (ACCOUNTS-GAME-SIGNIN-2026-09-04.md §2) needs three more
+// secrets. No new binding: `users`, `handle_history` and `consents` live in
+// the SAME mjrc-scoring D1 the `DB` binding below already points at, applied
+// by migrations/remote-2026-09-04-accounts.sql.
+//   npx wrangler secret put GOOGLE_CLIENT_ID       # the OAuth web client id
+//   npx wrangler secret put GOOGLE_CLIENT_SECRET   # confidential client — code flow
+//   npx wrangler secret put SESSION_SECRET         # >= 32 chars; HMAC key for mjrc_session
+// Redirect URIs to register on that Google client, both of them:
+//   https://gamepvp.mahjongresearch.com/auth/google/callback
+//   https://mjrc-gamepvp.augwalts.workers.dev/auth/google/callback
+// Rotating SESSION_SECRET signs everybody out; it revokes no account.
+// AUTH_DEV_BYPASS is deliberately NOT a production secret — it lives only in
+// gamepvp/.dev.vars and turns on GET /auth/dev for local runs and the smoke.
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "mjrc-gamepvp",

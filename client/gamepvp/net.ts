@@ -152,6 +152,153 @@ export async function identify(
   };
 }
 
+/* ── accounts: Google sign-in, sign-up, account (ACCOUNTS-GAME-SIGNIN-2026-09-04 §3) ──
+ * The one thing this section does NOT do is authenticate: `/auth/google` is a
+ * plain link the browser follows (see shell/pages/signin.ts), and the session
+ * lives in an HttpOnly cookie this client can neither read nor forge. Every
+ * call below therefore rides on `credentials: "same-origin"` and says nothing
+ * about who the caller is — the Worker decides.
+ *
+ * The device token stays exactly what it always was (Bearer on every other
+ * `/api/*` call); the only change is that after accounts land it is MINTED BY
+ * THE SERVER on `/api/me` and stored here, rather than minted client-side on
+ * first `identify`. `identify` keeps its old mint path for the grandfathered
+ * device players the contract's §3 `ACCOUNTS_CUTOFF` still allows. */
+
+export type AccountLanguage = "en" | "zh";
+
+export interface MeUser {
+  id: string;
+  userNo: number;
+  email: string;
+  displayName: string;
+  /** null until sign-up confirms one. */
+  handle: string | null;
+  /** Google photo URL — NOT the game avatar (that is `MePlayer.avatar`). */
+  picture: string | null;
+  isAdmin: boolean;
+  /** false = signed in, sign-up not finished → the client owes `/signup`. */
+  onboarded: boolean;
+  language: AccountLanguage | null;
+}
+
+export interface MePlayer {
+  playerId: string;
+  displayName: string;
+  avatar?: string | null;
+  rating: number | null;
+}
+
+export interface MeResponse {
+  signedIn: boolean;
+  user: MeUser | null;
+  player: MePlayer | null;
+  /** Server-minted, bound to `player`, for THIS browser. Store it and keep
+   *  sending it as Bearer, same as today. */
+  deviceToken: string | null;
+}
+
+/** Handle rule, contract §3: `^[a-z0-9_]{3,20}$` after lowercasing. Checked
+ *  here before the network so the field can say "3–20 characters…" without a
+ *  round trip; the server checks it again and is the authority. */
+export const HANDLE_RE = /^[a-z0-9_]{3,20}$/;
+export const normaliseHandle = (raw: string): string => raw.trim().replace(/^@+/, "").toLowerCase();
+
+export interface HandleCheck { available: boolean; reason?: "taken" | "invalid" | "reserved"; }
+
+export interface SignupBody {
+  displayName: string;
+  handle: string;
+  language: AccountLanguage;
+  /** Omitted = keep whatever the server decides (the Google picture is NOT
+   *  copied into the player avatar at sign-up — the account page picker is
+   *  where a game avatar gets set). */
+  avatar?: string | null;
+  consents: { terms: true; privacy: true; marketing: boolean };
+  /** Landing path or room/table code — the invite that brought them here. */
+  source?: string;
+  /** Lets the server adopt an existing unclaimed device player and keep its
+   *  history instead of creating a fresh one. */
+  deviceToken?: string;
+}
+
+/** GET /api/me — the boot call. Never throws for "not signed in": that is a
+ *  200 with `signedIn: false`. It DOES throw (ApiError) if the server is
+ *  unreachable or unhappy, and shell/session.ts treats that as signed-out
+ *  (fail closed — the contract forbids anonymous play). */
+export const getMe = (): Promise<MeResponse> => apiFetch<MeResponse>("me");
+
+/** GET /api/handles/:handle — live availability behind the sign-up field's
+ *  debounce. `handle` is normalised and pre-validated here; an invalid one
+ *  never reaches the network. */
+export async function checkHandle(handle: string): Promise<HandleCheck> {
+  const h = normaliseHandle(handle);
+  if (!HANDLE_RE.test(h)) return { available: false, reason: "invalid" };
+  return apiFetch<HandleCheck>(`handles/${encodeURIComponent(h)}`);
+}
+
+/** POST /api/signup — returns the same shape as `/api/me`. `handle_taken`
+ *  (409) arrives as an `ApiError` with that code; the sign-up page shows it
+ *  inline on the handle field rather than as a page-level failure. */
+export async function signup(body: SignupBody): Promise<MeResponse> {
+  const me = await apiFetch<MeResponse>("signup", { method: "POST", body });
+  rememberMe(me);
+  return me;
+}
+
+/** POST /auth/signout. Not under `/api/` — a plain fetch, and the only thing
+ *  that matters is that the cookie comes back cleared, so a non-JSON 204 is
+ *  the expected reply. */
+export async function signout(): Promise<void> {
+  const res = await fetch("/auth/signout", { method: "POST", credentials: "same-origin" });
+  if (!res.ok) throw new ApiError(`http_${res.status}`, res.status);
+  forgetDevice();
+}
+
+/** POST /api/account/delete — scrub-in-place server-side (contract §3), then
+ *  drop everything this browser remembers so a reload lands on sign-in with
+ *  no stale name or token. */
+export async function deleteAccount(): Promise<void> {
+  await apiFetch<null>("account/delete", { method: "POST" });
+  forgetDevice();
+}
+
+/** Persist the server's view of this browser: the minted device token, and
+ *  the player it is bound to. Safe to call with a half-empty response. */
+export function rememberMe(me: MeResponse): void {
+  if (me.deviceToken) localStorage.setItem(LS_TOKEN, me.deviceToken);
+  if (me.player) {
+    localStorage.setItem(LS_NAME, me.player.displayName);
+    localStorage.setItem(LS_PLAYER, me.player.playerId);
+    if (me.player.avatar) localStorage.setItem(LS_AVATAR, me.player.avatar);
+    else localStorage.removeItem(LS_AVATAR);
+  }
+}
+
+/** The `Identity` the rest of the client already runs on, rebuilt from a
+ *  `/api/me` that carried both halves. Null when the server sent no player or
+ *  no token yet — the caller falls back to `POST /api/identity`. */
+export function identityFromMe(me: MeResponse): Identity | null {
+  const token = me.deviceToken ?? localStorage.getItem(LS_TOKEN);
+  if (!me.player || !token) return null;
+  return {
+    playerId: me.player.playerId,
+    displayName: me.player.displayName,
+    avatar: me.player.avatar ?? null,
+    rating: me.player.rating ?? null,
+    deviceToken: token,
+  };
+}
+
+/** Everything this browser remembers about who it is. Sign-out and account
+ *  deletion both call it; nothing else should. */
+export function forgetDevice(): void {
+  localStorage.removeItem(LS_TOKEN);
+  localStorage.removeItem(LS_NAME);
+  localStorage.removeItem(LS_PLAYER);
+  localStorage.removeItem(LS_AVATAR);
+}
+
 /* ── lobby: tables and match history ──────────────────────────────────── */
 
 export type MatchFormat = "east" | "full";

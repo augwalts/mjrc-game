@@ -79,6 +79,7 @@ import type {
  * gamepvp/src/index.ts (`tableInitOf`) needs it too — one shape, re-exported
  * from where it is defined rather than imported twice from two paths. */
 export type { SeatSpec } from "./db.js";
+import type { UserRow } from "./db.js";
 import {
   ID_LENGTH,
   JOIN_CODE_LENGTH,
@@ -87,16 +88,19 @@ import {
   archiveRuleset,
   avgFaanForPlayer,
   claimSeat,
+  credentialById,
   dismissInboxItem,
   dmMessagesInvolving,
   dmThread,
   friendStarsOfPlayer,
   friendsOfPlayer,
+  handleTaken,
   handsForMatchIds,
   handsOfMatch,
   humanSeatsOfMatch,
   inboxItemById,
   inboxItemsForPlayer,
+  insertConsent,
   insertCredential,
   insertDmMessage,
   insertInboxItem,
@@ -106,7 +110,9 @@ import {
   insertRoom,
   insertRoomPlayer,
   isRoomMember,
+  isUniqueViolation,
   lastDmMessageAt,
+  linkPlayerToUser,
   lastLobbyMessageAt,
   leaderboardCandidates,
   markDmThreadRead,
@@ -121,10 +127,12 @@ import {
   matchesWaitingOrPlaying,
   matchesWaitingOrPlayingInRoom,
   netChipsForPlayer,
+  onboardUser,
   parseRoomSettings,
   parseSeatPlan,
   playerById,
   playerForCredential,
+  playerForUser,
   presenceInRoom,
   presenceSince,
   randomId,
@@ -132,6 +140,7 @@ import {
   recentLobbyMessages,
   recentLobbyMessagesInRoom,
   recentMatchesForPlayer,
+  releaseHandle,
   renamePlayer,
   roomByCode,
   roomGameSettingsOf,
@@ -139,6 +148,8 @@ import {
   roomPlayerIdsOf,
   roomsForPlayer,
   rulesetHash,
+  scrubPlayer,
+  scrubUser,
   seatOf,
   seatPlanOf,
   seatsOfMatch,
@@ -147,14 +158,19 @@ import {
   starFriend,
   statsTotalsForPlayer,
   toHex,
+  touchUser,
   touchCredential,
   unstarFriend,
   updatePlayerAvatar,
+  updateUserDisplayName,
+  userById,
   updateRoomSettings,
   updateTzOffset,
   upsertPresence,
   withRoomGameSettings,
 } from "./db.js";
+import type { AuthConfig, ResolvedSession } from "./auth.js";
+import { clearSessionCookie, isGrandfathered, resolveSession } from "./auth.js";
 
 /* ── the Table DO seam ────────────────────────────────────────────────────────
  * The only thing this service asks the match plane for, and it is control
@@ -248,7 +264,26 @@ export interface Env {
    * and rotating this key revokes every outstanding link at once.
    */
   REPLAY_TOKEN_SECRET?: string;
+  /* ── accounts (ACCOUNTS-GAME-SIGNIN-2026-09-04.md §2) ───────────────────
+   * Three secrets, set by the owner with `wrangler secret put`; locally the
+   * same three names in `gamepvp/.dev.vars`. All optional here on purpose:
+   * a deployment without them still serves the game to grandfathered device
+   * tokens and answers `GET /api/me` with `signedIn: false`, instead of
+   * 500ing every route because sign-in is not configured yet. */
+  GOOGLE_CLIENT_ID?: string;
+  GOOGLE_CLIENT_SECRET?: string;
+  SESSION_SECRET?: string;
+  /** Local dev and the headless smoke only — enables `GET /auth/dev`. */
+  AUTH_DEV_BYPASS?: string;
 }
+
+/** Just the sign-in half of `Env`. Separate so `gamepvp/src/index.ts` — whose
+ *  own `Env` re-declares `TABLES` as a real Durable Object namespace — can call
+ *  `authFromEnv` without its `Env` having to satisfy the platform's. */
+export type AuthEnv = Pick<
+  Env,
+  "GOOGLE_CLIENT_ID" | "GOOGLE_CLIENT_SECRET" | "SESSION_SECRET" | "AUTH_DEV_BYPASS"
+>;
 
 /**
  * Everything a handler is allowed to reach. Time and randomness are members
@@ -280,6 +315,13 @@ export interface Platform {
    * only thing a caller with no key still knows. Omitted = a generic label.
    */
   botDisplayName?(key: string | undefined, seat: SeatIndex): string;
+  /**
+   * Google sign-in and session cookies (worker/src/auth.ts). Optional: absent
+   * means this deployment has no accounts configured, `GET /api/me` answers
+   * `signedIn: false`, and `/auth/*` 503s — rather than every route failing
+   * because one secret is missing.
+   */
+  auth?: AuthConfig;
 }
 
 export class ConfigError extends Error {}
@@ -299,7 +341,30 @@ export function platformFromEnv(env: Env): Platform {
     random: (n) => crypto.getRandomValues(new Uint8Array(n)),
     engineVersion,
     replayTokenSecret,
+    auth: authFromEnv(env),
   };
+}
+
+/**
+ * `SESSION_SECRET` is the one hard requirement: without it there is no cookie
+ * to sign, so accounts are off entirely and this returns `undefined`. The two
+ * Google secrets are required as well UNLESS `AUTH_DEV_BYPASS` is set — local
+ * dev signs in through `/auth/dev` and never talks to Google, and demanding a
+ * real client id there would mean pasting production secrets into `.dev.vars`
+ * to run the smoke. `/auth/google` refuses on its own when the client id is
+ * empty, so the half-configured case cannot reach Google's endpoint.
+ *
+ * A half-configured sign-in fails to "off", never to "part-way on": a cookie
+ * nobody can verify is worse than no cookie at all.
+ */
+export function authFromEnv(env: AuthEnv): AuthConfig | undefined {
+  const sessionSecret = (env.SESSION_SECRET ?? "").trim();
+  if (sessionSecret.length < 32) return undefined;
+  const googleClientId = (env.GOOGLE_CLIENT_ID ?? "").trim();
+  const googleClientSecret = (env.GOOGLE_CLIENT_SECRET ?? "").trim();
+  const devBypass = (env.AUTH_DEV_BYPASS ?? "").trim() !== "";
+  if (!devBypass && (googleClientId === "" || googleClientSecret === "")) return undefined;
+  return { sessionSecret, googleClientId, googleClientSecret, devBypass };
 }
 
 /* ── responses ────────────────────────────────────────────────────────────── */
@@ -823,23 +888,365 @@ function parseTzOffsetMin(v: unknown): number | null {
   return v >= -720 && v <= 840 ? v : null;
 }
 
+/* ── accounts (ACCOUNTS-GAME-SIGNIN-2026-09-04.md §3) ─────────────────────── */
+
+/** `^[a-z0-9_]{3,20}$` after lowercasing — §3's rule, verbatim. */
+const HANDLE_RE = /^[a-z0-9_]{3,20}$/;
+
+/** §3's reserved list. Short and closed on purpose: these are the words that
+ *  would let a handle impersonate the site, the owner or a system surface. */
+const RESERVED_HANDLES: ReadonlySet<string> = new Set([
+  "admin",
+  "mjrc",
+  "augie",
+  "sable",
+  "open",
+  "hall",
+  "bot",
+]);
+
+type HandleVerdict = { available: true } | { available: false; reason: "taken" | "invalid" | "reserved" };
+
+async function handleVerdict(p: Platform, raw: string): Promise<HandleVerdict> {
+  const handle = raw.trim().toLowerCase();
+  if (!HANDLE_RE.test(handle)) return { available: false, reason: "invalid" };
+  if (RESERVED_HANDLES.has(handle)) return { available: false, reason: "reserved" };
+  if (await handleTaken(p.db, handle)) return { available: false, reason: "taken" };
+  return { available: true };
+}
+
+/** Append a `Set-Cookie` to an already-built response. `new Response(body, res)`
+ *  rather than mutating: a Response's headers are immutable once constructed. */
+function withSetCookie(res: Response, cookie: string | null): Response {
+  if (cookie === null) return res;
+  const out = new Response(res.body, res);
+  out.headers.append("set-cookie", cookie);
+  return out;
+}
+
+/**
+ * The one response shape three routes share — `GET /api/me`, `POST /api/signup`
+ * and (in its `player`/`deviceToken` half) `POST /api/identity`. One function so
+ * the client can parse all three with one type, which is the actual contract in
+ * §3's table.
+ */
+function meView(user: UserRow, player: PlayerRow | null, deviceToken: string | null) {
+  return {
+    signedIn: true,
+    user: {
+      id: user.id,
+      userNo: user.user_no,
+      email: user.email,
+      displayName: user.display_name,
+      handle: user.handle,
+      picture: user.picture,
+      isAdmin: user.is_admin !== 0,
+      onboarded: user.onboarded_at !== null,
+      language: user.signup_lang,
+    },
+    player:
+      player === null
+        ? null
+        : {
+            playerId: player.id,
+            displayName: player.display_name,
+            avatar: player.avatar,
+            rating: player.rating,
+          },
+    deviceToken,
+  };
+}
+
+const SIGNED_OUT = { signedIn: false, user: null, player: null, deviceToken: null } as const;
+
+/**
+ * The signed-in user's game player: the linked one, else the player behind a
+ * device token they are still carrying (adopted, history and rating intact),
+ * else a new one.
+ *
+ * The middle case is the whole reason `deviceToken` appears in `POST
+ * /api/signup`'s body: somebody who has been playing on this browser since
+ * before accounts existed signs in and keeps their matches, instead of starting
+ * over next to a duplicate of themselves. `linkPlayerToUser`'s
+ * `almanac_user_id IS NULL` guard is what stops that from becoming a way to
+ * steal somebody else's player with a copied token.
+ */
+async function playerForSession(
+  p: Platform,
+  user: UserRow,
+  suppliedToken: string | null,
+  displayName: string | null,
+): Promise<{ player: PlayerRow; created: boolean }> {
+  const linked = await playerForUser(p.db, user.id);
+  if (linked !== null) return { player: linked, created: false };
+
+  const now = p.now();
+
+  if (suppliedToken !== null) {
+    const cred = await credentialById(p.db, await sha256Hex(suppliedToken));
+    if (cred !== null && cred.revoked_at === null) {
+      const candidate = await playerById(p.db, cred.player_id);
+      if (
+        candidate !== null &&
+        candidate.kind === "human" &&
+        candidate.almanac_user_id === null &&
+        (await linkPlayerToUser(p.db, candidate.id, user.id, "sign_in", now))
+      ) {
+        await ensureOpenMembership(p, candidate.id, candidate.display_name);
+        return { player: { ...candidate, almanac_user_id: user.id }, created: false };
+      }
+    }
+  }
+
+  const name = (displayName ?? user.display_name).slice(0, MAX_DISPLAY_NAME);
+  const playerId = randomId(p.random, ID_LENGTH);
+  await insertPlayer(p.db, { id: playerId, kind: "human", displayName: name, avatar: null, now });
+  await linkPlayerToUser(p.db, playerId, user.id, "sign_in", now);
+  await ensureOpenMembership(p, playerId, name);
+  const fresh = await playerById(p.db, playerId);
+  if (fresh === null) throw new Error("player row vanished immediately after insert");
+  return { player: fresh, created: true };
+}
+
+/**
+ * Make sure this browser holds a device token that belongs to `player`, and
+ * return it iff it had to be minted. The Bearer device token stays the
+ * credential for every other `/api/*` route (§3's last row) — the session
+ * cookie's job is to decide WHICH player the browser may hold a token for, not
+ * to replace the token.
+ */
+async function bindDeviceToken(
+  p: Platform,
+  player: PlayerRow,
+  suppliedToken: string | null,
+  now: string,
+): Promise<string | null> {
+  if (suppliedToken !== null) {
+    const id = await sha256Hex(suppliedToken);
+    const cred = await credentialById(p.db, id);
+    if (cred === null) {
+      await insertCredential(p.db, { id, playerId: player.id, kind: "device", label: null, now });
+      return null;
+    }
+    if (cred.player_id === player.id && cred.revoked_at === null) {
+      await touchCredential(p.db, id, player.id, now);
+      return null;
+    }
+    /* Somebody else's token, or a revoked one: mint a fresh one below rather
+     * than reassigning a credential that is not this player's to take. */
+  }
+  const token = randomId(p.random, 32);
+  await insertCredential(p.db, {
+    id: await sha256Hex(token),
+    playerId: player.id,
+    kind: "device",
+    label: null,
+    now,
+  });
+  return token;
+}
+
+/** `GET /api/me`'s narrower rule (§3): mint only when the request carries no
+ *  token that ALREADY belongs to this player. A GET never adopts an unbound
+ *  token — that is `POST /api/identity`'s job, and only with a session. */
+async function deviceTokenForBrowser(req: Request, p: Platform, player: PlayerRow): Promise<string | null> {
+  const header = req.headers.get("authorization");
+  const m = header === null ? null : /^Bearer (.+)$/.exec(header.trim());
+  if (m !== null) {
+    const token = m[1].trim();
+    if (isPlausibleDeviceToken(token)) {
+      const cred = await credentialById(p.db, await sha256Hex(token));
+      if (cred !== null && cred.player_id === player.id && cred.revoked_at === null) return null;
+    }
+  }
+  return bindDeviceToken(p, player, null, p.now());
+}
+
+/**
+ * GET /api/me — the client's boot call. Answers three questions at once: is
+ * there a session, has sign-up finished, and which player (and device token)
+ * does this browser play as.
+ */
+async function getMe(req: Request, p: Platform, session: ResolvedSession | null): Promise<Response> {
+  if (session === null) return json(SIGNED_OUT);
+  const user = session.user;
+  await touchUser(p.db, user.id, p.now());
+  const player = await playerForUser(p.db, user.id);
+  const deviceToken = player === null ? null : await deviceTokenForBrowser(req, p, player);
+  return withSetCookie(json(meView(user, player, deviceToken)), session.refresh);
+}
+
+/** GET /api/handles/:handle — live availability for the sign-up screen. */
+async function getHandleAvailability(raw: string, p: Platform): Promise<Response> {
+  return json(await handleVerdict(p, raw));
+}
+
+const MAX_SIGNUP_SOURCE = 64;
+
+/**
+ * POST /api/signup — the one screen that turns a signed-in Google identity into
+ * a playable account: handle, display name, language, consent, and the player
+ * row.
+ *
+ * `onboardUser` is written BEFORE the player is touched on purpose. The handle
+ * is the only thing here that can lose a race, and losing it after creating a
+ * player would leave a player row belonging to an account that never finished
+ * sign-up.
+ */
+async function postSignup(req: Request, p: Platform, session: ResolvedSession | null): Promise<Response> {
+  if (session === null) return fail("sign_in_required", 401);
+  const user = session.user;
+  if (user.onboarded_at !== null) return fail("already_onboarded", 409);
+
+  const body = await readJsonObject(req);
+  if (body === null) return fail("bad_json", 400);
+
+  const displayName = str(body.displayName);
+  if (displayName === null || displayName.length > MAX_DISPLAY_NAME) return fail("bad_display_name", 400);
+
+  const handleRaw = str(body.handle);
+  if (handleRaw === null) return fail("bad_handle", 400);
+  const handle = handleRaw.toLowerCase();
+  const verdict = await handleVerdict(p, handle);
+  if (!verdict.available) {
+    return fail(verdict.reason === "taken" ? "handle_taken" : `handle_${verdict.reason}`,
+      verdict.reason === "taken" ? 409 : 400);
+  }
+
+  const language = body.language === "en" || body.language === "zh" ? body.language : null;
+  if (language === null) return fail("bad_language", 400);
+
+  const consents = body.consents;
+  if (consents === null || typeof consents !== "object" || Array.isArray(consents)) {
+    return fail("consent_required", 400);
+  }
+  const c = consents as JsonObject;
+  if (c.terms !== true || c.privacy !== true) return fail("consent_required", 400);
+  const marketing = c.marketing === true;
+
+  const avatarField = parseAvatarField(body);
+  if (!avatarField.ok) return fail("bad_avatar", 400);
+
+  const suppliedToken = str(body.deviceToken);
+  if (suppliedToken !== null && !isPlausibleDeviceToken(suppliedToken)) {
+    return fail("weak_device_token", 400);
+  }
+
+  const source = str(body.source);
+  const now = p.now();
+
+  let onboarded: boolean;
+  try {
+    onboarded = await onboardUser(p.db, {
+      userId: user.id,
+      handle,
+      displayName,
+      signupLang: language,
+      signupSource: source === null ? null : source.slice(0, MAX_SIGNUP_SOURCE),
+      now,
+    });
+  } catch (e) {
+    /* The UNIQUE index on users.handle is the real arbiter; the availability
+     * check above is a courtesy, and this is the race it cannot close. */
+    if (isUniqueViolation(e)) return fail("handle_taken", 409);
+    throw e;
+  }
+  if (!onboarded) return fail("already_onboarded", 409);
+
+  for (const [kind, granted] of [
+    ["terms", true],
+    ["privacy", true],
+    ["marketing", marketing],
+  ] as const) {
+    await insertConsent(p.db, user.id, kind, granted, "signup", now);
+  }
+
+  const { player } = await playerForSession(p, user, suppliedToken, displayName);
+  if (player.display_name !== displayName) await renamePlayer(p.db, player.id, displayName, now);
+  if (avatarField.touched && avatarField.value !== player.avatar) {
+    await updatePlayerAvatar(p.db, player.id, avatarField.value, now);
+  }
+  const deviceToken = await bindDeviceToken(p, player, suppliedToken, now);
+
+  const fresh = (await userById(p.db, user.id)) ?? user;
+  const view = meView(
+    fresh,
+    {
+      ...player,
+      display_name: displayName,
+      avatar: avatarField.touched ? avatarField.value : player.avatar,
+    },
+    deviceToken,
+  );
+  return withSetCookie(json(view, 201), session.refresh);
+}
+
+/**
+ * POST /api/account/delete — ACCOUNTS-BUILD-SPEC.md §9.3 scrub in place.
+ *
+ * Not a DELETE: three other people are in every match this player played, and
+ * that history is not this player's to erase (worker/README.md, `players`).
+ * What goes is the PII and the ability to sign back in — the handle is released
+ * to `handle_history` so nobody can impersonate the departed account, the sub
+ * is nulled so a future sign-in makes a FRESH account, and `session_epoch`
+ * moves so every outstanding cookie stops verifying on the next request.
+ */
+async function postAccountDelete(
+  req: Request,
+  p: Platform,
+  session: ResolvedSession | null,
+): Promise<Response> {
+  if (session === null) return fail("sign_in_required", 401);
+  const user = session.user;
+  const now = p.now();
+
+  if (user.handle !== null) await releaseHandle(p.db, user.handle, user.id, now);
+  await scrubUser(p.db, user.id, DELETED_EMAIL, DELETED_USER_NAME, now);
+
+  const player = await playerForUser(p.db, user.id);
+  if (player !== null) await scrubPlayer(p.db, player.id, DELETED_PLAYER_NAME, now);
+
+  return new Response(null, {
+    status: 204,
+    headers: { ...BASE_HEADERS, "set-cookie": clearSessionCookie(req), "cache-control": "no-store" },
+  });
+}
+
+/** §9.3's tombstones. Constants rather than inline literals so the scrub and
+ *  any future audit of it agree on the exact strings. */
+const DELETED_EMAIL = "deleted";
+const DELETED_USER_NAME = "deleted user";
+const DELETED_PLAYER_NAME = "deleted player";
+
 /**
  * POST /api/identity — establish or re-present a device identity.
  *
- * Presenting a token that already hashes to a stored credential IS the
- * authentication path, so this route doubles as sign-in and returns the same
- * player. A token the server has never seen mints a new player: at P0 there is
- * nothing to steal by doing so, and the credential-per-row shape means adding
- * passkeys later touches this handler's data, not its shape.
+ * Since 2026-09-04 this route is account-gated (ACCOUNTS-GAME-SIGNIN §3). Two
+ * paths, and the difference between them is the whole point:
+ *
+ *  - **With a session:** resolve the user's linked player, creating or adopting
+ *    one exactly as sign-up does, bind the supplied device token to it, and
+ *    return the token when one had to be minted.
+ *  - **Without a session:** allowed ONLY for a device token that already exists
+ *    and whose player predates `ACCOUNTS_CUTOFF` — the headless smoke's demo
+ *    tokens and the pre-accounts stand-ins. Everything else is 401
+ *    `sign_in_required`, and no player is ever created.
+ *
+ * The owner's ruling behind it: "I don't want them to be able to use a random
+ * name." A route that mints a player for any 32 random characters is exactly
+ * that, so the anonymous mint is gone rather than merely discouraged.
  */
-async function postIdentity(req: Request, p: Platform): Promise<Response> {
+async function postIdentity(
+  req: Request,
+  p: Platform,
+  session: ResolvedSession | null,
+): Promise<Response> {
   const body = await readJsonObject(req);
   if (body === null) return fail("bad_json", 400);
 
   /* Optional on a re-identify: a client booting with a stored token must not
    * rename the player from whatever its local copy of the name says (the
-   * "logged in as somebody else" bug, 2026-09-03). A name is required only
-   * to mint a new player. */
+   * "logged in as somebody else" bug, 2026-09-03). */
   const displayName = str(body.displayName);
   if (displayName !== null && displayName.length > MAX_DISPLAY_NAME) {
     return fail("bad_display_name", 400);
@@ -853,53 +1260,67 @@ async function postIdentity(req: Request, p: Platform): Promise<Response> {
   const avatarField = parseAvatarField(body);
   if (!avatarField.ok) return fail("bad_avatar", 400);
 
-  /* Server-minted when the client cannot generate good randomness. 32 Crockford
-   * symbols is 160 bits, and this is the only response that ever carries the
-   * token itself — after this it exists only as a digest. */
-  const minted = supplied === null ? randomId(p.random, 32) : null;
-  const token = supplied ?? minted!;
-  const credentialId = await sha256Hex(token);
+  const tzOffsetMin = parseTzOffsetMin(body.tzOffsetMin);
   const now = p.now();
 
-  const tzOffsetMin = parseTzOffsetMin(body.tzOffsetMin);
+  if (session !== null) {
+    const user = session.user;
+    const { player, created } = await playerForSession(p, user, supplied, displayName);
 
-  const existing = await playerForCredential(p.db, credentialId);
-  if (existing !== null) {
-    await touchCredential(p.db, credentialId, existing.id, now);
-    /* A rename is a real edit and gets its own statement; touching is not. */
-    if (displayName !== null && existing.display_name !== displayName) {
-      await renamePlayer(p.db, existing.id, displayName, now);
+    if (displayName !== null && player.display_name !== displayName) {
+      await renamePlayer(p.db, player.id, displayName, now);
+      /* §3, last paragraph: the account page's rename goes through this route
+       * and must move the account's own name too, or the two disagree the
+       * moment anyone looks at `/api/me`. */
+      if (user.display_name !== displayName) {
+        await updateUserDisplayName(p.db, user.id, displayName, now);
+      }
     }
-    if (avatarField.touched && avatarField.value !== existing.avatar) {
-      await updatePlayerAvatar(p.db, existing.id, avatarField.value, now);
+    if (avatarField.touched && avatarField.value !== player.avatar) {
+      await updatePlayerAvatar(p.db, player.id, avatarField.value, now);
     }
-    const name = displayName ?? existing.display_name;
-    const avatar = avatarField.touched ? avatarField.value : existing.avatar;
-    if (tzOffsetMin !== null) await updateTzOffset(p.db, existing.id, tzOffsetMin);
-    await ensureOpenMembership(p, existing.id, name);
-    return json({ playerId: existing.id, displayName: name, avatar, rating: existing.rating, created: false });
+    if (tzOffsetMin !== null) await updateTzOffset(p.db, player.id, tzOffsetMin);
+
+    const name = displayName ?? player.display_name;
+    const avatar = avatarField.touched ? avatarField.value : player.avatar;
+    const minted = await bindDeviceToken(p, player, supplied, now);
+    await ensureOpenMembership(p, player.id, name);
+    return withSetCookie(
+      json(
+        {
+          playerId: player.id,
+          displayName: name,
+          avatar,
+          rating: player.rating,
+          created,
+          ...(minted === null ? {} : { deviceToken: minted }),
+        },
+        created ? 201 : 200,
+      ),
+      session.refresh,
+    );
   }
 
-  if (displayName === null) return fail("bad_display_name", 400);
-  const playerId = randomId(p.random, ID_LENGTH);
-  const avatar = avatarField.touched ? avatarField.value : null;
-  await insertPlayer(p.db, { id: playerId, kind: "human", displayName, avatar, now });
-  await insertCredential(p.db, {
-    id: credentialId,
-    playerId,
-    kind: "device",
-    label: str(body.label),
-    now,
-  });
-  if (tzOffsetMin !== null) await updateTzOffset(p.db, playerId, tzOffsetMin);
-  /* §11 build decision 2: every player is a member of the Open Hall the
-   * moment they first authenticate — not a separate onboarding step. */
-  await ensureOpenMembership(p, playerId, displayName);
-  return json(
-    { playerId, displayName, avatar, rating: null, created: true, deviceToken: minted },
-    201,
-  );
+  /* No session. The grandfather clause, and nothing else. */
+  if (supplied === null) return fail("sign_in_required", 401);
+  const credentialId = await sha256Hex(supplied);
+  const existing = await playerForCredential(p.db, credentialId);
+  if (existing === null || !isGrandfathered(existing.created_at)) return fail("sign_in_required", 401);
+
+  await touchCredential(p.db, credentialId, existing.id, now);
+  if (displayName !== null && existing.display_name !== displayName) {
+    await renamePlayer(p.db, existing.id, displayName, now);
+  }
+  if (avatarField.touched && avatarField.value !== existing.avatar) {
+    await updatePlayerAvatar(p.db, existing.id, avatarField.value, now);
+  }
+  const name = displayName ?? existing.display_name;
+  const avatar = avatarField.touched ? avatarField.value : existing.avatar;
+  if (tzOffsetMin !== null) await updateTzOffset(p.db, existing.id, tzOffsetMin);
+  await ensureOpenMembership(p, existing.id, name);
+  return json({ playerId: existing.id, displayName: name, avatar, rating: existing.rating, created: false });
 }
+
 
 /** GET /api/matches — the caller's history, newest first. */
 async function getMatches(url: URL, p: Platform, player: PlayerRow): Promise<Response> {
@@ -2883,12 +3304,42 @@ export async function handle(request: Request, p: Platform): Promise<Response> {
     return getReplay(seg[2], p);
   }
 
-  if (seg[1] === "identity" && seg.length === 2) {
-    if (method !== "POST") return fail("method_not_allowed", 405);
-    return postIdentity(request, p);
+  /* ── the account routes (ACCOUNTS-GAME-SIGNIN-2026-09-04.md §3) ──────────
+   * All five sit ABOVE the Bearer check below, because their credential is the
+   * session cookie and not a device token — `GET /api/me` in particular has to
+   * answer a browser that holds neither. `resolveSession` is one signature
+   * verification plus one primary-key read, and it is skipped entirely on a
+   * request with no cookie. */
+  const session = await resolveSession(request, p);
+
+  if (seg[1] === "me" && seg.length === 2) {
+    if (method !== "GET") return fail("method_not_allowed", 405);
+    return getMe(request, p, session);
   }
 
-  /* Everything past this line is authenticated. */
+  if (seg[1] === "handles" && seg.length === 3) {
+    if (method !== "GET") return fail("method_not_allowed", 405);
+    return getHandleAvailability(seg[2], p);
+  }
+
+  if (seg[1] === "signup" && seg.length === 2) {
+    if (method !== "POST") return fail("method_not_allowed", 405);
+    return postSignup(request, p, session);
+  }
+
+  if (seg[1] === "account" && seg.length === 3 && seg[2] === "delete") {
+    if (method !== "POST") return fail("method_not_allowed", 405);
+    return postAccountDelete(request, p, session);
+  }
+
+  if (seg[1] === "identity" && seg.length === 2) {
+    if (method !== "POST") return fail("method_not_allowed", 405);
+    return postIdentity(request, p, session);
+  }
+
+  /* Everything past this line is authenticated by the Bearer device token, as
+   * it always has been. A token can now only come from a grandfathered player
+   * or from a session-issued mint, so that is enough (§3's last row). */
   const player = await authenticate(request, p);
   if (player === null) return fail("unauthorized", 401);
 

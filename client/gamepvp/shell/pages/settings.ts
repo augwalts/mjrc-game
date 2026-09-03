@@ -1,7 +1,9 @@
 /**
  * Game settings (`/me/settings`) — tile size, sound, haptics, count tiles,
- * coaching (desktop-only), language, theme, "not you?" (task brief §11
- * build item 2). Reads/writes the same `SETTINGS` object the in-match quick
+ * coaching (desktop-only), language and theme (task brief §11 build item
+ * 2). The old "not you? start a new player" escape hatch is gone: players
+ * are Google accounts now (ACCOUNTS-GAME-SIGNIN-2026-09-04 §4), and leaving
+ * one is Sign out / Delete account on `/me/account`. Reads/writes the same `SETTINGS` object the in-match quick
  * panel (table.ts's HUD gear button) does, and the same `localStorage`
  * theme key `shell/session.ts`'s `applyTheme()` reads at boot.
  */
@@ -41,7 +43,6 @@ export const mount: PageMount = (container, _params, router) => {
             <option value="light" ${getThemeChoice() === "light" ? "selected" : ""}>${esc(t(S.themeLight))}</option>
             <option value="dark" ${getThemeChoice() === "dark" ? "selected" : ""}>${esc(t(S.themeDark))}</option>
           </select></div>
-        <div class="listrow"><a href="#" id="notYou" class="more">${esc(t(S.notYou))}</a></div>
       </div>
       ${navHtml("/")}`;
     wireNav(container, router);
@@ -69,14 +70,6 @@ export const mount: PageMount = (container, _params, router) => {
     (document.getElementById("setTheme") as HTMLSelectElement).onchange = (e) => {
       setThemeChoice(shellRoot(), (e.target as HTMLSelectElement).value as ThemeChoice);
     };
-    document.getElementById("notYou")!.addEventListener("click", (e) => {
-      e.preventDefault();
-      if (!window.confirm("Start a new player on this device? Your current name stays recorded on the games you already played.")) return;
-      localStorage.removeItem("mjrc.gamepvp.deviceToken");
-      localStorage.removeItem("mjrc.gamepvp.displayName");
-      localStorage.removeItem("mjrc.gamepvp.playerId");
-      location.href = "/";
-    });
   };
   paint();
   applyTheme(shellRoot(), getThemeChoice());

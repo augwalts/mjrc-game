@@ -122,6 +122,54 @@ export const S = {
     "Same options as mahjongresearch.com/account, shown here so nobody leaves the game to manage them.",
   ),
 
+  /* sign-in + sign-up (ACCOUNTS-GAME-SIGNIN-2026-09-04 §4) */
+  siteMark: s("麻雀研究社 · MJRC"),
+  signInLede: s(
+    "Sign in to play. A Google account is required; no anonymous players.",
+    "登入即可開局。必須使用 Google 帳戶，不設匿名玩家。",
+  ),
+  signInWithGoogle: s("Sign in with Google", "以 Google 帳戶登入"),
+  termsWord: s("terms", "服務條款"),
+  privacyWord: s("privacy policy", "私隱政策"),
+  termsLink: s("Terms", "服務條款"),
+  privacyLink: s("Privacy", "私隱政策"),
+  signupTitle: s("Set up your player", "設定你的玩家"),
+  signupLede: s(
+    "One screen, then you're in. Your handle is how other players find you.",
+    "填好這一頁就可以開局。其他玩家會用你的帳號找你。",
+  ),
+  handleRule: s("3–20 characters · a–z, 0–9 and _", "3–20 個字元 · a–z、0–9 及 _"),
+  handleChecking: s("checking…", "檢查中…"),
+  handleAvailable: s("available", "可以使用"),
+  handleTaken: s("taken", "已被使用"),
+  handleReserved: s("reserved", "保留字"),
+  handleInvalid: s("not a valid handle", "格式不正確"),
+  handleTakenJust: s("that handle was just taken", "這個帳號剛剛被人取用"),
+  pictureFromGoogle: s(
+    "From your Google account. You can change it on the Account page.",
+    "來自你的 Google 帳戶，稍後可在「帳戶」頁更改。",
+  ),
+  /* `{terms}` / `{privacy}` are replaced with real links by signup.ts. */
+  consentLabel: s("I agree to the {terms} and the {privacy}", "我同意{terms}及{privacy}"),
+  marketingLabel: s("Email me about MJRC events", "以電郵通知我 MJRC 活動"),
+  startPlaying: s("Start playing ▸", "開始遊戲 ▸"),
+  signupNeedName: s("Pick a display name.", "請輸入顯示名稱。"),
+  signupNeedHandle: s("Pick a handle that is available.", "請選一個可用的帳號。"),
+  signupNeedConsent: s("Please agree to the terms and the privacy policy.", "請先同意服務條款及私隱政策。"),
+  signupFailed: s("Could not finish sign-up", "無法完成註冊"),
+  signingUp: s("Setting up…", "設定中…"),
+  signedInAs: s("Signed in as", "已登入"),
+  memberNo: (n: number) => s(`member #${n}`, `會員 #${n}`),
+  signOut: s("Sign out", "登出"),
+  signingOut: s("Signing out…", "登出中…"),
+  deleteAccountWarn: s(
+    "This deletes your account and your player. Games you have already played stay on the server without your name. This cannot be undone.",
+    "此操作會刪除你的帳戶及玩家資料。已完成的對局會保留在伺服器，但不再顯示你的名字。刪除後無法復原。",
+  ),
+  deleteAccountConfirm: s("Delete permanently", "永久刪除"),
+  deleting: s("Deleting…", "刪除中…"),
+  cancel: s("Cancel", "取消"),
+
   /* game settings */
   tileSize: s("Tile size", "麻將牌大小"),
   sound: s("Sound", "音效"),
@@ -133,7 +181,6 @@ export const S = {
   themeSystem: s("System", "跟隨系統"),
   themeLight: s("Light", "淺色"),
   themeDark: s("Dark", "深色"),
-  notYou: s("not you? start a new player ›", "不是你？建立新玩家 ›"),
   on: s("on", "開"),
   off: s("off", "關"),
 
@@ -196,4 +243,12 @@ export type StringKey = keyof typeof S;
 export function t(entry: Str): string {
   if (SETTINGS.language === "zh" && entry.zh) return entry.zh;
   return entry.en;
+}
+
+/** The line in the OTHER language, or null when nobody has translated it.
+ *  Used only where BOTH languages belong on screen at once — the sign-in
+ *  screen, which is the one page shown before anybody has told us what they
+ *  read (`SETTINGS.language` is still a browser guess there). */
+export function tAlt(entry: Str): string | null {
+  return SETTINGS.language === "zh" ? entry.en : entry.zh;
 }

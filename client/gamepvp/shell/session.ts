@@ -11,7 +11,8 @@
  * and the shell.
  */
 import {
-  ApiError, identify as apiIdentify, postPresence, storedIdentity, type Identity, type PresenceState,
+  ApiError, identify as apiIdentify, getMe, identityFromMe, postPresence, rememberMe,
+  type Identity, type MeUser, type PresenceState,
 } from "../net.js";
 import { RequestRejected } from "../net.js";
 
@@ -45,15 +46,71 @@ export async function identify(displayName: string): Promise<Identity> {
   return id;
 }
 
-export async function bootIdentity(): Promise<Identity | null> {
-  const stored = storedIdentity();
-  if (!stored.deviceToken) return null;
+/* ── who is signed in (ACCOUNTS-GAME-SIGNIN-2026-09-04 §4) ───────────────
+ * Three states, and every screen in the shell depends on which one we are
+ * in — shell/router.ts reads `authState` on every dispatch:
+ *
+ *   "signed-out"    → the sign-in screen, whatever path was asked for
+ *   "needs-signup"  → /signup (a Google session exists, onboarding does not)
+ *   "ready"         → the app, exactly as before
+ *
+ * `account` is the USER (email, handle, member number); `identity` is the
+ * PLAYER (the thing every `/api/*` Bearer call and the table runtime use).
+ * They are separate on purpose: a signed-in user has no player until
+ * sign-up finishes, and `table.ts` must never learn about accounts. */
+export type AuthState = "signed-out" | "needs-signup" | "ready";
+export let authState: AuthState = "signed-out";
+export let account: MeUser | null = null;
+export function setAuthState(s: AuthState): void { authState = s; }
+export function setAccount(u: MeUser | null): void { account = u; }
+
+/**
+ * The boot decision, one call: `GET /api/me`.
+ *
+ *   not signed in / call failed  → "signed-out"   (fail CLOSED: the contract
+ *                                  forbids anonymous players, so an
+ *                                  unreachable server shows sign-in rather
+ *                                  than a half-working offline app)
+ *   signed in, `onboarded:false` → "needs-signup"
+ *   signed in, onboarded         → "ready", identity restored from the same
+ *                                  response, falling back to
+ *                                  `POST /api/identity` if the server sent no
+ *                                  player/token pair with it
+ *
+ * The server-minted `deviceToken` is stored whenever one comes back, in every
+ * signed-in branch — that is the token every other `/api/*` call keeps using.
+ */
+export async function bootIdentity(): Promise<AuthState> {
+  let me;
   try {
-    identity = await apiIdentify(null, tzOffsetMin());
+    me = await getMe();
   } catch {
-    identity = { playerId: "", displayName: stored.displayName ?? "", rating: null, deviceToken: stored.deviceToken };
+    authState = "signed-out"; account = null; identity = null;
+    return authState;
   }
-  return identity;
+  if (!me.signedIn || !me.user) {
+    authState = "signed-out"; account = null; identity = null;
+    return authState;
+  }
+  account = me.user;
+  rememberMe(me);
+  if (me.user.language && me.user.language !== SETTINGS.language) {
+    SETTINGS.language = me.user.language;
+    localStorage.setItem("mjrc.gamepvp.settings", JSON.stringify(SETTINGS));
+  }
+  if (!me.user.onboarded) {
+    authState = "needs-signup"; identity = null;
+    return authState;
+  }
+  identity = identityFromMe(me);
+  if (!identity) {
+    // Signed in and onboarded but the response carried no player/token —
+    // `POST /api/identity` resolves (and links) the user's player, §3.
+    try { identity = await apiIdentify(null, tzOffsetMin()); }
+    catch { identity = null; }
+  }
+  authState = "ready";
+  return authState;
 }
 
 /* ── presence heartbeat (PVP-LOBBY-PROPOSAL §3.2/§7.2) ───────────────────

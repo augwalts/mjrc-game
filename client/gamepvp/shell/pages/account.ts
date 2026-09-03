@@ -4,10 +4,19 @@
  *  (owner request 2026-09-03) is the one row here that is actually wired:
  *  crop-to-square/resize/encode happens entirely client-side, then
  *  `POST /api/identity`'s `avatar` field does the save (net.ts `identify`,
- *  worker/src/index.ts `parseAvatarField`). */
-import { identify as apiIdentify } from "../../net.js";
+ *  worker/src/index.ts `parseAvatarField`).
+ *
+ *  2026-09-04 (ACCOUNTS-GAME-SIGNIN §4): the top line is now real — who you
+ *  are signed in as, your handle and your member number, all straight off
+ *  `GET /api/me` — and so are the two things that end a session: Sign out
+ *  and Delete account. Delete is two taps, never one, and the second tap is
+ *  the only one that posts anything. Both finish with a full `location`
+ *  reload rather than a router navigation: the session cookie changed under
+ *  the app, and a reload is the one thing guaranteed to re-run boot's
+ *  `GET /api/me` from scratch. */
+import { deleteAccount as apiDeleteAccount, identify as apiIdentify, signout as apiSignout } from "../../net.js";
 import type { PageMount } from "../router.js";
-import { esc, identity, setIdentity, tzOffsetMin } from "../session.js";
+import { account, describeError, esc, identity, setIdentity, tzOffsetMin } from "../session.js";
 import { S, t } from "../strings.js";
 import { avatarHtml, navHtml, pageTop, wireNav } from "../ui.js";
 
@@ -64,13 +73,18 @@ async function fileToAvatarDataUri(file: File): Promise<string> {
 }
 
 export const mount: PageMount = (container, _params, router) => {
-  let busy = false;
+  /** `false` while idle; the name of the in-flight action otherwise, so every
+   *  button in the card disables together and the one that was pressed can
+   *  say what it is doing. */
+  let busy: false | "avatar" | "signout" | "delete" = false;
+  let confirming = false;
   let error: string | null = null;
 
   const paint = (): void => {
     const name = identity?.displayName ?? "";
     container.innerHTML = `
       ${pageTop(t(S.titleAccount), { back: "/me", displayName: name, unread: 0 })}
+      <p class="ac-who">${esc(t(S.signedInAs))} <b>${esc(account?.email ?? "—")}</b>${account?.handle ? ` · <b>@${esc(account.handle)}</b>` : ""}${account ? ` · ${esc(t(S.memberNo(account.userNo)))}` : ""}</p>
       <div class="card">
         <div class="listrow">
           <span>${esc(t(S.profilePicture))}</span>
@@ -84,12 +98,22 @@ export const mount: PageMount = (container, _params, router) => {
         <p class="mut" style="font-size:11px;margin:0 0 8px">${esc(t(S.pictureSizeHint))}</p>
         ${error ? `<p style="color:var(--red);font-size:12px;margin:0 0 8px">${esc(error)}</p>` : ""}
         <div class="listrow"><span>${esc(t(S.displayName))}</span><b>${esc(identity?.displayName ?? "—")} ›</b></div>
-        <div class="listrow"><span>${esc(t(S.handle))}</span><b>@${esc((identity?.displayName ?? "you").toLowerCase().replace(/\s+/g, ""))} ›</b></div>
-        <div class="listrow"><span>${esc(t(S.signIn))}</span><b class="mut">${esc(t(S.notLinked))} · Google ›</b></div>
+        <div class="listrow"><span>${esc(t(S.handle))}</span><b>${account?.handle ? `@${esc(account.handle)}` : "—"}</b></div>
         <div class="listrow"><span>${esc(t(S.devicesWithAccess))}</span><b>this device ›</b></div>
         <div class="listrow"><span>${esc(t(S.almanacProfile))}</span><b class="mut">${esc(t(S.notLinked))} ›</b></div>
         <div class="listrow"><span>${esc(t(S.exportData))}</span><b>›</b></div>
-        <div class="listrow"><span>${esc(t(S.deleteAccount))}</span><b style="color:var(--red)">›</b></div>
+      </div>
+      <div class="card ac-danger">
+        <div class="row" style="gap:8px">
+          <button class="sit sm ghost" id="acSignout" ${busy ? "disabled" : ""}>${esc(busy === "signout" ? t(S.signingOut) : t(S.signOut))}</button>
+          ${confirming ? "" : `<button class="sit sm danger" id="acDelete" ${busy ? "disabled" : ""}>${esc(t(S.deleteAccount))}</button>`}
+        </div>
+        ${confirming ? `
+          <p class="ac-warn">${esc(t(S.deleteAccountWarn))}</p>
+          <div class="row" style="gap:8px">
+            <button class="sit sm danger" id="acDeleteYes" ${busy ? "disabled" : ""}>${esc(busy === "delete" ? t(S.deleting) : t(S.deleteAccountConfirm))}</button>
+            <button class="sit sm ghost" id="acDeleteNo" ${busy ? "disabled" : ""}>${esc(t(S.cancel))}</button>
+          </div>` : ""}
       </div>
       <p class="mut" style="margin-top:8px;font-size:12px">${esc(t(S.accountFooter))}</p>
       ${navHtml("/")}`;
@@ -105,7 +129,7 @@ export const mount: PageMount = (container, _params, router) => {
       const file = fileInput.files?.[0] ?? null;
       fileInput.value = "";
       if (!file || busy) return;
-      busy = true; error = null; paint();
+      busy = "avatar"; error = null; paint();
       void (async () => {
         try {
           const dataUri = await fileToAvatarDataUri(file);
@@ -121,7 +145,7 @@ export const mount: PageMount = (container, _params, router) => {
 
     removeBtn?.addEventListener("click", () => {
       if (busy) return;
-      busy = true; error = null; paint();
+      busy = "avatar"; error = null; paint();
       void (async () => {
         try {
           const next = await apiIdentify(null, tzOffsetMin(), null);
@@ -131,6 +155,31 @@ export const mount: PageMount = (container, _params, router) => {
         } finally {
           busy = false; paint();
         }
+      })();
+    });
+
+    container.querySelector<HTMLButtonElement>("#acSignout")?.addEventListener("click", () => {
+      if (busy) return;
+      busy = "signout"; error = null; paint();
+      void (async () => {
+        try { await apiSignout(); } catch (e) { error = describeError(e); busy = false; paint(); return; }
+        location.href = "/";
+      })();
+    });
+    container.querySelector<HTMLButtonElement>("#acDelete")?.addEventListener("click", () => {
+      if (busy) return;
+      confirming = true; error = null; paint();
+    });
+    container.querySelector<HTMLButtonElement>("#acDeleteNo")?.addEventListener("click", () => {
+      if (busy) return;
+      confirming = false; paint();
+    });
+    container.querySelector<HTMLButtonElement>("#acDeleteYes")?.addEventListener("click", () => {
+      if (busy) return;
+      busy = "delete"; error = null; paint();
+      void (async () => {
+        try { await apiDeleteAccount(); } catch (e) { error = describeError(e); busy = false; paint(); return; }
+        location.href = "/";
       })();
     });
   };

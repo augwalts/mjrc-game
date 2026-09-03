@@ -27,7 +27,9 @@ import {
   installTableRules,
   type TableInit,
 } from "../../worker/src/table.js";
+import { handleAuth } from "../../worker/src/auth.js";
 import {
+  authFromEnv,
   handle,
   type Env as PlatformEnv,
   type Platform,
@@ -355,6 +357,10 @@ function platformOf(env: Env): Platform {
     random: (n) => crypto.getRandomValues(new Uint8Array(n)),
     engineVersion: ENGINE_VERSION,
     replayTokenSecret,
+    // Google sign-in (ACCOUNTS-GAME-SIGNIN-2026-09-04.md §2). `undefined` when
+    // the secrets are not set, which is a working deployment with accounts off
+    // rather than a broken one — see `authFromEnv`.
+    auth: authFromEnv(env),
     isBotKey: isBotCatalogueKey,
     // A bot seat's lobby label (worker/src/index.ts `getLobby`'s `botSeatLabel`):
     // the catalogue entry's name if `key` names one, else the seat's default
@@ -408,6 +414,26 @@ export default {
 
     const url = new URL(request.url);
     const seg = url.pathname.split("/").filter((s) => s !== "");
+
+    /* /auth/* — Google sign-in, the dev bypass and sign-out
+     * (worker/src/auth.ts). Routed here for the same reason `/api/*` is: the
+     * platform owns the behaviour, this file owns the front door. Behind the
+     * gate like everything else, and above the SPA fallbacks below so
+     * `/auth/google` can never be answered with index.html. */
+    if (seg[0] === "auth") {
+      let platform: Platform;
+      try {
+        platform = platformOf(env);
+      } catch (e) {
+        console.error("gamepvp misconfigured:", e);
+        return new Response(JSON.stringify({ error: "server_misconfigured" }), {
+          status: 500,
+          headers: { "content-type": "application/json; charset=utf-8" },
+        });
+      }
+      const res = await handleAuth(request, platform);
+      if (res !== null) return withCookie(res, admitted.setCookie);
+    }
 
     /* GET /api/bots — the catalogue for the New Table bot picker. Routed here,
      * ahead of the platform's own /api/* dispatch (worker/src/index.ts's

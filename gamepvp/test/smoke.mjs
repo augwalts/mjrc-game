@@ -3,6 +3,10 @@
  * Headless end-to-end smoke test for the mjrc-game Worker.
  *
  * Flow:
+ *   0. With MJRC_DEV_SIGNIN=1 (local only), sign each human seat in through
+ *      GET /auth/dev and finish its sign-up, so the seat holds a session — see
+ *      `devSignIn`. Off by default: a production run identifies with the
+ *      grandfathered demo tokens and never touches /auth/*.
  *   1. Mint one device token per human seat that will actually join (MJRC_SEATS'
  *      human count, minus one if MJRC_START=1) and POST /api/identity for each.
  *   2. The first human POSTs /api/tables — `seats` if MJRC_SEATS is set (§7.2),
@@ -109,6 +113,62 @@ const SPEED = process.env.MJRC_SPEED || null;
 const GATE_HEX = createHash("sha256").update(`mjrc-gate:${GATE_PASSWORD}`).digest("hex");
 const GATE_COOKIE = `mjrc_gate=${GATE_HEX}`;
 
+/**
+ * Sign each human seat in through `GET /auth/dev` before it identifies
+ * (ACCOUNTS-GAME-SIGNIN-2026-09-04.md §3).
+ *
+ * Since 2026-09-04 `POST /api/identity` refuses to CREATE a player without a
+ * session — only device tokens whose player predates `ACCOUNTS_CUTOFF` still
+ * work bare, which is how a production run against the demo tokens keeps
+ * passing unchanged. A local run mints a fresh random token every time and has
+ * nothing grandfathered, so it needs a session; set `MJRC_DEV_SIGNIN=1` (the
+ * server must have `AUTH_DEV_BYPASS` set, which is local-only) and each seat
+ * signs in as its own account first.
+ *
+ * Deliberately opt-in rather than automatic: the default path is the one that
+ * runs against production, and it must not start depending on a route that
+ * 404s there.
+ */
+const DEV_SIGNIN = process.env.MJRC_DEV_SIGNIN === "1";
+/** One stable account per seat, so repeated local runs reuse one player and
+ *  one handle instead of littering the dev database. */
+const devEmail = (seat) => process.env.MJRC_DEV_EMAIL_PREFIX
+  ? `${process.env.MJRC_DEV_EMAIL_PREFIX}${seat}@example.test`
+  : `smoke.seat${seat}@example.test`;
+
+/** The `mjrc_session=...` cookie for one seat, via the dev bypass. */
+async function devSignIn(seat) {
+  const url = `${HTTP_BASE}/auth/dev?email=${encodeURIComponent(devEmail(seat))}&name=${encodeURIComponent(`Smoke${seat}`)}`;
+  const res = await fetch(url, { headers: { Cookie: GATE_COOKIE }, redirect: "manual" });
+  if (res.status !== 302) {
+    throw new Error(`GET /auth/dev -> ${res.status} (is AUTH_DEV_BYPASS set on the server?)`);
+  }
+  const cookie = res.headers
+    .getSetCookie()
+    .map((c) => c.split(";")[0])
+    .find((c) => c.startsWith("mjrc_session="));
+  if (!cookie) throw new Error("GET /auth/dev set no mjrc_session cookie");
+  return cookie;
+}
+
+/** Finish sign-up if this account has not done it yet. Idempotent across runs:
+ *  an account that is already onboarded is left exactly as it is. */
+async function ensureSignedUp(seat, session) {
+  const me = await apiFetch("/api/me", { session });
+  if (me.signedIn && me.user && me.user.onboarded) return;
+  await apiFetch("/api/signup", {
+    method: "POST",
+    session,
+    body: {
+      displayName: `Smoke${seat}`,
+      handle: `smoke_seat${seat}`,
+      language: "en",
+      consents: { terms: true, privacy: true, marketing: false },
+      source: "smoke",
+    },
+  });
+}
+
 /* ── small helpers ─────────────────────────────────────────────────────── */
 
 function deferred() {
@@ -120,8 +180,8 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
-async function apiFetch(path, { method = "GET", token, body } = {}) {
-  const headers = { Cookie: GATE_COOKIE };
+async function apiFetch(path, { method = "GET", token, body, session } = {}) {
+  const headers = { Cookie: session ? `${GATE_COOKIE}; ${session}` : GATE_COOKIE };
   if (token) headers.Authorization = `Bearer ${token}`;
   let payload;
   if (body !== undefined) {
@@ -419,7 +479,13 @@ async function main() {
   for (let i = 0; i < joiningHumanCount; i += 1) {
     const deviceToken = fixedTokens[i] ?? mintDeviceToken(i);
     const displayName = fixedNames[i] ?? `Smoke${i}`;
-    await apiFetch("/api/identity", { method: "POST", body: { deviceToken, displayName } });
+    /* With MJRC_DEV_SIGNIN the seat holds a session and `/api/identity` binds
+     * this run's device token to that account's player. Without it, the token
+     * has to be one the server already knows and whose player predates
+     * ACCOUNTS_CUTOFF — the grandfathered demo tokens. */
+    const session = DEV_SIGNIN ? await devSignIn(i) : undefined;
+    if (session) await ensureSignedUp(i, session);
+    await apiFetch("/api/identity", { method: "POST", session, body: { deviceToken, displayName } });
     if (process.env.MJRC_ROOM) await apiFetch(`/api/rooms/${process.env.MJRC_ROOM}/join`, { method: "POST", token: deviceToken });
     humans.push({ deviceToken, displayName });
     // Printed so the match can be queried afterwards as this player.

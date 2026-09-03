@@ -16,7 +16,7 @@
  */
 import { initTableChrome, resumeActiveSession, setHostHooks } from "./table.js";
 import { initRouter, type Router } from "./shell/router.js";
-import { applyTheme, bootIdentity, ensurePresenceHeartbeat, getThemeChoice } from "./shell/session.js";
+import { applyTheme, authState, bootIdentity, ensurePresenceHeartbeat, getThemeChoice } from "./shell/session.js";
 
 const tableRoot = document.getElementById("tableRoot")!;
 const shellRoot = document.getElementById("shell")!;
@@ -44,6 +44,11 @@ async function boot(): Promise<void> {
     goToSettings: () => { showShell(); router?.navigate("/me/settings"); },
   });
 
+  // One call, three outcomes (shell/session.ts's `bootIdentity`): signed out,
+  // signed in but not onboarded, or ready. The router reads the same state
+  // and renders the sign-in / sign-up screen in place of any route until it
+  // says "ready" — there is no name prompt any more
+  // (ACCOUNTS-GAME-SIGNIN-2026-09-04 §4).
   await bootIdentity();
   ensurePresenceHeartbeat();
 
@@ -55,8 +60,11 @@ async function boot(): Promise<void> {
   // itself (shell/router.ts's `handleInviteLink`) and always win over a
   // resume, same as the pre-rebuild client ("a deep link is a deliberate act
   // and wins over both").
+  // Nothing resumes a table for somebody who is not signed in and onboarded:
+  // the shell is showing the sign-in screen, and `resumeActiveSession` would
+  // otherwise pull the table over the top of it.
   const isInviteLink = /^\/(j|r)\/[A-Za-z0-9]+\/?$/.test(location.pathname);
-  if (!isInviteLink) await resumeActiveSession();
+  if (authState === "ready" && !isInviteLink) await resumeActiveSession();
 }
 
 void boot();

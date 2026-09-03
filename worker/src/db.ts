@@ -205,6 +205,39 @@ export interface PlayerRow {
   /** §11 build decision 5 — the client's last-reported UTC offset, minutes.
    *  Defaults to 0 (UTC) for a device that has never sent one. */
   tz_offset_min: number;
+  /** ISO-8601. Selected because `ACCOUNTS_CUTOFF`
+   *  (ACCOUNTS-GAME-SIGNIN-2026-09-04.md §3) is a fact about WHEN the player
+   *  row was made — a device credential is grandfathered past the sign-in
+   *  requirement only if its player predates the cutoff. */
+  created_at: string;
+  /** `users.id` this player belongs to, or null for an unlinked (pre-accounts,
+   *  or bot) player. schema.sql "the Almanac seam". */
+  almanac_user_id: string | null;
+}
+
+/**
+ * One account. Columns verbatim from `users`
+ * (gamepvp/migrations/remote-2026-09-04-accounts.sql), snake_case, per this
+ * file's rule 2.
+ */
+export interface UserRow {
+  id: string;
+  user_no: number;
+  google_sub: string | null;
+  email: string;
+  email_verified: number;
+  handle: string | null;
+  display_name: string;
+  picture: string | null;
+  is_admin: number;
+  signup_lang: string | null;
+  signup_source: string | null;
+  onboarded_at: string | null;
+  session_epoch: number;
+  created_at: string;
+  updated_at: string;
+  last_seen_at: string;
+  deleted_at: string | null;
 }
 
 /* ── the lobby (PVP-LOBBY-PROPOSAL-2026-09-02.md §7) ─────────────────────────
@@ -404,7 +437,8 @@ export interface HandRow {
 export const SQL = Object.freeze({
   /* identity */
   playerForCredential: `
-    SELECT p.id, p.kind, p.display_name, p.avatar, p.rating, p.rating_games, p.rating_season, p.tz_offset_min
+    SELECT p.id, p.kind, p.display_name, p.avatar, p.rating, p.rating_games, p.rating_season,
+           p.tz_offset_min, p.created_at, p.almanac_user_id
       FROM player_credentials c
       JOIN players p ON p.id = c.player_id
      WHERE c.id = ? AND c.revoked_at IS NULL AND p.deleted_at IS NULL`,
@@ -432,6 +466,139 @@ export const SQL = Object.freeze({
    *  edits that happen to share one request body. */
   updatePlayerAvatar: `
     UPDATE players SET avatar = ?, updated_at = ? WHERE id = ?`,
+
+  /* ── accounts (ACCOUNTS-GAME-SIGNIN-2026-09-04.md §1) ─────────────────────
+   * `users`, `handle_history` and `consents` live in the SAME database as the
+   * game tables (gamepvp/wrangler.jsonc binds `mjrc-scoring` for both), so
+   * these are ordinary statements here and not a second binding. Nothing below
+   * embeds a literal: the deletion tombstones ("deleted", "deleted user") and
+   * the link source are bound values, so `SQL`'s no-interpolation test keeps
+   * covering this section too. */
+
+  /** Every column, because a session only carries `{uid, epoch, exp}` and every
+   *  read of the user starts from this row — including `session_epoch`, which
+   *  is what makes the stateless cookie revocable. */
+  userById: `
+    SELECT id, user_no, google_sub, email, email_verified, handle, display_name, picture,
+           is_admin, signup_lang, signup_source, onboarded_at, session_epoch,
+           created_at, updated_at, last_seen_at, deleted_at
+      FROM users
+     WHERE id = ?`,
+
+  /** The identity key is the Google subject, never the email — emails get
+   *  reassigned (ACCOUNTS-BUILD-SPEC.md §users). Covered by idx_users_sub. */
+  userByGoogleSub: `
+    SELECT id, user_no, google_sub, email, email_verified, handle, display_name, picture,
+           is_admin, signup_lang, signup_source, onboarded_at, session_epoch,
+           created_at, updated_at, last_seen_at, deleted_at
+      FROM users
+     WHERE google_sub = ? AND deleted_at IS NULL`,
+
+  /** A live row with this email and NO sub yet — the seeded user 0, and only
+   *  it in practice. Matching on email is safe here precisely because the
+   *  caller has already verified the email against Google's signature and
+   *  `email_verified`; an unverified match would be an account takeover. */
+  userByEmailUnclaimed: `
+    SELECT id, user_no, google_sub, email, email_verified, handle, display_name, picture,
+           is_admin, signup_lang, signup_source, onboarded_at, session_epoch,
+           created_at, updated_at, last_seen_at, deleted_at
+      FROM users
+     WHERE email = ? AND google_sub IS NULL AND deleted_at IS NULL
+     ORDER BY user_no
+     LIMIT 1`,
+
+  /** Handle availability. Deliberately NOT filtered by `deleted_at`: a scrubbed
+   *  account releases its handle to `handle_history` instead of leaving it on
+   *  a tombstone, so a row here means the handle is genuinely in use. */
+  userByHandle: `
+    SELECT id FROM users WHERE handle = ?`,
+
+  /** A released handle is never reissued (D7) — checked alongside `users`. */
+  handleHistoryByHandle: `
+    SELECT handle FROM handle_history WHERE handle = ?`,
+
+  maxUserNo: `
+    SELECT MAX(user_no) AS n FROM users`,
+
+  insertUser: `
+    INSERT INTO users (id, user_no, google_sub, email, email_verified, display_name, picture,
+                       signup_lang, created_at, updated_at, last_seen_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+
+  /** First sign-in on a row seeded without a sub (user 0). Also refreshes the
+   *  Google-side profile, which is where `picture` comes from. */
+  attachGoogleSub: `
+    UPDATE users
+       SET google_sub = ?, email_verified = ?, picture = ?, updated_at = ?, last_seen_at = ?
+     WHERE id = ? AND google_sub IS NULL AND deleted_at IS NULL`,
+
+  touchUser: `
+    UPDATE users SET last_seen_at = ? WHERE id = ?`,
+
+  /** The account page's rename, which `POST /api/identity` mirrors onto the
+   *  player row (contract §3, last paragraph). */
+  updateUserDisplayName: `
+    UPDATE users SET display_name = ?, updated_at = ?, last_seen_at = ? WHERE id = ?`,
+
+  /** Sign-up, in one statement. `onboarded_at IS NULL` in the WHERE is the
+   *  race guard: two concurrent sign-ups for one account write once, and the
+   *  loser sees `changes = 0` rather than overwriting a chosen handle. The
+   *  UNIQUE index on `handle` is the other race guard, and its constraint
+   *  error is what the caller turns into 409 handle_taken. */
+  onboardUser: `
+    UPDATE users
+       SET handle = ?, display_name = ?, signup_lang = ?, signup_source = ?,
+           onboarded_at = ?, updated_at = ?, last_seen_at = ?
+     WHERE id = ? AND onboarded_at IS NULL AND deleted_at IS NULL`,
+
+  /** Consent is a record, not a state: append, never update. */
+  insertConsent: `
+    INSERT INTO consents (user_id, kind, granted, source, at) VALUES (?, ?, ?, ?, ?)`,
+
+  insertHandleHistory: `
+    INSERT OR IGNORE INTO handle_history (handle, user_id, released_at) VALUES (?, ?, ?)`,
+
+  /** ACCOUNTS-BUILD-SPEC.md §9.3 step 1, in place. `session_epoch + 1` is the
+   *  whole revocation mechanism for the stateless cookie — every outstanding
+   *  session for this account stops verifying the moment this lands. */
+  scrubUser: `
+    UPDATE users
+       SET email = ?, google_sub = NULL, handle = NULL, display_name = ?, picture = NULL,
+           signup_source = NULL, signup_lang = NULL, session_epoch = session_epoch + 1,
+           deleted_at = ?, updated_at = ?
+     WHERE id = ?`,
+
+  /** The user's live game player. At most one by construction (the contract's
+   *  "at most one live player per user"); `LIMIT 1` is belt and braces for a
+   *  row pair an admin fix could leave behind. */
+  playerForUser: `
+    SELECT id, kind, display_name, avatar, rating, rating_games, rating_season, tz_offset_min,
+           created_at, almanac_user_id
+      FROM players
+     WHERE almanac_user_id = ? AND deleted_at IS NULL
+     ORDER BY created_at
+     LIMIT 1`,
+
+  /** `almanac_user_id IS NULL` in the WHERE means this never steals a player
+   *  that already belongs to someone else — a device token handed between two
+   *  accounts links to the first one and is refused by the second. */
+  linkPlayerToUser: `
+    UPDATE players
+       SET almanac_user_id = ?, almanac_link_source = ?, almanac_linked_at = ?, updated_at = ?
+     WHERE id = ? AND almanac_user_id IS NULL AND deleted_at IS NULL`,
+
+  /** Does this credential digest exist at all, and whose is it? Used before
+   *  binding a browser-supplied device token to a session's player. */
+  credentialById: `
+    SELECT id, player_id, revoked_at FROM player_credentials WHERE id = ?`,
+
+  scrubPlayer: `
+    UPDATE players SET display_name = ?, avatar = NULL, deleted_at = ?, updated_at = ? WHERE id = ?`,
+
+  /** Revocation is a column, not a DELETE (schema.sql player_credentials), so
+   *  a deleted account's device tokens stay unusable and un-reissuable. */
+  revokePlayerCredentials: `
+    UPDATE player_credentials SET revoked_at = ? WHERE player_id = ? AND revoked_at IS NULL`,
 
   /* rulesets — archive once per content hash, never rewrite */
   archiveRuleset: `
@@ -690,7 +857,8 @@ export const SQL = Object.freeze({
    * two bullets) ────────────────────────────────────────────────────────── */
 
   playerById: `
-    SELECT id, kind, display_name, avatar, rating, rating_games, rating_season, tz_offset_min
+    SELECT id, kind, display_name, avatar, rating, rating_games, rating_season, tz_offset_min,
+           created_at, almanac_user_id
       FROM players
      WHERE id = ? AND deleted_at IS NULL`,
 
@@ -1101,6 +1269,199 @@ export async function updatePlayerAvatar(
   now: string,
 ): Promise<void> {
   await db.prepare(SQL.updatePlayerAvatar).bind(avatar, now, playerId).run();
+}
+
+/* ── accounts ─────────────────────────────────────────────────────────────── */
+
+export function userById(db: D1Like, id: string): Promise<UserRow | null> {
+  return db.prepare(SQL.userById).bind(id).first<UserRow>();
+}
+
+export function userByGoogleSub(db: D1Like, sub: string): Promise<UserRow | null> {
+  return db.prepare(SQL.userByGoogleSub).bind(sub).first<UserRow>();
+}
+
+export function userByEmailUnclaimed(db: D1Like, email: string): Promise<UserRow | null> {
+  return db.prepare(SQL.userByEmailUnclaimed).bind(email).first<UserRow>();
+}
+
+/**
+ * Is this handle spoken for? Live accounts AND released handles both count —
+ * a handle released by a deleted account is never reissued (D7), so somebody
+ * who reads an old link cannot land on a different person.
+ */
+export async function handleTaken(db: D1Like, handle: string): Promise<boolean> {
+  const live = await db.prepare(SQL.userByHandle).bind(handle).first<{ id: string }>();
+  if (live !== null) return true;
+  const past = await db.prepare(SQL.handleHistoryByHandle).bind(handle).first<{ handle: string }>();
+  return past !== null;
+}
+
+/** `MAX(user_no) + 1`. Not an AUTOINCREMENT column because user 0 is seeded by
+ *  the migration and must keep that exact number. */
+export async function nextUserNo(db: D1Like): Promise<number> {
+  const row = await db.prepare(SQL.maxUserNo).first<{ n: number | null }>();
+  const max = row === null ? null : row.n;
+  return max === null ? 0 : max + 1;
+}
+
+export interface NewUser {
+  id: string;
+  userNo: number;
+  googleSub: string | null;
+  email: string;
+  emailVerified: boolean;
+  displayName: string;
+  picture: string | null;
+  signupLang: string | null;
+  now: string;
+}
+
+export async function insertUser(db: D1Like, u: NewUser): Promise<void> {
+  await db
+    .prepare(SQL.insertUser)
+    .bind(
+      u.id,
+      u.userNo,
+      u.googleSub,
+      u.email,
+      u.emailVerified ? 1 : 0,
+      u.displayName,
+      u.picture,
+      u.signupLang,
+      u.now,
+      u.now,
+      u.now,
+    )
+    .run();
+}
+
+/** Returns true when the sub actually landed — false means someone else won the
+ *  race for that seeded row, and the caller must fall through to creating a
+ *  fresh account rather than assuming it owns this one. */
+export async function attachGoogleSub(
+  db: D1Like,
+  userId: string,
+  sub: string,
+  emailVerified: boolean,
+  picture: string | null,
+  now: string,
+): Promise<boolean> {
+  const res = await db
+    .prepare(SQL.attachGoogleSub)
+    .bind(sub, emailVerified ? 1 : 0, picture, now, now, userId)
+    .run();
+  return res.meta.changes > 0;
+}
+
+export async function touchUser(db: D1Like, userId: string, now: string): Promise<void> {
+  await db.prepare(SQL.touchUser).bind(now, userId).run();
+}
+
+export async function updateUserDisplayName(
+  db: D1Like,
+  userId: string,
+  displayName: string,
+  now: string,
+): Promise<void> {
+  await db.prepare(SQL.updateUserDisplayName).bind(displayName, now, now, userId).run();
+}
+
+export interface OnboardUser {
+  userId: string;
+  handle: string;
+  displayName: string;
+  signupLang: string | null;
+  signupSource: string | null;
+  now: string;
+}
+
+/** `false` = the row was already onboarded (or deleted) and nothing was
+ *  written; the caller answers 409 `already_onboarded`. A UNIQUE violation on
+ *  `handle` throws instead — see `isUniqueViolation`. */
+export async function onboardUser(db: D1Like, o: OnboardUser): Promise<boolean> {
+  const res = await db
+    .prepare(SQL.onboardUser)
+    .bind(o.handle, o.displayName, o.signupLang, o.signupSource, o.now, o.now, o.now, o.userId)
+    .run();
+  return res.meta.changes > 0;
+}
+
+export async function insertConsent(
+  db: D1Like,
+  userId: string,
+  kind: string,
+  granted: boolean,
+  source: string,
+  now: string,
+): Promise<void> {
+  await db.prepare(SQL.insertConsent).bind(userId, kind, granted ? 1 : 0, source, now).run();
+}
+
+export async function releaseHandle(
+  db: D1Like,
+  handle: string,
+  userId: string,
+  now: string,
+): Promise<void> {
+  await db.prepare(SQL.insertHandleHistory).bind(handle, userId, now).run();
+}
+
+export async function scrubUser(
+  db: D1Like,
+  userId: string,
+  emailTombstone: string,
+  nameTombstone: string,
+  now: string,
+): Promise<void> {
+  await db.prepare(SQL.scrubUser).bind(emailTombstone, nameTombstone, now, now, userId).run();
+}
+
+export function playerForUser(db: D1Like, userId: string): Promise<PlayerRow | null> {
+  return db.prepare(SQL.playerForUser).bind(userId).first<PlayerRow>();
+}
+
+/** `false` = that player already belongs to an account (or is deleted). */
+export async function linkPlayerToUser(
+  db: D1Like,
+  playerId: string,
+  userId: string,
+  source: string,
+  now: string,
+): Promise<boolean> {
+  const res = await db.prepare(SQL.linkPlayerToUser).bind(userId, source, now, now, playerId).run();
+  return res.meta.changes > 0;
+}
+
+export interface CredentialRow {
+  id: string;
+  player_id: string;
+  revoked_at: string | null;
+}
+
+export function credentialById(db: D1Like, id: string): Promise<CredentialRow | null> {
+  return db.prepare(SQL.credentialById).bind(id).first<CredentialRow>();
+}
+
+export async function scrubPlayer(
+  db: D1Like,
+  playerId: string,
+  nameTombstone: string,
+  now: string,
+): Promise<void> {
+  await db.prepare(SQL.scrubPlayer).bind(nameTombstone, now, now, playerId).run();
+  await db.prepare(SQL.revokePlayerCredentials).bind(now, playerId).run();
+}
+
+/**
+ * Did this write lose a race on a UNIQUE index? D1 surfaces the constraint as
+ * an error message rather than a code, so the string is the only signal there
+ * is. Matched loosely on purpose: a false positive turns a 500 into a 409,
+ * which is the safer way for this particular check to be wrong.
+ */
+export function isUniqueViolation(e: unknown): boolean {
+  const text = e instanceof Error ? e.message : String(e);
+  return /UNIQUE constraint failed/i.test(text) || /constraint failed/i.test(text);
 }
 
 /* ── rulesets ─────────────────────────────────────────────────────────────── */

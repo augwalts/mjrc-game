@@ -781,3 +781,64 @@ CREATE INDEX idx_inbox_items_player
   ON inbox_items(player_id, created_at DESC)
   WHERE dismissed_at IS NULL;
 -- ─────────────────────────────────────────────────────────────────────────────
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- users, handle_history, consents — MJRC accounts.
+--
+-- Folded in from gamepvp/migrations/remote-2026-09-04-accounts.sql per README
+-- §3 step 2. Shapes are ACCOUNTS-BUILD-SPEC.md §users plus the four columns
+-- ACCOUNTS-GAME-SIGNIN-2026-09-04.md §1 adds (`user_no`, `picture`,
+-- `onboarded_at`, `session_epoch`).
+--
+-- These are NOT game tables, and that is the point: gamepvp binds the shared
+-- `mjrc-scoring` database (gamepvp/wrangler.jsonc), so an account made in the
+-- game is the same account the site sees. `players.almanac_user_id` above is
+-- still the only link between the two halves — no email, handle or display name
+-- is copied onto a `players` row (README, "The Almanac seam").
+--
+-- IF NOT EXISTS throughout, because the Almanac may create `users` first and
+-- applying this file to a database that already has it must be a no-op.
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS users (
+  id             TEXT PRIMARY KEY,          -- Crockford base32, app-generated
+  user_no        INTEGER NOT NULL UNIQUE,   -- display/ordering number; 0 = augwalts
+  google_sub     TEXT,                      -- null until first sign-in; nulled on deletion
+  email          TEXT NOT NULL,
+  email_verified INTEGER NOT NULL DEFAULT 0,
+  handle         TEXT UNIQUE,               -- null until sign-up confirms it
+  display_name   TEXT NOT NULL,
+  picture        TEXT,                      -- Google photo URL (not the game avatar)
+  is_admin       INTEGER NOT NULL DEFAULT 0,
+  signup_lang    TEXT,
+  signup_source  TEXT,                      -- landing path or room/table code
+  onboarded_at   TEXT,                      -- null = signed in but sign-up not finished
+  session_epoch  INTEGER NOT NULL DEFAULT 0,-- bump to invalidate every session
+  created_at     TEXT NOT NULL,
+  updated_at     TEXT NOT NULL,
+  last_seen_at   TEXT NOT NULL,
+  deleted_at     TEXT
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_sub ON users(google_sub) WHERE google_sub IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email) WHERE deleted_at IS NULL;
+
+CREATE TABLE IF NOT EXISTS handle_history (
+  handle      TEXT PRIMARY KEY,
+  user_id     TEXT NOT NULL REFERENCES users(id),
+  released_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS consents (
+  id      INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id TEXT NOT NULL REFERENCES users(id),
+  kind    TEXT NOT NULL,          -- terms | privacy | marketing
+  granted INTEGER NOT NULL,       -- 1 / 0; latest row per kind is the state
+  source  TEXT NOT NULL,          -- signup | account
+  at      TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_consents_user ON consents(user_id, kind, at DESC);
+
+INSERT OR IGNORE INTO users (id, user_no, email, display_name, is_admin, created_at, updated_at, last_seen_at)
+  VALUES ('USER0AUGWALTS000', 0, 'augwalts@gmail.com', 'augie', 1,
+          '2026-09-04T00:00:00.000Z', '2026-09-04T00:00:00.000Z', '2026-09-04T00:00:00.000Z');

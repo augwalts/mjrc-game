@@ -29,6 +29,13 @@ it binds code. HK Old Style only.
 | `LOGS` | R2 | `mjrc-game-logs` | read/write — the omniscient event log blobs |
 | `ALMANAC` | D1 | `mjrc-scoring` | **read only, by convention** — accounts and rooms |
 
+> **gamepvp deviates from the table above, deliberately.** `gamepvp/wrangler.jsonc`
+> binds ONE database, `mjrc-scoring`, as `DB` — the game tables and the accounts
+> tables (`users`, `handle_history`, `consents`,
+> `gamepvp/migrations/remote-2026-09-04-accounts.sql`) live side by side in it.
+> The two-database split described in §6 and open question 1 is the mjrc-game
+> design; the shipped gamepvp Worker answered open question 1 the other way.
+
 `ALMANAC` is the same database the Mahjong Almanac writes
 (`/Users/augustineliu/Local_Projects/mjrc/mjrc-app/web/migrations/`). D1 has no
 per-binding permissions, so "read only" is a code-review rule, not an enforced
@@ -306,7 +313,7 @@ four-player chip game.
 | The outbox | Table DO storage | Hand events stay in DO storage until **both** the R2 write and the D1 row confirm (`DESIGN.md` §5.3). An outbox in D1 would need the very durability it exists to provide. |
 | One-time seat tokens | Table DO storage | Lives for seconds, one consumer, and that consumer is the DO. D1 buys a round trip and a cleanup job for nothing. |
 | Product telemetry | The Almanac's `analytics_*` tables | `DESIGN.md` §3: two data pipes, never conflated. The game event log is sacred and versioned; funnel metrics are disposable. Separate plumbing entirely. |
-| Sessions / cookies | — (P0 has none) | The device token is presented per request; a stateless Worker needs nothing else. Passkeys at P1 need a `player_sessions` table shaped like the Almanac's `auth_sessions` — additive, see open questions. |
+| Sessions / cookies | — (still no table) | **Superseded in part, 2026-09-04.** gamepvp now has Google sign-in (`ACCOUNTS-GAME-SIGNIN-2026-09-04.md`, `worker/src/auth.ts`), but the session is a signed stateless cookie `{uid, epoch, exp}` and revocation is `users.session_epoch` — so there is still no sessions table, and the device token is still what every `/api/*` route past `/api/me` authenticates with. `player_sessions` remains unbuilt and passkeys remain P1. |
 
 ## 6. The Almanac seam
 
