@@ -855,9 +855,17 @@ body.devmode #mine{padding-top:2px}
    background/border/shadow of its own: legibility over the felt comes from
    each line's own text-shadow (`.crow`/.chat-phrases/.chat-input-row below),
    the same trick `#chatbubble`/`#say` already use for text over the table. */
-#chatOverlay{position:absolute;right:10px;bottom:66px;z-index:13;
+/* TOP-RIGHT, on every layout (2026-09-03). It used to be bottom-right above
+   the button on a phone/iPad and top-left under #state on a desktop, and
+   each of those sits on a SIDE SEAT: bottom-right runs up into the east
+   seat's melds, top-left runs down into the west seat's — "covers the other
+   player's hand" in the playtest. Top-right is the one corner nothing owns
+   (#state top-left, #log bottom-left, #chatBtn bottom-right), and the
+   message list is capped at ~5 lines so the overlay ends above the east
+   seat's row. The button does not move. */
+#chatOverlay{position:absolute;right:10px;top:8px;z-index:13;
   display:flex;flex-direction:column;gap:6px;width:min(230px,calc(100% - 20px))}
-.chat-msgs{display:flex;flex-direction:column;gap:2px;max-height:150px;overflow-y:auto}
+.chat-msgs{display:flex;flex-direction:column;gap:2px;max-height:96px;overflow-y:auto}
 .crow{font-size:12.5px;line-height:1.5;color:#eef0ea;
   text-shadow:0 1px 3px rgba(0,0,0,.9),0 0 6px rgba(0,0,0,.55)}
 .crow.mine{color:#fff6de}
@@ -905,11 +913,6 @@ body.devmode #mine{padding-top:2px}
 #chatPreview.show{animation:chatPreviewFade var(--previewms,4000ms) ease-in-out forwards}
 @keyframes chatPreviewFade{0%{opacity:0}8%{opacity:1}78%{opacity:1}100%{opacity:0}}
 
-@media (min-width:900px) and (pointer:fine){
-  /* top-left, below #state (left:10px;top:8px — see #state above), rather
-     than bottom-right above the button: the button itself does not move. */
-  #chatOverlay{right:auto;bottom:auto;left:10px;top:64px}
-}
 
 /* the phrase bubble near a seat's nameplate (§8) — same positions and same
  * `sayIn` animation as #say (a discard's own declaration), on its own
