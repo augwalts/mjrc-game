@@ -27,7 +27,7 @@ import { wireNav } from "./ui.js";
 import { mount as mountHome } from "./pages/home.js";
 import { mount as mountRooms } from "./pages/rooms.js";
 import { mount as mountRoom } from "./pages/room.js";
-import { mount as mountFriends } from "./pages/friends.js";
+import { mount as mountPlayers } from "./pages/players.js";
 import { mount as mountStats } from "./pages/stats.js";
 import { mount as mountGame } from "./pages/game-detail.js";
 import { mount as mountPlayer } from "./pages/player.js";
@@ -66,7 +66,11 @@ const ROUTES: Route[] = [
   route("/", mountHome),
   route("/rooms", mountRooms),
   route("/rooms/:code", mountRoom),
-  route("/friends", mountFriends),
+  route("/players", mountPlayers),
+  /* `/friends` was the module's old name (its nav tab, its links, anything a
+   *  browser bookmarked). Players replaced it wholesale — one list, filtered
+   *  — so the old path redirects rather than rendering a second screen. */
+  route("/friends", (_c, _p, r) => { r.navigate("/players", { replace: true }); }),
   route("/stats", mountStats),
   route("/games/:id", mountGame),
   route("/players/:id", mountPlayer),

@@ -691,6 +691,85 @@ export async function unstarFriend(token: string, playerId: string): Promise<voi
   await apiFetch<void>(`friends/${encodeURIComponent(playerId)}/star`, { method: "DELETE", token });
 }
 
+/* ── players (client/gamepvp/players-lab.html round 3) ───────────────────────
+ * ONE list on every surface — the phone folds the filters behind an icon, the
+ * desktop opens them out, and "the leaderboard" is this list sorted by rank.
+ * `GET /api/friends` above is the same rows through a narrower window; both
+ * come out of one code path server-side (worker/src/index.ts
+ * `buildPlayerListRows`), so they can never disagree about who is online.
+ */
+
+/** The list's own presence vocabulary, which is NOT `HereState`: the lobby
+ *  reads as "online" and a seat at a table nobody has started yet reads as
+ *  "queue". */
+export type PlayerListState = "online" | "queue" | "playing" | "offline";
+
+export interface PlayerStatus {
+  state: PlayerListState;
+  /** playing: 0-based hand index — render `hand + 1`. */
+  hand?: number;
+  handsBase?: number;
+  /** queue: seats taken at that table, e.g. `"2/4"`. */
+  queue?: string;
+  /** The room's NAME, when the table belongs to one. */
+  room?: string;
+  /** offline: ISO-8601, `players.last_seen_at`. */
+  lastSeenAt?: string;
+}
+
+/** Four rank slots so the player page's tiles row never has to guess which
+ *  ladders exist. Only `hk` carries a number today: Taiwanese online play does
+ *  not exist here, and the two offline estimates live on the site and are not
+ *  wired to the game yet. */
+export interface PlayerRanks {
+  hk: number | null;
+  tw: number | null;
+  offlineHk: number | null;
+  offlineTw: number | null;
+}
+
+export interface PlayerSummary {
+  id: string;
+  displayName: string;
+  handle: string | null;
+  avatar: string | null;
+  /** Has an account behind it (`players.almanac_user_id`). A false here is
+   *  what the lab draws as a dashed avatar: a typed name, not a linked one. */
+  linked: boolean;
+  bot: false;
+  status: PlayerStatus;
+  /** `ranks[format]` for whichever format was asked for. */
+  rank: number | null;
+  ranks: PlayerRanks;
+  games: number;
+  winPct: number | null;
+  worthPerHand: number | null;
+  starred: boolean;
+}
+
+export interface PlayersQuery {
+  scope?: "all" | "friends" | "online";
+  format?: "hk" | "tw" | "offline";
+  games?: "all" | "online" | "offline";
+  sort?: "recent" | "rank" | "games" | "worth";
+  q?: string;
+}
+
+/** `GET /api/players` — at most 200 rows. Every option degrades to its own
+ *  default server-side rather than erroring, so a client one version behind
+ *  still gets a list. */
+export async function getPlayers(token: string, opts: PlayersQuery = {}): Promise<PlayerSummary[]> {
+  const qs = new URLSearchParams();
+  if (opts.scope) qs.set("scope", opts.scope);
+  if (opts.format) qs.set("format", opts.format);
+  if (opts.games) qs.set("games", opts.games);
+  if (opts.sort) qs.set("sort", opts.sort);
+  if (opts.q) qs.set("q", opts.q);
+  const q = qs.toString();
+  const data = await apiFetch<{ players: PlayerSummary[] }>(`players${q ? `?${q}` : ""}`, { token });
+  return data.players ?? [];
+}
+
 /* ── inbox + direct messages (PVP-LOBBY-PROPOSAL §8, "Direct messages and
  * the inbox") ─────────────────────────────────────────────────────────── */
 

@@ -841,6 +841,61 @@ export const HANDLERS = new Map<string, Handler>([
   [SQL.friendStarsOfPlayer, (s, [playerId]) =>
     rows(s.friend_stars.filter((r) => r.player_id === playerId).map((r) => ({ friend_id: r.friend_id })))],
 
+  /* ── the players directory (players-lab.html round 3) ─────────────────── */
+
+  [SQL.playersDirectory, (s, [limit]) =>
+    rows(
+      s.players
+        .filter((p) => p.kind === "human" && p.deleted_at === null)
+        .sort((a, b) => String(b.last_seen_at ?? "").localeCompare(String(a.last_seen_at ?? "")))
+        .slice(0, Number(limit))
+        .map((p) => {
+          const u = s.users.find((r) => r.id === p.almanac_user_id && r.deleted_at === null);
+          return {
+            id: p.id, display_name: p.display_name, avatar: p.avatar ?? null,
+            rating: p.rating ?? null, rating_games: p.rating_games ?? 0,
+            last_seen_at: p.last_seen_at ?? null,
+            almanac_user_id: p.almanac_user_id ?? null,
+            handle: u === undefined ? null : (u.handle ?? null),
+          } as Row;
+        }),
+    )],
+
+  /** The JS twin of `SQL.playerMatchTotals`' GROUP BY — one row per (player,
+   *  completed match), with the seat's own net and the match's winning-hand
+   *  values. Kept deliberately close to the SQL's own shape (including the
+   *  `> 0` guard on a winner's delta) so a change to one is visibly a change
+   *  to the other. */
+  [SQL.playerMatchTotals, (s) => {
+    const delta = (h: Row, seat: number): number => Number(h[`delta_seat${seat}`] ?? 0);
+    const out: Row[] = [];
+    for (const mp of s.match_players) {
+      const m = s.matches.find((r) => r.id === mp.match_id);
+      if (m === undefined || m.status !== "complete") continue;
+      const p = s.players.find((r) => r.id === mp.player_id);
+      if (p === undefined || p.kind !== "human" || p.deleted_at !== null) continue;
+      const seat = Number(mp.seat);
+      const hs = s.hands.filter((h) => h.match_id === mp.match_id);
+      let net = 0, winSum = 0, winCount = 0;
+      for (const h of hs) {
+        net += delta(h, seat);
+        if (h.outcome === "win" && h.winner_seat !== null && h.winner_seat !== undefined) {
+          const wd = delta(h, Number(h.winner_seat));
+          if (wd > 0) { winSum += wd; winCount += 1; }
+        }
+      }
+      out.push({
+        player_id: mp.player_id, match_id: mp.match_id, seat,
+        hands_won: Number(mp.hands_won ?? 0),
+        hands: hs.length,
+        net: hs.length === 0 ? null : net,
+        win_value_sum: hs.length === 0 ? null : winSum,
+        win_value_count: hs.length === 0 ? null : winCount,
+      });
+    }
+    return rows(out);
+  }],
+
   /* ── direct messages (§8) ─────────────────────────────────────────────── */
 
   [SQL.insertDmMessage, (s, [fromId, toId, text, now]) => {

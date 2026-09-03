@@ -26,7 +26,7 @@ function friendsHtml(list: FriendEntry[]): string {
       <span class="avatar">${avatarLetter(f.displayName)}</span><b>${esc(f.displayName)}</b>
       <span class="mut">${f.state === "offline" ? "" : dot(f.state)} ${esc(friendStateLabel(f))}</span>
       <span style="margin-left:auto;color:var(--dim);font-size:12px">${f.rating === null ? "unrated" : f.rating}</span>
-    </div>`).join("") + `<a class="more" data-nav="/friends">${esc(t(S.allFriends(list.length)))}</a>`;
+    </div>`).join("") + `<a class="more" data-nav="/players">${esc(t(S.allPlayers))}</a>`;
 }
 function statsHtml(row: StatsRecordRow | null): string {
   if (!row) return `<p class="empty">play a game to see your numbers</p>`;

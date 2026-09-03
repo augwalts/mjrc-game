@@ -25,7 +25,7 @@ export const mount: PageMount = (container, params, router) => {
       <div class="card thread">${list.length === 0 ? `<p class="empty">${esc(t(S.nothingHere))}</p>` : list.map((m) => bubble(m, me)).join("")}</div>
       <div class="row" style="margin-top:8px"><input id="dmIn" placeholder="${esc(t(S.messagePlaceholder(playerId)))}" style="flex:1">
         <button class="sit" id="dmSend">${esc(t(S.sendMessage))}</button></div>
-      ${navHtml("/friends")}`;
+      ${navHtml("/players")}`;
     wireNav(container, router);
     const box = container.querySelector(".thread") as HTMLElement | null;
     if (box) box.scrollTop = box.scrollHeight;

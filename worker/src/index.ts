@@ -36,6 +36,9 @@
  *   POST /api/presence              the lobby heartbeat, every 30s
  *   GET  /api/stats/me              the caller's own totals, recent matches,
  *                                   rating history
+ *   GET  /api/players               the Players list — everyone, filtered by
+ *                                   scope/format/games/sort/q
+ *                                   (client/gamepvp/players-lab.html round 3)
  *   GET  /api/players/:id/stats     same shape, any player — the leaderboard,
  *                                   Here now and a scoreboard all link here
  *   GET  /api/leaderboard           ?mode=ranked (by rating) or casual (by record)
@@ -62,6 +65,8 @@ import type {
   MatchListRow,
   MatchRow,
   MatchSeatRow,
+  PlayerDirectoryRow,
+  PlayerMatchTotalRow,
   PlayerRow,
   R2Like,
   RatingHistoryPointRow,
@@ -133,6 +138,8 @@ import {
   playerById,
   playerForCredential,
   playerForUser,
+  playerMatchTotals,
+  playersDirectory,
   presenceInRoom,
   presenceSince,
   randomId,
@@ -2543,35 +2550,285 @@ async function buildGlobalHere(p: Platform): Promise<Map<string, HereEntry>> {
   return here;
 }
 
-/** GET /api/friends — everyone the caller has finished a match with (§11
- *  build decision 1), online first, then starred, then most games together.
- *  `lastSeen` is "now" for anyone currently in `here`, else `players.
- *  last_seen_at` (touched on every authenticated request, schema.sql). */
-async function getFriends(p: Platform, player: PlayerRow): Promise<Response> {
-  const [rows, stars, here] = await Promise.all([
-    friendsOfPlayer(p.db, player.id),
-    friendStarsOfPlayer(p.db, player.id),
+/* ── players + friends: ONE code path (players-lab.html round 3) ──────────
+ * `GET /api/players` and `GET /api/friends` are two views of the same rows.
+ * Friends is the older, narrower name for "the people you have played with",
+ * and its response shape is frozen (home.ts still reads it), so it stays —
+ * but as a PROJECTION of the rows below, never as a second derivation of
+ * presence. A change to how "waiting at a table" is read now moves both.
+ */
+
+/** The list answers at most this many rows, however wide the scan behind it
+ *  (`PLAYERS_SCAN_LIMIT`, db.ts). */
+const PLAYERS_PAGE_LIMIT = 200;
+
+/** The Players list's own presence vocabulary — the lab's four words, which
+ *  are NOT the four `presence.state` values: "lobby" reads as *online*, and
+ *  "waiting" reads as *queue*. */
+type PlayerListState = "online" | "queue" | "playing" | "offline";
+
+interface PlayerStatusView {
+  state: PlayerListState;
+  /** playing: 0-based hand index and the match length, exactly as `here`
+   *  carries them — the client renders `hand + 1`. */
+  hand?: number;
+  handsBase?: number;
+  /** queue: seats taken at that table, e.g. `"2/4"`. */
+  queue?: string;
+  /** The room's NAME (not its code) when the table belongs to a room. */
+  room?: string;
+  /** offline only: `players.last_seen_at`. */
+  lastSeenAt?: string;
+}
+
+interface PlayerRecordTotals {
+  games: number;
+  winPct: number | null;
+  worthPerHand: number | null;
+}
+
+const EMPTY_RECORD: PlayerRecordTotals = { games: 0, winPct: null, worthPerHand: null };
+
+/** One directory row with everything both views need, read once. */
+interface PlayerListRow {
+  player: PlayerDirectoryRow;
+  presence: HereEntry | undefined;
+  starred: boolean;
+  /** Completed matches this player and the caller both sat at; 0 = never. */
+  gamesTogether: number;
+  record: PlayerRecordTotals;
+}
+
+/** A single match's "worth" for one seat, from the SQL aggregate — the same
+ *  arithmetic `gameWorth` performs over the raw hand rows, so the list and
+ *  Dataset A cannot disagree. */
+function matchWorthOf(r: PlayerMatchTotalRow): number | null {
+  if (r.hands === 0) return null;
+  const winCount = r.win_value_count ?? 0;
+  if (winCount === 0) return null;
+  const avgWinningHandValue = (r.win_value_sum ?? 0) / winCount;
+  if (avgWinningHandValue <= 0) return null;
+  return (r.net ?? 0) / r.hands / avgWinningHandValue;
+}
+
+/** Fold `playerMatchTotals`' per-(player, match) rows into per-player
+ *  `games`/`winPct`/`worthPerHand`. `worthPerHand` averages over the games
+ *  that HAD a priceable win, same as `computeRecordRow`. */
+function foldRecordTotals(rows: readonly PlayerMatchTotalRow[]): Map<string, PlayerRecordTotals> {
+  const acc = new Map<string, { games: number; hands: number; wins: number; worthSum: number; worthCount: number }>();
+  for (const r of rows) {
+    let a = acc.get(r.player_id);
+    if (a === undefined) {
+      a = { games: 0, hands: 0, wins: 0, worthSum: 0, worthCount: 0 };
+      acc.set(r.player_id, a);
+    }
+    a.games += 1;
+    a.hands += r.hands;
+    a.wins += r.hands_won;
+    const worth = matchWorthOf(r);
+    if (worth !== null) {
+      a.worthSum += worth;
+      a.worthCount += 1;
+    }
+  }
+  const out = new Map<string, PlayerRecordTotals>();
+  for (const [id, a] of acc) {
+    out.set(id, {
+      games: a.games,
+      winPct: a.hands > 0 ? a.wins / a.hands : null,
+      worthPerHand: a.worthCount > 0 ? a.worthSum / a.worthCount : null,
+    });
+  }
+  return out;
+}
+
+/**
+ * The shared read. `withRecord` is the one knob: `GET /api/friends` never
+ * shows a win% or a worth/hand, so it skips the one query in here that scans
+ * every completed match — the presence/star/played-with derivation, which is
+ * where the two views could actually drift, is shared unconditionally.
+ */
+async function buildPlayerListRows(
+  p: Platform,
+  caller: PlayerRow,
+  withRecord: boolean,
+): Promise<PlayerListRow[]> {
+  const [directory, friendRows, stars, here, totals] = await Promise.all([
+    playersDirectory(p.db),
+    friendsOfPlayer(p.db, caller.id),
+    friendStarsOfPlayer(p.db, caller.id),
     buildGlobalHere(p),
+    withRecord ? playerMatchTotals(p.db) : Promise.resolve([] as PlayerMatchTotalRow[]),
   ]);
 
-  const friends = rows.map((r: FriendRow) => {
-    const presence = here.get(r.friend_id);
-    return {
-      playerId: r.friend_id,
-      displayName: r.display_name,
-      avatar: r.avatar,
-      rating: r.rating,
-      games: r.games,
-      starred: stars.has(r.friend_id),
-      state: presence?.state ?? "offline",
-      matchId: presence?.matchId ?? null,
-      joinCode: presence?.joinCode ?? null,
-      hand: presence?.hand ?? null,
-      handsBase: presence?.handsBase ?? null,
-      roomCode: presence?.roomCode ?? null,
-      lastSeen: presence !== undefined ? p.now() : r.last_seen_at,
-    };
-  });
+  const together = new Map<string, number>();
+  for (const r of friendRows as FriendRow[]) together.set(r.friend_id, r.games);
+  const records = foldRecordTotals(totals);
+
+  return directory.map((player) => ({
+    player,
+    presence: here.get(player.id),
+    starred: stars.has(player.id),
+    gamesTogether: together.get(player.id) ?? 0,
+    record: records.get(player.id) ?? EMPTY_RECORD,
+  }));
+}
+
+/** "A friend" (both views): somebody you have finished a match with, or
+ *  somebody you starred. Never yourself. */
+const isFriendRow = (r: PlayerListRow, callerId: string): boolean =>
+  r.player.id !== callerId && (r.gamesTogether > 0 || r.starred);
+
+/** `here` carries a room CODE; the list shows the room's name. Read once per
+ *  distinct code on the page (bounded by the open-table count, not by the
+ *  player count). */
+async function roomNamesFor(p: Platform, rows: readonly PlayerListRow[]): Promise<Map<string, string>> {
+  const codes = new Set<string>();
+  for (const r of rows) if (r.presence?.roomCode !== undefined) codes.add(r.presence.roomCode);
+  const out = new Map<string, string>();
+  await Promise.all([...codes].map(async (code) => {
+    const room = await roomByCode(p.db, code);
+    if (room !== null) out.set(code, room.name);
+  }));
+  return out;
+}
+
+function statusViewOf(r: PlayerListRow, roomNames: Map<string, string>): PlayerStatusView {
+  const pr = r.presence;
+  if (pr === undefined) return { state: "offline", lastSeenAt: r.player.last_seen_at };
+  if (pr.state === "lobby") return { state: "online" };
+  const name = pr.roomCode === undefined ? undefined : roomNames.get(pr.roomCode);
+  const room = name === undefined ? {} : { room: name };
+  if (pr.state === "waiting") return { state: "queue", queue: `${pr.seatsFilled ?? 0}/4`, ...room };
+  return { state: "playing", hand: pr.hand, handsBase: pr.handsBase, ...room };
+}
+
+const playerSummaryOf = (r: PlayerListRow, format: RankFormat, roomNames: Map<string, string>) => {
+  /* Four rank slots, one per format the site knows about, so the client's
+   * tiles row never has to guess which ones exist:
+   *   hk        = players.rating, this deployment's only rated ladder
+   *   tw        = Taiwanese online play does not exist here at all
+   *   offlineHk = the Almanac's offline estimate — it lives on the site
+   *   offlineTw = ditto (LAMJ's paper archive), and neither is wired yet
+   * The three nulls are placeholders on purpose: the shape is final, the
+   * data source is not. */
+  const ranks = {
+    hk: r.player.rating,
+    tw: null,
+    offlineHk: null,
+    offlineTw: null,
+  } as const;
+  return {
+    id: r.player.id,
+    displayName: r.player.display_name,
+    handle: r.player.handle,
+    avatar: r.player.avatar,
+    linked: r.player.almanac_user_id !== null,
+    /* `SQL.playersDirectory` selects `kind = 'human'` — a bot is never a row
+     * here. The field is constant so the client can render one row shape. */
+    bot: false as const,
+    status: statusViewOf(r, roomNames),
+    rank: rankOf(ranks, format),
+    ranks,
+    games: r.record.games,
+    winPct: r.record.winPct,
+    worthPerHand: r.record.worthPerHand,
+    starred: r.starred,
+  };
+};
+
+type RankFormat = "hk" | "tw" | "offline";
+type RankSet = { hk: number | null; tw: null; offlineHk: null; offlineTw: null };
+
+/** The phone sheet and the desktop chip row both offer three rank formats;
+ *  `offline` reads the offline HK ladder (the offline TW one is only ever
+ *  shown in the player page's tiles row, which sends every slot at once). */
+const rankOf = (ranks: RankSet, format: RankFormat): number | null =>
+  format === "tw" ? ranks.tw : format === "offline" ? ranks.offlineHk : ranks.hk;
+
+const oneOf = <T extends string>(raw: string | null, allowed: readonly T[], fallback: T): T =>
+  (allowed as readonly string[]).includes(raw ?? "") ? (raw as T) : fallback;
+
+/**
+ * GET /api/players — the Players list (players-lab.html round 3).
+ *
+ *   scope=all|friends|online   who is in the list          (default all)
+ *   format=hk|tw|offline       which ladder `rank` reads   (default hk)
+ *   games=all|online|offline   which games the record counts (default all)
+ *   sort=recent|rank|games|worth                            (default recent)
+ *   q=<text>                   substring of name or handle
+ *
+ * An unknown value for any of the four degrades to that field's default
+ * rather than 400ing — the same doctrine `postTable`'s `access`/`speed`
+ * parsing and `parseStatsScope`'s `mode` already use.
+ */
+async function getPlayers(url: URL, p: Platform, caller: PlayerRow): Promise<Response> {
+  const scope = oneOf(url.searchParams.get("scope"), ["all", "friends", "online"] as const, "all");
+  const format = oneOf(url.searchParams.get("format"), ["hk", "tw", "offline"] as const, "hk");
+  const games = oneOf(url.searchParams.get("games"), ["all", "online", "offline"] as const, "all");
+  const sort = oneOf(url.searchParams.get("sort"), ["recent", "rank", "games", "worth"] as const, "recent");
+  const q = (url.searchParams.get("q") ?? "").trim().toLowerCase();
+
+  /* `games=offline` means "count only the games played away from the app,
+   * through the Almanac". That join does not exist yet — no match row carries
+   * an Almanac origin — so the honest answer is a record of zero, not the
+   * online record relabelled. `online` and `all` are the same set today,
+   * because every match in this database was played online. */
+  const rows = await buildPlayerListRows(p, caller, games !== "offline");
+
+  let list = rows;
+  if (scope === "friends") list = list.filter((r) => isFriendRow(r, caller.id));
+  else if (scope === "online") list = list.filter((r) => r.presence !== undefined);
+  if (q !== "") {
+    list = list.filter((r) =>
+      r.player.display_name.toLowerCase().includes(q) ||
+      (r.player.handle ?? "").toLowerCase().includes(q));
+  }
+
+  const rankValue = (r: PlayerListRow): number | null =>
+    rankOf({ hk: r.player.rating, tw: null, offlineHk: null, offlineTw: null }, format);
+  const nullsLast = (v: number | null): number => (v === null ? Number.NEGATIVE_INFINITY : v);
+
+  const sorted = [...list].sort((a, b) => {
+    if (sort === "rank") return nullsLast(rankValue(b)) - nullsLast(rankValue(a));
+    if (sort === "games") return b.record.games - a.record.games;
+    if (sort === "worth") return nullsLast(b.record.worthPerHand) - nullsLast(a.record.worthPerHand);
+    /* recent: anybody present right now outranks every last_seen_at. */
+    const aOn = a.presence === undefined ? 0 : 1;
+    const bOn = b.presence === undefined ? 0 : 1;
+    if (aOn !== bOn) return bOn - aOn;
+    return b.player.last_seen_at.localeCompare(a.player.last_seen_at);
+  }).slice(0, PLAYERS_PAGE_LIMIT);
+
+  const roomNames = await roomNamesFor(p, sorted);
+  return json({ players: sorted.map((r) => playerSummaryOf(r, format, roomNames)) });
+}
+
+/** GET /api/friends — the older, narrower view of the same rows: everyone the
+ *  caller has finished a match with (or starred), online first, then starred,
+ *  then most games together. `lastSeen` is "now" for anyone currently in
+ *  `here`, else `players.last_seen_at`. Response shape frozen — home.ts reads
+ *  it — so this projects `PlayerListRow` rather than deriving anything of its
+ *  own. */
+async function getFriends(p: Platform, player: PlayerRow): Promise<Response> {
+  const rows = await buildPlayerListRows(p, player, false);
+  const friends = rows
+    .filter((r) => isFriendRow(r, player.id))
+    .map((r) => ({
+      playerId: r.player.id,
+      displayName: r.player.display_name,
+      avatar: r.player.avatar,
+      rating: r.player.rating,
+      games: r.gamesTogether,
+      starred: r.starred,
+      state: r.presence?.state ?? "offline",
+      matchId: r.presence?.matchId ?? null,
+      joinCode: r.presence?.joinCode ?? null,
+      hand: r.presence?.hand ?? null,
+      handsBase: r.presence?.handsBase ?? null,
+      roomCode: r.presence?.roomCode ?? null,
+      lastSeen: r.presence !== undefined ? p.now() : r.player.last_seen_at,
+    }));
 
   friends.sort((a, b) => {
     const aOnline = a.state === "offline" ? 0 : 1;
@@ -2805,6 +3062,11 @@ interface HereEntry {
    *  room is already the whole context) and for a bare "in the lobby"
    *  heartbeat with no table at all. */
   roomCode?: string;
+  /** Seats already taken at that table, humans and bots together, out of
+   *  four — the "queue · 2/4" the Players list shows for a waiting table
+   *  (players-lab.html §1). Set for `waiting`/`playing`, absent for a bare
+   *  lobby heartbeat. */
+  seatsFilled?: number;
 }
 
 /** `access === 'private'` hides the code from every lobby view, same rule for
@@ -2835,6 +3097,9 @@ async function tableViewOf(p: Platform, m: LobbyMatchRow, here: Map<string, Here
   const bySeat = new Map(humanSeats.map((s) => [s.seat, s]));
   const joinCode = codeIfOpen(m.access, m.join_code);
   const state: "waiting" | "playing" = m.lobby_status === "playing" ? "playing" : "waiting";
+  /* Occupancy, for `here`'s "2/4": a bot seat is filled the moment the table
+   * is created, a human seat only once somebody claims it. */
+  const seatsFilled = plan.reduce((n, spec, seat) => n + (spec.kind === "bot" || bySeat.has(seat) ? 1 : 0), 0);
 
   const seats = plan.map((spec, seat) => {
     if (spec.kind === "bot") {
@@ -2858,6 +3123,7 @@ async function tableViewOf(p: Platform, m: LobbyMatchRow, here: Map<string, Here
         hand: m.current_hand,
         handsBase: m.hands_base,
         roomCode: m.room_code ?? undefined,
+        seatsFilled,
       });
     }
     return {
@@ -3413,9 +3679,15 @@ export async function handle(request: Request, p: Platform): Promise<Response> {
     }
   }
 
-  if (seg[1] === "players" && seg.length === 4 && seg[3] === "stats") {
-    if (method !== "GET") return fail("method_not_allowed", 405);
-    return getStatsFor(seg[2], p);
+  if (seg[1] === "players") {
+    if (seg.length === 2) {
+      if (method !== "GET") return fail("method_not_allowed", 405);
+      return getPlayers(url, p, player);
+    }
+    if (seg.length === 4 && seg[3] === "stats") {
+      if (method !== "GET") return fail("method_not_allowed", 405);
+      return getStatsFor(seg[2], p);
+    }
   }
 
   if (seg[1] === "leaderboard" && seg.length === 2) {
@@ -3428,9 +3700,13 @@ export async function handle(request: Request, p: Platform): Promise<Response> {
       if (method !== "GET") return fail("method_not_allowed", 405);
       return getFriends(p, player);
     }
+    /* Two spellings of unstar, on purpose: `POST .../unstar` is the original,
+     * `DELETE .../star` is what the client's `unstarFriend` has always sent
+     * (client/gamepvp/net.ts) and what the Players list's star toggle uses. */
     if (seg.length === 4 && seg[3] === "star") {
-      if (method !== "POST") return fail("method_not_allowed", 405);
-      return postFriendStar(seg[2], p, player);
+      if (method === "POST") return postFriendStar(seg[2], p, player);
+      if (method === "DELETE") return postFriendUnstar(seg[2], p, player);
+      return fail("method_not_allowed", 405);
     }
     if (seg.length === 4 && seg[3] === "unstar") {
       if (method !== "POST") return fail("method_not_allowed", 405);

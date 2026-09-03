@@ -1069,6 +1069,71 @@ export const SQL = Object.freeze({
   friendStarsOfPlayer: `
     SELECT friend_id FROM friend_stars WHERE player_id = ?`,
 
+  /* ── the players directory (players-lab.html round 3) ────────────────────
+   * `GET /api/players` is a LIST of people, not a fold of one person's
+   * matches, so it reads two statements and no more, however many players it
+   * ends up showing: this one for who exists, `playerMatchTotals` below for
+   * everyone's record at once. Anything per-player here would be N queries
+   * behind one URL.
+   */
+
+  /** Every human in the directory, newest-seen first, with the handle their
+   *  account carries (`users.handle` — `players` has no handle column; the
+   *  Almanac seam is `players.almanac_user_id`). LEFT JOIN, not JOIN: a
+   *  grandfathered player with no account is still a player, it just has no
+   *  handle and reads as "not linked". Bounded like every other list read in
+   *  this file; `ORDER BY last_seen_at DESC` makes the bound cut the coldest
+   *  names rather than an arbitrary slice. */
+  playersDirectory: `
+    SELECT p.id AS id, p.display_name AS display_name, p.avatar AS avatar,
+           p.rating AS rating, p.rating_games AS rating_games,
+           p.last_seen_at AS last_seen_at, p.almanac_user_id AS almanac_user_id,
+           u.handle AS handle
+      FROM players p
+      LEFT JOIN users u ON u.id = p.almanac_user_id AND u.deleted_at IS NULL
+     WHERE p.kind = 'human' AND p.deleted_at IS NULL
+     ORDER BY p.last_seen_at DESC
+     LIMIT ?`,
+
+  /**
+   * One row per (player, completed match): the per-match quantities
+   * `computeRecordRow` folds by hand, computed for EVERY player in one
+   * GROUP BY instead of one query per player. index.ts averages these into
+   * `games`/`winPct`/`worthPerHand` with the same arithmetic
+   * `gameWorth`/`computeRecordRow` use, so the two agree by construction.
+   *
+   * `LEFT JOIN hands`: a completed match with no hand rows still counts as a
+   * game (`computeRecordRow` counts `matches.length`, not hands), it just
+   * contributes `hands = 0` and no worth.
+   *
+   * The seat's own delta is a `CASE mp.seat` over the four `delta_seatN`
+   * columns — the SQL spelling of index.ts's `handSeatDelta`. The winner's
+   * delta is the same expression over `h.winner_seat`, repeated in the two
+   * `win_value_*` aggregates because SQLite has no way to name a scalar once
+   * inside an aggregate list.
+   */
+  playerMatchTotals: `
+    SELECT mp.player_id AS player_id, mp.match_id AS match_id, mp.seat AS seat,
+           MAX(mp.hands_won) AS hands_won,
+           COUNT(h.hand_index) AS hands,
+           SUM(CASE mp.seat WHEN 0 THEN h.delta_seat0 WHEN 1 THEN h.delta_seat1
+                            WHEN 2 THEN h.delta_seat2 ELSE h.delta_seat3 END) AS net,
+           SUM(CASE WHEN h.outcome = 'win' AND h.winner_seat IS NOT NULL
+                     AND (CASE h.winner_seat WHEN 0 THEN h.delta_seat0 WHEN 1 THEN h.delta_seat1
+                                             WHEN 2 THEN h.delta_seat2 ELSE h.delta_seat3 END) > 0
+                    THEN (CASE h.winner_seat WHEN 0 THEN h.delta_seat0 WHEN 1 THEN h.delta_seat1
+                                             WHEN 2 THEN h.delta_seat2 ELSE h.delta_seat3 END)
+                    ELSE 0 END) AS win_value_sum,
+           SUM(CASE WHEN h.outcome = 'win' AND h.winner_seat IS NOT NULL
+                     AND (CASE h.winner_seat WHEN 0 THEN h.delta_seat0 WHEN 1 THEN h.delta_seat1
+                                             WHEN 2 THEN h.delta_seat2 ELSE h.delta_seat3 END) > 0
+                    THEN 1 ELSE 0 END) AS win_value_count
+      FROM match_players mp
+      JOIN matches m ON m.id = mp.match_id AND m.status = 'complete'
+      JOIN players p ON p.id = mp.player_id AND p.kind = 'human' AND p.deleted_at IS NULL
+      LEFT JOIN hands h ON h.match_id = mp.match_id
+     GROUP BY mp.player_id, mp.match_id, mp.seat`,
+
   /* ── direct messages (§8) ─────────────────────────────────────────────── */
 
   insertDmMessage: `
@@ -2102,6 +2167,51 @@ export async function friendStarsOfPlayer(db: D1Like, playerId: string): Promise
     .bind(playerId)
     .all<{ friend_id: string }>();
   return new Set(results.map((r) => r.friend_id));
+}
+
+/* ── the players directory (players-lab.html round 3) ───────────────────── */
+
+export interface PlayerDirectoryRow {
+  id: string;
+  display_name: string;
+  avatar: string | null;
+  rating: number | null;
+  rating_games: number;
+  last_seen_at: string;
+  almanac_user_id: string | null;
+  /** `users.handle` through the Almanac seam — null for a player with no
+   *  account, and for an account that has not picked a handle yet. */
+  handle: string | null;
+}
+
+/** Defensive cap on the directory scan, the role `STATS_SCOPE_LIMIT` plays
+ *  for stats: `GET /api/players` answers at most `PLAYERS_PAGE_LIMIT` rows
+ *  (index.ts), but it filters and sorts in application code, so it reads a
+ *  wider slab than it returns. Newest-seen first, so the slab that gets cut
+ *  is the coldest names. */
+export const PLAYERS_SCAN_LIMIT = 500;
+
+export async function playersDirectory(db: D1Like, limit = PLAYERS_SCAN_LIMIT): Promise<PlayerDirectoryRow[]> {
+  const { results } = await db.prepare(SQL.playersDirectory).bind(limit).all<PlayerDirectoryRow>();
+  return results;
+}
+
+/** One row per (player, completed match) — see `SQL.playerMatchTotals`. */
+export interface PlayerMatchTotalRow {
+  player_id: string;
+  match_id: string;
+  seat: number;
+  hands_won: number;
+  hands: number;
+  /** `null` only for a match with no hand rows at all (SUM over nothing). */
+  net: number | null;
+  win_value_sum: number | null;
+  win_value_count: number | null;
+}
+
+export async function playerMatchTotals(db: D1Like): Promise<PlayerMatchTotalRow[]> {
+  const { results } = await db.prepare(SQL.playerMatchTotals).all<PlayerMatchTotalRow>();
+  return results;
 }
 
 /* ── direct messages (§8) ─────────────────────────────────────────────────── */

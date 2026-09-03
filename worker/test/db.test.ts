@@ -41,7 +41,12 @@ describe("the query surface", () => {
     /* The only single-quoted literals allowed anywhere in the statement set are
      * closed-vocabulary constants. A quoted value would mean something was
      * concatenated in, which is the thing db.ts exists to make impossible. */
-    const allowed = new Set(["running", "waiting", "playing", "done", "abandoned", "complete", "ranked", "casual", "human"]);
+    const allowed = new Set([
+      "running", "waiting", "playing", "done", "abandoned", "complete", "ranked", "casual", "human",
+      /* `hands.outcome` — `playerMatchTotals` is the one statement that reads a
+       * hand's outcome in SQL rather than folding the rows in JS. */
+      "win",
+    ]);
     for (const [name, sql] of Object.entries(SQL)) {
       for (const [, literal] of sql.matchAll(/'([^']*)'/g)) {
         expect(allowed.has(literal), `${name} embeds '${literal}'`).toBe(true);
@@ -1904,6 +1909,210 @@ describe("GET /api/friends and star/unstar", () => {
     const res3 = await handle(get("/api/friends", TOKEN_A), h.platform);
     const body3 = (await res3.json()) as { friends: { playerId: string; starred: boolean }[] };
     expect(body3.friends.find((f) => f.playerId === carol)!.starred).toBe(false);
+  });
+});
+
+
+/* ── the players list (client/gamepvp/players-lab.html round 3) ──────────── */
+
+interface PlayerSummaryJson {
+  id: string;
+  displayName: string;
+  handle: string | null;
+  linked: boolean;
+  bot: boolean;
+  status: { state: string; hand?: number; handsBase?: number; queue?: string; room?: string; lastSeenAt?: string };
+  rank: number | null;
+  ranks: { hk: number | null; tw: number | null; offlineHk: number | null; offlineTw: number | null };
+  games: number;
+  winPct: number | null;
+  worthPerHand: number | null;
+  starred: boolean;
+}
+const playersOf = async (res: Response): Promise<PlayerSummaryJson[]> =>
+  ((await res.json()) as { players: PlayerSummaryJson[] }).players;
+
+describe("GET /api/players", () => {
+  it("returns every human with a status, a rank and a record", async () => {
+    const h = harness();
+    const alice = await identify(h, TOKEN_A, "Alice");
+    const bob = await identify(h, TOKEN_B, "Bob");
+    const carol = await identify(h, TOKEN_C, "Carol");
+    seedMatch(h, { id: "M1", seats: [alice, bob, "p2", "p3"], status: "complete" });
+    await handle(post("/api/presence", {}, TOKEN_A), h.platform);
+
+    const list = await playersOf(await handle(get("/api/players", TOKEN_A), h.platform));
+    expect(list.map((p) => p.id).sort()).toEqual([alice, bob, carol].sort());
+    expect(list.every((p) => p.bot === false)).toBe(true);
+
+    const a = list.find((p) => p.id === alice)!;
+    const b = list.find((p) => p.id === bob)!;
+    const c = list.find((p) => p.id === carol)!;
+
+    /* The one seeded hand: seat 1 wins 16 off seat 2, so seat 0's net is 0 and
+     * the match's average winning hand is 16 — worth/hand 0 for alice, 1 for
+     * bob, and nothing at all for a player with no games. */
+    expect(a.games).toBe(1);
+    expect(a.winPct).toBe(0);
+    expect(a.worthPerHand).toBe(0);
+    expect(b.worthPerHand).toBe(1);
+    expect(c).toMatchObject({ games: 0, winPct: null, worthPerHand: null });
+
+    expect(a.status.state).toBe("online");
+    expect(c.status.state).toBe("offline");
+    expect(typeof c.status.lastSeenAt).toBe("string");
+  });
+
+  it("reads `rank` off the format asked for; only Hong Kong online exists", async () => {
+    const h = harness();
+    const alice = await identify(h, TOKEN_A, "Alice");
+    h.store.players.find((p) => p.id === alice)!.rating = 1512;
+
+    const hk = await playersOf(await handle(get("/api/players?format=hk", TOKEN_A), h.platform));
+    expect(hk[0]).toMatchObject({ rank: 1512, ranks: { hk: 1512, tw: null, offlineHk: null, offlineTw: null } });
+
+    const tw = await playersOf(await handle(get("/api/players?format=tw", TOKEN_A), h.platform));
+    expect(tw[0]!.rank).toBe(null);
+    const off = await playersOf(await handle(get("/api/players?format=offline", TOKEN_A), h.platform));
+    expect(off[0]!.rank).toBe(null);
+
+    /* Unknown value degrades to the default rather than 400ing. */
+    const junk = await playersOf(await handle(get("/api/players?format=klingon", TOKEN_A), h.platform));
+    expect(junk[0]!.rank).toBe(1512);
+  });
+
+  it("scopes to friends (played-with ∪ starred) and to whoever is online", async () => {
+    const h = harness();
+    const alice = await identify(h, TOKEN_A, "Alice");
+    const bob = await identify(h, TOKEN_B, "Bob");
+    const carol = await identify(h, TOKEN_C, "Carol");
+    seedMatch(h, { id: "M1", seats: [alice, bob, "p2", "p3"], status: "complete" });
+    await handle(post("/api/presence", {}, TOKEN_B), h.platform);
+
+    const friends1 = await playersOf(await handle(get("/api/players?scope=friends", TOKEN_A), h.platform));
+    expect(friends1.map((p) => p.id)).toEqual([bob]);
+
+    await handle(post(`/api/friends/${carol}/star`, {}, TOKEN_A), h.platform);
+    const friends2 = await playersOf(await handle(get("/api/players?scope=friends", TOKEN_A), h.platform));
+    expect(friends2.map((p) => p.id).sort()).toEqual([bob, carol].sort());
+    expect(friends2.find((p) => p.id === carol)!.starred).toBe(true);
+
+    const online = await playersOf(await handle(get("/api/players?scope=online", TOKEN_A), h.platform));
+    expect(online.map((p) => p.id)).toEqual([bob]);
+  });
+
+  it("sorts by recent, rank, games and worth", async () => {
+    const h = harness();
+    const alice = await identify(h, TOKEN_A, "Alice");
+    const bob = await identify(h, TOKEN_B, "Bob");
+    const carol = await identify(h, TOKEN_C, "Carol");
+    seedMatch(h, { id: "M1", seats: [alice, bob, "p2", "p3"], status: "complete" });
+    h.store.players.find((p) => p.id === alice)!.rating = 1400;
+    h.store.players.find((p) => p.id === bob)!.rating = 1600;
+    await handle(post("/api/presence", {}, TOKEN_C), h.platform);
+
+    const byRank = await playersOf(await handle(get("/api/players?sort=rank", TOKEN_A), h.platform));
+    expect(byRank.map((p) => p.id)).toEqual([bob, alice, carol]); // nulls last
+
+    const byWorth = await playersOf(await handle(get("/api/players?sort=worth", TOKEN_A), h.platform));
+    expect(byWorth.map((p) => p.id)).toEqual([bob, alice, carol]); // 1, 0, null
+
+    const byGames = await playersOf(await handle(get("/api/players?sort=games", TOKEN_A), h.platform));
+    expect(byGames.map((p) => p.id).slice(2)).toEqual([carol]); // 0 games, last
+
+    /* recent: whoever is present right now outranks every `last_seen_at`. */
+    const byRecent = await playersOf(await handle(get("/api/players?sort=recent", TOKEN_A), h.platform));
+    expect(byRecent[0]!.id).toBe(carol);
+  });
+
+  it("filters on a case-insensitive substring of the display name or the handle", async () => {
+    const h = harness();
+    const alice = await identify(h, TOKEN_A, "Alice");
+    const bob = await identify(h, TOKEN_B, "Bob");
+    h.store.users.find((u) => u.id === h.store.players.find((p) => p.id === bob)!.almanac_user_id)!.handle = "zebra";
+
+    const byName = await playersOf(await handle(get("/api/players?q=LIC", TOKEN_A), h.platform));
+    expect(byName.map((p) => p.id)).toEqual([alice]);
+
+    const byHandle = await playersOf(await handle(get("/api/players?q=zeb", TOKEN_A), h.platform));
+    expect(byHandle.map((p) => p.id)).toEqual([bob]);
+    expect(byHandle[0]).toMatchObject({ handle: "zebra", linked: true });
+  });
+
+  it("counts no games at all under games=offline — the Almanac join does not exist yet", async () => {
+    const h = harness();
+    const alice = await identify(h, TOKEN_A, "Alice");
+    seedMatch(h, { id: "M1", seats: [alice, "p1", "p2", "p3"], status: "complete" });
+
+    const online = await playersOf(await handle(get("/api/players?games=online", TOKEN_A), h.platform));
+    expect(online[0]!.games).toBe(1);
+    const offline = await playersOf(await handle(get("/api/players?games=offline", TOKEN_A), h.platform));
+    expect(offline[0]).toMatchObject({ games: 0, winPct: null, worthPerHand: null });
+  });
+
+  it("reads queue and playing off the same presence fold /api/friends uses, with the room's name", async () => {
+    const h = harness();
+    const alice = await identify(h, TOKEN_A, "Alice");
+    const bob = await identify(h, TOKEN_B, "Bob");
+    h.store.rooms.push({
+      code: "HALL", name: "Open hall", settings: "{}", admin_code_hash: null,
+      created_at: "2026-08-20T09:00:00.000Z", updated_at: "2026-08-20T09:00:00.000Z",
+    });
+    seedMatch(h, { id: "W1", seats: [alice, bob], status: "running", lobbyStatus: "waiting", roomCode: "HALL" });
+
+    const waiting = await playersOf(await handle(get("/api/players", TOKEN_A), h.platform));
+    expect(waiting.find((p) => p.id === alice)!.status).toEqual({ state: "queue", queue: "2/4", room: "Open hall" });
+
+    h.store.matches.find((m) => m.id === "W1")!.lobby_status = "playing";
+    h.store.matches.find((m) => m.id === "W1")!.current_hand = 2;
+    const playing = await playersOf(await handle(get("/api/players", TOKEN_A), h.platform));
+    expect(playing.find((p) => p.id === alice)!.status)
+      .toEqual({ state: "playing", hand: 2, handsBase: 4, room: "Open hall" });
+
+    /* The same fold, the older name — `/api/friends` must still read it. A
+     * running match makes nobody a friend, so bob is starred to get a row. */
+    await handle(post(`/api/friends/${bob}/star`, {}, TOKEN_A), h.platform);
+    const friends = (await (await handle(get("/api/friends", TOKEN_A), h.platform)).json()) as
+      { friends: { playerId: string; state: string; hand: number | null; roomCode: string | null }[] };
+    expect(friends.friends.find((f) => f.playerId === bob))
+      .toMatchObject({ state: "playing", hand: 2, roomCode: "HALL" });
+  });
+
+  it("keeps /api/friends a projection of the same rows", async () => {
+    const h = harness();
+    const alice = await identify(h, TOKEN_A, "Alice");
+    const bob = await identify(h, TOKEN_B, "Bob");
+    const carol = await identify(h, TOKEN_C, "Carol");
+    seedMatch(h, { id: "M1", seats: [alice, bob, "p2", "p3"], status: "complete" });
+    seedMatch(h, { id: "M2", seats: [alice, carol, "p2", "p3"], status: "complete" });
+
+    const friends = (await (await handle(get("/api/friends", TOKEN_A), h.platform)).json()) as
+      { friends: { playerId: string; games: number; starred: boolean; lastSeen: string }[] };
+    const scoped = await playersOf(await handle(get("/api/players?scope=friends", TOKEN_A), h.platform));
+    expect(friends.friends.map((f) => f.playerId).sort()).toEqual(scoped.map((p) => p.id).sort());
+    /* `games` on a friend row is games TOGETHER, not the player's own record. */
+    expect(friends.friends.every((f) => f.games === 1)).toBe(true);
+    expect(friends.friends.some((f) => f.playerId === alice)).toBe(false);
+  });
+
+  it("unstars through DELETE /api/friends/:id/star, the spelling the client sends", async () => {
+    const h = harness();
+    const alice = await identify(h, TOKEN_A, "Alice");
+    const bob = await identify(h, TOKEN_B, "Bob");
+    expect(alice).not.toBe(bob);
+    expect((await handle(post(`/api/friends/${bob}/star`, {}, TOKEN_A), h.platform)).status).toBe(204);
+    const on = await playersOf(await handle(get("/api/players", TOKEN_A), h.platform));
+    expect(on.find((p) => p.id === bob)!.starred).toBe(true);
+
+    const del = await handle(
+      new Request(`https://game.mahjongresearch.com/api/friends/${bob}/star`, {
+        method: "DELETE", headers: { authorization: `Bearer ${TOKEN_A}` },
+      }),
+      h.platform,
+    );
+    expect(del.status).toBe(204);
+    const off = await playersOf(await handle(get("/api/players", TOKEN_A), h.platform));
+    expect(off.find((p) => p.id === bob)!.starred).toBe(false);
   });
 });
 

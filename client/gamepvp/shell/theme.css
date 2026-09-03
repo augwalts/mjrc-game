@@ -207,7 +207,7 @@
 #shell .nav button.on{color:var(--ink); font-weight:600}
 #shell .nav button[data-k="home"].on{color:var(--ink)}
 #shell .nav button[data-k="rooms"].on{color:#1a8b3a}
-#shell .nav button[data-k="friends"].on{color:#1845a5}
+#shell .nav button[data-k="players"].on{color:#1845a5}
 #shell .nav button[data-k="stats"].on{color:#7a5a12}
 @media (prefers-color-scheme: dark){ #shell:not(.theme-light) .nav button[data-k="home"].on{color:#e0d5c8} }
 #shell.theme-dark .nav button[data-k="home"].on{color:#e0d5c8}
@@ -423,3 +423,133 @@
 #shell .ac-warn{margin:0; font-size:12.5px; line-height:1.5; color:var(--red)}
 #shell button.sit.danger{background:var(--red); color:#fff}
 #shell .ac-link{color:var(--blue); text-decoration:none; white-space:nowrap}
+
+/* ── players ──────────────────────────────────────────────────────────────
+ * Design of record: client/gamepvp/players-lab.html round 3. Every class is
+ * prefixed `pl-` so the lab's short names (.card, .num, .pres, .lr) cannot
+ * collide with the shell's own; the two helpers the lab draws by hand — the
+ * star and the avatar — are the shell's existing `.star` / `.avatar` instead
+ * of copies. Three tokens the lab has and the shell did not are declared
+ * here rather than up top, so this whole module is one contiguous block.
+ *
+ * ONE deliberate difference from the lab: the star sits in a 34px column,
+ * not 22px. The shell's `.star` is a 36px tap target by an owner ruling
+ * (see the friends block above) and a 22px column would clip it.
+ *
+ * Breakpoint 900px, per the brief — narrower than the shell's own 1100px
+ * desktop switch, so between the two the list is already in its wide form
+ * while the nav is still at the bottom. That is intended: the wide table
+ * needs ~900px of width, not a desktop.
+ */
+#shell{--queue:#e3cf70; --veil:rgba(26,26,24,.45); --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace}
+@media (prefers-color-scheme: dark){ #shell:not(.theme-light){--veil:rgba(0,0,0,.55)} }
+#shell.theme-dark{--veil:rgba(0,0,0,.55)}
+
+/* title row: the second-language word, then the two icon buttons */
+#shell .top h2 .talt{color:var(--dim); font-weight:400; font-size:13px; margin-left:7px}
+#shell .pl-ico{margin-left:auto; display:flex; gap:6px}
+#shell .pl-ico button{width:32px; height:32px; border-radius:16px; border:1px solid var(--line); background:none; color:var(--ink); cursor:pointer; display:inline-flex; align-items:center; justify-content:center; padding:0}
+#shell .pl-ico button svg{width:16px; height:16px; stroke:currentColor; fill:none; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round}
+#shell .pl-ico button.on{background:var(--blue); border-color:var(--blue); color:#fff}
+
+/* chips: the phone's three, and the desktop's four labelled groups */
+#shell .pl-chips{display:flex; gap:5px; margin:4px 0 8px; flex-wrap:wrap; align-items:center}
+#shell .pl-chips button{font:inherit; font-size:12px; padding:4px 10px; border-radius:20px; border:1px solid var(--line); background:none; color:var(--dim); cursor:pointer; white-space:nowrap}
+#shell .pl-chips button.on{background:var(--blue); border-color:var(--blue); color:#fff; font-weight:600}
+#shell .pl-chips .k{font:500 9.5px var(--mono); letter-spacing:.08em; text-transform:uppercase; color:var(--dim); margin:0 4px 0 8px}
+#shell .pl-chips .k:first-child{margin-left:0}
+
+/* phone: the search bar only exists once the search icon opens it, and the
+   chips step aside while it is open. Desktop shows both, always. */
+#shell .pl-web{display:none}
+#shell .pl-search{display:none; gap:6px; margin:0 0 8px}
+#shell .pl-search.open{display:flex}
+#shell .pl-chips.pl-hidep{display:none}
+#shell .pl-search input{flex:1; font:inherit; font-size:12.5px; padding:7px 10px; border-radius:9px; border:1px solid var(--line); background:var(--panel); color:var(--ink); min-width:0}
+
+/* the list card is tighter than a normal card — rows carry their own padding */
+#shell .card.pl-card{padding:4px 14px}
+#shell .pl-count{flex:1; text-align:right; font-size:12px; color:var(--dim)}
+#shell .pl-note{font-size:11.5px; color:var(--dim); margin:8px 0 0}
+
+/* identity: avatar + name (+ @handle on the desktop) */
+#shell .pl-pid{display:flex; align-items:center; gap:9px; min-width:0}
+#shell .pl-pid .avatar{width:26px; height:26px; font-size:11px}
+#shell .pl-pid.unlinked .avatar{background:none; border:1px dashed var(--dim); color:var(--dim)}
+#shell .pl-nm{min-width:0; display:flex; flex-direction:column; line-height:1.2}
+#shell .pl-nm b{font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:13px}
+#shell .pl-nm small{font:10.5px var(--mono); color:var(--dim); white-space:nowrap}
+#shell .pl-pid.lg .avatar{width:52px; height:52px; font-size:20px}
+#shell .pl-pid.lg .pl-nm b{font-size:18px}
+#shell .pl-pid.lg .pl-nm small{font-size:12px; white-space:normal}
+
+/* status: a dot and a phrase — green online/playing, gold queue, hollow off */
+#shell .pl-pres{display:inline-flex; align-items:center; gap:5px; font-size:11.5px; color:var(--dim); white-space:nowrap; min-width:0}
+#shell .pl-pres span.t{overflow:hidden; text-overflow:ellipsis}
+#shell .pl-pres i{width:7px; height:7px; border-radius:50%; background:var(--green); display:inline-block; flex:0 0 auto}
+#shell .pl-pres i.q{background:var(--queue)}
+#shell .pl-pres i.off{background:none; border:1px solid var(--dim)}
+
+/* numbers: tabular, right-aligned, one small caption under the phone's rank */
+#shell .pl-num{font:12.5px var(--mono); text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap}
+#shell .pl-num b{font-weight:600; font-size:13px}
+#shell .pl-num small{display:block; font-size:9.5px; color:var(--dim); letter-spacing:.04em}
+#shell .pl-num.up{color:var(--green)} #shell .pl-num.dn{color:var(--red)}
+
+/* phone rows: star · (name over status) · rank over its game count */
+#shell .pl-lh{display:grid; grid-template-columns:34px 1fr 60px; gap:8px; font:500 9.5px var(--mono); letter-spacing:.08em; text-transform:uppercase; color:var(--dim); padding:6px 0 5px; border-bottom:1px solid var(--line)}
+#shell .pl-lh .r{text-align:right}
+#shell .pl-lr{display:grid; grid-template-columns:34px 1fr 60px; grid-template-areas:"s p r" "s st r"; gap:0 8px; align-items:center; min-height:44px; padding:5px 0; border-bottom:1px solid var(--line); cursor:pointer}
+#shell .pl-lr:last-child{border-bottom:0}
+#shell .pl-lr .star{grid-area:s; font-size:15px}
+#shell .pl-lr .pl-pid{grid-area:p}
+#shell .pl-lr .pl-pres{grid-area:st; padding-left:35px; margin-top:-1px}
+#shell .pl-lr .pl-num{grid-area:r}
+#shell .pl-lr .pl-nm small{display:none}
+#shell .pl-me{background:var(--panel2); margin:0 -14px; padding:0 14px; border-radius:6px}
+
+/* the filter sheet (phone only) — the desktop shows the same three groups
+   inline, so nothing here exists that the wide layout cannot reach */
+#shell .pl-sheet{position:fixed; inset:0; background:var(--veil); display:flex; align-items:flex-end; z-index:60}
+#shell .pl-pane{background:var(--bg); border-radius:16px 16px 0 0; padding:14px 14px calc(18px + env(safe-area-inset-bottom)); width:100%; border-top:1px solid var(--line); max-height:86vh; overflow:auto}
+#shell .pl-pane h4{margin:0 0 6px; font-size:14px; display:flex; align-items:center}
+#shell .pl-pane h4 button{margin-left:auto; font:inherit; font-size:12px; color:var(--blue); background:none; border:0; cursor:pointer; padding:0}
+#shell .pl-pane .k{font:500 9.5px var(--mono); letter-spacing:.08em; text-transform:uppercase; color:var(--dim); margin:10px 0 4px}
+#shell .pl-primary{font:inherit; font-weight:600; font-size:14px; padding:10px 18px; border-radius:10px; border:0; background:var(--blue); color:#fff; cursor:pointer; width:100%; margin-top:12px}
+
+/* player page header (players-lab §3): identity, actions, two tile rows */
+#shell .card.pl-hdr{padding:12px 14px; display:flex; flex-direction:column; gap:8px}
+#shell .pl-idrow{display:flex; align-items:center; gap:14px; flex-wrap:wrap}
+/* phone: the actions get their own row under the name (lab §3, app · phone);
+   the wide layout pulls them back up beside it. */
+#shell .pl-acts{width:100%}
+#shell .pl-tilerows{display:flex; flex-direction:column; gap:6px}
+#shell .pl-acts{display:flex; gap:6px}
+#shell .pl-acts button{font:inherit; font-size:12px; padding:6px 11px; border-radius:9px; border:1px solid var(--line); background:none; color:var(--ink); cursor:pointer}
+#shell .pl-acts button.pri{background:var(--blue); border-color:var(--blue); color:#fff; font-weight:600}
+#shell .pl-acts button:disabled{opacity:.55; cursor:default}
+#shell .pl-acts .star{width:32px; height:32px; font-size:16px; border:1px solid var(--line); border-radius:9px}
+#shell .pl-tiles{display:grid; grid-template-columns:repeat(4,1fr); gap:6px; margin-top:6px}
+#shell .pl-tiles div{background:var(--bg); border:1px solid var(--line); border-radius:9px; padding:7px 4px; text-align:center}
+#shell .pl-tiles b{display:block; font:600 15px var(--mono)}
+#shell .pl-tiles small{font:9px var(--mono); letter-spacing:.06em; text-transform:uppercase; color:var(--dim)}
+
+/* ── players: the wide layout (≥900px) ─────────────────────────────────── */
+@media (min-width:900px){
+  #shell .pl-ico{display:none}
+  #shell .pl-lh{grid-template-columns:34px minmax(120px,1fr) 150px 54px 48px 48px 72px}
+  #shell .pl-lr{grid-template-columns:34px minmax(120px,1fr) 150px 54px 48px 48px 72px; grid-template-areas:none; gap:8px; min-height:42px; padding:0}
+  #shell .pl-lr .star,#shell .pl-lr .pl-pid,#shell .pl-lr .pl-pres,#shell .pl-lr .pl-num{grid-area:auto}
+  #shell .pl-lr .pl-pres{padding-left:0; margin-top:0}
+  #shell .pl-lr .pl-nm small{display:block}
+  #shell .pl-web{display:revert}
+  #shell .pl-search{display:flex}
+  #shell .pl-chips.pl-hidep{display:flex}
+  #shell .pl-lr .pl-num small{display:none}
+  #shell .pl-acts{width:auto; margin-left:auto}
+  /* lab §3 desktop: ranks and record become one eight-tile row. Two grids
+     side by side rather than one grid of eight, so the markup is identical
+     on both surfaces. */
+  #shell .pl-tilerows{display:grid; grid-template-columns:1fr 1fr; gap:6px}
+  #shell .pl-pid.lg .pl-nm small{white-space:nowrap}
+}

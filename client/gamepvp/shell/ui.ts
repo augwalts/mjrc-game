@@ -25,7 +25,7 @@ export const ICONS = {
  *  green = tables/rooms/games, blue = people, gold = stats, red = attention,
  *  grey = reference/system. */
 const HUE: Record<string, string> = {
-  Home: "var(--ink)", Rooms: "#1a8b3a", Friends: "#1845a5", Stats: "#e3cf70",
+  Home: "var(--ink)", Rooms: "#1a8b3a", Players: "#1845a5", Friends: "#1845a5", Stats: "#e3cf70",
   Messages: "#c1272d", Account: "var(--dim)", "Game settings": "var(--dim)",
   Game: "#1a8b3a", Profile: "#1845a5",
 };
@@ -36,10 +36,10 @@ function hueFor(title: string): string {
 export const NAV: readonly [string, () => string, () => string][] = [
   ["/", () => ICONS.home, () => t(S.navHome)],
   ["/rooms", () => ICONS.rooms, () => t(S.navRooms)],
-  ["/friends", () => ICONS.friends, () => t(S.navFriends)],
+  ["/players", () => ICONS.friends, () => t(S.navPlayers)],
   ["/stats", () => ICONS.stats, () => t(S.navStats)],
 ];
-const NAV_KEY: Record<string, string> = { "/": "home", "/rooms": "rooms", "/friends": "friends", "/stats": "stats" };
+const NAV_KEY: Record<string, string> = { "/": "home", "/rooms": "rooms", "/players": "players", "/stats": "stats" };
 
 /** The name + envelope corner, shown on every page's top bar. `unread` is
  *  best-effort (0 until the inbox has been fetched at least once this
@@ -51,11 +51,20 @@ export function meHtml(displayName: string, unread: number): string {
   </div>`;
 }
 
-export function pageTop(title: string, opts: { back?: string; displayName: string; unread: number }): string {
+/** `alt` is the same word in the other language, dimmed beside the title —
+ *  the lab's `Players 玩家` (players-lab.html §1), used where BOTH belong on
+ *  screen rather than one being chosen by `SETTINGS.language`. `actions` is
+ *  raw HTML dropped between the title and the name corner, for a page whose
+ *  title row carries its own controls (Players' search + filter icons). */
+export function pageTop(
+  title: string,
+  opts: { back?: string; displayName: string; unread: number; alt?: string | null; actions?: string },
+): string {
   const hue = hueFor(title);
   return `<div class="top">
     ${opts.back ? `<button class="back" data-nav="${opts.back}">‹</button>` : ""}
-    <h2>${hue ? `<span class="k" style="background:${hue}"></span>` : ""}${esc(title)}</h2>
+    <h2>${hue ? `<span class="k" style="background:${hue}"></span>` : ""}${esc(title)}${opts.alt ? `<span class="talt">${esc(opts.alt)}</span>` : ""}</h2>
+    ${opts.actions ?? ""}
     ${meHtml(opts.displayName, opts.unread)}
   </div>`;
 }
