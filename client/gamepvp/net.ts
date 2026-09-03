@@ -729,8 +729,10 @@ export interface StatsRecordRow {
 }
 export async function getStatsRecord(token: string, scope: StatsScope = {}): Promise<StatsRecordRow[]> {
   const q = scopeQuery(scope);
-  const data = await apiFetch<{ rows: StatsRecordRow[] }>(`stats/record${q ? `?${q}` : ""}`, { token });
-  return data.rows ?? [];
+  // The Worker answers `{ players: [...] }` (one row per player in scope,
+  // §10 dataset A); `rows` is accepted too so either name keeps working.
+  const data = await apiFetch<{ players?: StatsRecordRow[]; rows?: StatsRecordRow[] }>(`stats/record${q ? `?${q}` : ""}`, { token });
+  return data.players ?? data.rows ?? [];
 }
 
 /** Dataset B — counts, never averages of ratios. */
@@ -753,7 +755,7 @@ export async function getStatsHistograms(token: string, scope: StatsScope = {}):
 
 /** Dataset C — things over time or over hands. */
 export interface StatsSeries {
-  progression: { matchId: string; hands: number[]; standings: number[][] }[];
+  progression?: { matchId: string; hands: number[]; standings: number[][] }[];
   progressionAvg: { hands: number[]; mean: number[]; games: number[][] };
   worthByGame: { matchId: string; at: string; worth: number }[];
   rating: { at: string; before: number; after: number; matchId: string | null }[];

@@ -132,8 +132,11 @@ function feedsHtml(hist: StatsHistograms | null): string {
 function progressionHtml(series: StatsSeries | null): string {
   if (!series) return `<p class="empty">${esc(t(S.statsEmptyProgression))}</p>`;
   const T = chartTokens();
-  const games = series.progression.map((g) => g.hands);
-  if (games.length === 0 && series.progressionAvg.mean.length === 0) return `<p class="empty">${esc(t(S.statsEmptyProgression))}</p>`;
+  // The Worker's series answer carries the per-game hand series inside
+  // `progressionAvg.games` (no top-level `progression` today); accept both,
+  // and never throw here — this `.then` also patches form and rating.
+  const games = series.progression?.map((g) => g.hands) ?? series.progressionAvg?.games ?? [];
+  if (games.length === 0) return `<p class="empty">${esc(t(S.statsEmptyProgression))}</p>`;
   return progressionSvg(games, series.progressionAvg.mean ?? [], T.gold, { yLabel: "chips" });
 }
 function formHtml(series: StatsSeries | null): string {
