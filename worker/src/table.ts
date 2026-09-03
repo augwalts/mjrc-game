@@ -1225,6 +1225,7 @@ export class TableCore {
     if (url.pathname.endsWith("/seat")) return this.handleSeat(request);
     if (url.pathname.endsWith("/fill")) return this.handleFill(request);
     if (url.pathname.endsWith("/leave")) return this.handleLeave(request);
+    if (url.pathname.endsWith("/observe")) return this.handleObserve(request);
     if (this.tombstone) return new Response("match over", { status: 410 });
     if (request.headers.get("Upgrade") !== "websocket") {
       return new Response("expected websocket", { status: 400 });
@@ -1613,6 +1614,42 @@ export class TableCore {
       if (att?.seat === seat) ws.close(4001, "left");
     }
     return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { "content-type": "application/json; charset=utf-8" },
+    });
+  }
+
+  /**
+   * The admin observer (owner request 2026-09-03): every seat's OWN view at
+   * once, so a playtest host can watch four hands on one page. Gated twice —
+   * the table secret here, and `users.is_admin` in the Worker route that is
+   * its only caller. Read-only: touches no state, no presence, no socket,
+   * and answers after the match is over too (the last position stays
+   * readable). Each seat's view is exactly what that seat's own client
+   * receives — `viewFor` — so nothing is revealed here that the table does
+   * not already send to somebody.
+   */
+  private handleObserve(request: Request): Response {
+    const secret = this.env.TABLE_SECRET;
+    if (secret && !tokensMatch(request.headers.get("x-mjrc-table-secret") ?? "", secret)) {
+      return new Response("forbidden", { status: 403 });
+    }
+    if (!this.meta) return new Response("table not initialised", { status: 409 });
+    const meta = this.meta;
+    const started = this.state !== null;
+    const body = {
+      started,
+      over: this.tombstone || this.book.matchOver,
+      players: meta.header.players,
+      presence: SEATS.map((s) => ({
+        seat: s,
+        connected: this.presence[s].connected,
+        botActing: this.presence[s].botActing,
+        botControlled: started ? this.isBotControlled(s) : meta.header.players[s].bot,
+      })),
+      seats: started ? SEATS.map((s) => this.viewFor(s)) : null,
+    };
+    return new Response(JSON.stringify(body), {
       status: 200,
       headers: { "content-type": "application/json; charset=utf-8" },
     });

@@ -30,6 +30,7 @@ import { mount as mountRoom } from "./pages/room.js";
 import { mount as mountPlayers } from "./pages/players.js";
 import { mount as mountStats } from "./pages/stats.js";
 import { mount as mountGame } from "./pages/game-detail.js";
+import { mount as mountWatch } from "./pages/watch.js";
 import { mount as mountPlayer } from "./pages/player.js";
 import { mount as mountMessages } from "./pages/messages.js";
 import { mount as mountDm } from "./pages/dm.js";
@@ -73,6 +74,8 @@ const ROUTES: Route[] = [
   route("/friends", (_c, _p, r) => { r.navigate("/players", { replace: true }); }),
   route("/stats", mountStats),
   route("/games/:id", mountGame),
+  route("/watch", mountWatch),
+  route("/watch/:id", mountWatch),
   route("/players/:id", mountPlayer),
   route("/messages", mountMessages),
   route("/messages/:playerId", mountDm),

@@ -208,6 +208,11 @@ function tableNamespace(env: Env): TableNamespace {
           const res = await post(stub, "/leave", { playerId });
           if (!res.ok) throw new Error(`table leave ${res.status}: ${await res.text()}`);
         },
+        async observe(): Promise<Record<string, unknown>> {
+          const res = await post(stub, "/observe", {});
+          if (!res.ok) throw new Error(`table observe ${res.status}: ${await res.text()}`);
+          return (await res.json()) as Record<string, unknown>;
+        },
       };
     },
   };

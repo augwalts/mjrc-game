@@ -1026,6 +1026,32 @@ export interface GameDetail {
   replayToken: string | null;
   chat: LobbyChatEntry[];
 }
+/* ── admin observer (2026-09-03) ────────────────────────────────────────
+ * GET /api/watch/:matchId — every seat's own view at once. Admin only; a
+ * non-admin gets the same 404 a missing match would. `seats[i]` is exactly
+ * the `SeatSnapshot` seat i's own client receives (own hand and drawn tile
+ * present, the others' concealed), so four of them together show every hand. */
+export interface WatchSeatOwn {
+  seat: 0 | 1 | 2 | 3; wind: number; hand: number[]; drawn: number | null;
+  melds: { tiles: number[] | null; kind?: string }[]; flowers: number[]; discards: number[];
+  chips: number; connected: boolean; handCount: number;
+}
+export interface WatchSnapshot {
+  handIndex: number; phase: string; seat: 0 | 1 | 2 | 3; roundWind: number; dealer: 0 | 1 | 2 | 3;
+  turn: 0 | 1 | 2 | 3; wallRemaining: number; lastDiscard: { tile: number; from: 0 | 1 | 2 | 3 } | null;
+  seats: (WatchSeatOwn | Record<string, unknown>)[]; standings: number[];
+}
+export interface WatchView {
+  matchId: string; rulesetId: string; matchFormat: MatchFormat; lobbyStatus: LobbyStatus; roomCode: string | null;
+  started: boolean; over: boolean;
+  players: { playerId: string; displayName: string; seat: 0 | 1 | 2 | 3; bot: boolean }[];
+  presence: { seat: 0 | 1 | 2 | 3; connected: boolean; botActing: boolean; botControlled: boolean }[];
+  seats: WatchSnapshot[] | null;
+}
+export async function getWatch(token: string, matchId: string): Promise<WatchView> {
+  return apiFetch(`watch/${encodeURIComponent(matchId)}`, { token });
+}
+
 export async function getGame(token: string, matchId: string): Promise<GameDetail> {
   return apiFetch(`games/${encodeURIComponent(matchId)}`, { token });
 }

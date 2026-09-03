@@ -113,11 +113,11 @@ const HONOUR_NAMES = ["East", "South", "West", "North", "Red", "Green", "White",
 const name = (t: TileId): string =>
   t < 9 ? `${t + 1}萬` : t < 18 ? `${t - 8}▮` : t < 27 ? `${t - 17}●`
   : HONOUR_NAMES[t - 27] ?? "?";
-const tileHtml = (t: TileId, cls = "", attrs = ""): string =>
+export const tileHtml = (t: TileId, cls = "", attrs = ""): string =>
   `<span class="tile ${cls}" data-t="${t}" ${attrs}><svg viewBox="0 0 100 140" preserveAspectRatio="xMidYMid meet">${face(t)}</svg></span>`;
 /** A meld as another seat may show it: a concealed kong they hold is hidden
  *  from us (`tiles: null`) and renders as four backs, never a guess. */
-const meldHtml = (m: Meld | SeatVisibleMeld, cls = ""): string =>
+export const meldHtml = (m: Meld | SeatVisibleMeld, cls = ""): string =>
   m.tiles === null ? `<span class="back"></span>`.repeat(4) : m.tiles.map((t) => tileHtml(t, cls)).join("");
 
 /** The meld a claim button would BUILD, drawn as tiles rather than decoded

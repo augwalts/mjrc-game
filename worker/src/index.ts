@@ -245,6 +245,12 @@ export interface TableStub {
    * and its socket is closed. The seat token still reclaims it. Idempotent.
    */
   leave(playerId: string): Promise<void>;
+  /**
+   * The admin observer's read of a table (2026-09-03): every seat's own view
+   * plus presence, as the table's `/observe` returns it. Relayed as JSON,
+   * shaped by the client. Read-only.
+   */
+  observe(): Promise<Record<string, unknown>>;
 }
 
 export interface TableNamespace {
@@ -1811,6 +1817,42 @@ async function postStart(matchId: string, p: Platform, player: PlayerRow): Promi
     return fail("table_unavailable", 503);
   }
   return json({ ok: true });
+}
+
+/** Admin, decided by the account the player is linked to (`players.
+ *  almanac_user_id` → `users.is_admin`). A player with no account, or whose
+ *  account is deleted, is never an admin. */
+async function isAdminPlayer(p: Platform, player: PlayerRow): Promise<boolean> {
+  if (player.almanac_user_id === null) return false;
+  const user = await userById(p.db, player.almanac_user_id);
+  return user !== null && user.deleted_at === null && user.is_admin !== 0;
+}
+
+/**
+ * GET /api/watch/:matchId — the admin observer (owner request 2026-09-03):
+ * every seat's own view of a live table, for a host watching a playtest
+ * from outside it. Admin only; anyone else gets the 404 a non-existent
+ * match would, so the route's existence is not learnable by probing.
+ * Read-only — the table object touches nothing on this call.
+ */
+async function getWatch(matchId: string, p: Platform, player: PlayerRow): Promise<Response> {
+  if (!(await isAdminPlayer(p, player))) return fail("not_found", 404);
+  const match = await matchById(p.db, matchId);
+  if (match === null) return fail("not_found", 404);
+  try {
+    const view = await tableStubFor(p, matchId).observe();
+    return json({
+      matchId,
+      rulesetId: match.ruleset_id,
+      matchFormat: match.match_format,
+      lobbyStatus: match.lobby_status,
+      roomCode: match.room_code,
+      ...view,
+    });
+  } catch (e) {
+    console.error("table observe failed", matchId, e);
+    return fail("table_unavailable", 503);
+  }
 }
 
 /**
@@ -3638,6 +3680,11 @@ export async function handle(request: Request, p: Platform): Promise<Response> {
       if (method !== "GET") return fail("method_not_allowed", 405);
       return getMatchLog(seg[2], p, player);
     }
+  }
+
+  if (seg[1] === "watch" && seg.length === 3) {
+    if (method !== "GET") return fail("method_not_allowed", 405);
+    return getWatch(seg[2], p, player);
   }
 
   if (seg[1] === "tables") {
