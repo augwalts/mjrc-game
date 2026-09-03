@@ -279,7 +279,7 @@ export function setHostHooks(h: Partial<typeof hostHooks>): void {
  *  end, fatal) render is harmless and keeps this a one-line no-op change
  *  instead of touching every call site. */
 function beforeScreen(): void {
-  $("panel").classList.remove("about", "lobby3");
+  $("panel").classList.remove("about", "lobby3", "modal");
 }
 
 /* ── the live table ────────────────────────────────────────────────────
@@ -2048,6 +2048,7 @@ export function refreshTableIfLive(): void {
 }
 
 function render(): void {
+  paintHudTitle();
   if (!snap) return;
   const meRaw = snap.seats[mySeat]!;
   if (!isOwnSeatView(meRaw)) return;
@@ -2542,18 +2543,32 @@ function hideChatPreview(): void {
 /** The HUD's Pause and Auto buttons (task brief items 2/3) — same "shown
  *  only while a table exists" rule as the chat FAB above, plus their own
  *  label/state. Cheap enough to call from every render(). */
+/** The HUD's left slot (gameplay-lab: "the table's name and ruleset in
+ *  mono caps on the left where the empty net-status used to sit"): ruleset ·
+ *  round wind · speed while a match is open, blank otherwise. */
+function paintHudTitle(): void {
+  const el = document.getElementById("hudTitle");
+  if (!el) return;
+  if (currentMatchUuid === null) { el.textContent = ""; return; }
+  const parts = [ruleLabel(currentRulesetId)];
+  if (snap) parts.push(`${["東", "南", "西", "北"][snap.roundWind] ?? ""}圈`);
+  if (currentSpeed) parts.push(String(currentSpeed));
+  el.textContent = parts.join(" · ");
+}
 function updateHudButtons(): void {
   const show = currentMatchUuid !== null;
+  paintHudTitle();
   const p = document.getElementById("btnPause") as HTMLButtonElement | null;
   if (p) {
     p.style.display = show ? "" : "none";
-    p.textContent = paused ? "▶ resume" : "⏸ pause";
+    p.textContent = paused ? "resume" : "pause";
+    p.classList.toggle("on", !!paused);
   }
   const a = document.getElementById("btnAuto") as HTMLButtonElement | null;
   if (a) {
     a.style.display = show ? "" : "none";
     a.classList.toggle("on", myAuto);
-    a.textContent = myAuto ? "🤖 auto: on" : "🤖 auto";
+    a.textContent = myAuto ? "auto · on" : "auto";
   }
 }
 /** `#clockNote` — task brief item 4: sits where the clock bar's own 3px
@@ -2915,12 +2930,14 @@ function settingsScreen(back: () => void): void {
 function quitScreen(back: () => void): void {
   beforeScreen();
   $("veil").style.display = "flex";
+  $("panel").classList.add("modal");
   $("panel").innerHTML = `
-    <h1>${esc(t(S.quitTitle))}</h1>
-    <p class="mut" style="font-size:14px;margin:8px 0 0">${esc(t(S.quitBody))}</p>
-    <div style="display:flex;gap:10px;justify-content:center;margin-top:18px;flex-wrap:wrap">
-      <button id="quitStay">${esc(t(S.quitStay))}</button>
-      <button id="quitLeave" style="background:rgba(255,255,255,.08);color:var(--ink);border:1px solid rgba(255,255,255,.18)">${esc(t(S.quitLeave))}</button>
+    <div class="mhead"><h2>${esc(t(S.quitTitle))}</h2></div>
+    <div class="mbody">${esc(t(S.quitBody))}</div>
+    <div class="mfoot">
+      <button id="quitLeave" class="ghost">${esc(t(S.quitLeave))}</button>
+      <span class="hint2">esc · ${esc(t(S.quitStay))}</span>
+      <button id="quitStay" class="primary">${esc(t(S.quitStay))} ▸</button>
     </div>`;
   const onKey = (e: KeyboardEvent): void => { if (e.key === "Escape") { e.preventDefault(); close(); } };
   const close = (): void => { document.removeEventListener("keydown", onKey); $("veil").style.display = "none"; back(); };

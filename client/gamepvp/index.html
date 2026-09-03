@@ -15,22 +15,41 @@
      --tilegreen is the kit's third colour, kept here so the felt and the kit
      never drift apart. */
   --seal:#C1272D; --royal:#1845A5; --tilegreen:#1A8B3A;
+  /* CHROME tokens (gameplay-lab.html, dark set): the HUD, the rim, the tray
+     and the modal. "The felt is content, everything else is chrome" — these
+     never touch anything drawn on the felt. Dark set only for now; the
+     light set lands with the theme plumbing for #tableRoot. */
+  --c-bg:#1e1f1d; --c-panel:#2a2b29; --c-panel2:#363733; --c-line:#4a4b46; --c-ink:#f3efe4; --c-dim:#b3b0a5;
+  --c-blue:#9fbaf0; --c-on-blue:#1e1f1d; --c-danger:#e2857f;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{height:100%;margin:0}
-body{background:radial-gradient(ellipse at 50% 30%, #1e1b17 0%, #131110 55%, #0a0908 100%);
+body{background:var(--c-bg);
   color:var(--ink);font:15px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;overflow:hidden;
   display:flex;flex-direction:column}
 
 /* ── top bar ── */
-#hud{display:flex;align-items:center;gap:14px;padding:6px 12px;font-size:12px;color:var(--dim);
-  background:rgba(0,0,0,.22);backdrop-filter:blur(4px);flex:0 0 auto}
-#hud b{color:var(--ink)}
+/* Ported from gameplay-lab.html (2026-09-03): a panel strip with a hairline
+   under it, the table's name and ruleset in mono caps on the left, text
+   pills (no emoji) filled only when on, and quit as the one seal-red pill —
+   with a real tap target: 36px tall, the old one was 24. */
+#hud{display:flex;align-items:center;gap:8px;padding:7px 10px;font-size:12px;color:var(--c-dim);
+  background:var(--c-panel);border-bottom:1px solid var(--c-line);flex:0 0 auto;min-height:50px}
+#hud b{color:var(--c-ink)}
 #hud .spacer{flex:1}
-#hud button{background:rgba(255,255,255,.08);color:var(--ink);border:1px solid rgba(255,255,255,.16);
-  border-radius:7px;padding:4px 10px;font-size:12px;cursor:pointer}
-#hud button:hover{background:rgba(255,255,255,.16)}
-#hud button.on{background:rgba(216,181,106,.22);border-color:var(--gold);color:var(--gold)}
+#hud .tt{font-family:var(--mono);font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--c-dim);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+#hud .mut{font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--c-dim);white-space:nowrap}
+#hud .netchip{display:inline-flex;align-items:center;gap:6px;color:var(--c-danger)}
+#hud .netchip:empty{display:none}
+#hud .netchip::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--seal);flex:0 0 auto}
+#hud button{font:inherit;font-size:12.5px;padding:7px 13px;min-height:36px;border-radius:20px;border:1px solid var(--c-line);
+  background:none;color:var(--c-dim);cursor:pointer;white-space:nowrap}
+#hud button:hover{color:var(--c-ink);border-color:var(--c-dim)}
+#hud button.on{background:none;color:var(--c-ink);border-color:var(--c-ink)}
+#hud #btnQuit{border-color:var(--c-danger);color:var(--c-danger);padding:7px 18px;font-weight:600}
+#hud #btnQuit:hover{background:rgba(226,133,127,.12)}
 .panel textarea{width:100%;min-height:110px;padding:10px 12px;font:14px/1.45 inherit;
   border-radius:9px;background:rgba(255,255,255,.07);color:var(--ink);
   border:1px solid rgba(255,255,255,.18);resize:vertical}
@@ -40,9 +59,8 @@ body{background:radial-gradient(ellipse at 50% 30%, #1e1b17 0%, #131110 55%, #0a
 /* THE TABLE — a felt surface with a wooden rim, not the whole window. */
 #felt{position:relative;width:min(94%,1040px);height:min(96%,660px);border-radius:22px;
   background:radial-gradient(ellipse at 50% 42%, var(--felt) 0%, var(--felt-dk) 72%, #0b3427 100%);
-  border:10px solid #2e2016;
-  box-shadow:inset 0 0 60px rgba(0,0,0,.45), 0 18px 50px rgba(0,0,0,.55),
-    0 0 0 2px #1b120c, inset 0 2px 0 rgba(255,255,255,.06)}
+  border:8px solid var(--c-panel);
+  box-shadow:inset 0 0 40px rgba(0,0,0,.4), 0 10px 26px rgba(0,0,0,.3)}
 /* MATCH STATE LIVES ON THE TABLE. Round, hand and wall used to sit in a 12px
    strip in the corner of the WINDOW, outside the felt — easy to miss on a
    desktop and with nowhere to hide on a phone (owner 2026-08-30). They go in
@@ -201,7 +219,7 @@ body{background:radial-gradient(ellipse at 50% 30%, #1e1b17 0%, #131110 55%, #0a
 .tile.sm{--th:40px}
 
 /* ── your area ── */
-#mine{flex:0 0 auto;padding:4px 10px 10px;background:linear-gradient(180deg,rgba(0,0,0,0),rgba(0,0,0,.3) 40%)}
+#mine{flex:0 0 auto;padding:6px 10px 10px;background:var(--c-panel);border-top:1px solid var(--c-line)}
 #mymelds{display:flex;gap:10px;justify-content:center;min-height:38px;margin-bottom:3px}
 /* A flower is the SAME PIECE as every other tile, and it is drawn as one —
    no separate `.fl` size override here or in `.meldrow` below. It used to be
@@ -346,6 +364,25 @@ body{background:radial-gradient(ellipse at 50% 30%, #1e1b17 0%, #131110 55%, #0a
   border-radius:14px;padding:22px 26px;max-width:640px;width:100%;text-align:center;
   margin:auto;box-shadow:0 20px 60px rgba(0,0,0,.5)}
 .panel h1{font-size:20px;margin:0 0 4px}
+/* The lab's shell modal, as a variant of #panel (gameplay-lab.html
+   `.modal/.mhead/.mbody/.mfoot`): head with a hairline, body in dim ink,
+   foot with one primary (blue fill) and one ghost (hairline). Used by the
+   quit dialog; `beforeScreen()` strips it so every other screen keeps the
+   felt-green panel it always had. */
+#panel.modal{background:var(--c-bg);color:var(--c-ink);border:1px solid var(--c-line);border-radius:16px;
+  padding:0;max-width:460px;text-align:left;box-shadow:0 20px 60px rgba(0,0,0,.35)}
+#panel.modal .mhead{display:flex;align-items:center;gap:10px;padding:14px 16px 11px;border-bottom:1px solid var(--c-line)}
+#panel.modal .mhead h2{font-size:17px;margin:0;color:var(--c-ink);font-weight:700}
+#panel.modal .mbody{padding:12px 16px 14px;color:var(--c-dim);font-size:13.5px;line-height:1.5}
+#panel.modal .mbody b{color:var(--c-ink)}
+#panel.modal .mfoot{padding:10px 16px 13px;border-top:1px solid var(--c-line);display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+#panel.modal .mfoot .hint2{color:var(--c-dim);font-size:11px;font-family:var(--mono);flex:1;min-width:0}
+#panel.modal button{margin:0}
+#panel.modal .primary{font:inherit;font-weight:600;font-size:14px;padding:11px 22px;border-radius:10px;border:0;
+  background:var(--c-blue);color:var(--c-on-blue);cursor:pointer;min-height:42px}
+#panel.modal .ghost{font:inherit;font-size:13px;padding:10px 16px;border-radius:10px;border:1px solid var(--c-line);
+  background:none;color:var(--c-ink);cursor:pointer;min-height:42px}
+@media (max-width:520px){#panel.modal .mfoot .primary{flex:1 1 100%;order:-1}#panel.modal .mfoot .ghost{flex:1}}
 .panel h2{font-size:16px;margin:0 0 10px;color:var(--gold)}
 .panel p{color:var(--dim);font-size:13px;margin:6px 0}
 .panel .tiles{display:flex;gap:4px;justify-content:center;flex-wrap:wrap;margin:12px 0}
@@ -993,12 +1030,13 @@ body.devmode #mine{padding-top:2px}
 <div id="shell" hidden></div>
 <div id="tableRoot" style="display:none;flex:1 1 auto;min-height:0;flex-direction:column">
 <div id="hud">
-  <span id="netStatus" class="mut"></span>
+  <span id="hudTitle" class="tt"></span>
+  <span id="netStatus" class="netchip"></span>
   <span class="spacer"></span>
   <span id="hudNote" class="mut"></span>
-  <button id="btnPause" style="display:none">⏸ pause</button>
-  <button id="btnAuto" style="display:none">🤖 auto</button>
-  <button id="btnSettings">⚙ settings</button>
+  <button id="btnPause" style="display:none">pause</button>
+  <button id="btnAuto" style="display:none">auto</button>
+  <button id="btnSettings">settings</button>
   <button id="btnQuit">quit</button>
 </div>
 <div id="table"><div id="felt">
