@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>HUD · quit · watch — mockups 2026-09-03</title>
+<style>
+:root{
+  --felt:#12503f; --felt-dk:#0d3d30; --wood:#3a2a1e; --ink:#f2ece0; --dim:#a9b8ae;
+  --tile:#f6f1e4; --tile-edge:#cdc3ab; --tile-ink:#22201c; --red:#b23b32; --green:#1f6b46;
+  --gold:#d8b56a; --accent:#7fb3ff; --danger:#e08a6a;
+  /* site kit, used FUNCTIONALLY only (owner's ruling: neutral on neutral,
+     colour carries meaning or it does not appear). --seal rings the tile that
+     is actually in play and underlines a win; --royal underlines a kong;
+     --tilegreen is the kit's third colour, kept here so the felt and the kit
+     never drift apart. */
+  --seal:#C1272D; --royal:#1845A5; --tilegreen:#1A8B3A;
+  /* CHROME tokens (gameplay-lab.html, dark set): the HUD, the rim, the tray
+     and the modal. "The felt is content, everything else is chrome" — these
+     never touch anything drawn on the felt. Dark set only for now; the
+     light set lands with the theme plumbing for #tableRoot. */
+  --c-bg:#1e1f1d; --c-panel:#2a2b29; --c-panel2:#363733; --c-line:#4a4b46; --c-ink:#f3efe4; --c-dim:#b3b0a5;
+  --c-blue:#9fbaf0; --c-on-blue:#1e1f1d; --c-danger:#e2857f;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+/* Ported from gameplay-lab.html (2026-09-03): a panel strip with a hairline
+   under it, the table's name and ruleset in mono caps on the left, text
+   pills (no emoji) filled only when on, and quit as the one seal-red pill —
+   with a real tap target: 36px tall, the old one was 24. */
+.hud{display:flex;align-items:center;gap:8px;padding:7px 10px;font-size:12px;color:var(--c-dim);
+  background:var(--c-panel);border-bottom:1px solid var(--c-line);flex:0 0 auto;min-height:50px}
+.hud b{color:var(--c-ink)}
+.hud .spacer{flex:1}
+.hud .tt{font-family:var(--mono);font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--c-dim);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.hud .mut{font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--c-dim);white-space:nowrap}
+.hud .netchip{display:inline-flex;align-items:center;gap:6px;color:var(--c-danger)}
+.hud .netchip:empty{display:none}
+.hud .netchip::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--seal);flex:0 0 auto}
+.hud button{font:inherit;font-size:12.5px;padding:7px 13px;min-height:36px;border-radius:20px;border:1px solid var(--c-line);
+  background:none;color:var(--c-dim);cursor:pointer;white-space:nowrap}
+.hud button:hover{color:var(--c-ink);border-color:var(--c-dim)}
+.hud button.on{background:none;color:var(--c-ink);border-color:var(--c-ink)}
+.hud .btnQuit{border-color:var(--c-danger);color:var(--c-danger);padding:7px 18px;font-weight:600}
+.hud .btnQuit:hover{background:rgba(226,133,127,.12)}
+/* The lab's shell modal, as a variant of #panel (gameplay-lab.html
+   `.modal/.mhead/.mbody/.mfoot`): head with a hairline, body in dim ink,
+   foot with one primary (blue fill) and one ghost (hairline). Used by the
+   quit dialog; `beforeScreen()` strips it so every other screen keeps the
+   felt-green panel it always had. */
+.panel.modal{background:var(--c-bg);color:var(--c-ink);border:1px solid var(--c-line);border-radius:16px;
+  padding:0;max-width:460px;text-align:left;box-shadow:0 20px 60px rgba(0,0,0,.35)}
+.panel.modal .mhead{display:flex;align-items:center;gap:10px;padding:14px 16px 11px;border-bottom:1px solid var(--c-line)}
+.panel.modal .mhead h2{font-size:17px;margin:0;color:var(--c-ink);font-weight:700}
+.panel.modal .mbody{padding:12px 16px 14px;color:var(--c-dim);font-size:13.5px;line-height:1.5}
+.panel.modal .mbody b{color:var(--c-ink)}
+.panel.modal .mfoot{padding:10px 16px 13px;border-top:1px solid var(--c-line);display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.panel.modal .mfoot .hint2{color:var(--c-dim);font-size:11px;font-family:var(--mono);flex:1;min-width:0}
+.panel.modal button{margin:0}
+.panel.modal .primary{font:inherit;font-weight:600;font-size:14px;padding:11px 22px;border-radius:10px;border:0;
+  background:var(--c-blue);color:var(--c-on-blue);cursor:pointer;min-height:42px}
+.panel.modal .ghost{font:inherit;font-size:13px;padding:10px 16px;border-radius:10px;border:1px solid var(--c-line);
+  background:none;color:var(--c-ink);cursor:pointer;min-height:42px}
+@media (max-width:520px){.panel.modal .mfoot .primary{flex:1 1 100%;order:-1}.panel.modal .mfoot .ghost{flex:1}}
+.veil{position:absolute;inset:0;background:rgba(4,12,9,.82);display:none;
+  align-items:flex-start;justify-content:center;overflow-y:auto;
+  -webkit-overflow-scrolling:touch;z-index:40;padding:16px}
+.panel{background:linear-gradient(180deg,#1b3a30,#12281f);border:1px solid rgba(216,181,106,.35);
+  border-radius:14px;padding:22px 26px;max-width:640px;width:100%;text-align:center;
+  margin:auto;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+
+*{box-sizing:border-box}
+body{margin:0;background:#141513;color:#f3efe4;font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:18px 20px 60px}
+h1{font-size:17px;margin:0 0 4px} .note{color:#b3b0a5;font-size:12.5px;max-width:900px;margin:4px 0 0}
+.cap{font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:#b3b0a5;font-weight:600;margin:0 0 8px}
+.sec{margin:28px 0 0;border-top:1px solid #4a4b46;padding-top:16px}
+.row2{display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start}
+.frame{position:relative;background:#111210;border-radius:22px;padding:8px;box-shadow:0 14px 40px rgba(0,0,0,.4);margin-top:20px;flex:0 0 auto}
+.frame .label{position:absolute;top:-18px;left:8px;font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:#b3b0a5}
+.frame.phone{width:393px} .frame.desk{width:960px}
+.screen{background:var(--c-bg);border-radius:16px;overflow:hidden;position:relative;display:flex;flex-direction:column;height:520px}
+.frame.phone .screen{height:640px}
+.hud .spacer{flex:1}
+.tablearea{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:10px}
+.felt{position:relative;width:100%;height:100%;border-radius:18px;background:radial-gradient(ellipse at 50% 42%,var(--felt) 0%,var(--felt-dk) 72%,#0b3427 100%);border:8px solid var(--c-panel);box-shadow:inset 0 0 40px rgba(0,0,0,.4),0 10px 26px rgba(0,0,0,.3)}
+.state{position:absolute;left:10px;top:8px;background:rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:5px 10px;line-height:1.25;white-space:nowrap;font-size:12px}
+.state .wind{font-size:17px;font-weight:700}
+.mine{flex:0 0 auto;padding:8px 10px 10px;background:var(--c-panel);border-top:1px solid var(--c-line);display:flex;gap:4px;justify-content:center;align-items:flex-end}
+.t{width:34px;height:48px;border-radius:5px;background:#FAFAF8;color:#22201c;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;box-shadow:0 1px 0 #b8ad93,0 2px 5px rgba(0,0,0,.35);flex:0 0 auto}
+.frame.phone .t{width:24px;height:34px;font-size:12px}
+.t.r{color:#b23b32} .t.g{color:#1a8b3a} .t.b{color:#1845a5}
+.veil{display:flex;padding:16px;align-items:flex-start;justify-content:center;overflow-y:auto}
+.frame.desk .veil{align-items:center}
+.panel{width:100%;margin:auto}
+.mut{color:var(--c-dim)}
+/* watch page mock (shell look) */
+.shell{background:#1e1f1d;color:#f3efe4;padding:12px;height:100%;overflow:auto}
+.shell .top{display:flex;align-items:center;gap:10px;margin-bottom:10px} .shell .top h2{font-size:16px;margin:0}
+.card{background:#2a2b29;border:1px solid #4a4b46;border-radius:12px;padding:10px 12px;margin-bottom:8px}
+.watchgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.frame.phone .watchgrid{grid-template-columns:1fr}
+.watchseat.onturn{outline:2px solid #e3cf70}
+.wrow{display:flex;gap:8px;align-items:flex-start;margin-top:6px} .wrow small{width:58px;flex:0 0 auto;padding-top:4px;color:#b3b0a5}
+.tiles{display:flex;flex-wrap:wrap;gap:2px;align-items:flex-end}
+.tiles .t{width:26px;height:36px;font-size:12px} .tiles.dis .t{width:19px;height:26px;font-size:9px}
+.badge{font-family:var(--mono);font-size:10px;letter-spacing:.06em;text-transform:uppercase;border:1px solid #4a4b46;border-radius:10px;padding:1px 7px;color:#b3b0a5}
+.badge.on{border-color:#e3cf70;color:#e3cf70}
+.rowh{display:flex;align-items:center;gap:8px}
+</style></head><body>
+<h1>HUD · quit dialog · watch — as built, 2026-09-03</h1>
+<p class="note">The HUD and modal CSS below is copied verbatim from <code>client/gamepvp/index.html</code> at <code>5b7348f</code> (ids swapped for classes so several frames can sit on one page). The felt, tiles and the watch page are sketched, not the real renderer.</p>
+
+<div class="sec"><p class="cap">1 · the menu bar (HUD)</p>
+<p class="note">Panel strip with a hairline; ruleset · round wind · speed in mono caps on the left; a seal-red reconnect chip when the socket drops; text pills filled only when on; quit is the one seal-red pill, 36px tall (was 24). No emoji.</p>
+<div class="row2">
+<div class="frame desk"><span class="label">desktop · 960</span><div class="screen">
+  <div class="hud"><span class="tt">MJRC standard · 東圈 · normal</span><span class="netchip"></span><span class="spacer"></span><span class="mut"></span>
+    <button>pause</button><button class="on">auto · on</button><button>settings</button><button class="btnQuit">quit</button></div>
+  <div class="tablearea"><div class="felt"><div class="state"><span class="wind">東</span> hand 3 · wall 42</div></div></div>
+  <div class="mine"><span class="t">1</span><span class="t">2</span><span class="t">3</span><span class="t b">四</span><span class="t b">五</span><span class="t g">6</span><span class="t g">7</span><span class="t r">中</span><span class="t r">中</span><span class="t">東</span><span class="t">東</span><span class="t">白</span><span class="t">白</span></div>
+</div></div>
+<div class="frame phone"><span class="label">phone · 393 · reconnecting</span><div class="screen">
+  <div class="hud"><span class="tt">TVB 2026 · 南圈</span><span class="netchip">reconnecting…</span><span class="spacer"></span>
+    <button>settings</button><button class="btnQuit">quit</button></div>
+  <div class="tablearea"><div class="felt"><div class="state"><span class="wind">南</span> hand 6</div></div></div>
+  <div class="mine"><span class="t">1</span><span class="t">2</span><span class="t">3</span><span class="t b">四</span><span class="t b">五</span><span class="t g">6</span><span class="t g">7</span><span class="t r">中</span><span class="t r">中</span><span class="t">東</span><span class="t">東</span><span class="t">白</span><span class="t">白</span></div>
+</div></div>
+</div></div>
+
+<div class="sec"><p class="cap">2 · the quit dialog</p>
+<p class="note">The lab's modal: head with a hairline, body in dim ink, foot with one blue primary (stay — the default, also Esc) and one ghost (leave). The host sees a second block: end the table for everyone, its button in seal red. A bot plays the seat after leave; the seat and tiles are kept — rejoin from Home or the room page.</p>
+<div class="row2">
+<div class="frame phone"><span class="label">phone · player</span><div class="screen">
+  <div class="hud"><span class="tt">MJRC standard · 東圈</span><span class="spacer"></span><button>settings</button><button class="btnQuit">quit</button></div>
+  <div class="tablearea"><div class="felt"></div></div>
+  <div class="veil" style="position:absolute;inset:0"><div class="panel modal">
+    <div class="mhead"><h2>Leave the table?</h2></div>
+    <div class="mbody">A bot plays your seat until you come back. Your seat and your tiles are kept — rejoin from Home or from the room page.</div>
+    <div class="mfoot"><button class="ghost">leave — a bot plays for me</button><span class="hint2">esc · stay</span><button class="primary">stay ▸</button></div>
+  </div></div>
+</div></div>
+<div class="frame desk"><span class="label">desktop · host</span><div class="screen">
+  <div class="hud"><span class="tt">MJRC standard · 東圈 · normal</span><span class="spacer"></span><button>pause</button><button>auto</button><button>settings</button><button class="btnQuit">quit</button></div>
+  <div class="tablearea"><div class="felt"></div></div>
+  <div class="veil" style="position:absolute;inset:0"><div class="panel modal">
+    <div class="mhead"><h2>Leave the table?</h2></div>
+    <div class="mbody">A bot plays your seat until you come back. Your seat and your tiles are kept — rejoin from Home or from the room page.</div>
+    <div class="mbody" style="padding-top:0"><b>end the table for everyone</b><br>You opened this table. Ending it stops the game for all four seats and shows the final standings — the hand in play is void.
+      <div style="margin-top:8px"><button class="ghost" style="border-color:var(--c-danger);color:var(--c-danger)">end it now</button></div></div>
+    <div class="mfoot"><button class="ghost">leave — a bot plays for me</button><span class="hint2">esc · stay</span><button class="primary">stay ▸</button></div>
+  </div></div>
+</div></div>
+</div></div>
+
+<div class="sec"><p class="cap">3 · /watch — the admin observer</p>
+<p class="note">Shell page, admin only. Four panels, one per seat: that seat's own view — hand (sorted), drawn tile set apart, melds, flowers, discards; the seat on turn is outlined. Header: round · hand · dealer · wall · last discard. Refreshes every 2 s. <code>/watch</code> without an id lists the live tables.</p>
+<div class="row2">
+<div class="frame desk"><span class="label">desktop · /watch/:id</span><div class="screen"><div class="shell">
+  <div class="top"><span class="badge">‹ watch</span><h2>Watch</h2></div>
+  <div class="card rowh"><b>MJRC standard</b><span class="mut">東圈 · hand 3 · 南 deals · wall 42 · last 西 threw <span class="t" style="display:inline-flex;width:18px;height:25px;font-size:9px;vertical-align:middle">7</span></span><small class="mut" style="margin-left:auto">room TVBHALL</small></div>
+  <div class="watchgrid">
+    <div class="card watchseat onturn"><div class="rowh"><b>東 augie</b><span class="mut">connected</span><span class="badge on" style="margin-left:auto">on turn</span></div>
+      <div class="wrow"><small>hand</small><div class="tiles"><span class="t">1</span><span class="t">1</span><span class="t">2</span><span class="t b">三</span><span class="t b">四</span><span class="t b">五</span><span class="t g">6</span><span class="t g">7</span><span class="t g">8</span><span class="t r">中</span><span class="t r">中</span><span class="t">東</span><span class="t">白</span><span class="t" style="margin-left:8px">9</span></div></div>
+      <div class="wrow"><small>discards</small><div class="tiles dis"><span class="t">北</span><span class="t g">1</span><span class="t b">九</span><span class="t">發</span></div></div></div>
+    <div class="card watchseat"><div class="rowh"><b>南 Jefferson Stewart</b><span class="mut">connected</span><span class="mut" style="margin-left:auto">+12</span></div>
+      <div class="wrow"><small>hand</small><div class="tiles"><span class="t">2</span><span class="t">3</span><span class="t">4</span><span class="t b">六</span><span class="t b">六</span><span class="t g">3</span><span class="t g">4</span><span class="t g">5</span><span class="t">西</span><span class="t">西</span></div></div>
+      <div class="wrow"><small>melds</small><div class="tiles"><span class="t r">中</span><span class="t r">中</span><span class="t r">中</span></div></div>
+      <div class="wrow"><small>discards</small><div class="tiles dis"><span class="t">1</span><span class="t">南</span><span class="t g">9</span></div></div></div>
+    <div class="card watchseat"><div class="rowh"><b>西 Wen</b><span class="mut">bot playing (away)</span><span class="mut" style="margin-left:auto">−8</span></div>
+      <div class="wrow"><small>hand</small><div class="tiles"><span class="t">5</span><span class="t">6</span><span class="t">7</span><span class="t b">一</span><span class="t b">二</span><span class="t b">三</span><span class="t g">2</span><span class="t g">2</span><span class="t g">2</span><span class="t">北</span><span class="t">北</span><span class="t">發</span><span class="t">發</span></div></div>
+      <div class="wrow"><small>discards</small><div class="tiles dis"><span class="t r">中</span><span class="t">東</span><span class="t b">八</span><span class="t g">7</span><span class="t">9</span></div></div></div>
+    <div class="card watchseat"><div class="rowh"><b>北 Bot · 阿強</b><span class="mut">bot</span><span class="mut" style="margin-left:auto">−4</span></div>
+      <div class="wrow"><small>hand</small><div class="tiles"><span class="t">3</span><span class="t">4</span><span class="t">5</span><span class="t b">七</span><span class="t b">八</span><span class="t b">九</span><span class="t g">1</span><span class="t g">1</span><span class="t">南</span><span class="t">南</span><span class="t">南</span><span class="t">白</span><span class="t">白</span></div></div>
+      <div class="wrow"><small>flowers</small><div class="tiles"><span class="t g">春</span></div></div>
+      <div class="wrow"><small>discards</small><div class="tiles dis"><span class="t">西</span><span class="t g">6</span><span class="t b">二</span></div></div></div>
+  </div>
+</div></div></div>
+</div></div>
+</body></html>

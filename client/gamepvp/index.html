@@ -15,14 +15,23 @@
      --tilegreen is the kit's third colour, kept here so the felt and the kit
      never drift apart. */
   --seal:#C1272D; --royal:#1845A5; --tilegreen:#1A8B3A;
-  /* CHROME tokens (gameplay-lab.html, dark set): the HUD, the rim, the tray
-     and the modal. "The felt is content, everything else is chrome" — these
-     never touch anything drawn on the felt. Dark set only for now; the
-     light set lands with the theme plumbing for #tableRoot. */
-  --c-bg:#1e1f1d; --c-panel:#2a2b29; --c-panel2:#363733; --c-line:#4a4b46; --c-ink:#f3efe4; --c-dim:#b3b0a5;
-  --c-blue:#9fbaf0; --c-on-blue:#1e1f1d; --c-danger:#e2857f;
+  /* CHROME tokens (gameplay-lab.html / shell/theme.css, same values): the
+     HUD, the rim, the tray and the modal. "The felt is content, everything
+     else is chrome" — these never touch anything drawn on the felt. Paper
+     by default, charcoal under the system dark scheme or the explicit
+     choice; the class rides on <html> (shell/session.ts applyTheme). */
+  --c-bg:#fffdf7; --c-panel:#f6f1e4; --c-panel2:#efeade; --c-line:#ddd6c4; --c-ink:#1a1a18; --c-dim:#777770;
+  --c-blue:#1845a5; --c-on-blue:#fff; --c-danger:#c1272d; --c-veil:rgba(26,26,24,.45);
   --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
 }
+@media (prefers-color-scheme: dark){
+  html:not(.theme-light){
+    --c-bg:#1e1f1d; --c-panel:#2a2b29; --c-panel2:#363733; --c-line:#4a4b46; --c-ink:#f3efe4; --c-dim:#b3b0a5;
+    --c-blue:#9fbaf0; --c-on-blue:#1e1f1d; --c-danger:#e2857f; --c-veil:rgba(0,0,0,.62)}
+}
+html.theme-dark{
+  --c-bg:#1e1f1d; --c-panel:#2a2b29; --c-panel2:#363733; --c-line:#4a4b46; --c-ink:#f3efe4; --c-dim:#b3b0a5;
+  --c-blue:#9fbaf0; --c-on-blue:#1e1f1d; --c-danger:#e2857f; --c-veil:rgba(0,0,0,.62)}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{height:100%;margin:0}
 body{background:var(--c-bg);
@@ -49,7 +58,7 @@ body{background:var(--c-bg);
 #hud button:hover{color:var(--c-ink);border-color:var(--c-dim)}
 #hud button.on{background:none;color:var(--c-ink);border-color:var(--c-ink)}
 #hud #btnQuit{border-color:var(--c-danger);color:var(--c-danger);padding:7px 18px;font-weight:600}
-#hud #btnQuit:hover{background:rgba(226,133,127,.12)}
+#hud #btnQuit:hover{background:color-mix(in srgb, var(--c-danger) 12%, transparent)}
 .panel textarea{width:100%;min-height:110px;padding:10px 12px;font:14px/1.45 inherit;
   border-radius:9px;background:rgba(255,255,255,.07);color:var(--ink);
   border:1px solid rgba(255,255,255,.18);resize:vertical}
@@ -261,10 +270,9 @@ body{background:var(--c-bg);
 /* Restores the DEFAULT order — the one the server/renderer already uses. Only
    rendered when the local arrangement actually differs from it, so it is not
    a permanent button the eye has to learn to ignore. */
-.handsort{flex:0 0 auto;align-self:center;margin-left:8px;
-  background:rgba(255,255,255,.07);color:var(--dim);border:1px solid rgba(255,255,255,.16);
-  border-radius:7px;padding:4px 9px;font:inherit;font-size:11px;letter-spacing:.03em;cursor:pointer}
-.handsort:hover{background:rgba(255,255,255,.14);color:var(--ink)}
+.handsort{flex:0 0 auto;align-self:center;margin-left:8px;font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;
+  padding:6px 11px;border-radius:20px;border:1px solid var(--c-line);background:none;color:var(--c-dim);cursor:pointer}
+.handsort:hover{color:var(--c-ink);border-color:var(--c-dim)}
 /* `backwards` + a delay is what makes a motion QUEUE: the tile sits at frame 0
    — invisible, out at the wall — until its turn comes, rather than appearing in
    place and then jumping. See ANIMATION-SEQUENCE.md. */
@@ -333,7 +341,9 @@ body{background:var(--c-bg);
           transform:scale(1)}
   50%    {box-shadow:0 7px 22px rgba(0,0,0,.5),  0 0 42px 2px rgba(255,210,63,.95);
           transform:scale(1.045)}}
-#actions .hint{color:var(--dim);font-size:13px}
+/* lab: mono caps, the instruction itself in ink */
+#actions .hint{color:var(--c-dim);font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase}
+#actions .hint b{color:var(--c-ink)}
 
 /* ── overlays ── */
 /* A PANEL TALLER THAN THE PHONE MUST SCROLL.
@@ -357,7 +367,7 @@ body{background:var(--c-bg);
    straight into one of those screens), so defaulting to visible was
    harmless; now the shell's own pages render behind it while nothing has
    claimed it, and a `flex` default painted an empty dark #panel over them. */
-.veil{position:fixed;inset:0;background:rgba(4,12,9,.82);display:none;
+.veil{position:fixed;inset:0;background:var(--c-veil);display:none;
   align-items:flex-start;justify-content:center;overflow-y:auto;
   -webkit-overflow-scrolling:touch;z-index:40;padding:16px}
 .panel{background:linear-gradient(180deg,#1b3a30,#12281f);border:1px solid rgba(216,181,106,.35);
@@ -681,9 +691,10 @@ body.devmode #mine{padding-top:2px}
 #dev .ce.good .g{background:#4ec97e}#dev .ce.ok .g{background:#e0bd6b}#dev .ce.bad .g{background:#e8685f}
 #dev .ce.good b{color:#8ae7ad}#dev .ce.ok b{color:#efd08c}#dev .ce.bad b{color:#ffa39b}
 #dev .ce .mut{margin-top:1px}
-#clockbar{height:3px;background:rgba(255,255,255,.07);flex:0 0 auto}
-#clock{height:100%;width:0;background:linear-gradient(90deg,var(--gold),#f0d9a0);transition:width .1s linear;border-radius:0 2px 2px 0}
-#clock.low{background:linear-gradient(90deg,var(--danger),#f0a98a)}
+/* lab: 3px flat blue on --c-panel2; seal red when low */
+#clockbar{height:3px;background:var(--c-panel2);flex:0 0 auto}
+#clock{height:100%;width:0;background:var(--c-blue);transition:width .1s linear;border-radius:0 2px 2px 0}
+#clock.low{background:var(--seal)}
 /* §8a-2 task item 4: sits where #clockbar's own 3px track would be, for the
  * two states that have no running clock to show there — untimed play (bare
  * "no clock"), and this seat's own auto-play after the 10-minute idle

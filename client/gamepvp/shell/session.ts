@@ -237,9 +237,14 @@ export function getThemeChoice(): ThemeChoice {
   return v === "light" || v === "dark" ? v : "system";
 }
 export function applyTheme(root: HTMLElement, choice: ThemeChoice): void {
-  root.classList.remove("theme-light", "theme-dark");
-  if (choice === "light") root.classList.add("theme-light");
-  else if (choice === "dark") root.classList.add("theme-dark");
+  // The table's CHROME (index.html's --c-* tokens: HUD, rim, tray, modal)
+  // follows the same choice, keyed on <html> since #tableRoot is a sibling
+  // of #shell, not a child (2026-09-03). The felt itself never changes.
+  for (const el of [root, document.documentElement]) {
+    el.classList.remove("theme-light", "theme-dark");
+    if (choice === "light") el.classList.add("theme-light");
+    else if (choice === "dark") el.classList.add("theme-dark");
+  }
 }
 export function setThemeChoice(root: HTMLElement, choice: ThemeChoice): void {
   localStorage.setItem(THEME_KEY, choice);
