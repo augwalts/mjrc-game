@@ -587,39 +587,65 @@ function whatIf(tile: TileId): string {
  * implementation, two ways in. */
 const closestTile = (t: EventTarget | null): HTMLElement | null =>
   (t as HTMLElement | null)?.closest?.(".tile") as HTMLElement | null;
+/** The tile the coach is currently reading, or null. Kept so a repeat
+ *  read of the same tile is a no-op and a read of a different tile SWAPS
+ *  the highlight rather than clearing and rebuilding it — every pile tile's
+ *  style hangs off `body.counting` and the `.samet` set, so a clear-then-
+ *  show is two whole-felt repaints, and with `mouseover`/`mouseout` firing
+ *  on every child boundary inside a tile's SVG that used to run several
+ *  times per pointer move. That was the strobe (owner, 2026-09-03). */
+let coachedEl: HTMLElement | null = null;
+function restoreWhatIfBar(): void {
+  const bar = document.getElementById("callbar");
+  if (bar?.dataset.saved) { bar.innerHTML = bar.dataset.saved; delete bar.dataset.saved; bar.classList.remove("whatif"); }
+}
 function showTileCoach(el: HTMLElement): void {
   if (!el.dataset.t) return;
+  if (el === coachedEl) return;
   const t = Number(el.dataset.t) as TileId;
+  const prev = coachedEl;
+  coachedEl = el;
   if (SETTINGS.hcCount) {
-    document.body.classList.add("counting");
-    for (const o of Array.from(document.querySelectorAll<HTMLElement>(`.tile[data-t="${t}"]`))) {
-      o.classList.add("samet");
+    if (Number(prev?.dataset.t) !== t) {
+      // add the new set first, then drop what is no longer in it — the body
+      // class is set once and never flips in between
+      const next = new Set(Array.from(document.querySelectorAll<HTMLElement>(`.tile[data-t="${t}"]`)));
+      for (const o of next) o.classList.add("samet");
+      for (const o of Array.from(document.querySelectorAll<HTMLElement>(".tile.samet"))) if (!next.has(o)) o.classList.remove("samet");
     }
+    document.body.classList.add("counting");
   }
   if (isDesktop() && SETTINGS.hcWhatIf && el.closest("#myhand") && !overlay) {
     const bar = document.getElementById("callbar");
     if (bar) { bar.dataset.saved ??= bar.innerHTML; bar.innerHTML = whatIf(t); bar.classList.add("whatif"); }
+  } else {
+    restoreWhatIfBar();
   }
 }
 function clearTileCoach(): void {
+  coachedEl = null;
   document.body.classList.remove("counting");
   for (const o of Array.from(document.querySelectorAll<HTMLElement>(".tile.samet"))) o.classList.remove("samet");
-  const bar = document.getElementById("callbar");
-  if (bar?.dataset.saved) { bar.innerHTML = bar.dataset.saved; delete bar.dataset.saved; bar.classList.remove("whatif"); }
+  restoreWhatIfBar();
 }
 /** What a HOVER/long-press release does, as opposed to what lowering a lifted
- *  tile does: it falls back to whatever tile is currently lifted. Without
- *  this, moving the mouse off a lifted tile on a desktop wipes the read the
- *  lift exists to show, one frame after the tap that raised it. */
+ *  tile does: it falls back to whatever tile is currently lifted — as a SWAP
+ *  (see `coachedEl`), never as a clear followed by a rebuild. */
 function clearTileCoachToLift(): void {
-  clearTileCoach();
-  if (liftedEl) showTileCoach(liftedEl);
+  if (liftedEl) showTileCoach(liftedEl); else clearTileCoach();
 }
 /** Hover for desktop, long-press for touch (task: "touch first" — nothing
  *  in the coach may be hover-only). Both funnel into the same show/clear. */
 function wireHover(): void {
   document.addEventListener("mouseover", (e) => { const el = closestTile(e.target); if (el) showTileCoach(el); });
-  document.addEventListener("mouseout", (e) => { if (closestTile(e.target)) clearTileCoachToLift(); });
+  document.addEventListener("mouseout", (e) => {
+    const el = closestTile(e.target);
+    if (!el) return;
+    // moving between two children of the SAME tile (its SVG's paths) fires
+    // this too — that is not leaving the tile, and must not touch the coach
+    if (closestTile(e.relatedTarget) === el) return;
+    clearTileCoachToLift();
+  });
   let pressTimer = 0;
   let pressed: HTMLElement | null = null;
   document.addEventListener("touchstart", (e) => {
@@ -668,7 +694,9 @@ function lowerTile(): void {
   paintTapHint();
 }
 function liftTile(el: HTMLElement): void {
-  lowerTile();
+  // not `lowerTile()` first: that clears the coach, and the show below would
+  // rebuild it — one more whole-felt flip per tap
+  if (liftedEl && liftedEl !== el) liftedEl.classList.remove("lifted");
   liftedEl = el;
   el.classList.add("lifted");
   showTileCoach(el);
@@ -2197,6 +2225,13 @@ function render(): void {
     // change that rebuilds this markup (a draw, a discard, a claim, a
     // rearrange) also invalidates the lift, so this is a drop, not a loss.
     if (liftedEl && !$("myhand").contains(liftedEl)) { liftedEl = null; clearTileCoach(); }
+    // The coach's read survives a rebuild the same way: its tile either
+    // still exists (re-run the read so the fresh `.tile` nodes get their
+    // `.samet` back) or is gone (fall back to the lift, or to nothing).
+    if (coachedEl) {
+      const el = coachedEl; coachedEl = null;
+      if (document.contains(el)) showTileCoach(el); else clearTileCoachToLift();
+    }
     // Same for a drag in flight (build item 4): a rebuild while a finger is
     // down — a draw landing because the turn came round mid-drag — detaches
     // the node being dragged and every slot rect measured against it, so the

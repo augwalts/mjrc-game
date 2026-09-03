@@ -378,7 +378,8 @@ body{background:radial-gradient(ellipse at 50% 30%, #1e1b17 0%, #131110 55%, #0a
 
    Nothing here touches `transform`: pile tiles carry an inline transform with
    their rotation, so a scale in a class would be silently overridden. */
-body.counting .tile:not(.samet){opacity:.9;filter:saturate(.85)}
+/* opacity only — a `filter` here re-rasterises every pile tile on each flip */
+body.counting .tile:not(.samet){opacity:.9}
 body.counting #wall .wt{opacity:.85}
 /* THE TILE GLOWS. Not a halo painted around it — the tile itself reads as lit:
    a hot yellow edge, a warm wash across the face, and light spilling a short
