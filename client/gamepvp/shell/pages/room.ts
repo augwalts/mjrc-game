@@ -13,7 +13,7 @@ import { mountNewTableModal } from "./newtable.js";
 
 const ADMIN_KEY_PREFIX = "mjrc.gamepvp.roomAdmin.";
 
-function tableRow(tb: LobbyTable): string {
+export function tableRow(tb: LobbyTable): string {
   const filled = tb.seats.filter((s) => s.kind === "bot" || s.connected).length;
   // A seat that is mine at a table still running is a REJOIN, whatever the
   // table's status: the server keeps the seat (a bot plays it meanwhile) and

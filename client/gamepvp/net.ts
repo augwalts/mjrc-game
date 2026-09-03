@@ -477,6 +477,8 @@ export interface LobbyTable {
    *  display name. The lobby screen resolves a name from `seats` instead. */
   createdBy: string;
   startedAt: number;
+  /** The room the table was opened in, or null for one opened from Home. */
+  roomCode?: string | null;
   /** Optional display name the creator gave the TABLE (owner request
    *  2026-09-04, schema.sql `matches.name`) — distinct from `createdBy`
    *  above, which is a player id. Null/absent means no name was set. */

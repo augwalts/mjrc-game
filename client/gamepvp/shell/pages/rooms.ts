@@ -2,7 +2,9 @@
  * Rooms — search-or-code field, Open hall pinned first, Starred, All
  * (task brief §11 build item 2; lobby-lab.html's Rooms page).
  */
-import { getMyRooms, joinRoom, starRoom, unstarRoom, type RoomSummary } from "../../net.js";
+import { getLobby, getMyRooms, joinRoom, joinTable, starRoom, unstarRoom, type LobbyTable, type RoomSummary } from "../../net.js";
+import { connectToMatch } from "../../table.js";
+import { tableRow } from "./room.js";
 import { ruleLabel, matchFormatLabel } from "../../table.js";
 import type { PageMount } from "../router.js";
 import { describeError, esc, identity } from "../session.js";
@@ -26,8 +28,22 @@ function roomRow(r: RoomSummary): string {
 
 export const mount: PageMount = (container, _params, router) => {
   let alive = true;
+  /* Tables are hard to find (owner, 2026-09-03): the global lobby's live
+   * tables — every room's, and the ones opened from Home with no room — sit
+   * above the rooms, with the same Sit / Rejoin row the room page draws. */
+  let liveTables: LobbyTable[] | null = null;
+  let lastRooms: RoomSummary[] | null = null;
+  let lastErr: string | null = null;
+  const sitDown = async (joinCode: string): Promise<void> => {
+    if (!identity) return;
+    try {
+      const r = await joinTable(identity.deviceToken, joinCode);
+      connectToMatch({ matchUuid: r.matchUuid, joinCode, seat: r.seat, seatToken: r.seatToken, rulesetId: r.rulesetId, matchFormat: r.matchFormat });
+    } catch (e) { paint(lastRooms, String(e)); }
+  };
   const paint = (rooms: RoomSummary[] | null, err: string | null): void => {
     if (!alive) return;
+    lastRooms = rooms; lastErr = err;
     // The Open hall is pinned first, once: the API's row when it has one (it carries the live counts),
     // the local placeholder until then. It never appears again under All.
     const fromApi = (rooms ?? []).find((r) => r.code === OPEN_HALL_CODE);
@@ -41,6 +57,9 @@ export const mount: PageMount = (container, _params, router) => {
         <input id="roomSearch" placeholder="${esc(t(S.searchOrCode))}" style="flex:1">
         <button class="sit" id="roomGo">${esc(t(S.go))}</button>
       </div>
+      <div class="sec">${esc(t(S.liveTables))} · <span id="liveN">${liveTables ? liveTables.length : "…"}</span></div>
+      <div class="card tables" id="liveTables">${liveTables === null ? `<p class="empty">${esc(t(S.loading))}</p>`
+        : liveTables.length > 0 ? liveTables.map(tableRow).join("") : `<p class="empty">${esc(t(S.noLiveTables))}</p>`}</div>
       <div class="sec">${esc(t(S.starred))}</div>
       <div class="card rooms">${starred.map(roomRow).join("")}</div>
       ${rest.length > 0 ? `<div class="sec">${esc(t(S.allRooms(rest.length)))}</div><div class="card rooms">${rest.map(roomRow).join("")}</div>` : ""}
@@ -48,6 +67,9 @@ export const mount: PageMount = (container, _params, router) => {
       <a class="more" id="roomCreate">${esc(t(S.createRoom))}</a>
       ${navHtml("/rooms")}`;
     wireNav(container, router);
+    for (const el of Array.from(container.querySelectorAll<HTMLElement>("[data-sit]"))) {
+      el.onclick = () => void sitDown(el.dataset.sit!);
+    }
     for (const el of Array.from(container.querySelectorAll<HTMLElement>("[data-star]"))) {
       el.onclick = async (e) => {
         e.preventDefault(); e.stopPropagation();
@@ -68,6 +90,10 @@ export const mount: PageMount = (container, _params, router) => {
     document.getElementById("roomCreate")!.addEventListener("click", (e) => { e.preventDefault(); void createRoomFlow(router); });
   };
   paint(null, null);
+  void getLobby(identity?.deviceToken ?? "").then((lobby) => {
+    liveTables = lobby.tables.filter((tb) => tb.lobbyStatus !== "done");
+    if (alive) paint(lastRooms, lastErr);
+  }).catch(() => { liveTables = []; if (alive) paint(lastRooms, lastErr); });
   void getMyRooms(identity?.deviceToken ?? "").then((rooms) => { if (alive) paint(rooms, null); })
     .catch(() => { if (alive) paint([], null); });
   return () => { alive = false; };

@@ -60,6 +60,8 @@ export const S = {
   admin: s("Admin", "管理"),
   here: s("Here", "在場"),
   tables: s("Tables", "枱"),
+  liveTables: s("Live tables", "進行中嘅枱"),
+  noLiveTables: s("no live tables — open one from a room, or Play now on Home", "暫時冇枱 — 喺房間開一枱，或者喺主頁撳「即刻玩」"),
 
   /* players (players-lab.html round 3) */
   filterOnline: s("Online", "在線"),
