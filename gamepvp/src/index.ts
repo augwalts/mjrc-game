@@ -388,7 +388,7 @@ function tableSocket(request: Request, env: Env, matchId: string): Promise<Respo
 
 /* ── the SPA's real URL paths (§11.3) ────────────────────────────────────── */
 
-const SPA_ROUTE_PREFIXES = new Set(["rooms", "friends", "stats", "games", "players", "messages", "me"]);
+const SPA_ROUTE_PREFIXES = new Set(["rooms", "friends", "stats", "games", "players", "messages", "me", "signin", "signup"]);
 
 /** A dotted final segment means a real file (`/game.js`, `/favicon.ico`) —
  *  the one cheap signal that distinguishes a page navigation from an asset
