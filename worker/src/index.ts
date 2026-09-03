@@ -2421,7 +2421,7 @@ async function getStatsHistograms(url: URL, p: Platform, caller: PlayerRow): Pro
     handType: [...handTypeAgg.entries()].map(([id, v]) => ({
       id,
       count: v.count,
-      avgFan: v.faanSum / v.count,
+      avgFan: Math.round((v.faanSum / v.count) * 10) / 10,
       points: v.pointsSum,
     })),
     seatByRound,

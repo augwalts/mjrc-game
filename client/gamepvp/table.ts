@@ -2560,7 +2560,7 @@ async function sendTableChatPhrase(phrase: ChatPhrase): Promise<void> {
   catch (e) { flashHudNote(e instanceof RequestRejected ? (REJECT_NOTES[e.code] ?? e.code) : "message not sent"); }
 }
 /** Wired exactly once at boot (the drawer's HTML is static furniture, not
- *  rebuilt per screen/match) — mirrors how `#btnFeedback`/`#btnSettings`/
+ *  rebuilt per screen/match) — mirrors how `#btnSettings`/
  *  `#btnQuit` are wired at the bottom of this file. */
 function wireChatDrawer(): void {
   const phrases = document.getElementById("chatPhrases");
@@ -2868,31 +2868,13 @@ function settingsScreen(back: () => void): void {
   };
 }
 
-/** Feedback used to be a text report POSTed to a Solo-only endpoint. There is
- *  no such endpoint here — instead this copies a small diagnostic blob to the
- *  clipboard (match id, seat, last seq folded in, last 8 feed lines) so a
- *  tester can paste it into wherever they are actually filing the report. */
-async function copyDiagnostic(): Promise<void> {
-  const blob = {
-    matchUuid: currentMatchUuid, seat: mySeat, lastSeq, feed: feed.slice(-8),
-    ua: navigator.userAgent, at: new Date().toISOString(),
-  };
-  try {
-    await navigator.clipboard.writeText(JSON.stringify(blob, null, 2));
-    flashHudNote("diagnostic copied — paste it into your report");
-  } catch {
-    flashHudNote("could not copy — clipboard blocked");
-  }
-}
-
 /** Wires the HUD chrome that is always present regardless of shell/table —
- *  feedback, pause, auto, settings, quit — plus the hover coach and the chat
+ *  pause, auto, settings, quit — plus the hover coach and the chat
  *  drawer. Called exactly once by the bootstrap (game.ts), after
  *  `setHostHooks()`, mirroring the top-level wiring the old `game.ts` used to
  *  run at import time; pulled into a function so import order no longer
  *  matters. */
 export function initTableChrome(): void {
-  (document.getElementById("btnFeedback") as HTMLButtonElement).onclick = () => void copyDiagnostic();
   /** A Pause button in the HUD, alongside Quit — while paused, `paused` (set
    *  from the `paused` broadcast/welcome/restore) drives its own full-table
    *  veil with the actual Resume button (`showPausedScreen`); this one only

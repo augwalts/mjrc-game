@@ -113,7 +113,7 @@ function handTypeHtml(hist: StatsHistograms | null): string {
   // "2 · avg 1 fan" (owner, 2026-09-03).
   const rows = [...hist.handType].sort((a, b) => b.count - a.count);
   return `<table class="lb"><tr><th>hand</th><th>wins</th><th>avg fan</th></tr>${
-    rows.map((h) => `<tr><td>${esc(AWARDS[h.id] ?? h.id)}</td><td>${h.count}</td><td>${h.avgFan}</td></tr>`).join("")
+    rows.map((h) => `<tr><td>${esc(AWARDS[h.id] ?? h.id)}</td><td>${h.count}</td><td>${Number(h.avgFan).toFixed(1)}</td></tr>`).join("")
   }</table>`;
 }
 function feedsHtml(hist: StatsHistograms | null): string {
