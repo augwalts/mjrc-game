@@ -10,8 +10,7 @@
 import { refreshTableIfLive } from "../../table.js";
 import type { PageMount } from "../router.js";
 import {
-  esc, identity, saveSettings, SETTINGS, applyTheme, getThemeChoice, setThemeChoice, type ThemeChoice,
-} from "../session.js";
+  esc, identity, saveSettings, SETTINGS, applyTheme, getThemeChoice, setThemeChoice, type ThemeChoice, TILE_SCALE_MAX, TILE_SCALE_MIN } from "../session.js";
 import { S, t } from "../strings.js";
 import { navHtml, pageTop, wireNav } from "../ui.js";
 
@@ -27,8 +26,9 @@ export const mount: PageMount = (container, _params, router) => {
       ${pageTop(t(S.titleSettings), { back: "/me", displayName: identity?.displayName ?? "", unread: 0 })}
       <div class="card">
         <div class="listrow"><span>${esc(t(S.tileSize))}</span>
-          <input type="range" id="setScale" min="0.8" max="2" step="0.05" value="${SETTINGS.tileScale}">
-          <b id="setScaleV">${Math.round(SETTINGS.tileScale * 100)}%</b></div>
+          <input type="range" id="setScale" min="${TILE_SCALE_MIN}" max="${TILE_SCALE_MAX}" step="0.05" value="${SETTINGS.tileScale}">
+          <b id="setScaleV">${Math.round(SETTINGS.tileScale * 100)}%</b>
+          <a href="#" id="setScaleReset" class="mut">reset</a></div>
         <div class="listrow"><span>${esc(t(S.sound))}</span>${switchHtml(SETTINGS.sound, "sound")}</div>
         <div class="listrow"><span>${esc(t(S.haptics))}</span>${switchHtml(SETTINGS.haptics, "haptics")}</div>
         <div class="listrow"><span>${esc(t(S.countTilesOnTap))}</span>${switchHtml(SETTINGS.hcCount, "hcCount")}</div>
@@ -52,6 +52,11 @@ export const mount: PageMount = (container, _params, router) => {
       SETTINGS.tileScale = Number(scale.value);
       document.getElementById("setScaleV")!.textContent = `${Math.round(SETTINGS.tileScale * 100)}%`;
       saveSettings(); refreshTableIfLive();
+    };
+    document.getElementById("setScaleReset")!.onclick = (e) => {
+      e.preventDefault();
+      scale.value = "1";
+      scale.oninput!(new Event("input"));
     };
     for (const el of Array.from(container.querySelectorAll<HTMLElement>("[data-toggle]"))) {
       el.onclick = () => {

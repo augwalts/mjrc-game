@@ -186,10 +186,15 @@ body{background:radial-gradient(ellipse at 50% 30%, #1e1b17 0%, #131110 55%, #0a
   z-index:30}
 
 /* ── tiles ── */
-/* Tiles are the site's own SVG art. One scale knob: --tscale (settings). */
+/* Tiles are the site's own SVG art. The settings' scale knob (--tscale) is
+   YOUR OWN HAND ONLY — see #myhand .tile. It used to sit on this base rule,
+   so one slider grew every seat, the pile and the wall on the player's own
+   screen, which read as "it changed for everyone" and at 200% pushed the
+   chrome around (owner, 2026-09-03). The pile packs itself (--pileth) and
+   the opponents' tiles are information, not something to enlarge. */
 :root{--th:44px}
-.tile{display:inline-block;height:calc(var(--th) * var(--tscale,1));
-  width:calc(var(--th) * var(--tscale,1) * 0.714);
+.tile{display:inline-block;height:var(--th);
+  width:calc(var(--th) * 0.714);
   border-radius:5px;box-shadow:0 1px 0 #b8ad93,0 2px 5px rgba(0,0,0,.35);
   background:#FAFAF8;user-select:none;overflow:hidden;line-height:0;flex:0 0 auto}
 .tile svg{width:100%;height:100%;display:block}
@@ -212,7 +217,7 @@ body{background:radial-gradient(ellipse at 50% 30%, #1e1b17 0%, #131110 55%, #0a
    It is set on the TILES, not the row, so the page can still be panned by
    dragging the gap between them. */
 #myhand{display:flex;gap:5px;justify-content:center;align-items:flex-end;min-height:62px;flex-wrap:wrap}
-#myhand .tile{--th:86px;cursor:pointer;transition:transform .12s,box-shadow .12s;touch-action:none}
+#myhand .tile{--th:calc(86px * var(--tscale,1));cursor:pointer;transition:transform .12s,box-shadow .12s;touch-action:none}
 #myhand .tile:hover{transform:translateY(-9px);box-shadow:0 6px 14px rgba(0,0,0,.45)}
 /* ── LIFTED (build item 3) ─────────────────────────────────────────────
  * Double tap to discard, on by default: the first tap LIFTS a tile out of the
@@ -929,7 +934,7 @@ body.devmode #mine{padding-top:2px}
      fits that — so the surplus gets pushed out of the heap and buries the
      bots' melds. Sizing through --th leaves #pile's own rule in charge. The
      numbers are unchanged: --th * 0.714 is the same 32 and 24. */
-  #myhand .tile{--th:44px}#myhand .tile .g{font-size:21px}
+  #myhand .tile{--th:calc(44px * var(--tscale,1))}#myhand .tile .g{font-size:21px}
   .tile{--th:33px}.tile .g{font-size:16px}
   #centre{width:60vw}
   /* The running commentary is the only thing that may go: state and seat
@@ -956,11 +961,11 @@ body.devmode #mine{padding-top:2px}
      swapped — and the face turns about the centre inside it, so the flow
      layout and the picture agree and nothing needs nudging back into place */
   .seat.e .meldrow .tile,.seat.w .meldrow .tile{
-    --tw:calc(var(--th) * var(--tscale,1) * .714);
-    width:calc(var(--th) * var(--tscale,1));height:var(--tw);position:relative}
+    --tw:calc(var(--th) * .714);
+    width:var(--th);height:var(--tw);position:relative}
   .seat.e .meldrow .tile svg,.seat.w .meldrow .tile svg{
     position:absolute;left:50%;top:50%;
-    width:var(--tw);height:calc(var(--th) * var(--tscale,1))}
+    width:var(--tw);height:var(--th)}
   .seat.e .meldrow .tile svg{transform:translate(-50%,-50%) rotate(-90deg)}
   .seat.w .meldrow .tile svg{transform:translate(-50%,-50%) rotate(90deg)}
   .seat.n .meldrow .tile svg{transform:rotate(180deg)}

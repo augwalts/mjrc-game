@@ -58,8 +58,7 @@ import {
 } from "./net.js";
 import {
   $, describeError, esc, fmtChips, identity, mutedSet, wireMuteTaps,
-  SETTINGS, saveSettings,
-} from "./shell/session.js";
+  SETTINGS, saveSettings, TILE_SCALE_MAX, TILE_SCALE_MIN } from "./shell/session.js";
 /** The one addition to the "table.ts imports nothing under shell/ except
  *  session.ts" rule in the header above: `strings.ts` is a leaf (it imports
  *  session.ts and nothing else), so this adds no cycle — shell/pages → table
@@ -2076,7 +2075,7 @@ function render(): void {
   // #call is a sibling of #centre, so it never inherits #pile's own variable.
   document.documentElement.style.setProperty("--pileth", `${pileTh}px`);
   const probe = pileEl.querySelector<HTMLElement>(".tile");
-  const th = probe?.offsetHeight || 36 * SETTINGS.tileScale;
+  const th = probe?.offsetHeight || 36;
   const tw = probe?.offsetWidth || th * 0.714;
   const jr = prng((decorSeed() ^ 0x51ed) >>> 0);
   pileTiles.forEach((d) => {
@@ -2858,8 +2857,9 @@ function settingsScreen(back: () => void): void {
     <h1>Settings</h1>
     <h2 style="margin-top:14px">Table</h2>
     <div class="setrow"><label>Tile size</label>
-      <input type="range" id="setScale" min="0.8" max="2" step="0.05" value="${SETTINGS.tileScale}">
-      <span id="setScaleV">${Math.round(SETTINGS.tileScale * 100)}%</span></div>
+      <input type="range" id="setScale" min="${TILE_SCALE_MIN}" max="${TILE_SCALE_MAX}" step="0.05" value="${SETTINGS.tileScale}">
+      <span id="setScaleV">${Math.round(SETTINGS.tileScale * 100)}%</span>
+      <a href="#" id="setScaleReset" class="mut">reset</a></div>
     <div class="setrow"><label>${esc(t(S.doubleTapDiscardDesktop))}</label>
       <input type="checkbox" id="ddtDesktop" ${SETTINGS.discardDoubleTapDesktop ? "checked" : ""}>
       <span class="mut">first click lifts the tile and reads it, second click on the same
@@ -2888,6 +2888,11 @@ function settingsScreen(back: () => void): void {
     <button id="btnBack">done ▸</button>`;
   const sc = document.getElementById("setScale") as HTMLInputElement;
   sc.oninput = () => { SETTINGS.tileScale = Number(sc.value); $("setScaleV").textContent = `${Math.round(SETTINGS.tileScale * 100)}%`; saveSettings(); if (snap) render(); };
+  (document.getElementById("setScaleReset") as HTMLElement).onclick = (e) => { e.preventDefault(); sc.value = "1"; sc.oninput!(new Event("input")); };
+  // Esc closes the panel — the one way out that cannot be under anything.
+  const onKey = (e: KeyboardEvent): void => { if (e.key === "Escape") { e.preventDefault(); close(); } };
+  const close = (): void => { document.removeEventListener("keydown", onKey); $("veil").style.display = "none"; back(); };
+  document.addEventListener("keydown", onKey);
   const dv = document.getElementById("setDev") as HTMLInputElement;
   dv.onchange = () => { SETTINGS.dev = dv.checked; saveSettings(); if (snap) render(); };
   for (const [id, key] of [
@@ -2897,9 +2902,9 @@ function settingsScreen(back: () => void): void {
     const box = document.getElementById(id) as HTMLInputElement | null;
     if (box) box.onchange = () => { (SETTINGS as never as Record<string, boolean>)[key] = box.checked; saveSettings(); if (snap) render(); };
   }
-  (document.getElementById("btnBack") as HTMLButtonElement).onclick = () => { $("veil").style.display = "none"; back(); };
+  (document.getElementById("btnBack") as HTMLButtonElement).onclick = () => close();
   (document.getElementById("fullSettings") as HTMLElement).onclick = (e) => {
-    e.preventDefault(); $("veil").style.display = "none"; back(); hostHooks.goToSettings();
+    e.preventDefault(); close(); hostHooks.goToSettings();
   };
 }
 

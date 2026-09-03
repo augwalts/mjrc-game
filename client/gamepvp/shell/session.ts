@@ -193,12 +193,21 @@ export interface Settings {
    *  second tap costs nothing. */
   discardDoubleTapDesktop: boolean; discardDoubleTapMobile: boolean;
 }
+/** The tile-size slider's range. 2.0 used to be allowed; at that size a
+ *  14-tile hand is wider than an iPad and the row wraps into the table.
+ *  A stored value outside the range is clamped on load, so a device that
+ *  was already stuck comes back at the cap. */
+export const TILE_SCALE_MIN = 0.8;
+export const TILE_SCALE_MAX = 1.5;
+export const clampTileScale = (v: unknown): number =>
+  Math.min(TILE_SCALE_MAX, Math.max(TILE_SCALE_MIN, Number(v) || 1));
 export const SETTINGS: Settings = {
   tileScale: 1, dev: false, hcCount: true, hcCalling: false, hcWhatIf: false,
   sound: true, haptics: true, coaching: true, language: "en",
   discardDoubleTapDesktop: true, discardDoubleTapMobile: true,
   ...JSON.parse(localStorage.getItem("mjrc.gamepvp.settings") ?? "{}"),
 };
+SETTINGS.tileScale = clampTileScale(SETTINGS.tileScale);
 /** Saved settings are spread OVER the defaults above, so changing a default
  *  reaches new devices only — see the historical `hcCountDefaulted`
  *  migration this ported from game.ts. */
@@ -208,6 +217,7 @@ if (localStorage.getItem("mjrc.gamepvp.hcCountDefaulted") === null) {
   localStorage.setItem("mjrc.gamepvp.settings", JSON.stringify(SETTINGS));
 }
 export const saveSettings = (): void => {
+  SETTINGS.tileScale = clampTileScale(SETTINGS.tileScale);
   localStorage.setItem("mjrc.gamepvp.settings", JSON.stringify(SETTINGS));
   document.documentElement.style.setProperty("--tscale", String(SETTINGS.tileScale));
   document.body.classList.toggle("devmode", SETTINGS.dev);
