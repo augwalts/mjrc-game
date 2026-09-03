@@ -34,7 +34,9 @@ export const mount: PageMount = (container, _params, router) => {
     container.innerHTML = `
       ${pageTop(t(S.titleMessages), { displayName: identity?.displayName ?? "", unread: items.filter((i) => i.unread).length })}
       ${filterRow([t(S.filterAll), t(S.filterInvites), t(S.titleRooms), t(S.filterResults)], filter)}
-      <div class="card">${shown.length === 0 ? `<p class="empty">${esc(t(S.nothingHere))}</p>` : shown.map(row).join("")}</div>
+      <div class="card">${items.length === 0
+        ? `<div class="welcome"><b>${esc(t(S.inboxWelcomeTitle))}</b><p class="mut">${esc(t(S.inboxWelcome))}</p></div>`
+        : shown.length === 0 ? `<p class="empty">${esc(t(S.nothingHere))}</p>` : shown.map(row).join("")}</div>
       ${navHtml("/")}`;
     wireNav(container, router);
     for (const el of Array.from(container.querySelectorAll<HTMLElement>(".tabs button"))) el.onclick = () => { filter = el.textContent ?? "All"; paint(); };

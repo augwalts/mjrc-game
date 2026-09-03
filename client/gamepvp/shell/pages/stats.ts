@@ -10,7 +10,7 @@ import {
   type CasualLeaderboardEntry, type LeaderboardMode, type MatchListItem,
   type RankedLeaderboardEntry, type StatsHistograms, type StatsScope, type StatsSeries, type StatsRecordRow,
 } from "../../net.js";
-import { RULE_PICKS, ruleLabel } from "../../table.js";
+import { AWARDS, RULE_PICKS, ruleLabel } from "../../table.js";
 import { chartTokens, lineChartSvg, progressionSvg } from "../charts.js";
 import type { PageMount } from "../router.js";
 import { esc, fmtChips, identity } from "../session.js";
@@ -74,7 +74,13 @@ function handSizesHtml(hist: StatsHistograms | null): string {
 }
 function handTypeHtml(hist: StatsHistograms | null): string {
   if (!hist || hist.handType.length === 0) return `<p class="empty">${esc(t(S.nothingHere))}</p>`;
-  return hist.handType.map((h) => `<div class="row"><span>${esc(h.id)}</span><b style="margin-left:auto">${h.count} · avg ${h.avgFan} fan</b></div>`).join("");
+  // Human-readable names (table.ts's AWARDS: "對對糊 All Pungs"), never the
+  // pattern id; most-won first; one column per number so nothing reads as
+  // "2 · avg 1 fan" (owner, 2026-09-03).
+  const rows = [...hist.handType].sort((a, b) => b.count - a.count);
+  return `<table class="lb"><tr><th>hand</th><th>wins</th><th>avg fan</th></tr>${
+    rows.map((h) => `<tr><td>${esc(AWARDS[h.id] ?? h.id)}</td><td>${h.count}</td><td>${h.avgFan}</td></tr>`).join("")
+  }</table>`;
 }
 function feedsHtml(hist: StatsHistograms | null): string {
   if (!hist) return `<p class="empty">${esc(t(S.nothingHere))}</p>`;

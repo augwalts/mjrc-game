@@ -138,6 +138,10 @@ export const S = {
   off: s("off", "關"),
 
   /* misc */
+  comingSoon: s("Creating rooms is coming soon — the admin is still building this. For now, ask for a room code to join one.", "建立房間功能即將推出，管理員仍在製作中。暫時請向朋友索取房間代碼加入。"),
+  inboxWelcomeTitle: s("Welcome to MJRC 麻雀研究社", "歡迎來到麻雀研究社"),
+  inboxWelcome: s("Invites to sit down, room news, game results and direct messages all land here. Play a game and your first result will show up.", "入座邀請、房間消息、對局結果和私人訊息都會在這裡出現。打一局，你的第一個結果就會出現。"),
+  close: s("close", "關閉"),
   loading: s("loading…", "載入中…"),
   nothingHere: s("nothing here yet", "暫時未有內容"),
   couldNotReach: s("could not reach the server", "無法連線至伺服器"),

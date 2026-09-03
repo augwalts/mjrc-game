@@ -73,20 +73,11 @@ export const mount: PageMount = (container, _params, router) => {
   return () => { alive = false; };
 };
 
-/** A minimal create-room prompt (§8b: `name`/`rulesetId`/`matchFormat`/
- *  `adminCode`) — a full picker for this belongs with New table's own
- *  ruleset/length UI; kept to three `prompt()`s for now since rooms are
- *  still landing server-side and this is reachable, not the primary flow. */
-async function createRoomFlow(router: { navigate(p: string): void }): Promise<void> {
-  const name = window.prompt("Room name?");
-  if (!name) return;
-  const adminCode = window.prompt("Pick an admin code (you'll need this to manage the room):");
-  if (!adminCode) return;
-  try {
-    const { createRoom } = await import("../../net.js");
-    const r = await createRoom(identity?.deviceToken ?? "", { name, rulesetId: "mjrc-standard", matchFormat: "east", adminCode });
-    router.navigate(`/rooms/${r.code}`);
-  } catch (e) {
-    window.alert(describeError(e));
-  }
+/** Creating a room has no UI yet (owner, 2026-09-03: "for now just popup and
+ *  say admin is working on this feature"). The API (`POST /api/rooms`, §8b)
+ *  exists and is exercised by the headless smoke; the form — name, ruleset,
+ *  length, speed, admin code — belongs with New table's own pickers and
+ *  lands with the fuller Rooms create form on the features list. */
+async function createRoomFlow(_router: { navigate(p: string): void }): Promise<void> {
+  window.alert(t(S.comingSoon));
 }

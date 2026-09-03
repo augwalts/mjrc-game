@@ -18,17 +18,53 @@ import {
   DEFAULT_BOT_LINEUP, RULE_PICKS, SPEED_INFO, WIND_CH,
   connectToMatch, loadBotCatalogue,
 } from "../../table.js";
-import { $, describeError, esc, identity } from "../session.js";
+import { describeError, esc, identity } from "../session.js";
+import { S, t } from "../strings.js";
 
 const OPEN_HALL_CODE = "OPEN";
 
-/* ── shared veil plumbing (mirrors table.ts's own beforeScreen/backRow) ── */
+/* ── shell modal plumbing ─────────────────────────────────────────────────
+ * These two modals used to paint into the table's own `#veil`/`#panel`
+ * (dark felt, gold, a grey "back" at the bottom) — the one screen the
+ * shell rebuild left alone, and it showed (owner, 2026-09-03: "table
+ * config page is using the old uiux and colors… no option to hit esc or an
+ * x in the corner"). They now mount their own overlay INSIDE `#shell`, so
+ * every shell token and theme (paper/charcoal) applies for free, with an
+ * `×` in the corner, Esc, and a click on the dim backdrop all closing it.
+ * table.ts's own `#panel` screens (waiting room, hand end, settings) are
+ * untouched — those belong to the felt. */
+const VEIL_ID = "shellVeil";
+const PANEL_ID = "shellPanel";
+const panel = (): HTMLElement => document.getElementById(PANEL_ID)!;
+let escHandler: ((e: KeyboardEvent) => void) | null = null;
 function openVeil(): void {
-  $("veil").style.display = "flex";
-  $("panel").classList.remove("about", "lobby3");
+  let veil = document.getElementById(VEIL_ID);
+  if (!veil) {
+    veil = document.createElement("div");
+    veil.id = VEIL_ID;
+    veil.className = "shellveil";
+    veil.innerHTML = `<div class="shellpanel" id="${PANEL_ID}"></div>`;
+    (document.getElementById("shell") ?? document.body).appendChild(veil);
+    const v = veil;
+    v.addEventListener("click", (e) => { if (e.target === v) closeVeil(); });
+  }
+  veil.style.display = "flex";
+  if (!escHandler) {
+    escHandler = (e) => { if (e.key === "Escape") closeVeil(); };
+    document.addEventListener("keydown", escHandler);
+  }
 }
 function closeVeil(): void {
-  $("veil").style.display = "none";
+  const veil = document.getElementById(VEIL_ID);
+  if (veil) veil.style.display = "none";
+  if (escHandler) { document.removeEventListener("keydown", escHandler); escHandler = null; }
+}
+function closeButton(): string {
+  return `<button class="mclose" id="mClose" aria-label="${esc(t(S.close))}" title="${esc(t(S.close))} · Esc">×</button>`;
+}
+function wireClose(): void {
+  const b = document.getElementById("mClose");
+  if (b) (b as HTMLButtonElement).onclick = () => closeVeil();
 }
 /** Navigate the shell without needing a `Router` handed all the way down
  *  here — pushes the URL, then re-fires `popstate`, which is exactly what
@@ -37,14 +73,6 @@ function navigateShell(path: string): void {
   history.pushState(null, "", path);
   window.dispatchEvent(new PopStateEvent("popstate"));
 }
-function backButton(): string {
-  return `<button id="mBack" style="margin-left:8px;background:rgba(255,255,255,.08)">◂ back</button>`;
-}
-function wireBackButton(onClick: () => void): void {
-  const b = document.getElementById("mBack");
-  if (b) (b as HTMLButtonElement).onclick = onClick;
-}
-
 /* ── New table ─────────────────────────────────────────────────────────── */
 
 interface SeatDraft { kind: "human" | "bot"; bot: string; }
@@ -103,7 +131,7 @@ function roomPickerHtml(): string {
     ...myRooms.map((r) => `<option value="${esc(r.code)}" ${draft.roomCode === r.code ? "selected" : ""}>${esc(r.name)}</option>`),
   ];
   return `<h2>Room</h2>
-    <div class="setrow"><select id="roomPick" style="flex:1;padding:9px 12px;border-radius:9px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.18);color:var(--ink)">${opts.join("")}</select></div>
+    <div class="setrow"><select id="roomPick">${opts.join("")}</select></div>
     ${draft.roomLocked ? `<p class="segcap">This room fixes its own rules and length — its pickers below are hidden.</p>` : ""}`;
 }
 
@@ -123,8 +151,9 @@ function paint(): void {
   if (!draft.speedManual) draft.speed = defaultSpeedFor(humanSeatCount());
   const ranked = draft.mode === "ranked";
   const locked = draft.roomLocked;
-  $("panel").innerHTML = `
+  panel().innerHTML = `
     <h1>New table</h1>
+    ${closeButton()}
     ${roomPickerHtml()}
     ${locked ? "" : `
     <h2>Length</h2>
@@ -158,27 +187,26 @@ function paint(): void {
       : "Tap a seat to swap human/bot; tap a bot's name below it to pick which one."}</p>
     <div class="seatgrid">${[0, 1, 2, 3].map((i) => seatSlotHtml(i)).join("")}</div>
     <p class="mut">Playing as <b>${esc(identity?.displayName ?? "—")}</b></p>
-    <button id="btnCreate">create table ▸</button>
-    ${backButton()}
+    <button id="btnCreate" class="primary">create table ▸</button>
     <p class="mut" id="createErr"></p>`;
   const sel = document.getElementById("roomPick") as HTMLSelectElement | null;
   if (sel) sel.onchange = () => { void selectRoom(sel.value); };
   if (!locked) {
-    for (const el of Array.from($("panel").querySelectorAll<HTMLElement>(".seg button[data-fmt]")))
+    for (const el of Array.from(panel().querySelectorAll<HTMLElement>(".seg button[data-fmt]")))
       el.onclick = () => { draft.matchFormat = el.dataset.fmt as MatchFormat; paint(); };
-    for (const el of Array.from($("panel").querySelectorAll<HTMLElement>(".choice[data-r]")))
+    for (const el of Array.from(panel().querySelectorAll<HTMLElement>(".choice[data-r]")))
       el.onclick = () => { draft.rulesetId = el.dataset.r!; paint(); };
-    for (const el of Array.from($("panel").querySelectorAll<HTMLElement>(".seg button[data-speed]")))
+    for (const el of Array.from(panel().querySelectorAll<HTMLElement>(".seg button[data-speed]")))
       el.onclick = () => { draft.speed = el.dataset.speed as TableSpeed; draft.speedManual = true; paint(); };
   }
-  for (const el of Array.from($("panel").querySelectorAll<HTMLElement>(".seg button[data-mode]")))
+  for (const el of Array.from(panel().querySelectorAll<HTMLElement>(".seg button[data-mode]")))
     el.onclick = () => { draft.mode = el.dataset.mode as TableMode; if (draft.mode === "ranked") for (const s of draft.seats) s.kind = "human"; paint(); };
-  for (const el of Array.from($("panel").querySelectorAll<HTMLElement>(".seg button[data-access]")))
+  for (const el of Array.from(panel().querySelectorAll<HTMLElement>(".seg button[data-access]")))
     el.onclick = () => { draft.access = el.dataset.access as TableAccess; paint(); };
   const rnd = document.getElementById("setRandomize") as HTMLInputElement | null;
   if (rnd) rnd.onchange = () => { draft.randomizeSeats = rnd.checked; };
   if (!ranked) {
-    for (const el of Array.from($("panel").querySelectorAll<HTMLElement>(".seatcard"))) {
+    for (const el of Array.from(panel().querySelectorAll<HTMLElement>(".seatcard"))) {
       el.onclick = () => {
         const i = Number(el.dataset.seat);
         const seat = draft.seats[i]!;
@@ -187,11 +215,11 @@ function paint(): void {
         paint();
       };
     }
-    for (const el of Array.from($("panel").querySelectorAll<HTMLElement>(".botchip"))) {
+    for (const el of Array.from(panel().querySelectorAll<HTMLElement>(".botchip"))) {
       el.onclick = (e) => { e.stopPropagation(); const i = Number(el.dataset.seat); draft.seats[i]!.bot = el.dataset.key!; paint(); };
     }
   }
-  wireBackButton(() => closeVeil());
+  wireClose();
   (document.getElementById("btnCreate") as HTMLButtonElement).onclick = () => void doCreateTable();
 }
 
@@ -254,15 +282,13 @@ async function doCreateTable(): Promise<void> {
  * network failure surfaces as an error. */
 export function mountJoinModal(prefill = ""): void {
   openVeil();
-  $("panel").innerHTML = `
+  panel().innerHTML = `
     <h1>Join a table or room</h1>
+    ${closeButton()}
     <p class="mut">Enter the code you were given.</p>
     <div class="setrow"><input id="codeIn" type="text" maxlength="10" autocapitalize="characters"
-      placeholder="code" value="${esc(prefill)}" style="flex:1;padding:9px 12px;font-size:18px;letter-spacing:.08em;
-      text-transform:uppercase;border-radius:9px;background:rgba(255,255,255,.07);
-      border:1px solid rgba(255,255,255,.18);color:var(--ink)"></div>
-    <button id="btnJoin">join ▸</button>
-    ${backButton()}
+      placeholder="code" value="${esc(prefill)}" style="font-size:18px;letter-spacing:.08em;text-transform:uppercase"></div>
+    <button id="btnJoin" class="primary">join ▸</button>
     <p class="mut" id="joinErr"></p>`;
   const input = document.getElementById("codeIn") as HTMLInputElement;
   input.focus();
@@ -293,5 +319,5 @@ export function mountJoinModal(prefill = ""): void {
   };
   (document.getElementById("btnJoin") as HTMLButtonElement).onclick = () => void go();
   input.onkeydown = (e) => { if (e.key === "Enter") void go(); };
-  wireBackButton(() => closeVeil());
+  wireClose();
 }

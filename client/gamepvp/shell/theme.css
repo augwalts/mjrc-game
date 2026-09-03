@@ -78,6 +78,36 @@
 #shell .star{color:var(--dim); font-size:16px; width:20px; text-align:center; cursor:pointer; background:none; border:0}
 #shell .star.on{color:var(--gild)}
 
+/* ── shell modals: New table / Join by code (shell/pages/newtable.ts) ──
+ * Same paper/charcoal tokens as every page; the table's `.seg`/`.choice`/
+ * `.seatcard`/`.botchip` classes (index.html, dark-felt colours) are
+ * overridden here by specificity, not re-declared in the markup. */
+#shell .shellveil{position:fixed; inset:0; background:rgba(26,26,24,.45); display:none; align-items:flex-start; justify-content:center; overflow-y:auto; -webkit-overflow-scrolling:touch; z-index:40; padding:16px}
+#shell .shellpanel{position:relative; background:var(--bg); color:var(--ink); border:1px solid var(--line); border-radius:14px; padding:20px 22px 22px; max-width:640px; width:100%; margin:auto; box-shadow:0 20px 60px rgba(0,0,0,.25); text-align:left}
+#shell .shellpanel h1{font-size:20px; margin:0 0 6px; padding-right:40px; font-weight:700}
+#shell .shellpanel h2{font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:var(--dim); margin:16px 0 6px; font-weight:600}
+#shell .shellpanel p{color:var(--dim); font-size:13px; margin:6px 0}
+#shell .shellpanel .mclose{position:absolute; top:12px; right:12px; width:32px; height:32px; border-radius:16px; border:1px solid var(--line); background:var(--panel); color:var(--ink); font:inherit; font-size:20px; line-height:1; cursor:pointer; padding:0}
+#shell .shellpanel .mclose:hover{background:var(--panel2)}
+#shell .shellpanel .seg button,#shell .shellpanel .choice,#shell .shellpanel .seatcard,#shell .shellpanel .botchip{background:var(--panel); border:1px solid var(--line); color:var(--ink); font:inherit}
+#shell .shellpanel .seg button b,#shell .shellpanel .choice b,#shell .shellpanel .seatcard .sc-kind{color:var(--ink)}
+#shell .shellpanel .seg button span,#shell .shellpanel .choice span,#shell .shellpanel .seatcard .sc-label{color:var(--dim)}
+#shell .shellpanel .seg button:hover,#shell .shellpanel .choice:hover,#shell .shellpanel .seatcard:hover,#shell .shellpanel .botchip:hover{border-color:var(--dim); background:var(--panel2)}
+#shell .shellpanel .seg button.on,#shell .shellpanel .choice.sel,#shell .shellpanel .botchip.on{background:var(--ink); border-color:var(--ink); color:var(--bg)}
+#shell .shellpanel .seg button.on b,#shell .shellpanel .seg button.on span,#shell .shellpanel .choice.sel b,#shell .shellpanel .choice.sel span{color:var(--bg)}
+#shell .shellpanel .seatcard.bot{background:var(--accent-soft); border-color:var(--blue)}
+#shell .shellpanel .seatcard .sc-wind{color:var(--blue)}
+#shell .shellpanel .seatcard.locked{opacity:.55}
+#shell .shellpanel .seatcard.locked:hover{border-color:var(--line); background:var(--panel)}
+#shell .shellpanel .segcap,#shell .shellpanel .mut{color:var(--dim)}
+#shell .shellpanel .setrow{display:flex; align-items:center; gap:10px; margin-top:6px}
+#shell .shellpanel .setrow label{color:var(--ink); font-size:13px}
+#shell .shellpanel select,#shell .shellpanel input[type=text]{font:inherit; padding:9px 12px; border-radius:10px; border:1px solid var(--line); background:var(--panel2); color:var(--ink); flex:1; min-width:0}
+#shell .shellpanel button.primary{display:block; width:100%; font:inherit; font-weight:600; font-size:15px; padding:12px 20px; border-radius:10px; border:0; background:var(--blue); color:#fff; cursor:pointer; margin-top:16px}
+#shell .shellpanel button.primary:disabled{opacity:.55; cursor:default}
+#shell .welcome b{display:block; font-size:15px; margin-bottom:4px}
+#shell .welcome p{margin:0; line-height:1.45}
+
 /* ── section headers, cards ────────────────────────────────────────────── */
 #shell .sec{font-size:11px; letter-spacing:.12em; color:var(--dim); text-transform:uppercase; margin:16px 0 8px}
 #shell .sec.in{margin:0 0 8px}
