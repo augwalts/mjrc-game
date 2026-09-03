@@ -127,10 +127,19 @@ export interface Settings {
   tileScale: number; dev: boolean;
   hcCount: boolean; hcCalling: boolean; hcWhatIf: boolean;
   sound: boolean; haptics: boolean; coaching: boolean; language: Language;
+  /** Double tap to discard (table.ts build item 3) — TWO independent flags,
+   *  because the two input models want different answers and a laptop that
+   *  also has a touchscreen would otherwise have to pick one. Which one
+   *  applies is decided per tap by the POINTER, not by the breakpoint alone:
+   *  `matchMedia("(pointer: coarse)")` or a viewport under 768px counts as
+   *  the phone. Both default true — a mis-thrown tile is unrecoverable and a
+   *  second tap costs nothing. */
+  discardDoubleTapDesktop: boolean; discardDoubleTapMobile: boolean;
 }
 export const SETTINGS: Settings = {
   tileScale: 1, dev: false, hcCount: true, hcCalling: false, hcWhatIf: false,
   sound: true, haptics: true, coaching: true, language: "en",
+  discardDoubleTapDesktop: true, discardDoubleTapMobile: true,
   ...JSON.parse(localStorage.getItem("mjrc.gamepvp.settings") ?? "{}"),
 };
 /** Saved settings are spread OVER the defaults above, so changing a default

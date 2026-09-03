@@ -9,6 +9,12 @@
   --felt:#12503f; --felt-dk:#0d3d30; --wood:#3a2a1e; --ink:#f2ece0; --dim:#a9b8ae;
   --tile:#f6f1e4; --tile-edge:#cdc3ab; --tile-ink:#22201c; --red:#b23b32; --green:#1f6b46;
   --gold:#d8b56a; --accent:#7fb3ff; --danger:#e08a6a;
+  /* site kit, used FUNCTIONALLY only (owner's ruling: neutral on neutral,
+     colour carries meaning or it does not appear). --seal rings the tile that
+     is actually in play and underlines a win; --royal underlines a kong;
+     --tilegreen is the kit's third colour, kept here so the felt and the kit
+     never drift apart. */
+  --seal:#C1272D; --royal:#1845A5; --tilegreen:#1A8B3A;
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{height:100%;margin:0}
@@ -146,9 +152,39 @@ body{background:radial-gradient(ellipse at 50% 30%, #1e1b17 0%, #131110 55%, #0a
 @keyframes tossFade{from{opacity:0}to{opacity:1}}
 @keyframes toss{
   0%{transform:translate(calc(-50% + var(--fx,0px)),calc(-50% + var(--fy,140px))) rotate(var(--fr,0deg))}
-  100%{transform:translate(-50%,-50%) rotate(var(--rot,0deg))}
+  /* `scale(var(--hotscale,1))` matches the inline transform render() writes,
+     so the tile that is about to be ringed lands already at its final size
+     instead of jumping when the animation stops filling. */
+  100%{transform:translate(-50%,-50%) rotate(var(--rot,0deg)) scale(var(--hotscale,1))}
 }
-#pile .tile.hot{outline:2px solid var(--gold);box-shadow:0 0 12px rgba(216,181,106,.6);z-index:9}
+/* ── THE TILE IN PLAY (build item 1, 2026-09-02) ────────────────────────
+ * The freshly thrown tile used to wear the same gold as every training
+ * highlight on the screen, so during a claim window the player's own lit-up
+ * hand shouted louder than the one tile the decision is actually about.
+ *
+ * It is now the only SEAL RED thing on the table (--seal, the site kit's own
+ * red — no other element on the felt uses it), 3px so it survives a phone,
+ * scaled 1.12x and lifted to the top of the heap. `#pile` sets no
+ * transform-style of its own, so it flattens its children and a z-index
+ * among pile tiles is honoured — unlike `#surface`, which is preserve-3d.
+ *
+ * The scale rides a CUSTOM PROPERTY, not a transform in this rule: every pile
+ * tile carries an inline `transform` with its own rotation, and an inline
+ * transform beats any class. `render()` writes
+ * `…rotate(Xdeg) scale(var(--hotscale,1))` into that inline style and the
+ * class only flips the variable — which is also why the `toss` keyframe's
+ * 100% frame below reads the same variable, so a tile that is still landing
+ * grows into the ring instead of popping when the animation hands back.
+ *
+ * `render()` (not the insert) decides which tile wears this, off `liveThrowId`
+ * — set when a discard lands, cleared by the very next event that resolves
+ * it (a draw, a claim, the next throw). The ring is up for exactly as long as
+ * the tile can still be taken, which is many seconds, not the 480ms toss. */
+#pile .tile.hot{
+  --hotscale:1.12;
+  outline:3px solid var(--seal);outline-offset:1px;
+  box-shadow:0 0 0 1px rgba(0,0,0,.5), 0 3px 12px rgba(0,0,0,.5);
+  z-index:30}
 
 /* ── tiles ── */
 /* Tiles are the site's own SVG art. One scale knob: --tscale (settings). */
@@ -171,9 +207,42 @@ body{background:radial-gradient(ellipse at 50% 30%, #1e1b17 0%, #131110 55%, #0a
    and a flower simply inherits the size of the melds it sits beside (demo
    port, task item 4c). */
 #mymelds .tile{--th:58px}
+/* `touch-action:none` on the tiles (below) is what makes the drag-to-rearrange
+   pointer stream usable on a phone: without it the browser claims the gesture
+   for a scroll/pan the moment a finger moves and stops sending pointermove.
+   It is set on the TILES, not the row, so the page can still be panned by
+   dragging the gap between them. */
 #myhand{display:flex;gap:5px;justify-content:center;align-items:flex-end;min-height:62px;flex-wrap:wrap}
-#myhand .tile{--th:86px;cursor:pointer;transition:transform .12s,box-shadow .12s}
+#myhand .tile{--th:86px;cursor:pointer;transition:transform .12s,box-shadow .12s;touch-action:none}
 #myhand .tile:hover{transform:translateY(-9px);box-shadow:0 6px 14px rgba(0,0,0,.45)}
+/* ── LIFTED (build item 3) ─────────────────────────────────────────────
+ * Double tap to discard, on by default: the first tap LIFTS a tile out of the
+ * hand and lights up its count/what-if read, the second tap on the same tile
+ * throws it. A mis-thrown tile is unrecoverable, so the cost of the second tap
+ * is trivially worth it — and the lift is deliberately the same raise the
+ * desktop hover already uses, so the gesture teaches itself.
+ *
+ * `!important` because `#myhand .tile:hover` is the same specificity and
+ * appears first: on a desktop the pointer is usually still resting on the
+ * tile it just lifted, and without this the hover rule and this one are a
+ * coin toss decided by source order the moment either changes. */
+#myhand .tile.lifted{transform:translateY(-16px) !important;
+  box-shadow:0 10px 20px rgba(0,0,0,.5) !important}
+/* ── DRAGGING (build item 4) ───────────────────────────────────────────
+ * The tile under the finger follows it (an inline transform written by
+ * table.ts, so no transition on this one — it must track, not lag), and its
+ * neighbours slide out of the way through the same `transition:transform`
+ * the row already had. CSS transitions, never a rAF loop: nothing here runs
+ * a frame when nothing is moving. */
+#myhand .tile.dragging{transition:none;z-index:40;cursor:grabbing;
+  box-shadow:0 14px 26px rgba(0,0,0,.55)}
+/* Restores the DEFAULT order — the one the server/renderer already uses. Only
+   rendered when the local arrangement actually differs from it, so it is not
+   a permanent button the eye has to learn to ignore. */
+.handsort{flex:0 0 auto;align-self:center;margin-left:8px;
+  background:rgba(255,255,255,.07);color:var(--dim);border:1px solid rgba(255,255,255,.16);
+  border-radius:7px;padding:4px 9px;font:inherit;font-size:11px;letter-spacing:.03em;cursor:pointer}
+.handsort:hover{background:rgba(255,255,255,.14);color:var(--ink)}
 /* `backwards` + a delay is what makes a motion QUEUE: the tile sits at frame 0
    — invisible, out at the wall — until its turn comes, rather than appearing in
    place and then jumping. See ANIMATION-SEQUENCE.md. */
@@ -342,6 +411,22 @@ body.counting #wall .wt{opacity:.85}
     rgba(255,232,150,.30) 0%, rgba(255,205,60,.14) 70%, rgba(255,196,40,.05) 100%);
   pointer-events:none}
 .tile{position:relative}
+
+/* ── WHILE A CLAIM WINDOW IS OPEN (build item 1) ────────────────────────
+ * `body.claimwindow` is on for exactly as long as this seat is being offered
+ * a claim (table.ts render(), off `pending`). Every OTHER highlight on the
+ * screen — count-on-tap, the calling read, what-if — steps back to 40% for
+ * the duration, so the seal-red ring on the tile in play is the loudest thing
+ * in view during the one moment that matters. Nothing is hidden and nothing
+ * moves; the training wheels are still readable, just no longer competing.
+ * An `outline` cannot take an opacity of its own, so `.samet`'s ring steps
+ * back through its colour's alpha instead. */
+body.claimwindow .tile.samet{
+  outline-color:rgba(255,210,63,.4);
+  filter:drop-shadow(0 0 3px rgba(255,216,80,.36)) drop-shadow(0 0 7px rgba(255,196,40,.22))}
+body.claimwindow .tile.samet::after{opacity:.4}
+body.claimwindow #callbar{opacity:.4}
+body.claimwindow #myhand .tile.lifted{box-shadow:0 4px 10px rgba(0,0,0,.35)}
 #callwrap{flex:0 0 auto;padding:0 10px}
 #callbar{max-width:1040px;margin:0 auto 4px;background:rgba(255,255,255,.05);
   border:1px solid rgba(255,255,255,.1);border-radius:9px;padding:5px 11px;
@@ -571,8 +656,16 @@ body.devmode #mine{padding-top:2px}
 .setrow .mut{color:var(--dim);font-size:11.5px}
 .panel h2{text-align:left}
 /* the call — canned, Cantonese-led, gone in about a second */
+/* `width:max-content` so the banner is centred on its anchor at every one of
+   the four seat positions. Without it an absolutely-positioned box shrinks to
+   fit whatever space is left between its `left` offset and the felt's edge —
+   which at `left:82%` (the east seat) is 18% of the felt, far narrower than
+   the banner — and the tile art and the text would be squeezed or pushed off
+   centre depending on which seat called. It overflows the felt's rim instead,
+   which is fine: #felt sets no `overflow`, and the banner is up for two
+   seconds over the top of everything (z-index 20). */
 #call{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);opacity:0;
-  pointer-events:none;text-align:center;z-index:20;transition:opacity .12s}
+  width:max-content;pointer-events:none;text-align:center;z-index:20;transition:opacity .12s}
 #call.s0{left:50%;top:88%}      /* you   — just above your hand */
 #call.s1{left:82%;top:50%}      /* right */
 #call.s2{left:50%;top:14%}      /* across */
@@ -583,69 +676,72 @@ body.devmode #mine{padding-top:2px}
    timers in announce(). */
 #call.show{animation:callIn 2.2s cubic-bezier(.2,.9,.3,1.15) forwards}
 #call.show.big{animation-duration:3.2s}
-/* ── the call, by kind ──────────────────────────────────────────────────
- * Every call used to look the same: white glyph, thin gold box. A routine 上
- * and a 食糊 that ends the hand were the same visual event, which wastes the
- * one moment the table has to say something (owner 2026-08-31).
+/* ── the call (rebuilt 2026-09-02, build item 2) ────────────────────────
+ * It used to be a 54px coloured glyph in a coloured box with a coloured glow
+ * behind it — teal chow, blue pung, violet kong, rose flower, gold win — and
+ * the English word was a 13px afterthought underneath. Six saturated hues on
+ * a green felt, none of them carrying information a player could act on.
  *
- * They are now tiered by how much the call MATTERS, and coloured by kind so a
- * player learns to read the colour before the character:
+ * The owner's ruling: neutral on neutral, colour is functional only. So:
  *
- *   上 chow    teal      taking a run, the cheapest claim there is
- *   碰 pung    blue      a triplet, the common claim
- *   槓 kong    violet    all three forms — rarer, and it draws a replacement
- *   花 flower  rose      barely an event; smallest of the set
- *   搶槓       orange    robbing a kong. Rare enough to be a story
- *   食糊/自摸  gold      the hand is over. Biggest, with rays
+ *   碰 pung   — ONE LINE, both halves the same size and the same ink. The
+ *               Cantonese leads and the English follows it, because that is
+ *               how the table actually says it; neither is a translation
+ *               hung off the other, so neither is shrunk.
+ *   [tiles]   — the tile(s) the call is ABOUT, drawn left of the text at
+ *               1.4x the pile tile (--pileth, which render() mirrors onto
+ *               :root so this element — a sibling of #centre — can read it).
+ *               Pung/kong: the tile. Chow: all three. Win: the winning tile.
+ *               Flower: the flower. This is the thing a player wants to see
+ *               and it was never shown at all.
+ *   caption   — who called it, 11px dim. POSITION already says who (the
+ *               banner sits at that seat), so the name is a confirmation,
+ *               not a headline. Any `extra` the caller passes (a win's faan)
+ *               rides here too.
+ *   underline — 2px, the ONLY colour in the whole banner, and it means
+ *               something: ink for the ordinary claims (pung, chow), royal
+ *               blue for a kong in all three forms, seal red for a win or a
+ *               self-draw, dim for a flower. Four steps of consequence, not
+ *               six decorations.
  *
- * `--cc` is the glyph colour and `--cg` the light it throws; every rule below
- * reads those two, so a new call type is three lines. */
-#call .cw{font-size:11px;color:var(--cc,#d8b56a);letter-spacing:.14em;text-transform:uppercase;
-  text-shadow:0 1px 5px rgba(0,0,0,.9);font-weight:700}
-#call .cc{font-size:54px;font-weight:800;line-height:1.02;color:var(--cc,#fff);
-  -webkit-text-stroke:2px rgba(0,0,0,.6);paint-order:stroke fill;white-space:nowrap;
-  text-shadow:0 2px 10px rgba(0,0,0,.85), 0 0 22px var(--cg,rgba(216,181,106,.9))}
-/* two-character calls carry twice the width; ease them down so the box keeps
-   its shape and 暗槓 does not tower over 碰 */
-#call .cc.two{font-size:42px}
-#call .ce{font-size:13px;color:#fff;letter-spacing:.06em;text-shadow:0 1px 6px rgba(0,0,0,.9)}
-#call .inner{position:relative;border-radius:16px;padding:9px 20px 8px;
-  background:radial-gradient(ellipse at 50% 38%, rgba(6,16,12,.82), rgba(6,16,12,.62));
-  border:2px solid var(--cc,#d8b56a);
-  box-shadow:0 0 0 1px rgba(0,0,0,.55), 0 6px 26px -6px rgba(0,0,0,.9),
-             0 0 30px -6px var(--cg,transparent), inset 0 0 26px -12px var(--cg,transparent);
-  backdrop-filter:blur(3px)}
-/* the burst behind the glyph — what makes it read as an event, not a label */
-#call .inner::before{content:"";position:absolute;inset:-12%;border-radius:50%;
-  background:radial-gradient(circle at 50% 45%, var(--cg,transparent) 0%, transparent 62%);
-  opacity:.5;pointer-events:none;z-index:-1}
+ * No filled colour fields, no glow, no burst, no pastels — a neutral dark
+ * plate for legibility over the felt and nothing else. */
+#call .inner{position:relative;border-radius:12px;padding:8px 14px 7px;
+  display:flex;align-items:center;gap:11px;
+  background:rgba(8,20,15,.78);border:1px solid rgba(255,255,255,.14);
+  box-shadow:0 6px 26px -8px rgba(0,0,0,.9);backdrop-filter:blur(3px)}
+/* the tile(s) the call is about — 1.4x the pile tile, so it reads as the same
+   object that is sitting on the felt, one size up */
+#call .ct{display:flex;gap:3px;align-items:center;flex:0 0 auto}
+#call .ct .tile{--th:calc(var(--pileth,38px) * 1.4)}
+#call .cb{display:flex;flex-direction:column;align-items:flex-start;gap:3px}
+/* SAME SIZE, SAME INK — the whole point of the rebuild */
+#call .cline{display:flex;align-items:baseline;gap:7px;white-space:nowrap;
+  font-size:22px;font-weight:700;line-height:1.1;color:var(--ink);
+  padding-bottom:4px;border-bottom:2px solid var(--callline,var(--ink));
+  text-shadow:0 1px 5px rgba(0,0,0,.85)}
+#call .cc,#call .ce{font-size:inherit;font-weight:inherit;color:inherit;letter-spacing:0}
+#call .cw{font-size:11px;color:var(--dim);letter-spacing:.04em;font-weight:600;
+  text-shadow:0 1px 4px rgba(0,0,0,.9);white-space:nowrap}
 
-#call.k-chow          {--cc:#5fd39a;--cg:rgba(95,211,154,.85)}
-#call.k-pung          {--cc:#5db8f0;--cg:rgba(93,184,240,.85)}
+/* the underline, and it is the only colour here */
+#call.k-pung,#call.k-chow      {--callline:var(--ink)}
 #call.k-kong,
 #call.k-concealedKong,
-#call.k-addedKong     {--cc:#b18bf5;--cg:rgba(177,139,245,.85)}
-#call.k-flower        {--cc:#f58bb0;--cg:rgba(245,139,176,.7)}
-#call.k-robbingKong   {--cc:#ff8a5b;--cg:rgba(255,138,91,.95)}
+#call.k-addedKong              {--callline:var(--royal)}
 #call.k-win,
-#call.k-selfDraw      {--cc:#ffd23f;--cg:rgba(255,210,63,.95)}
+#call.k-selfDraw,
+#call.k-robbingKong            {--callline:var(--seal)}
+#call.k-flower                 {--callline:var(--dim)}
 
-/* 花 is the smallest thing that happens; it should not shout like a claim */
-#call.k-flower .cc{font-size:40px}
-#call.k-flower .inner{padding:7px 16px 6px}
+/* the win is one step bigger — it ends the hand. Size, not colour. */
+#call.big .cline{font-size:28px}
+#call.big .inner{padding:10px 18px 9px}
 
-/* the win: bigger, and it throws rays */
-#call.big .cc{font-size:78px}
-#call.big .cc.two{font-size:64px}
-#call.big .inner{padding:12px 26px 10px;border-width:3px}
-#call.big .inner::after{content:"";position:absolute;inset:-60%;z-index:-2;
-  pointer-events:none;opacity:.5;
-  background:repeating-conic-gradient(from 0deg at 50% 50%,
-    var(--cg) 0deg 5deg, transparent 5deg 22deg);
-  -webkit-mask-image:radial-gradient(circle at 50% 50%, #000 12%, transparent 62%);
-  mask-image:radial-gradient(circle at 50% 50%, #000 12%, transparent 62%);
-  animation:rays 3.2s linear}
-@keyframes rays{from{transform:rotate(0)}to{transform:rotate(28deg)}}
+@media (min-width:1100px){
+  #call .cline{font-size:28px}
+  #call.big .cline{font-size:36px}
+}
 
 /* ── the grab ───────────────────────────────────────────────────────────
  * A claimed tile used to vanish from the pile and reappear in a meld in the
@@ -698,6 +794,18 @@ body.devmode #mine{padding-top:2px}
   border-radius:9px;padding:3px 9px;font-size:15px;font-weight:600;color:#e8e2d4;
   text-shadow:0 1px 4px rgba(0,0,0,.8)}
 #say.show{animation:sayIn var(--sayms,900ms) cubic-bezier(.2,.85,.35,1) forwards}
+/* ── THE THROW, STILL ON THE TABLE (build item 1) ───────────────────────
+ * The 640ms flash above says what was thrown; it is gone long before the
+ * claim window on that throw closes, which left a player deciding whether to
+ * pung with nothing on screen naming the tile. When a claim window is open
+ * this same element settles — no animation, nothing moving — into a small
+ * neutral label at the THROWER's screen position (`.s0`-`.s3`, unchanged),
+ * and stays there until the window closes. Deliberately quieter than the
+ * flash it replaces: dim ink, one step down in size, no scale-in. The loud
+ * thing during a claim window is the ring on the tile itself, not this. */
+#say.held{opacity:1}
+#say.held .inner{background:rgba(8,20,15,.5);border-color:rgba(255,255,255,.1);
+  font-size:12px;font-weight:600;color:var(--dim);padding:2px 8px;letter-spacing:.02em}
 @keyframes sayIn{
   0%{opacity:0;transform:translate(-50%,-50%) scale(.7)}
   14%{opacity:1;transform:translate(-50%,-50%) scale(1.04)}

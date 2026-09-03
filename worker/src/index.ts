@@ -149,6 +149,7 @@ import {
   toHex,
   touchCredential,
   unstarFriend,
+  updatePlayerAvatar,
   updateRoomSettings,
   updateTzOffset,
   upsertPresence,
@@ -504,6 +505,39 @@ const MAX_DISPLAY_NAME = 40;
 const DEFAULT_PAGE = 25;
 const MAX_PAGE = 100;
 
+/* ── avatar ───────────────────────────────────────────────────────────────
+ * Profile pictures (owner request 2026-09-03). schema.sql players.avatar: a
+ * JPEG data URI, <= 12 KB, or null for the letter-avatar fallback. The client
+ * (account.ts) does the crop/resize/quality-ladder work; this file only ever
+ * checks the prefix and the decoded byte size — never decodes the image
+ * itself, so a malformed JPEG body still round-trips as opaque bytes.
+ */
+const AVATAR_PREFIX = "data:image/jpeg;base64,";
+const AVATAR_MAX_BYTES = 12 * 1024;
+
+/**
+ * `touched: false` means the request body had no `avatar` key at all — leave
+ * the player's picture exactly as it is, same "absent means unchanged"
+ * doctrine `displayName` already follows on this route. `touched: true` with
+ * `value: null` is an explicit clear; `ok: false` is a malformed or
+ * oversized picture, which the caller turns into `fail("bad_avatar", 400)`.
+ */
+function parseAvatarField(body: JsonObject): { touched: boolean; value: string | null; ok: boolean } {
+  if (!("avatar" in body)) return { touched: false, value: null, ok: true };
+  const v = body.avatar;
+  if (v === null) return { touched: true, value: null, ok: true };
+  if (typeof v !== "string" || !v.startsWith(AVATAR_PREFIX)) return { touched: true, value: null, ok: false };
+  const b64 = v.slice(AVATAR_PREFIX.length);
+  // Decoded byte count from the base64 length, padding-adjusted — no need to
+  // actually decode: three bytes in every four base64 characters, minus one
+  // byte per trailing '=' pad character.
+  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(b64)) return { touched: true, value: null, ok: false };
+  const pad = b64.endsWith("==") ? 2 : b64.endsWith("=") ? 1 : 0;
+  const bytes = Math.floor((b64.length * 3) / 4) - pad;
+  if (bytes <= 0 || bytes > AVATAR_MAX_BYTES) return { touched: true, value: null, ok: false };
+  return { touched: true, value: v, ok: true };
+}
+
 /**
  * Codes are read off a screen and typed into a phone. Crockford base32 already
  * drops I, L, O and U from the alphabet; folding the look-alikes on the way in
@@ -594,6 +628,7 @@ function seatView(r: MatchSeatRow) {
     seat: r.seat,
     playerId: r.player_id,
     displayName: r.display_name,
+    avatar: r.avatar,
     bot: r.kind === "bot",
     wind: r.wind,
     finalChips: r.final_chips,
@@ -792,6 +827,11 @@ async function postIdentity(req: Request, p: Platform): Promise<Response> {
   const supplied = str(body.deviceToken);
   if (supplied !== null && !isPlausibleDeviceToken(supplied)) return fail("weak_device_token", 400);
 
+  /* Same "absent means unchanged" rule `displayName` follows above — a
+   * re-identify that never mentions `avatar` must not touch the picture. */
+  const avatarField = parseAvatarField(body);
+  if (!avatarField.ok) return fail("bad_avatar", 400);
+
   /* Server-minted when the client cannot generate good randomness. 32 Crockford
    * symbols is 160 bits, and this is the only response that ever carries the
    * token itself — after this it exists only as a digest. */
@@ -809,15 +849,20 @@ async function postIdentity(req: Request, p: Platform): Promise<Response> {
     if (displayName !== null && existing.display_name !== displayName) {
       await renamePlayer(p.db, existing.id, displayName, now);
     }
+    if (avatarField.touched && avatarField.value !== existing.avatar) {
+      await updatePlayerAvatar(p.db, existing.id, avatarField.value, now);
+    }
     const name = displayName ?? existing.display_name;
+    const avatar = avatarField.touched ? avatarField.value : existing.avatar;
     if (tzOffsetMin !== null) await updateTzOffset(p.db, existing.id, tzOffsetMin);
     await ensureOpenMembership(p, existing.id, name);
-    return json({ playerId: existing.id, displayName: name, rating: existing.rating, created: false });
+    return json({ playerId: existing.id, displayName: name, avatar, rating: existing.rating, created: false });
   }
 
   if (displayName === null) return fail("bad_display_name", 400);
   const playerId = randomId(p.random, ID_LENGTH);
-  await insertPlayer(p.db, { id: playerId, kind: "human", displayName, now });
+  const avatar = avatarField.touched ? avatarField.value : null;
+  await insertPlayer(p.db, { id: playerId, kind: "human", displayName, avatar, now });
   await insertCredential(p.db, {
     id: credentialId,
     playerId,
@@ -830,7 +875,7 @@ async function postIdentity(req: Request, p: Platform): Promise<Response> {
    * moment they first authenticate — not a separate onboarding step. */
   await ensureOpenMembership(p, playerId, displayName);
   return json(
-    { playerId, displayName, rating: null, created: true, deviceToken: minted },
+    { playerId, displayName, avatar, rating: null, created: true, deviceToken: minted },
     201,
   );
 }
@@ -1414,6 +1459,7 @@ async function getStatsFor(playerId: string, p: Platform): Promise<Response> {
     player: {
       id: player.id,
       displayName: player.display_name,
+      avatar: player.avatar,
       rating: player.rating,
       ratingGames: player.rating_games,
       provisional: isProvisional(player.rating_games),
@@ -1678,6 +1724,7 @@ function buildActivity(
 interface RecordRow {
   playerId: string;
   displayName: string;
+  avatar: string | null;
   games: number;
   hands: number;
   wins: number;
@@ -1767,6 +1814,7 @@ async function computeRecordRow(p: Platform, playerId: string, scope: StatsScope
   return {
     playerId: player.id,
     displayName: player.display_name,
+    avatar: player.avatar,
     games: matches.length,
     hands: handsTotal,
     wins,
@@ -2042,7 +2090,7 @@ async function buildGlobalHere(p: Platform): Promise<Map<string, HereEntry>> {
   ]);
   const here = new Map<string, HereEntry>();
   for (const row of presenceRows) {
-    here.set(row.player_id, { playerId: row.player_id, displayName: row.display_name, state: "lobby" });
+    here.set(row.player_id, { playerId: row.player_id, displayName: row.display_name, avatar: row.avatar, state: "lobby" });
   }
   for (const m of openRows) await tableViewOf(p, m, here);
   return here;
@@ -2064,6 +2112,7 @@ async function getFriends(p: Platform, player: PlayerRow): Promise<Response> {
     return {
       playerId: r.friend_id,
       displayName: r.display_name,
+      avatar: r.avatar,
       rating: r.rating,
       games: r.games,
       starred: stars.has(r.friend_id),
@@ -2132,6 +2181,7 @@ async function getDmThread(otherId: string, p: Platform, player: PlayerRow): Pro
   return json({
     playerId: other.id,
     displayName: other.display_name,
+    avatar: other.avatar,
     messages: rows.slice().reverse().map(dmView),
   });
 }
@@ -2159,13 +2209,18 @@ async function postDmMessage(otherId: string, req: Request, p: Platform, player:
 
 const INBOX_ITEM_LIMIT = 100;
 
-const inboxItemView = (it: InboxItemRow, names: Map<string, string>) => ({
+const inboxItemView = (
+  it: InboxItemRow,
+  names: Map<string, string>,
+  avatars: Map<string, string | null>,
+) => ({
   kind: it.kind,
   id: it.id,
   matchId: it.match_id,
   roomCode: it.room_code,
   fromPlayerId: it.from_player_id,
   fromDisplayName: it.from_player_id !== null ? names.get(it.from_player_id) ?? null : null,
+  fromAvatar: it.from_player_id !== null ? avatars.get(it.from_player_id) ?? null : null,
   at: it.created_at,
   read: it.read_at !== null,
 });
@@ -2184,14 +2239,18 @@ async function getInbox(p: Platform, player: PlayerRow): Promise<Response> {
   for (const it of items) if (it.from_player_id !== null) otherIds.add(it.from_player_id);
   for (const r of dmRows) otherIds.add(r.from_player_id === player.id ? r.to_player_id : r.from_player_id);
   const names = new Map<string, string>();
+  const avatars = new Map<string, string | null>();
   await Promise.all(
     [...otherIds].map(async (id) => {
       const other = await playerById(p.db, id);
-      if (other !== null) names.set(id, other.display_name);
+      if (other !== null) {
+        names.set(id, other.display_name);
+        avatars.set(id, other.avatar);
+      }
     }),
   );
 
-  const itemViews = items.map((it) => inboxItemView(it, names));
+  const itemViews = items.map((it) => inboxItemView(it, names, avatars));
 
   /* `dmRows` is newest-first, so the FIRST row seen per counterpart below is
    * that thread's latest message — the loop relies on that ordering. */
@@ -2210,6 +2269,7 @@ async function getInbox(p: Platform, player: PlayerRow): Promise<Response> {
     id: `dm:${counterpart}`,
     playerId: counterpart,
     displayName: names.get(counterpart) ?? "",
+    fromAvatar: avatars.get(counterpart) ?? null,
     text: t.text,
     at: t.at,
     unread: t.unread,
@@ -2286,6 +2346,7 @@ const LOBBY_CHAT_MIN_INTERVAL_MS = 2_000;
 interface HereEntry {
   playerId: string;
   displayName: string;
+  avatar: string | null;
   state: "lobby" | "waiting" | "playing";
   matchId?: string;
   joinCode?: string | null;
@@ -2334,6 +2395,7 @@ async function tableViewOf(p: Platform, m: LobbyMatchRow, here: Map<string, Here
         seat,
         kind: "bot" as const,
         displayName: botSeatLabel(p, spec.bot, seat as SeatIndex),
+        avatar: null,
         connected: false,
       };
     }
@@ -2342,6 +2404,7 @@ async function tableViewOf(p: Platform, m: LobbyMatchRow, here: Map<string, Here
       here.set(row.player_id, {
         playerId: row.player_id,
         displayName: row.display_name,
+        avatar: row.avatar,
         state,
         matchId: m.id,
         joinCode,
@@ -2354,6 +2417,7 @@ async function tableViewOf(p: Platform, m: LobbyMatchRow, here: Map<string, Here
       seat,
       kind: "human" as const,
       displayName: row?.display_name,
+      avatar: row?.avatar ?? null,
       connected: row !== undefined && row.connected !== 0,
     };
   });
@@ -2387,7 +2451,7 @@ async function recentView(p: Platform, m: DoneMatchRow) {
      * never claimed by a human has no row to read a name from (schema.sql
      * match_players: nothing ever inserts one for a bot seat) and is omitted
      * rather than guessed at. */
-    standings: seats.map((s) => ({ displayName: s.display_name, chips: s.final_chips, place: s.place })),
+    standings: seats.map((s) => ({ displayName: s.display_name, avatar: s.avatar, chips: s.final_chips, place: s.place })),
   };
 }
 
@@ -2450,7 +2514,7 @@ async function getLobby(p: Platform, roomCode: string | null): Promise<Response>
    * bare heartbeat, never a downgrade. */
   const here = new Map<string, HereEntry>();
   for (const row of presenceRows) {
-    here.set(row.player_id, { playerId: row.player_id, displayName: row.display_name, state: "lobby" });
+    here.set(row.player_id, { playerId: row.player_id, displayName: row.display_name, avatar: row.avatar, state: "lobby" });
   }
 
   const tables: Awaited<ReturnType<typeof tableViewOf>>[] = [];
@@ -2641,7 +2705,7 @@ async function getRoom(codeRaw: string, p: Platform): Promise<Response> {
 
   const here = new Map<string, HereEntry>();
   for (const row of presenceRows) {
-    here.set(row.player_id, { playerId: row.player_id, displayName: row.display_name, state: "lobby" });
+    here.set(row.player_id, { playerId: row.player_id, displayName: row.display_name, avatar: row.avatar, state: "lobby" });
   }
   const tables: Awaited<ReturnType<typeof tableViewOf>>[] = [];
   for (const m of openRows) tables.push(await tableViewOf(p, m, here));

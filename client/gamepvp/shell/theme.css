@@ -227,3 +227,59 @@
   #shell .dash .span3{grid-column:1 / -1}
   #shell .dash .stats .tiles{grid-template-columns:repeat(8,1fr)}
 }
+
+/* ── stats + friends ── */
+/* section title row: label, optional small ink readout (rating's current/Δ),
+   optional ⓘ button — right-aligned, 28px tap target per owner ruling */
+#shell .sec.infot{display:flex; align-items:center; gap:6px}
+#shell .sec.infot .sec-right{margin-left:auto; color:var(--ink); font-weight:600; font-size:12px; text-transform:none; letter-spacing:0; white-space:nowrap}
+#shell .sec.infot .info{margin-left:auto; width:28px; height:28px; flex:0 0 auto; border-radius:50%; border:0; background:none; color:var(--dim); font-size:15px; line-height:1; cursor:pointer; display:inline-flex; align-items:center; justify-content:center}
+#shell .sec.infot .sec-right + .info{margin-left:0}
+#shell .sec.infot .info:hover{color:var(--ink)}
+
+/* info sheet: a card overlay inside #shell, closed by × / Esc / backdrop */
+#shell .infoveil{position:fixed; inset:0; background:rgba(26,26,24,.45); display:flex; align-items:flex-end; justify-content:center; z-index:60; padding:16px; -webkit-overflow-scrolling:touch}
+#shell .infocard{position:relative; background:var(--bg); color:var(--ink); border:1px solid var(--line); border-radius:14px; padding:18px 40px 20px 20px; max-width:420px; width:100%; margin-bottom:10vh; box-shadow:0 20px 60px rgba(0,0,0,.3)}
+#shell .infocard h3{font-size:15px; margin:0 0 8px}
+#shell .infocard p{color:var(--dim); font-size:13px; line-height:1.5; margin:0; white-space:pre-line}
+#shell .infocard .iclose{position:absolute; top:10px; right:10px; width:28px; height:28px; border-radius:14px; border:1px solid var(--line); background:var(--panel); color:var(--ink); font:inherit; font-size:16px; line-height:1; cursor:pointer; padding:0}
+@media (min-width:1100px){ #shell .infoveil{align-items:center} #shell .infocard{margin-bottom:0} }
+
+/* stats: placements sparkline (replaces the "3·1·2·0" text tile) */
+#shell .stats .tiles .place-tile{grid-column:span 1}
+
+/* stats: feeds rows — names never truncate, bars scale to the row's own max */
+#shell .feedrow{display:flex; align-items:center; gap:8px; padding:3px 0}
+#shell .feedrow .fname{min-width:76px; max-width:120px; white-space:normal; word-break:break-word; font-size:12px; line-height:1.25}
+#shell .feedrow svg{flex:1; min-width:0}
+#shell .feedrow b{margin-left:auto; white-space:nowrap; font-size:12px; font-weight:600; flex:0 0 auto}
+
+/* stats: recent games — opponents' names, second line, dim ink */
+#shell .recent-item{padding:2px 0}
+#shell .recent-item .opps{display:block; color:var(--dim); font-size:11px; margin:1px 0 4px; padding-left:0}
+
+/* friends: outline star (☆ dim) fills to a muted-gold star (★) when on;
+   no "disabled" look either way, 18px glyph in a 36px tap target */
+#shell .star{color:var(--dim); font-size:18px; width:36px; height:36px; border-radius:18px; display:inline-flex; align-items:center; justify-content:center; text-align:center; cursor:pointer; background:none; border:0; flex:0 0 auto}
+#shell .star.on{color:var(--gild)}
+#shell .star:hover{background:var(--panel2)}
+
+/* friends: offline rows (any pill) render in dim ink with last-seen */
+#shell .friend-off b{color:var(--dim); font-weight:600}
+
+/* ── avatar ── */
+/* Profile pictures (owner request 2026-09-03) — same 28px `.avatar` circle
+   the letter avatar already uses (see ui.ts avatarHtml/avatarLetter); the
+   image variant just needs cropping to fill it instead of centring a glyph. */
+#shell img.avatar-img{object-fit:cover; background:var(--panel2)}
+/* A larger avatar in context (the player page's header, the account page's
+   own picture row) — wrap avatarHtml()'s output in `<span class="avatar-lg">`
+   rather than sizing `.avatar`/`.avatar-img` inline at every call site. */
+#shell .avatar-lg .avatar{width:44px; height:44px; font-size:18px}
+#shell .avatar-lg.avatar-pick .avatar{width:64px; height:64px; font-size:26px}
+
+/* ── avatar placements (top corner, leaderboard) ── */
+#shell .me .avatar{width:22px; height:22px; font-size:10px}
+#shell .me .name{gap:6px}
+#shell table.lb td.lbname{display:flex; align-items:center; gap:8px}
+#shell table.lb td.lbname .avatar{width:22px; height:22px; font-size:10px}

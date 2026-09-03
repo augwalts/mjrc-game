@@ -30,6 +30,8 @@ export const mount: PageMount = (container, _params, router) => {
         <div class="listrow"><span>${esc(t(S.sound))}</span>${switchHtml(SETTINGS.sound, "sound")}</div>
         <div class="listrow"><span>${esc(t(S.haptics))}</span>${switchHtml(SETTINGS.haptics, "haptics")}</div>
         <div class="listrow"><span>${esc(t(S.countTilesOnTap))}</span>${switchHtml(SETTINGS.hcCount, "hcCount")}</div>
+        <div class="listrow"><span>${esc(t(S.doubleTapDiscardDesktop))}</span>${switchHtml(SETTINGS.discardDoubleTapDesktop, "discardDoubleTapDesktop")}</div>
+        <div class="listrow"><span>${esc(t(S.doubleTapDiscardPhone))}</span>${switchHtml(SETTINGS.discardDoubleTapMobile, "discardDoubleTapMobile")}</div>
         <div class="listrow"><span>${esc(t(S.coachingDesktop))}</span>${switchHtml(SETTINGS.coaching, "coaching")}</div>
         <div class="listrow"><span>${esc(t(S.language))}</span>
           <select id="setLang"><option value="en" ${SETTINGS.language === "en" ? "selected" : ""}>English</option><option value="zh" ${SETTINGS.language === "zh" ? "selected" : ""}>中文</option></select></div>
@@ -52,7 +54,8 @@ export const mount: PageMount = (container, _params, router) => {
     };
     for (const el of Array.from(container.querySelectorAll<HTMLElement>("[data-toggle]"))) {
       el.onclick = () => {
-        const key = el.dataset.toggle as "sound" | "haptics" | "hcCount" | "coaching";
+        const key = el.dataset.toggle as
+          "sound" | "haptics" | "hcCount" | "coaching" | "discardDoubleTapDesktop" | "discardDoubleTapMobile";
         (SETTINGS as unknown as Record<string, boolean>)[key] = !SETTINGS[key];
         saveSettings(); refreshTableIfLive();
         el.classList.toggle("on", SETTINGS[key]);

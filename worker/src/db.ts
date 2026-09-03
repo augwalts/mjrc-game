@@ -196,6 +196,9 @@ export interface PlayerRow {
   id: string;
   kind: string;
   display_name: string;
+  /** Data URI, JPEG, <= 12 KB; null = no picture (client falls back to the
+   *  letter avatar). schema.sql players.avatar. */
+  avatar: string | null;
   rating: number | null;
   rating_games: number;
   rating_season: string | null;
@@ -337,6 +340,7 @@ export interface MatchSeatRow {
   seat: number;
   player_id: string;
   display_name: string;
+  avatar: string | null;
   kind: string;
   wind: number;
   final_chips: number;
@@ -396,14 +400,14 @@ export interface HandRow {
 export const SQL = Object.freeze({
   /* identity */
   playerForCredential: `
-    SELECT p.id, p.kind, p.display_name, p.rating, p.rating_games, p.rating_season, p.tz_offset_min
+    SELECT p.id, p.kind, p.display_name, p.avatar, p.rating, p.rating_games, p.rating_season, p.tz_offset_min
       FROM player_credentials c
       JOIN players p ON p.id = c.player_id
      WHERE c.id = ? AND c.revoked_at IS NULL AND p.deleted_at IS NULL`,
 
   insertPlayer: `
-    INSERT INTO players (id, kind, display_name, created_at, updated_at, last_seen_at)
-    VALUES (?, ?, ?, ?, ?, ?)`,
+    INSERT INTO players (id, kind, display_name, avatar, created_at, updated_at, last_seen_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)`,
 
   insertCredential: `
     INSERT INTO player_credentials (id, player_id, kind, label, created_at, last_used_at)
@@ -417,6 +421,13 @@ export const SQL = Object.freeze({
 
   renamePlayer: `
     UPDATE players SET display_name = ?, updated_at = ?, last_seen_at = ? WHERE id = ?`,
+
+  /** `POST /api/identity`'s avatar write (gamepvp/migrations/remote-2026-09-03-avatar.sql).
+   *  A separate statement from `renamePlayer`, same "a real edit gets its own
+   *  statement" doctrine — an avatar change and a rename are independent
+   *  edits that happen to share one request body. */
+  updatePlayerAvatar: `
+    UPDATE players SET avatar = ?, updated_at = ? WHERE id = ?`,
 
   /* rulesets — archive once per content hash, never rewrite */
   archiveRuleset: `
@@ -493,7 +504,7 @@ export const SQL = Object.freeze({
     SELECT seat FROM match_players WHERE match_id = ? AND player_id = ?`,
 
   seatsOfMatch: `
-    SELECT mp.seat, mp.player_id, p.display_name, p.kind, mp.wind, mp.final_chips,
+    SELECT mp.seat, mp.player_id, p.display_name, p.avatar, p.kind, mp.wind, mp.final_chips,
            mp.faan_won, mp.place, mp.hands_won, mp.self_draws, mp.deal_ins,
            mp.bot_takeover_hands, mp.moves_graded, mp.moves_matched, mp.gap_sum,
            mp.rating_before, mp.rating_after
@@ -538,7 +549,7 @@ export const SQL = Object.freeze({
    *  `HERE_WINDOW_MS`). `p.deleted_at IS NULL` — a soft-deleted player's stale
    *  heartbeat must not resurrect them in the lobby. */
   presenceSince: `
-    SELECT pr.player_id, pr.state, pr.seen_at, p.display_name
+    SELECT pr.player_id, pr.state, pr.seen_at, p.display_name, p.avatar
       FROM presence pr
       JOIN players p ON p.id = pr.player_id
      WHERE pr.seen_at >= ? AND p.deleted_at IS NULL`,
@@ -548,7 +559,7 @@ export const SQL = Object.freeze({
    *  schema.sql — so scoping by room means joining through `room_players`
    *  instead of filtering `presence` itself. */
   presenceInRoom: `
-    SELECT pr.player_id, pr.state, pr.seen_at, p.display_name
+    SELECT pr.player_id, pr.state, pr.seen_at, p.display_name, p.avatar
       FROM presence pr
       JOIN players p ON p.id = pr.player_id
       JOIN room_players rp ON rp.room_code = ? AND rp.player_id = pr.player_id AND rp.archived_at IS NULL
@@ -626,7 +637,7 @@ export const SQL = Object.freeze({
    *  `spec.kind === 'bot'` branch), which is the only place a bot's identity
    *  needs to reach the lobby view from. */
   humanSeatsOfMatch: `
-    SELECT mp.seat, mp.player_id, p.display_name, mp.connected
+    SELECT mp.seat, mp.player_id, p.display_name, p.avatar, mp.connected
       FROM match_players mp
       JOIN players p ON p.id = mp.player_id
      WHERE mp.match_id = ? AND p.kind = 'human'
@@ -675,7 +686,7 @@ export const SQL = Object.freeze({
    * two bullets) ────────────────────────────────────────────────────────── */
 
   playerById: `
-    SELECT id, kind, display_name, rating, rating_games, rating_season, tz_offset_min
+    SELECT id, kind, display_name, avatar, rating, rating_games, rating_season, tz_offset_min
       FROM players
      WHERE id = ? AND deleted_at IS NULL`,
 
@@ -866,7 +877,7 @@ export const SQL = Object.freeze({
    * collapses repeats — but the join's second `match_players` alias (`mp2`)
    * is: every OTHER human seat of every match `mp`'s player finished. */
   friendsOfPlayer: `
-    SELECT mp2.player_id AS friend_id, p.display_name AS display_name,
+    SELECT mp2.player_id AS friend_id, p.display_name AS display_name, p.avatar AS avatar,
            p.rating AS rating, p.rating_games AS rating_games, p.last_seen_at AS last_seen_at,
            COUNT(DISTINCT mp.match_id) AS games
       FROM match_players mp
@@ -1025,13 +1036,17 @@ export interface NewPlayer {
   id: string;
   kind: "human" | "bot";
   displayName: string;
+  /** Only a brand-new player minted with an avatar already in hand (e.g. a
+   *  first `POST /api/identity` that carries both fields at once) ever needs
+   *  this; absent/undefined binds NULL, same as the schema default. */
+  avatar?: string | null;
   now: string;
 }
 
 export async function insertPlayer(db: D1Like, p: NewPlayer): Promise<void> {
   await db
     .prepare(SQL.insertPlayer)
-    .bind(p.id, p.kind, p.displayName, p.now, p.now, p.now)
+    .bind(p.id, p.kind, p.displayName, p.avatar ?? null, p.now, p.now, p.now)
     .run();
 }
 
@@ -1070,6 +1085,18 @@ export async function renamePlayer(
   now: string,
 ): Promise<void> {
   await db.prepare(SQL.renamePlayer).bind(displayName, now, now, playerId).run();
+}
+
+/** `avatar` null clears the picture (falls back to the letter avatar
+ *  client-side); a data URI replaces it. Validated by the caller
+ *  (`worker/src/index.ts` `parseAvatarField`) before this ever runs. */
+export async function updatePlayerAvatar(
+  db: D1Like,
+  playerId: string,
+  avatar: string | null,
+  now: string,
+): Promise<void> {
+  await db.prepare(SQL.updatePlayerAvatar).bind(avatar, now, playerId).run();
 }
 
 /* ── rulesets ─────────────────────────────────────────────────────────────── */
@@ -1306,6 +1333,7 @@ export interface PresenceRow {
   state: string;
   seen_at: string;
   display_name: string;
+  avatar: string | null;
 }
 
 /** Upsert this player's heartbeat. `state` is presence's own vocabulary
@@ -1464,6 +1492,7 @@ export interface LobbySeatRow {
   seat: number;
   player_id: string;
   display_name: string;
+  avatar: string | null;
   connected: number;
 }
 
@@ -1675,6 +1704,7 @@ export async function updateTzOffset(db: D1Like, playerId: string, minutes: numb
 export interface FriendRow {
   friend_id: string;
   display_name: string;
+  avatar: string | null;
   rating: number | null;
   rating_games: number;
   last_seen_at: string;

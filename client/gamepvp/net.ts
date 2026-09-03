@@ -38,6 +38,7 @@ import type { FourSeats, RedactedGameEvent, SeatSnapshot, SeatVisible } from "..
 
 const LS_TOKEN = "mjrc.gamepvp.deviceToken";
 const LS_NAME = "mjrc.gamepvp.displayName";
+const LS_AVATAR = "mjrc.gamepvp.avatar";
 const LS_PLAYER = "mjrc.gamepvp.playerId";
 
 const TOKEN_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -56,13 +57,21 @@ function mintDeviceToken(): string {
 export interface Identity {
   playerId: string;
   displayName: string;
+  /** Data URI, JPEG, <= 12 KB; null = no picture (letter avatar). Optional so
+   *  a caller that only ever built this shape by hand (`bootIdentity`'s
+   *  offline fallback in shell/session.ts) still compiles. */
+  avatar?: string | null;
   rating: number | null;
   deviceToken: string;
 }
 
 /** What is on this device already, before the player has typed anything. */
-export function storedIdentity(): { deviceToken: string | null; displayName: string | null } {
-  return { deviceToken: localStorage.getItem(LS_TOKEN), displayName: localStorage.getItem(LS_NAME) };
+export function storedIdentity(): { deviceToken: string | null; displayName: string | null; avatar: string | null } {
+  return {
+    deviceToken: localStorage.getItem(LS_TOKEN),
+    displayName: localStorage.getItem(LS_NAME),
+    avatar: localStorage.getItem(LS_AVATAR),
+  };
 }
 
 export class ApiError extends Error {
@@ -111,19 +120,36 @@ async function apiFetch<T>(
  *  "today" counting. Optional so an older caller of this module still
  *  compiles; every caller in this client now sends one. */
 /** `displayName` null = re-identify with the stored token and take the
- *  server's name; never let a stale local copy rename the player. */
-export async function identify(displayName: string | null, tzOffsetMin?: number): Promise<Identity> {
+ *  server's name; never let a stale local copy rename the player. `avatar`
+ *  (account.ts only — every other caller omits it): `undefined` = leave the
+ *  picture alone, `null` = clear it, a `data:image/jpeg;base64,...` string =
+ *  replace it. Same "absent means unchanged" contract the server's
+ *  `parseAvatarField` implements (worker/src/index.ts). */
+export async function identify(
+  displayName: string | null,
+  tzOffsetMin?: number,
+  avatar?: string | null,
+): Promise<Identity> {
   const token = localStorage.getItem(LS_TOKEN) ?? mintDeviceToken();
   const body: Record<string, unknown> = { deviceToken: token, tzOffsetMin };
   if (displayName !== null) body.displayName = displayName;
-  const data = await apiFetch<{ playerId: string; displayName: string; rating: number | null }>(
+  if (avatar !== undefined) body.avatar = avatar;
+  const data = await apiFetch<{ playerId: string; displayName: string; avatar?: string | null; rating: number | null }>(
     "identity",
     { method: "POST", body },
   );
   localStorage.setItem(LS_TOKEN, token);
   localStorage.setItem(LS_NAME, data.displayName);
   localStorage.setItem(LS_PLAYER, data.playerId);
-  return { playerId: data.playerId, displayName: data.displayName, rating: data.rating ?? null, deviceToken: token };
+  if (data.avatar) localStorage.setItem(LS_AVATAR, data.avatar);
+  else localStorage.removeItem(LS_AVATAR);
+  return {
+    playerId: data.playerId,
+    displayName: data.displayName,
+    avatar: data.avatar ?? null,
+    rating: data.rating ?? null,
+    deviceToken: token,
+  };
 }
 
 /* ── lobby: tables and match history ──────────────────────────────────── */
@@ -256,6 +282,7 @@ export type HereState = "lobby" | "waiting" | "playing";
 export interface LobbyHereEntry {
   playerId: string;
   displayName: string;
+  avatar?: string | null;
   state: HereState;
   matchId?: string;
   joinCode?: string;
@@ -269,6 +296,7 @@ export interface LobbyTableSeat {
   seat: 0 | 1 | 2 | 3;
   kind: "human" | "bot";
   displayName?: string;
+  avatar?: string | null;
   connected: boolean;
 }
 
@@ -297,6 +325,7 @@ export interface LobbyTable {
 
 export interface LobbyRecentStanding {
   displayName: string;
+  avatar?: string | null;
   chips: number;
   place: number;
 }
@@ -466,6 +495,11 @@ export interface RoomDetail {
   game: { rulesetId: string; matchFormat: MatchFormat; access: TableAccess } | null;
   memberCount: number;
   tables: LobbyTable[];
+  /** Members seen recently (§11.2) — NOT the whole roster, see `memberCount`.
+   *  Same `LobbyHereEntry` shape `GET /api/lobby`'s `here[]` uses, since both
+   *  are built off the same presence fold server-side. Optional: an older
+   *  server may not send it yet. */
+  players?: LobbyHereEntry[];
 }
 export async function getRoom(token: string, code: string): Promise<RoomDetail> {
   return apiFetch(`rooms/${encodeURIComponent(code)}`, { token });
@@ -476,6 +510,7 @@ export async function getRoom(token: string, code: string): Promise<RoomDetail> 
 export interface FriendEntry {
   playerId: string;
   displayName: string;
+  avatar?: string | null;
   state: HereState | "offline";
   matchId?: string;
   hand?: number;
@@ -505,6 +540,7 @@ export interface InboxEntry {
   kind: InboxKind;
   fromPlayerId?: string;
   fromDisplayName: string;
+  fromAvatar?: string | null;
   text: string;
   at: number;
   unread: boolean;
@@ -553,6 +589,7 @@ export async function postDm(token: string, playerId: string, text: string): Pro
 export interface PlayerStatsPlayer {
   id: string;
   displayName: string;
+  avatar?: string | null;
   rating: number | null;
   ratingGames: number;
   /** Fewer than the engine's provisional threshold of games — show the label. */
@@ -620,6 +657,7 @@ export type LeaderboardMode = "ranked" | "casual";
 export interface RankedLeaderboardEntry {
   playerId: string;
   displayName: string;
+  avatar?: string | null;
   rating: number;
   games: number;
   provisional: boolean;
@@ -628,6 +666,7 @@ export interface RankedLeaderboardEntry {
 export interface CasualLeaderboardEntry {
   playerId: string;
   displayName: string;
+  avatar?: string | null;
   matches: number;
   wins: number;
   places: [number, number, number, number];
@@ -677,7 +716,7 @@ function scopeQuery(scope: StatsScope): string {
 
 /** Dataset A — one row per player in scope, the leaderboard shape. */
 export interface StatsRecordRow {
-  playerId: string; displayName: string;
+  playerId: string; displayName: string; avatar?: string | null;
   games: number; hands: number; wins: number; winPct: number;
   ins: number; inPct: number;
   handsW: number; handsL: number; ptsW: number; ptsL: number;
@@ -737,7 +776,7 @@ export interface GameDetail {
   mode: TableMode; rulesetId: string; matchFormat: MatchFormat;
   roomCode: string | null; roomName: string | null;
   handCount: number;
-  standings: { place: number; playerId: string; displayName: string; chips: number; ratingBefore?: number | null; ratingAfter?: number | null; ratingDelta?: number | null }[];
+  standings: { place: number; playerId: string; displayName: string; avatar?: string | null; chips: number; ratingBefore?: number | null; ratingAfter?: number | null; ratingDelta?: number | null }[];
   hands: Record<string, unknown>[];
   viewerSeat: number | null;
   replayToken: string | null;

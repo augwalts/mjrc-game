@@ -60,6 +60,14 @@ import {
   $, describeError, esc, fmtChips, identity, mutedSet, wireMuteTaps,
   SETTINGS, saveSettings,
 } from "./shell/session.js";
+/** The one addition to the "table.ts imports nothing under shell/ except
+ *  session.ts" rule in the header above: `strings.ts` is a leaf (it imports
+ *  session.ts and nothing else), so this adds no cycle — shell/pages → table
+ *  → strings → session stays one-directional. It is here for the handful of
+ *  strings the TABLE itself now shows the player (the double-tap hint, the
+ *  hand's sort button); everything else this file prints is game prose that
+ *  is already bilingual by nature and stays where it is. */
+import { S, t } from "./shell/strings.js";
 
 declare global {
   interface Window { BOTS?: Record<string, Partial<BotProfile>>; }
@@ -363,6 +371,21 @@ const feed: string[] = [];
 interface Placed { x: number; y: number; rot: number; spin: number; }
 let pileTiles: { id: number; tile: TileId; seat: SeatIndex; pos?: Placed }[] = [];
 let pileSeq = 0;
+/* ── the throw that is still takeable (build item 1) ─────────────────────
+ * `pileTiles[].id` of the discard currently in play, or null. The snapshot's
+ * own `lastDiscard` cannot answer this: the engine only clears it when the
+ * tile is CONSUMED by a claim or a new hand starts (reducer.ts
+ * `consumeDiscard`/`startHand`), so it still names the previous throw long
+ * after the next seat has drawn and the window has shut.
+ *
+ * So this is tracked off the event stream instead, which does know: a
+ * `discard` arms it, and the very next event that is not itself part of the
+ * claim negotiation (`claimOffered`/`claimDeclined`/`robKongWindow`/
+ * `refusedWin`) disarms it — a draw, a claim, a kong, the next throw, the end
+ * of the hand. That is exactly "for as long as it can still be taken". */
+let liveThrowId: number | null = null;
+const THROW_SURVIVES: ReadonlySet<string> =
+  new Set(["claimOffered", "claimDeclined", "robKongWindow", "refusedWin"]);
 let handSig = "";
 let overlay: string | null = null;
 interface MatchEndInfo { standings: number[]; placements: number[]; reason: string; handsPlayed: number; }
@@ -556,44 +579,279 @@ function whatIf(tile: TileId): string {
     : `<b class="lead">cut ${name(tile)} → ${r.distance} away</b> · helps: ${waitList(r)}
        <span class="tot">${r.total} live</span>`;
 }
+/* ── the tile coach: count + what-if ──────────────────────────────────────
+ * Hoisted out of `wireHover()` (they used to be two closures inside it) so
+ * the LIFT (build item 3) can raise exactly the same read a hover does — the
+ * first tap of a double-tap discard is meant to answer "how many of these are
+ * left, and what does cutting it leave me on", which is precisely this. One
+ * implementation, two ways in. */
+const closestTile = (t: EventTarget | null): HTMLElement | null =>
+  (t as HTMLElement | null)?.closest?.(".tile") as HTMLElement | null;
+function showTileCoach(el: HTMLElement): void {
+  if (!el.dataset.t) return;
+  const t = Number(el.dataset.t) as TileId;
+  if (SETTINGS.hcCount) {
+    document.body.classList.add("counting");
+    for (const o of Array.from(document.querySelectorAll<HTMLElement>(`.tile[data-t="${t}"]`))) {
+      o.classList.add("samet");
+    }
+  }
+  if (isDesktop() && SETTINGS.hcWhatIf && el.closest("#myhand") && !overlay) {
+    const bar = document.getElementById("callbar");
+    if (bar) { bar.dataset.saved ??= bar.innerHTML; bar.innerHTML = whatIf(t); bar.classList.add("whatif"); }
+  }
+}
+function clearTileCoach(): void {
+  document.body.classList.remove("counting");
+  for (const o of Array.from(document.querySelectorAll<HTMLElement>(".tile.samet"))) o.classList.remove("samet");
+  const bar = document.getElementById("callbar");
+  if (bar?.dataset.saved) { bar.innerHTML = bar.dataset.saved; delete bar.dataset.saved; bar.classList.remove("whatif"); }
+}
+/** What a HOVER/long-press release does, as opposed to what lowering a lifted
+ *  tile does: it falls back to whatever tile is currently lifted. Without
+ *  this, moving the mouse off a lifted tile on a desktop wipes the read the
+ *  lift exists to show, one frame after the tap that raised it. */
+function clearTileCoachToLift(): void {
+  clearTileCoach();
+  if (liftedEl) showTileCoach(liftedEl);
+}
 /** Hover for desktop, long-press for touch (task: "touch first" — nothing
  *  in the coach may be hover-only). Both funnel into the same show/clear. */
 function wireHover(): void {
-  const closestTile = (t: EventTarget | null): HTMLElement | null =>
-    (t as HTMLElement | null)?.closest?.(".tile") as HTMLElement | null;
-  const show = (el: HTMLElement): void => {
-    if (!el.dataset.t) return;
-    const t = Number(el.dataset.t) as TileId;
-    if (SETTINGS.hcCount) {
-      document.body.classList.add("counting");
-      for (const o of Array.from(document.querySelectorAll<HTMLElement>(`.tile[data-t="${t}"]`))) {
-        o.classList.add("samet");
-      }
-    }
-    if (isDesktop() && SETTINGS.hcWhatIf && el.closest("#myhand") && !overlay) {
-      const bar = document.getElementById("callbar");
-      if (bar) { bar.dataset.saved ??= bar.innerHTML; bar.innerHTML = whatIf(t); bar.classList.add("whatif"); }
-    }
-  };
-  const clear = (): void => {
-    document.body.classList.remove("counting");
-    for (const o of Array.from(document.querySelectorAll<HTMLElement>(".tile.samet"))) o.classList.remove("samet");
-    const bar = document.getElementById("callbar");
-    if (bar?.dataset.saved) { bar.innerHTML = bar.dataset.saved; delete bar.dataset.saved; bar.classList.remove("whatif"); }
-  };
-  document.addEventListener("mouseover", (e) => { const el = closestTile(e.target); if (el) show(el); });
-  document.addEventListener("mouseout", (e) => { const el = closestTile(e.target); if (el) clear(); });
+  document.addEventListener("mouseover", (e) => { const el = closestTile(e.target); if (el) showTileCoach(el); });
+  document.addEventListener("mouseout", (e) => { if (closestTile(e.target)) clearTileCoachToLift(); });
   let pressTimer = 0;
   let pressed: HTMLElement | null = null;
   document.addEventListener("touchstart", (e) => {
     const el = closestTile(e.target);
     pressed = el;
     if (!el) return;
-    pressTimer = window.setTimeout(() => { if (pressed) show(pressed); }, 260);
+    pressTimer = window.setTimeout(() => { if (pressed) showTileCoach(pressed); }, 260);
   }, { passive: true });
-  const releaseTouch = (): void => { window.clearTimeout(pressTimer); if (pressed) clear(); pressed = null; };
+  const releaseTouch = (): void => {
+    window.clearTimeout(pressTimer);
+    if (pressed) clearTileCoachToLift();
+    pressed = null;
+  };
   document.addEventListener("touchend", releaseTouch);
   document.addEventListener("touchcancel", releaseTouch);
+}
+
+/* ── double tap to discard (build item 3) ─────────────────────────────────
+ * Default ON, on every device. A thrown tile cannot be taken back — not by
+ * the client, not by the server — so the one gesture in this whole client
+ * that is irreversible is the one that gets a confirmation, and the
+ * confirmation is the cheapest possible: tap the same tile again.
+ *
+ * TWO settings, not one (`discardDoubleTapDesktop`/`discardDoubleTapMobile`,
+ * shell/session.ts): a mouse and a thumb miss in different ways and at
+ * different rates, and a laptop with a touchscreen is both. Which one applies
+ * is decided by the POINTER at the moment of the tap, not by a breakpoint
+ * captured at boot — same discipline as `isDesktop()` above.
+ *
+ * When the applicable toggle is off, one tap throws, exactly as before. */
+const COARSE = matchMedia("(pointer: coarse)");
+const isMobileInput = (): boolean => COARSE.matches || window.innerWidth < 768;
+const doubleTapDiscard = (): boolean =>
+  isMobileInput() ? SETTINGS.discardDoubleTapMobile : SETTINGS.discardDoubleTapDesktop;
+/** The tile raised by a first tap, or null. A DOM node rather than an index:
+ *  `render()` only rebuilds `#myhand`'s markup when the hand actually changed
+ *  (`handSig`), and any change that rebuilds it also invalidates the lift, so
+ *  the node either survives intact or is gone — see the containment check in
+ *  `render()`. */
+let liftedEl: HTMLElement | null = null;
+function lowerTile(): void {
+  if (!liftedEl) return;
+  liftedEl.classList.remove("lifted");
+  liftedEl = null;
+  clearTileCoach();
+  paintTapHint();
+}
+function liftTile(el: HTMLElement): void {
+  lowerTile();
+  liftedEl = el;
+  el.classList.add("lifted");
+  showTileCoach(el);
+  paintTapHint();
+}
+/** Swaps the claim bar's hint between its own text and "tap again to
+ *  discard", without a full `render()` — a lift changes nothing about the
+ *  game state and has no business repainting the pile. `data-base` carries
+ *  the hint's own words so this can put them back. */
+function paintTapHint(): void {
+  for (const h of Array.from($("actions").querySelectorAll<HTMLElement>(".hint.taphint"))) {
+    h.textContent = liftedEl ? t(S.tapAgainToDiscard) : (h.dataset.base ?? "");
+  }
+}
+
+/* ── drag to rearrange your own hand (build item 4) ───────────────────────
+ * LOCAL ONLY. Nothing here is ever sent, and nothing here is ever read back
+ * from the server: `me.hand` stays canonical and `render()` still derives the
+ * default (ascending) order straight from it. `handOrder` is a preferred
+ * ARRANGEMENT of tile ids, matched against the real hand as a multiset on
+ * every render — which is what makes it survive re-renders without holding a
+ * stale hand: a tile that left drops out, a tile that arrived (a draw, a
+ * claim's leftovers) joins at the RIGHT END rather than being sorted in, and
+ * everything still held keeps the order the player put it in.
+ *
+ * Duplicates need no disambiguation: two 3萬 are the same object to the game
+ * and to the player, so matching by tile id is matching by identity here. */
+let handOrder: TileId[] = [];
+function orderedHand(defaultHand: TileId[]): TileId[] {
+  if (handOrder.length === 0) return defaultHand;
+  const pool = [...defaultHand];
+  const out: TileId[] = [];
+  for (const t of handOrder) {
+    const i = pool.indexOf(t);
+    if (i >= 0) { out.push(t); pool.splice(i, 1); }
+  }
+  out.push(...pool);            // anything the server added since: right end
+  handOrder = out;              // re-anchored to what is actually held now
+  return out;
+}
+const handReordered = (defaultHand: TileId[], shown: TileId[]): boolean =>
+  shown.some((t, i) => t !== defaultHand[i]);
+
+const DRAG_SLOP = 8;
+interface HandDrag {
+  el: HTMLElement; tiles: HTMLElement[]; rects: DOMRect[];
+  from: number; to: number;
+  startX: number; startY: number; pointerId: number; moved: boolean;
+}
+let handDrag: HandDrag | null = null;
+/** A drag ends in a `click` the browser fires anyway; this eats exactly that
+ *  one, so a rearrange never also throws a tile. A drag that never passed the
+ *  slop threshold sets nothing and the tap goes through untouched — "a tap
+ *  that does not move is still a tap". */
+let swallowHandClick = false;
+let swallowTimer = 0;
+
+/** Wired ONCE (initTableChrome), delegated on `#myhand` — the row's contents
+ *  are rebuilt by `render()` whenever the hand changes, so per-tile listeners
+ *  would have to be re-attached every time and would leak the drag mid-flight.
+ *
+ *  Pointer events, not mouse+touch: one code path for a finger and a mouse,
+ *  and `setPointerCapture` keeps the stream coming when the finger leaves the
+ *  tile — which it always does, since the whole gesture is about leaving it. */
+function wireHandDrag(): void {
+  const row = $("myhand");
+  const endDrag = (commit: boolean, x: number, y: number): void => {
+    const d = handDrag;
+    if (!d) return;
+    handDrag = null;
+    for (const t of d.tiles) t.style.transform = "";
+    d.el.style.transform = "";
+    d.el.classList.remove("dragging");
+    if (d.el.hasPointerCapture(d.pointerId)) d.el.releasePointerCapture(d.pointerId);
+    if (!d.moved) return;                       // a tap: item 3 handles it
+    swallowHandClick = true;
+    window.clearTimeout(swallowTimer);
+    // Belt and braces: if the browser never fires the click (it does not when
+    // the pointer is released outside the element it went down on), the flag
+    // must not sit armed waiting to eat the player's NEXT real tap.
+    swallowTimer = window.setTimeout(() => { swallowHandClick = false; }, 300);
+    // "Dragging out of the hand row never discards; it snaps back." Released
+    // anywhere outside the row — over the table, over the claim bar — and the
+    // arrangement is simply not committed. There is no drop target on this
+    // screen but the row itself.
+    const r = row.getBoundingClientRect();
+    const inside = x >= r.left - 30 && x <= r.right + 30 && y >= r.top - 24 && y <= r.bottom + 24;
+    if (!commit || !inside || d.to === d.from) return;
+    const shown = d.tiles.map((t) => Number(t.dataset.t) as TileId);
+    const [moved] = shown.splice(d.from, 1);
+    shown.splice(d.to, 0, moved!);
+    handOrder = shown;
+    handSig = "";                               // force the row to repaint
+    render();
+  };
+
+  row.addEventListener("pointerdown", (e) => {
+    if (handDrag) return;
+    const el = closestTile(e.target);
+    // `.drawn` is deliberately not draggable: it has its own slot at the far
+    // right (摸切 is a different act from rearranging), and it joins the hand
+    // proper — at the right end — on its own the moment the server folds it in.
+    if (!el || !row.contains(el) || el.classList.contains("drawn")) return;
+    const tiles = Array.from(row.querySelectorAll<HTMLElement>(".tile:not(.drawn)"));
+    const from = tiles.indexOf(el);
+    if (from < 0) return;
+    // Slot geometry is measured ONCE, before anything has moved: every target
+    // calculation below reads these frozen rects, so the tiles sliding out of
+    // the way can never feed back into where the drop lands.
+    const rects = tiles.map((t) => t.getBoundingClientRect());
+    handDrag = {
+      el, tiles, rects, from, to: from,
+      startX: e.clientX, startY: e.clientY, pointerId: e.pointerId, moved: false,
+    };
+  });
+
+  row.addEventListener("pointermove", (e) => {
+    const d = handDrag;
+    if (!d || e.pointerId !== d.pointerId) return;
+    const dx = e.clientX - d.startX, dy = e.clientY - d.startY;
+    if (!d.moved) {
+      if (Math.hypot(dx, dy) < DRAG_SLOP) return;   // still a tap, not yet a drag
+      d.moved = true;
+      d.el.setPointerCapture(d.pointerId);
+      d.el.classList.add("dragging");
+      lowerTile();                                  // a drag is not a first tap
+    }
+    d.el.style.transform = `translate(${dx.toFixed(1)}px,${dy.toFixed(1)}px)`;
+    // Where it would land: standard move semantics — remove at `from`, insert
+    // at `to` — read off the frozen slot boxes.
+    //
+    // READING ORDER, not x alone: `#myhand` is `flex-wrap:wrap` and thirteen
+    // tiles at the phone's own `--th:44px` need ~468px, so on any phone the
+    // hand IS two rows. Comparing x only would put a tile dropped at the left
+    // of the second row before tiles that are visually above and to the right
+    // of it. Row is decided first, x only within a row.
+    const pastSlot = (r: DOMRect): boolean =>
+      e.clientY > r.bottom ? true
+      : e.clientY < r.top ? false
+      : e.clientX > r.left + r.width / 2;
+    let to = d.from;
+    for (let i = 0; i < d.rects.length; i++) {
+      if (i === d.from) continue;
+      if (i < d.from && !pastSlot(d.rects[i]!)) to = Math.min(to, i);
+      if (i > d.from && pastSlot(d.rects[i]!)) to = Math.max(to, i);
+    }
+    if (to !== d.to) d.to = to;
+    // The gap. Each displaced tile is moved to its NEIGHBOUR'S frozen box —
+    // a real (dx, dy), not a fixed slot width — which is the only version
+    // that survives a wrap: the tile at the end of the first row slides down
+    // and left to the start of the second, exactly as the reflow would, and
+    // there is no reflow. Transforms only, so nothing relayouts and the row's
+    // own `transition:transform .12s` does the sliding. No rAF loop anywhere
+    // in this gesture.
+    for (let i = 0; i < d.tiles.length; i++) {
+      if (i === d.from) continue;
+      const shift = to > d.from && i > d.from && i <= to ? -1
+        : to < d.from && i >= to && i < d.from ? 1 : 0;
+      if (!shift) { d.tiles[i]!.style.transform = ""; continue; }
+      const src = d.rects[i]!, dst = d.rects[i + shift]!;
+      d.tiles[i]!.style.transform =
+        `translate(${(dst.left - src.left).toFixed(1)}px,${(dst.top - src.top).toFixed(1)}px)`;
+    }
+  });
+
+  row.addEventListener("pointerup", (e) => endDrag(true, e.clientX, e.clientY));
+  row.addEventListener("pointercancel", (e) => endDrag(false, e.clientX, e.clientY));
+  // Capture phase, so it runs before the per-tile `onclick` render() attaches.
+  row.addEventListener("click", (e) => {
+    if (!swallowHandClick) return;
+    swallowHandClick = false;
+    window.clearTimeout(swallowTimer);
+    e.stopPropagation();
+    e.preventDefault();
+  }, true);
+  // "a tap elsewhere lowers it" (build item 3) — anywhere that is not another
+  // tile in your own hand, since tapping one of those lifts that one instead.
+  document.addEventListener("click", (e) => {
+    if (!liftedEl) return;
+    const el = closestTile(e.target);
+    if (el && $("myhand").contains(el)) return;
+    lowerTile();
+  });
 }
 
 /* ── dev coach (discard helper + claim advice) ───────────────────────────
@@ -780,8 +1038,46 @@ const CALLS: Record<string, [string, string]> = {
 };
 const SAY_MS = 640;
 let sayTimer = 0;
+/* ── the throw's name, held for the claim window (build item 1) ──────────
+ * The 640ms flash is right for the eighty throws a hand that nobody wants:
+ * it is gone before the tile lands and it never competes with anything. It
+ * is wrong for the throw somebody CAN take — the player is looking at a
+ * pung/chow/pass decision with nothing on screen naming the tile.
+ *
+ * So the flash now has a second life: while a claim window is open for this
+ * seat, `render()` calls `holdSay()` and the same element settles into a
+ * small neutral label at the thrower's position (`#say.held` in index.html)
+ * until the window closes. `sayHold` is the WANTED state; the flash's own
+ * timer is what actually applies it, so a hold asked for mid-flash never
+ * truncates the flash — it just changes what happens when it finishes. */
+let sayHold: { tile: TileId; screenPos: 0 | 1 | 2 | 3 } | null = null;
+function applySayHold(): void {
+  const h = sayHold;
+  if (!h) return;
+  const el = $("say");
+  el.innerHTML = `<div class="inner">${name(h.tile)}</div>`;
+  el.className = `held s${h.screenPos}`;
+}
+/** Asks for the hold. A no-op if it is already held on the same tile (never
+ *  restart it — `render()` runs many times while one window is open), and
+ *  deferred to the flash's own timer if a flash is still running. */
+function holdSay(tile: TileId, screenPos: 0 | 1 | 2 | 3): void {
+  if (sayHold && sayHold.tile === tile && sayHold.screenPos === screenPos) return;
+  sayHold = { tile, screenPos };
+  if ($("say").classList.contains("show")) return;   // the flash's timer will apply it
+  applySayHold();
+}
+/** Drops the hold — the window closed, or the hand did. Leaves a running
+ *  flash alone; that has its own timer and its own reason to be up. */
+function releaseSay(): void {
+  if (!sayHold) return;
+  sayHold = null;
+  const el = $("say");
+  if (el.classList.contains("held")) el.className = "";
+}
 /** `screenPos`: 0-3, already converted with `rel()` by the caller. */
 function sayDiscard(tile: TileId, screenPos: 0 | 1 | 2 | 3): void {
+  sayHold = null;                       // a new throw supersedes the old hold
   const el = $("say");
   el.innerHTML = `<div class="inner">${name(tile)}</div>`;
   el.className = "";
@@ -789,7 +1085,9 @@ function sayDiscard(tile: TileId, screenPos: 0 | 1 | 2 | 3): void {
   el.style.setProperty("--sayms", `${SAY_MS}ms`);
   el.className = `show s${screenPos}`;
   clearTimeout(sayTimer);
-  sayTimer = window.setTimeout(() => { el.className = ""; }, SAY_MS);
+  sayTimer = window.setTimeout(() => {
+    if (sayHold) applySayHold(); else el.className = "";
+  }, SAY_MS);
 }
 
 let callTimer = 0;
@@ -835,13 +1133,30 @@ const FLOWER_HOLD_MS = 500;
 let holdMs = 0;
 const takeHold = (): number => { const h = holdMs; holdMs = 0; return h; };
 /** `screenPos` positions the call bubble; `who`/`extra` are prose already
- *  resolved by the caller. */
-function announce(kind: string, who: string, extra = "", screenPos: 0 | 1 | 2 | 3 = 0): void {
+ *  resolved by the caller.
+ *
+ *  `tiles` (build item 2) is what the call is ABOUT, drawn to the left of the
+ *  text through the site's own renderer (`face()`, same art as everywhere
+ *  else) — the tile for a pung or a kong, all three for a chow, the winning
+ *  tile for a win, the flower for a flower. An empty array draws nothing, so
+ *  a call with no tile to show (a concealed kong seen from another seat,
+ *  whose tile is nulled by the redacted serializer) degrades to text alone
+ *  rather than to a placeholder.
+ *
+ *  Layout, colour and sizing all live in index.html's `#call` block — see its
+ *  own comment for why the Cantonese and the English are the same size and
+ *  the underline is the only colour in the banner. Show/hide timing here is
+ *  unchanged: 2.2s, 3.2s for a win, matching the `callIn` animation. */
+function announce(
+  kind: string, who: string, extra = "", screenPos: 0 | 1 | 2 | 3 = 0, tiles: TileId[] = [],
+): void {
   const [ch, en] = CALLS[kind] ?? [kind, ""];
   const el = $("call");
-  el.innerHTML = `<div class="inner"><div class="cw">${who}</div>`
-    + `<div class="cc${ch.length > 1 ? " two" : ""}">${ch}</div>`
-    + `<div class="ce">${en}${extra ? ` · ${extra}` : ""}</div></div>`;
+  const art = tiles.length ? `<span class="ct">${tiles.map((t) => tileHtml(t)).join("")}</span>` : "";
+  const caption = [who, extra].filter(Boolean).join(" · ");
+  el.innerHTML = `<div class="inner">${art}<span class="cb">`
+    + `<span class="cline"><span class="cc">${ch}</span><span class="ce">${en}</span></span>`
+    + `<span class="cw">${caption}</span></span></div>`;
   el.className = `show s${screenPos} k-${kind} ` + (kind === "win" || kind === "selfDraw" ? "big" : "");
   clearTimeout(callTimer);
   callTimer = window.setTimeout(() => { el.className = ""; }, kind === "win" || kind === "selfDraw" ? 3200 : 2200);
@@ -953,6 +1268,10 @@ let pendingHandOutcome: { winner: SeatIndex | null; selfDraw: boolean; from: Sea
 function consume(events: readonly RedactedGameEvent[]): void {
   for (const e of events) {
     const p = e.payload as unknown as Record<string, unknown>;
+    // Build item 1: anything that is not the throw itself, and not part of
+    // the claim negotiation around it, ends the window on the tile in play.
+    // The `discard` case below re-arms it for the new throw.
+    if (e.type !== "discard" && !THROW_SURVIVES.has(e.type)) liveThrowId = null;
     switch (e.type) {
       case "deal":
         // Any reveal for the hand that just ended is done its job the moment
@@ -968,6 +1287,12 @@ function consume(events: readonly RedactedGameEvent[]): void {
         closeStartCardOnPlay();
         pileTiles = []; handSig = ""; landingMeld = null;
         pendingOptimisticDiscard = null;
+        // A fresh hand: no throw in play, no held label, and the local hand
+        // arrangement (build item 4) starts from the server's default again —
+        // last hand's order means nothing to thirteen new tiles.
+        liveThrowId = null; handOrder = [];
+        lowerTile();
+        sayHold = null;
         $("say").className = "";
         buildWall();
         // "this hand"'s chat filter (§8 task item 2) anchors here — a fresh
@@ -977,7 +1302,10 @@ function consume(events: readonly RedactedGameEvent[]): void {
         break;
       case "flowerReplacement":
         feed.push(`${seatName(p.seat as SeatIndex)} reveals ${name(p.flower as TileId)} 花`);
-        announce("flower", seatName(p.seat as SeatIndex), name(p.flower as TileId), rel(p.seat as SeatIndex));
+        // The flower itself is drawn in the banner now (build item 2), so the
+        // name it used to spell out as `extra` would only repeat the picture.
+        announce("flower", seatName(p.seat as SeatIndex), "", rel(p.seat as SeatIndex),
+          [p.flower as TileId]);
         break;
       case "discard": {
         const seat = p.seat as SeatIndex, tile = p.tile as TileId;
@@ -988,9 +1316,12 @@ function consume(events: readonly RedactedGameEvent[]): void {
         // "have.has(d.id)" new-node check creates a fresh DOM node and
         // re-tosses it (exactly what this feature exists to avoid).
         if (seat === mySeat && pendingOptimisticDiscard?.tile === tile) {
+          // The optimistic entry is already the live throw (the click handler
+          // armed it) — reconciling must not renumber it.
           pendingOptimisticDiscard = null;
         } else {
           pileTiles.push({ id: ++pileSeq, tile, seat });
+          liveThrowId = pileSeq;
         }
         feed.push(`${seatName(seat)} discards ${name(tile)}`);
         sayDiscard(tile, rel(seat));
@@ -1006,16 +1337,29 @@ function consume(events: readonly RedactedGameEvent[]): void {
         pileTiles.pop();
         const verb = kind === "chow" ? "chows 上" : kind === "pung" ? "pungs 碰" : "kongs 槓";
         feed.push(`${seatName(seat)} ${verb} ${name(tile)}`);
-        announce(kind, seatName(seat), name(tile), rel(seat));
+        // Build item 2: a chow shows the RUN it built (three tiles, off the
+        // event's own `meld` — `claimed` is not redacted, so `meld.tiles` is
+        // always real here); a pung or a kong shows the tile that was taken,
+        // since three or four of the same picture says nothing four times.
+        const meld = p.meld as Meld | undefined;
+        const art = kind === "chow" ? (meld?.tiles ?? [tile]) : [tile];
+        announce(kind, seatName(seat), "", rel(seat), art);
         break;
       }
-      case "concealedKong":
+      case "concealedKong": {
+        // 暗槓 lies face down: the redacted payload nulls `tile` for every
+        // seat but the one declaring it, so the banner shows text alone there
+        // rather than inventing a tile (events.ts RedactedConcealedKongPayload).
+        const kt = p.tile as TileId | null;
         feed.push(`${seatName(p.seat as SeatIndex)} declares a concealed kong 暗槓`);
-        announce("concealedKong", seatName(p.seat as SeatIndex), "", rel(p.seat as SeatIndex));
+        announce("concealedKong", seatName(p.seat as SeatIndex), "", rel(p.seat as SeatIndex),
+          kt === null ? [] : [kt]);
         break;
+      }
       case "addedKong":
         feed.push(`${seatName(p.seat as SeatIndex)} adds a kong 加槓`);
-        announce("addedKong", seatName(p.seat as SeatIndex), "", rel(p.seat as SeatIndex));
+        announce("addedKong", seatName(p.seat as SeatIndex), "", rel(p.seat as SeatIndex),
+          [p.tile as TileId]);
         break;
       case "refusedWin": {
         const seat = p.seat as SeatIndex;
@@ -1028,7 +1372,8 @@ function consume(events: readonly RedactedGameEvent[]): void {
       case "winOnDiscard": case "selfDraw": {
         const ctx = p.context as { seat: SeatIndex; selfDraw: boolean; from: SeatIndex | null; winningTile: TileId };
         const sc = p.score as { faan: number; rawFaan: number; capped: boolean; awards: { id: string; faan: number }[] };
-        announce(ctx.selfDraw ? "selfDraw" : "win", seatName(ctx.seat), `${sc.faan} faan`, rel(ctx.seat));
+        announce(ctx.selfDraw ? "selfDraw" : "win", seatName(ctx.seat), `${sc.faan} faan`,
+          rel(ctx.seat), [ctx.winningTile]);
         // The full reveal (tiles, awards, chips, standings) is built once, at
         // `handEnd` below — this event only ever carries the winner's hand,
         // and `handEnd` always lands in the same batch right after it.
@@ -1531,6 +1876,13 @@ function leaveTable(): void {
   paused = null; myAuto = false; myAutoIdle = false; myAutoRequestedOn = false; noClock = false;
   currentSpeed = null; applyStarting(null); pendingOptimisticDiscard = null;
   closeReveal(); pendingWinDetail = null; pendingDrawDistance = null;
+  // Table-only view state (build items 1/3/4). `body.claimwindow` and the
+  // coach's `body.counting` are on the BODY, which outlives the table screen
+  // — without this they follow the player into the shell.
+  liveThrowId = null; handOrder = []; sayHold = null;
+  lowerTile(); clearTileCoach();
+  document.body.classList.remove("claimwindow");
+  $("say").className = "";
   stopClock();
   updateChatVisibility();
   updateHudButtons();
@@ -1588,6 +1940,7 @@ function act(a: Action): void {
       // and the hand filter (also `render()`) stops excluding the tile the
       // instant `pendingOptimisticDiscard` is cleared.
       if (a.type === "discard" && pendingOptimisticDiscard?.tile === a.tile) {
+        if (liveThrowId === pendingOptimisticDiscard.pileId) liveThrowId = null;
         pileTiles = pileTiles.filter((d) => d.id !== pendingOptimisticDiscard!.pileId);
         pendingOptimisticDiscard = null;
       }
@@ -1688,7 +2041,12 @@ function render(): void {
 
   const pileEl = $("pile");
   const boxW = pileEl.clientWidth || 420, boxH = pileEl.clientHeight || 240;
-  pileEl.style.setProperty("--pileth", `${Math.round(Math.min(46, Math.max(21, boxW / 14.3)))}px`);
+  const pileTh = Math.round(Math.min(46, Math.max(21, boxW / 14.3)));
+  pileEl.style.setProperty("--pileth", `${pileTh}px`);
+  // Mirrored onto the root so anything OUTSIDE #pile can size against the same
+  // tile — the call banner's art (build item 2) is 1.4x the pile tile, and
+  // #call is a sibling of #centre, so it never inherits #pile's own variable.
+  document.documentElement.style.setProperty("--pileth", `${pileTh}px`);
   const probe = pileEl.querySelector<HTMLElement>(".tile");
   const th = probe?.offsetHeight || 36 * SETTINGS.tileScale;
   const tw = probe?.offsetWidth || th * 0.714;
@@ -1761,7 +2119,11 @@ function render(): void {
     // this is a deliberate constant, not a guess left unexamined.
     const OWN_TOSS_ORIGIN_FY = 190 + 60;
     const from = [[0, OWN_TOSS_ORIGIN_FY], [230, 0], [0, -190], [-230, 0]][r] ?? [0, OWN_TOSS_ORIGIN_FY];
-    for (const el of Array.from(pileEl.children)) el.classList.remove("hot");
+    // `.hot` (build item 1) is no longer decided here. Insertion time is the
+    // wrong moment for it: it can only ever say "this is the newest tile",
+    // which stops being true the instant the next one lands, while the ring
+    // has to come off when the window SHUTS — often long before that. The
+    // single toggle after this loop owns it, off `liveThrowId`.
     // Queue any draw that lands behind this toss (motion queue above) — set
     // BEFORE the element goes in, not after, so a draw rendered later in
     // this same pass (own hand, or an opponent's backrow) already sees it.
@@ -1769,11 +2131,20 @@ function render(): void {
     // ONE motion straight to the slot (`d.pos`, fixed above and never
     // recomputed once set) — no `--lx`/`--ly`/`--lr` "contact" leg any more,
     // see the `toss` keyframe's own doc comment in index.html.
-    pileEl.insertAdjacentHTML("beforeend", tileHtml(d.tile, "pt fresh hot",
+    pileEl.insertAdjacentHTML("beforeend", tileHtml(d.tile, "pt fresh",
       `data-pid="${d.id}" style="left:${d.pos!.x.toFixed(1)}px;top:${d.pos!.y.toFixed(1)}px;`
       + `--fx:${from[0]}px;--fy:${from[1]}px;--fr:${d.pos!.spin.toFixed(0)}deg;`
       + `--rot:${d.pos!.rot.toFixed(1)}deg;--tossms:${TOSS_MS}ms;`
-      + `transform:translate(-50%,-50%) rotate(${d.pos!.rot.toFixed(1)}deg)"`));
+      // `scale(var(--hotscale,1))` is inert (1) on every tile but the one in
+      // play — a class cannot override an inline transform, so the 1.12x of
+      // `#pile .tile.hot` has to ride a variable this inline style reads.
+      + `transform:translate(-50%,-50%) rotate(${d.pos!.rot.toFixed(1)}deg) scale(var(--hotscale,1))"`));
+  }
+  // Build item 1: exactly one tile wears the seal-red ring, and only for as
+  // long as it can still be claimed. Re-asserted every render rather than set
+  // once, so a resize, a reconnect or a re-render can never leave it stale.
+  for (const el of Array.from(pileEl.children)) {
+    el.classList.toggle("hot", Number((el as HTMLElement).dataset.pid) === liveThrowId);
   }
 
   const mine = (i: number): string =>
@@ -1799,7 +2170,13 @@ function render(): void {
     }
   }
   $("myhand").className = canDiscard ? "" : "locked";
-  const sig = `${hand.join(",")}|${drawnTile ?? "-"}|${canDiscard}`;
+  // Build item 4: `hand` is the DEFAULT order (what the server gave, sorted);
+  // `shown` is that order with the player's own local arrangement applied.
+  // Only `shown` is ever drawn, and only `hand` is ever compared against to
+  // decide whether the sort button has anything to undo.
+  const shown = orderedHand(hand);
+  const reordered = handReordered(hand, shown);
+  const sig = `${shown.join(",")}|${drawnTile ?? "-"}|${canDiscard}|${reordered ? "r" : ""}`;
   if (sig !== handSig) {
     handSig = sig;
     // Motion queue (task item 4): if a discard's toss just landed in THIS
@@ -1807,13 +2184,46 @@ function render(): void {
     // waits behind it rather than starting in the same frame — see the
     // `queueBehindToss` doc comment above.
     const drawDelay = queueBehindToss();
-    $("myhand").innerHTML = hand.map((t) => tileHtml(t, "", `data-t="${t}"`)).join("")
+    $("myhand").innerHTML = shown.map((t) => tileHtml(t, "", `data-t="${t}"`)).join("")
       + (drawnTile !== null
           ? tileHtml(drawnTile, "drawn",
               `data-t="${drawnTile}" style="--drawms:${DRAW_MS}ms;--drawdelay:${drawDelay}ms;`
-              + `--wx:${(120 - hand.length * 9).toFixed(0)}px;--wy:-190px"`)
+              + `--wx:${(120 - shown.length * 9).toFixed(0)}px;--wy:-190px"`)
+          : "")
+      + (reordered
+          ? `<button class="handsort" id="handSort" title="${esc(t(S.sortHandTitle))}">${esc(t(S.sortHand))}</button>`
           : "");
+    // The row was rebuilt, so whatever was lifted is gone with it — every
+    // change that rebuilds this markup (a draw, a discard, a claim, a
+    // rearrange) also invalidates the lift, so this is a drop, not a loss.
+    if (liftedEl && !$("myhand").contains(liftedEl)) { liftedEl = null; clearTileCoach(); }
+    // Same for a drag in flight (build item 4): a rebuild while a finger is
+    // down — a draw landing because the turn came round mid-drag — detaches
+    // the node being dragged and every slot rect measured against it, so the
+    // gesture is abandoned rather than committed against stale geometry. The
+    // swallow flag still has to be armed: the browser will fire the click
+    // this gesture ends in whether or not this file is still listening, and
+    // that click must not become a discard.
+    if (handDrag && !$("myhand").contains(handDrag.el)) {
+      if (handDrag.moved) {
+        swallowHandClick = true;
+        window.clearTimeout(swallowTimer);
+        swallowTimer = window.setTimeout(() => { swallowHandClick = false; }, 300);
+      }
+      handDrag = null;
+    }
   }
+  const sortBtn = document.getElementById("handSort") as HTMLButtonElement | null;
+  if (sortBtn) {
+    sortBtn.onclick = () => {
+      handOrder = [];              // back to the default the renderer already uses
+      lowerTile();
+      handSig = "";
+      render();
+    };
+  }
+  // Not your turn any more: nothing is liftable, so nothing stays lifted.
+  if (!canDiscard) lowerTile();
   if (canDiscard) {
     for (const el of Array.from($("myhand").querySelectorAll<HTMLElement>(".tile"))) {
       el.onclick = () => {
@@ -1821,6 +2231,12 @@ function render(): void {
         const t = Number(el.dataset.t) as TileId;
         const a = pending?.find((x) => x.type === "discard" && x.tile === t);
         if (!a) return;
+        // Build item 3: the FIRST tap on a tile that is not already lifted
+        // only raises it (and lights its count/what-if read). The second tap
+        // on that same tile falls through to the throw below. With the
+        // applicable toggle off, there is no first tap — one tap throws.
+        if (doubleTapDiscard() && liftedEl !== el) { liftTile(el); return; }
+        lowerTile();
         if (isDesktop()) gradeMyDiscard(t);
         // Optimistic discard (task item 3): toss the tile NOW, off the same
         // pile-placement function the real event will read too — the loop
@@ -1833,6 +2249,7 @@ function render(): void {
         const pid = ++pileSeq;
         pileTiles.push({ id: pid, tile: t, seat: mySeat });
         pendingOptimisticDiscard = { tile: t, pileId: pid };
+        liveThrowId = pid;                 // build item 1: it is in play now
         sayDiscard(t, rel(mySeat));
         act(a);
       };
@@ -1886,16 +2303,37 @@ function render(): void {
         else mk("kong 槓", "kong", inPlay === null ? "" : claimStrip([inPlay, inPlay, inPlay], inPlay));
       }
     });
-    bar = btns.join("") || (canDiscard ? `<span class="hint">your turn — tap a tile to discard</span>` : "");
-    if (btns.length && canDiscard) bar += `<span class="hint">or tap a tile to discard</span>`;
+    // `.taphint` + `data-base` (build item 3): `paintTapHint()` swaps these to
+    // "tap again to discard" while a tile is lifted and back again when it is
+    // lowered, without going near `render()` — a lift changes no game state.
+    const tapHint = (words: string): string =>
+      `<span class="hint taphint" data-base="${esc(words)}">${esc(words)}</span>`;
+    bar = btns.join("") || (canDiscard ? tapHint("your turn — tap a tile to discard") : "");
+    if (btns.length && canDiscard) bar += tapHint("or tap a tile to discard");
   } else if (!overlay) bar = `<span class="hint">…</span>`;
   $("actions").innerHTML = bar;
+  paintTapHint();
   for (const el of Array.from($("actions").querySelectorAll<HTMLElement>("button"))) {
     el.onclick = () => {
       const a = pending?.[Number(el.dataset.i)];
       if (a) { if (isDesktop()) gradeMyClaim(a); act(a); }
     };
   }
+  /* ── the claim window (build item 1) ──────────────────────────────────
+   * "A prompt with claims offered" — read off `pending`, the same server
+   * truth every button here is built from, never inferred from the snapshot.
+   * `pass` counts: the server only ever offers it alongside a claim, and a
+   * window where the only thing on the table is "decline" is still a window.
+   *
+   * While it is open: `body.claimwindow` steps every other highlight back to
+   * 40% (index.html), and the thrown tile's NAME stays on screen at the
+   * thrower's position instead of having flashed past 640ms after the toss. */
+  const claimWindow = !!pending?.some((a) => a.type === "claim" || a.type === "pass") && !myAuto;
+  document.body.classList.toggle("claimwindow", claimWindow);
+  const throwEntry = liveThrowId === null ? undefined : pileTiles.find((d) => d.id === liveThrowId);
+  if (claimWindow && throwEntry) holdSay(throwEntry.tile, rel(throwEntry.seat));
+  else releaseSay();
+
   $("log").innerHTML = feed.map((l) => `<div>${l}</div>`).join("");
   $("callwrap").innerHTML = isDesktop() ? callingBar() : "";
   $("devwrap").innerHTML = isDesktop() ? devPanel() : "";
@@ -2210,6 +2648,9 @@ export function connectToMatch(r: {
   window.clearTimeout(revealTimer); revealTimer = 0; revealDeadlineTs = null; revealRequested = false;
   pendingWinDetail = null; pendingDrawDistance = null;
   pileTiles = []; handSig = ""; landingMeld = null; feed.length = 0;
+  liveThrowId = null; handOrder = []; sayHold = null;
+  lowerTile(); clearTileCoach();
+  document.body.classList.remove("claimwindow");
   pendingOptimisticDiscard = null;
   sessionHands.length = 0; coachTally.graded = 0; coachTally.matched = 0;
   tableChat = []; handStartTs = 0; chatShowAll = false; chatUnread = 0; chatOpen = false;
@@ -2384,6 +2825,13 @@ function settingsScreen(back: () => void): void {
     <div class="setrow"><label>Tile size</label>
       <input type="range" id="setScale" min="0.8" max="2" step="0.05" value="${SETTINGS.tileScale}">
       <span id="setScaleV">${Math.round(SETTINGS.tileScale * 100)}%</span></div>
+    <div class="setrow"><label>${esc(t(S.doubleTapDiscardDesktop))}</label>
+      <input type="checkbox" id="ddtDesktop" ${SETTINGS.discardDoubleTapDesktop ? "checked" : ""}>
+      <span class="mut">first click lifts the tile and reads it, second click on the same
+        tile throws it — a thrown tile cannot be taken back</span></div>
+    <div class="setrow"><label>${esc(t(S.doubleTapDiscardPhone))}</label>
+      <input type="checkbox" id="ddtMobile" ${SETTINGS.discardDoubleTapMobile ? "checked" : ""}>
+      <span class="mut">the same, for a touch pointer or a screen under 768px</span></div>
     <h2 style="margin-top:14px">Handicaps</h2>
     <p class="mut">Training wheels. Each only tells you what a careful player could
       work out from the table — nothing hidden is revealed.</p>
@@ -2407,7 +2855,10 @@ function settingsScreen(back: () => void): void {
   sc.oninput = () => { SETTINGS.tileScale = Number(sc.value); $("setScaleV").textContent = `${Math.round(SETTINGS.tileScale * 100)}%`; saveSettings(); if (snap) render(); };
   const dv = document.getElementById("setDev") as HTMLInputElement;
   dv.onchange = () => { SETTINGS.dev = dv.checked; saveSettings(); if (snap) render(); };
-  for (const [id, key] of [["hcCount", "hcCount"], ["hcCalling", "hcCalling"], ["hcWhatIf", "hcWhatIf"]] as const) {
+  for (const [id, key] of [
+    ["hcCount", "hcCount"], ["hcCalling", "hcCalling"], ["hcWhatIf", "hcWhatIf"],
+    ["ddtDesktop", "discardDoubleTapDesktop"], ["ddtMobile", "discardDoubleTapMobile"],
+  ] as const) {
     const box = document.getElementById(id) as HTMLInputElement | null;
     if (box) box.onchange = () => { (SETTINGS as never as Record<string, boolean>)[key] = box.checked; saveSettings(); if (snap) render(); };
   }
@@ -2478,6 +2929,10 @@ export function initTableChrome(): void {
   };
   saveSettings();
   wireHover();
+  // Build item 4: delegated on #myhand, which is static furniture (only its
+  // CONTENTS are rebuilt by render()), so this is a once-at-boot wiring like
+  // every other listener here — never re-attached per hand.
+  wireHandDrag();
   wireChatDrawer();
   updateChatVisibility();
   document.addEventListener("visibilitychange", () => {

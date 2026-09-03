@@ -137,6 +137,13 @@ export const S = {
   on: s("on", "開"),
   off: s("off", "關"),
 
+  /* table interactions */
+  tapAgainToDiscard: s("tap again to discard", "再點一次打出"),
+  doubleTapDiscardDesktop: s("Double tap to discard · desktop", "雙擊打牌 · 桌面版"),
+  doubleTapDiscardPhone: s("Double tap to discard · phone", "雙擊打牌 · 手機"),
+  sortHand: s("sort", "整理"),
+  sortHandTitle: s("put your hand back in the default order", "回復預設排序"),
+
   /* misc */
   comingSoon: s("Creating rooms is coming soon — the admin is still building this. For now, ask for a room code to join one.", "建立房間功能即將推出，管理員仍在製作中。暫時請向朋友索取房間代碼加入。"),
   inboxWelcomeTitle: s("Welcome to MJRC 麻雀研究社", "歡迎來到麻雀研究社"),
@@ -147,6 +154,37 @@ export const S = {
   couldNotReach: s("could not reach the server", "無法連線至伺服器"),
   yourName: s("What should we call you?"),
   continue_: s("continue ▸", "繼續 ▸"),
+
+  /* stats + friends */
+  statsHelpTiles: s("Your overall record for the selected filter: games and hands played, how often you win, and how often you deal in. Worth per hand prices your net points against that ruleset's average winning hand, so different rulesets compare. Applies whichever filter is selected above (online/offline, ranked/casual, ruleset, or last N games)."),
+  statsHelpRecent: s("Your most recent matches, newest first, with place, chip change, and whether the match was ranked or casual. Tap a game to open its own page with the full hand-by-hand detail. Not affected by the filters above — this always shows your latest games."),
+  statsHelpHistogram: s("How many of your winning hands landed at each fan value, split by ruleset (see the legend for which line is which). A higher fan means a bigger hand. Applies whichever filter is selected above."),
+  statsHelpProgression: s("Your points swing hand by hand within a game — one faint line per game, with your average across games in bold. Shows the shape of a session, not just the final score. Applies whichever filter is selected above."),
+  statsHelpFeeds: s("Who you win the most points off when they discard into your hand, and who wins the most points off you the same way. Points only, not hand counts — a short bar can still mean a big feeder if their discards are expensive. Applies whichever filter is selected above."),
+  statsHelpForm: s("Your net worth per hand across your most recent games, oldest to newest. Above the zero line is a winning game on balance, below is a losing one. Applies whichever filter is selected above."),
+  statsHelpSizes: s("The winning fan values across each of your recent games, one faint line per game. Shows whether your games tend to end in small quick hands or long high-value ones. Applies whichever filter is selected above."),
+  statsHelpHandType: s("Every hand pattern you've won with, most-won first, with how many times you've won it and its average fan. Applies whichever filter is selected above."),
+  statsHelpRating: s("Your ranked rating over time — only online, move-validated games count toward it. The number beside the title is your current rating and how much it has moved across the games shown. Offline is always empty here; ruleset and last-N filters still narrow the games counted."),
+  statsHelpLeaderboard: s("Ranked players sorted by rating, minimum 5 games to qualify; (p) marks a provisional rating that hasn't seen enough games yet. Server-wide — not scoped to the filters above."),
+  statsEmptyTiles: s("no games yet — play a table to start your numbers"),
+  statsEmptyRecent: s("no games yet — play a table to see your match history"),
+  statsEmptyHistogram: s("no wins yet — win a hand to start the histogram"),
+  statsEmptyProgression: s("no games yet — your score swings appear after your first game"),
+  statsEmptyFeeds: s("no hands yet — feed and discard patterns appear after your first game"),
+  statsEmptyForm: s("no games yet — recent form appears after your first result"),
+  statsEmptySizes: s("no games yet — hand sizes appear after your first game"),
+  statsEmptyHandType: s("no wins yet — winning hands will group here by type"),
+  statsEmptyRating: s("no ranked games yet — play a four-human table to get rated"),
+  statsEmptyLeaderboard: s("no leaderboard yet — needs 5+ ranked games to qualify"),
+
+  /* avatar */
+  profilePicture: s("Profile picture", "個人頭像"),
+  choosePicture: s("Choose a picture", "選擇圖片"),
+  removePicture: s("Remove", "移除"),
+  pictureSizeHint: s("Cropped to a square, resized to 128×128, under 12 KB.", "會裁切成正方形，縮至 128×128，少於 12 KB。"),
+  pictureTooBig: s("That picture is too detailed to fit under 12 KB even at low quality — try a simpler or lower-resolution photo.", "這張圖片即使降低畫質仍超過 12 KB — 請試試較簡單或解像度較低的相片。"),
+  pictureUploadFailed: s("Could not read that picture — try another one.", "無法讀取該圖片，請嘗試其他圖片。"),
+  pictureSaving: s("Saving…", "儲存中…"),
 } as const;
 
 export type StringKey = keyof typeof S;

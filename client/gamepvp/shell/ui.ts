@@ -8,7 +8,7 @@
  * surgery, since every page here already knows its own section labels up
  * front.
  */
-import { esc } from "./session.js";
+import { esc, identity } from "./session.js";
 import { S, t } from "./strings.js";
 import type { Router } from "./router.js";
 
@@ -47,7 +47,7 @@ const NAV_KEY: Record<string, string> = { "/": "home", "/rooms": "rooms", "/frie
 export function meHtml(displayName: string, unread: number): string {
   return `<div class="me">
     <button class="inbox" data-nav="/messages" title="messages">${ICONS.inbox}${unread > 0 ? `<span class="n">${unread > 99 ? "99+" : unread}</span>` : ""}</button>
-    <button class="name" data-nav="/me"><span class="dot"></span>${esc(displayName)}</button>
+    <button class="name" data-nav="/me">${avatarHtml(displayName, identity?.avatar)}<span class="dot"></span>${esc(displayName)}</button>
   </div>`;
 }
 
@@ -91,3 +91,62 @@ export function wireNav(container: ParentNode, router: Router): void {
 }
 
 export const avatarLetter = (name: string): string => esc((name || "?").slice(0, 1).toUpperCase());
+
+/** A `secCard` with an ⓘ button folded into the title row (and, optionally,
+ *  a small numeric readout — e.g. rating's "current (Δ)" — before it). Tapping
+ *  the button opens an in-page explanation sheet via `wireInfoSheets`. Kept
+ *  general (not stats-specific) so any page — `friends.ts` included — can
+ *  reuse the same title-with-info row. */
+export function secCardInfo(
+  label: string, tone: string, bodyHtml: string,
+  info?: { title: string; body: string }, right?: string, cls = "",
+): string {
+  const rightHtml = right ? `<span class="sec-right">${esc(right)}</span>` : "";
+  const infoBtn = info
+    ? `<button class="info" data-info-title="${esc(info.title)}" data-info-body="${esc(info.body)}" aria-label="info">ⓘ</button>`
+    : "";
+  return `<div class="card ${cls}" data-tone="${tone}"><div class="sec in infot"><span>${esc(label)}</span>${rightHtml}${infoBtn}</div>${bodyHtml}</div>`;
+}
+
+/** Wires every `[data-info-title]` button inside `container` to open a
+ *  small overlay card (close via × / Esc / backdrop) with the plain-language
+ *  explanation carried in its `data-info-title`/`data-info-body`. Call after
+ *  every repaint, same as `wireNav`. */
+export function wireInfoSheets(container: ParentNode): void {
+  for (const btn of Array.from(container.querySelectorAll<HTMLElement>("[data-info-title]"))) {
+    btn.onclick = (e) => {
+      e.preventDefault(); e.stopPropagation();
+      openInfoSheet(btn.dataset.infoTitle ?? "", btn.dataset.infoBody ?? "");
+    };
+  }
+}
+
+function openInfoSheet(title: string, body: string): void {
+  const shell = document.getElementById("shell");
+  if (!shell) return;
+  shell.querySelectorAll(".infoveil").forEach((el) => el.remove());
+  const veil = document.createElement("div");
+  veil.className = "infoveil";
+  veil.innerHTML = `<div class="infocard"><button class="iclose" aria-label="${esc(t(S.close))}">×</button><h3></h3><p></p></div>`;
+  veil.querySelector("h3")!.textContent = title;
+  veil.querySelector("p")!.textContent = body;
+  const close = (): void => { veil.remove(); document.removeEventListener("keydown", onKey); };
+  const onKey = (e: KeyboardEvent): void => { if (e.key === "Escape") close(); };
+  veil.querySelector(".iclose")!.addEventListener("click", close);
+  veil.addEventListener("click", (e) => { if (e.target === veil) close(); });
+  document.addEventListener("keydown", onKey);
+  shell.appendChild(veil);
+}
+
+/* ── avatar (profile pictures, 2026-09-03) ────────────────────────────────
+ * A player's avatar, image or letter, as one drop-in unit — same 28px
+ * `.avatar` circle `avatarLetter` already renders inside, so every existing
+ * `<span class="avatar">${avatarLetter(name)}</span>` call site can become
+ * `${avatarHtml(name, avatar)}` unchanged around it. `avatar` is the data URI
+ * from `Identity.avatar`/`FriendEntry.avatar`/etc (net.ts) — falsy (null,
+ * undefined, "") falls back to the letter avatar, never a broken `<img>`.
+ */
+export function avatarHtml(name: string, avatar: string | null | undefined): string {
+  if (avatar) return `<img class="avatar avatar-img" src="${esc(avatar)}" alt="">`;
+  return `<span class="avatar">${avatarLetter(name)}</span>`;
+}

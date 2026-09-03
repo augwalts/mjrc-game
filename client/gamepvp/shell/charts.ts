@@ -39,27 +39,47 @@ export function barsChart(vals: number[], labels: string[], color?: string): str
 }
 
 export interface LineSeries { v: number[]; c: string; w?: number; o?: number; dots?: boolean; }
-export function lineChartSvg(series: LineSeries[], labels: string[]): string {
+
+/** Optional axis dressing, shared by `lineChartSvg`/`progressionSvg` rather
+ *  than duplicated per chart: `yLabel` sits top-left (a unit, e.g. "worth"),
+ *  `xLabel` sits bottom-right (e.g. "winning fan"), and `zeroLine` switches
+ *  `lineChartSvg` to the same signed, zero-anchored scale `progressionSvg`
+ *  always uses — for series whose values can go negative (worth, chips). */
+export interface ChartOpts { xLabel?: string; yLabel?: string; zeroLine?: boolean; }
+
+export function lineChartSvg(series: LineSeries[], labels: string[], opts: ChartOpts = {}): string {
   const W = 300, H = 90;
   const max = Math.max(...series.flatMap((sr) => sr.v.map(Math.abs)), 1);
   const T = chartTokens();
-  const pts = (arr: number[]): string => arr.map((v, i) => `${arr.length > 1 ? i / (arr.length - 1) * W : 0},${H - v / max * H}`).join(" ");
-  return `<svg viewBox="0 0 ${W} ${H + 16}" width="100%">${[0.5, 1].map((f) => `<line x1="0" x2="${W}" y1="${H - f * H}" y2="${H - f * H}" stroke="${T.grid}"/>`).join("")}${
+  const base = opts.zeroLine ? H / 2 : H;
+  const scale = opts.zeroLine ? H / 2 : H;
+  const y = (v: number): number => base - v / max * scale;
+  const pts = (arr: number[]): string => arr.map((v, i) => `${arr.length > 1 ? i / (arr.length - 1) * W : 0},${y(v)}`).join(" ");
+  const gridLines = opts.zeroLine
+    ? `<line x1="0" x2="${W}" y1="${base}" y2="${base}" stroke="${T.grid}" stroke-width="1.4"/>`
+    : [0.5, 1].map((f) => `<line x1="0" x2="${W}" y1="${H - f * H}" y2="${H - f * H}" stroke="${T.grid}"/>`).join("");
+  const extraH = opts.xLabel ? 26 : 16;
+  const yLabelHtml = opts.yLabel ? `<text x="2" y="9" fill="${T.dim}" font-size="9">${opts.yLabel}</text>` : "";
+  const xLabelHtml = opts.xLabel ? `<text x="${W}" y="${H + 24}" text-anchor="end" fill="${T.dim}" font-size="9">${opts.xLabel}</text>` : "";
+  return `<svg viewBox="0 0 ${W} ${H + extraH}" width="100%">${gridLines}${yLabelHtml}${
     series.map((sr) => `<polyline fill="none" stroke="${sr.c}" stroke-width="${sr.w ?? 2}" stroke-opacity="${sr.o ?? 1}" stroke-linejoin="round" points="${pts(sr.v)}"/>`).join("")
-  }${series.filter((sr) => sr.dots).map((sr) => sr.v.map((v, i) => `<circle cx="${sr.v.length > 1 ? i / (sr.v.length - 1) * W : 0}" cy="${H - v / max * H}" r="2.5" fill="${sr.c}"/>`).join("")).join("")
-  }${labels.map((l, i) => `<text x="${labels.length > 1 ? i / (labels.length - 1) * W : 0}" y="${H + 12}" text-anchor="middle" fill="${T.dim}" font-size="9">${l}</text>`).join("")}</svg>`;
+  }${series.filter((sr) => sr.dots).map((sr) => sr.v.map((v, i) => `<circle cx="${sr.v.length > 1 ? i / (sr.v.length - 1) * W : 0}" cy="${y(v)}" r="2.5" fill="${sr.c}"/>`).join("")).join("")
+  }${labels.map((l, i) => `<text x="${labels.length > 1 ? i / (labels.length - 1) * W : 0}" y="${H + 12}" text-anchor="middle" fill="${T.dim}" font-size="9">${l}</text>`).join("")}${xLabelHtml}</svg>`;
 }
 
 /** Score-progression shape: a zero line, faint per-game polylines, one bold
  *  aggregate/average on top. `games` are the faint lines, `avg` the bold
- *  one; x = hand index, y = signed points, both auto-scaled. */
-export function progressionSvg(games: number[][], avg: number[], boldColor: string): string {
+ *  one; x = hand index, y = signed points, both auto-scaled. Already
+ *  zero-anchored (the baseline is always drawn), so `opts` here only adds
+ *  the optional y-axis unit label. */
+export function progressionSvg(games: number[][], avg: number[], boldColor: string, opts: Pick<ChartOpts, "yLabel"> = {}): string {
   const W = 300, H = 90;
   const max = Math.max(1, ...games.flatMap((g) => g.map(Math.abs)), ...avg.map(Math.abs));
   const T = chartTokens();
   const pts = (arr: number[]): string => arr.map((v, i) => `${arr.length > 1 ? i / (arr.length - 1) * W : 0},${H / 2 - v / max * (H / 2)}`).join(" ");
   const hands = Math.max(avg.length, ...games.map((g) => g.length), 1);
-  return `<svg viewBox="0 0 ${W} ${H + 14}" width="100%"><line x1="0" x2="${W}" y1="${H / 2}" y2="${H / 2}" stroke="${T.grid}"/>${
+  const yLabelHtml = opts.yLabel ? `<text x="2" y="9" fill="${T.dim}" font-size="9">${opts.yLabel}</text>` : "";
+  return `<svg viewBox="0 0 ${W} ${H + 14}" width="100%">${yLabelHtml}<line x1="0" x2="${W}" y1="${H / 2}" y2="${H / 2}" stroke="${T.grid}"/>${
     games.map((g) => `<polyline fill="none" stroke="${boldColor}" stroke-opacity=".28" stroke-width="1" points="${pts(g)}"/>`).join("")
   }${avg.length > 0 ? `<polyline fill="none" stroke="${boldColor}" stroke-width="2.4" points="${pts(avg)}"/>` : ""}${
     Array.from({ length: hands }, (_, i) => i + 1).map((h, i) => `<text x="${hands > 1 ? i / (hands - 1) * W : 0}" y="${H + 12}" text-anchor="middle" fill="${T.dim}" font-size="9">${h}</text>`).join("")

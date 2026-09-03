@@ -98,9 +98,9 @@ const HANDLERS = new Map<string, Handler>([
     return rows(player === undefined ? [] : [pick(player, ["id", "kind", "display_name", "rating", "rating_games", "rating_season", "tz_offset_min"])]);
   }],
 
-  [SQL.insertPlayer, (s, [id, kind, display_name, created_at, updated_at, last_seen_at]) => {
+  [SQL.insertPlayer, (s, [id, kind, display_name, avatar, created_at, updated_at, last_seen_at]) => {
     s.players.push({
-      id, kind, display_name, bot_policy: null, rating: null, rating_games: 0,
+      id, kind, display_name, avatar, bot_policy: null, rating: null, rating_games: 0,
       rating_season: null, almanac_user_id: null, almanac_link_source: null,
       almanac_linked_at: null, tz_offset_min: 0, created_at, updated_at, last_seen_at, deleted_at: null,
     });
@@ -111,6 +111,14 @@ const HANDLERS = new Map<string, Handler>([
     const p = s.players.find((r) => r.id === id);
     if (p === undefined) return wrote(0);
     p.tz_offset_min = minutes;
+    return wrote(1);
+  }],
+
+  [SQL.updatePlayerAvatar, (s, [avatar, updated_at, id]) => {
+    const p = s.players.find((r) => r.id === id);
+    if (p === undefined) return wrote(0);
+    p.avatar = avatar;
+    p.updated_at = updated_at;
     return wrote(1);
   }],
 

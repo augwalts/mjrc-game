@@ -121,6 +121,7 @@ CREATE TABLE players (
   id             TEXT PRIMARY KEY,           -- app-generated, Crockford base32
   kind           TEXT NOT NULL DEFAULT 'human', -- human | bot
   display_name   TEXT NOT NULL,              -- freeform, <= 40 chars. NOT the Almanac handle.
+  avatar         TEXT,                       -- data URI, JPEG, <= 12 KB; null = no picture (letter avatar)
   bot_policy     TEXT,                       -- bots only: policy id + version, e.g. 'steer-v3'
 
   -- Rating cache. rating_history is canonical; these three are a derived
