@@ -1058,6 +1058,32 @@ export function startNextHand(state: MatchState): Applied {
   return { state: d.s, events: d.events };
 }
 
+/**
+ * End the match NOW, from any phase — the host ending the table for everyone
+ * (owner request 2026-09-03), or a table being abandoned. The hand in flight
+ * is void: no result, no payment; standings are the chips as they stand, and
+ * `handsPlayed` counts only hands that reached `handEnd`. Placements are the
+ * same rule `startNextHand` uses. A match already at `matchEnd` throws.
+ */
+export function endMatch(state: MatchState, reason: "hostEnded" | "abandoned"): Applied {
+  if (state.phase === "matchEnd") throw new Error("endMatch: the match is already over");
+  const d: Draft = { s: cloneState(state), events: [], ruleset: resolveRuleset(state.rulesetId) };
+  d.s.phase = "matchEnd";
+  const byStart = [0, 1, 2, 3].map(
+    (n) => (((d.s.startingDealer as number) + n) % 4) as SeatIndex,
+  );
+  const ranked = byStart.slice().sort((a, b) => d.s.seats[b].chips - d.s.seats[a].chips);
+  const placements: FourSeats<1 | 2 | 3 | 4> = [1, 1, 1, 1];
+  ranked.forEach((seat, i) => { placements[seat] = (i + 1) as 1 | 2 | 3 | 4; });
+  emit(d, "server", "matchEnd", {
+    reason,
+    standings: four((i) => d.s.seats[i].chips),
+    placements,
+    handsPlayed: d.s.handsPlayed,
+  });
+  return { state: d.s, events: d.events };
+}
+
 /* ── legalActions ──────────────────────────────────────────────────────── */
 
 /**

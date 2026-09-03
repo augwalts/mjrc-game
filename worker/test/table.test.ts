@@ -307,6 +307,20 @@ class StubRules {
     });
   }
 
+  /** Ends the match now from any phase — the reducer's `endMatch` contract. */
+  endMatch(state: GameState, reason: "hostEnded" | "abandoned"): Applied {
+    const next = clone(state);
+    next.phase = "matchEnd";
+    const standings = [0, 1, 2, 3].map((s) => state.seats[s as SeatIndex].chips) as FourSeats<number>;
+    return {
+      state: next,
+      events: [{
+        handIndex: state.handIndex, actor: "server", type: "matchEnd",
+        payload: { reason, standings, placements: [1, 2, 3, 4], handsPlayed: this.handsEnded },
+      }],
+    };
+  }
+
   /** Deals the next hand, or ends the match — exactly the reducer's contract. */
   startNextHand(state: GameState): Applied {
     if (this.handsEnded >= this.matchOverAfterHands) {

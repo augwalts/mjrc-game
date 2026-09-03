@@ -419,6 +419,10 @@ export async function startTable(token: string, matchId: string): Promise<void> 
 
 /** POST /api/tables/:matchId/leave — the seat plays out the rest of the
  *  match as a bot; the seat token still reclaims it (§7.2). */
+/** POST /api/tables/:matchId/end — the creator ends the table for everyone. */
+export async function endTable(token: string, matchId: string): Promise<void> {
+  await apiFetch<void>(`tables/${encodeURIComponent(matchId)}/end`, { method: "POST", token, body: {} });
+}
 export async function leaveTable(token: string, matchId: string): Promise<void> {
   await apiFetch<void>(`tables/${encodeURIComponent(matchId)}/leave`, { method: "POST", token, body: {} });
 }

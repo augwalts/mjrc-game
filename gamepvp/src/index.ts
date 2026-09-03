@@ -18,7 +18,7 @@
  * gates and binds — the reducer is installed into the table at module load and
  * that is the last this file hears of mahjong.
  */
-import { ENGINE_VERSION, applyAction, legalActions, startMatch, startNextHand } from "../../engine/src/reducer.js";
+import { ENGINE_VERSION, applyAction, endMatch, legalActions, startMatch, startNextHand } from "../../engine/src/reducer.js";
 import { EVENT_SCHEMA_VERSION, type MatchLogHeader } from "../../protocol/src/index.js";
 import { ruleset } from "@mjrc/rulesets";
 import {
@@ -44,7 +44,7 @@ import { BOT_CATALOGUE, BOT_LINEUP, bots, catalogueEntry, defaultBotFor, isBotCa
 
 /* ── bind the engine into the table, once, at module load ─────────────── */
 
-installTableRules({ startMatch, startNextHand, applyAction, legalActions }, bots, defaultBotFor);
+installTableRules({ startMatch, startNextHand, endMatch, applyAction, legalActions }, bots, defaultBotFor);
 
 /** The Durable Object binding target (wrangler.jsonc `class_name`). */
 export class TableDO extends BaseTableDO {}
@@ -207,6 +207,10 @@ function tableNamespace(env: Env): TableNamespace {
         async leave(playerId: string): Promise<void> {
           const res = await post(stub, "/leave", { playerId });
           if (!res.ok) throw new Error(`table leave ${res.status}: ${await res.text()}`);
+        },
+        async end(): Promise<void> {
+          const res = await post(stub, "/end", {});
+          if (!res.ok) throw new Error(`table end ${res.status}: ${await res.text()}`);
         },
         async observe(): Promise<Record<string, unknown>> {
           const res = await post(stub, "/observe", {});

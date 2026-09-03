@@ -52,7 +52,7 @@ import { CHAT_PHRASES, CHAT_TEXT_MAX_LENGTH } from "../../protocol/src/messages.
 import {
   RequestRejected, TableSocket,
   createTable, joinTable,
-  leaveTable as apiLeaveTable, listBots,
+  endTable as apiEndTable, leaveTable as apiLeaveTable, listBots,
   matchDetail, startTable as apiStartTable,
   type BotCatalogueEntry, type MatchFormat, type StartingPayload, type TableSpeed,
 } from "./net.js";
@@ -2934,6 +2934,8 @@ function quitScreen(back: () => void): void {
   $("panel").innerHTML = `
     <div class="mhead"><h2>${esc(t(S.quitTitle))}</h2></div>
     <div class="mbody">${esc(t(S.quitBody))}</div>
+    ${isCreatorOfCurrentTable ? `<div class="mbody" style="padding-top:0"><b>${esc(t(S.quitEndAll))}</b><br>${esc(t(S.quitEndAllHint))}
+      <div style="margin-top:8px"><button id="quitEndAll" class="ghost" style="border-color:var(--c-danger);color:var(--c-danger)">${esc(t(S.quitEndConfirm))}</button></div></div>` : ""}
     <div class="mfoot">
       <button id="quitLeave" class="ghost">${esc(t(S.quitLeave))}</button>
       <span class="hint2">esc · ${esc(t(S.quitStay))}</span>
@@ -2948,6 +2950,17 @@ function quitScreen(back: () => void): void {
     document.removeEventListener("keydown", onKey);
     $("veil").style.display = "none";
     void leaveTableAndReturn(currentMatchUuid);
+  };
+  const endBtn = document.getElementById("quitEndAll") as HTMLButtonElement | null;
+  if (endBtn) endBtn.onclick = () => {
+    // The server's matchEnd does the rest: every client, this one included,
+    // gets the scoreboard through the normal event path.
+    endBtn.disabled = true;
+    if (identity && currentMatchUuid) {
+      void apiEndTable(identity.deviceToken, currentMatchUuid)
+        .then(() => close())
+        .catch(() => { endBtn.disabled = false; flashHudNote("could not end the table"); });
+    }
   };
 }
 

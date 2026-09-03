@@ -220,6 +220,9 @@ export interface TableRules {
    * must not answer it.
    */
   startNextHand(state: GameState): Applied;
+  /** End the match from any phase — the host's "end the table for everyone"
+   *  (2026-09-03) or an abandoned table. The hand in flight is void. */
+  endMatch(state: GameState, reason: "hostEnded" | "abandoned"): Applied;
   applyAction(state: GameState, action: Action): Applied;
   /**
    * Everything this seat may do right now. The DO groups these into the
@@ -1226,6 +1229,7 @@ export class TableCore {
     if (url.pathname.endsWith("/fill")) return this.handleFill(request);
     if (url.pathname.endsWith("/leave")) return this.handleLeave(request);
     if (url.pathname.endsWith("/observe")) return this.handleObserve(request);
+    if (url.pathname.endsWith("/end")) return this.handleEnd(request);
     if (this.tombstone) return new Response("match over", { status: 410 });
     if (request.headers.get("Upgrade") !== "websocket") {
       return new Response("expected websocket", { status: 400 });
@@ -1613,6 +1617,45 @@ export class TableCore {
       const att = this.attachmentOf(ws);
       if (att?.seat === seat) ws.close(4001, "left");
     }
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { "content-type": "application/json; charset=utf-8" },
+    });
+  }
+
+  /**
+   * The creator ends the table for everyone (owner request 2026-09-03). The
+   * Worker route has already checked `created_by`; the table secret is the
+   * gate here. `rules.endMatch` emits a `matchEnd` with reason `hostEnded`
+   * from whatever phase the table is in, and `commit` does what it always
+   * does with one: every seat's client shows the scoreboard, the book flips
+   * to matchOver, the summary is queued. The one thing `commit` cannot do
+   * is close the hand in flight — there is no `handEnd` for it — so it is
+   * sealed here WITHOUT a result: its events still go to R2 (the log is
+   * whole, matchEnd and all), nothing goes to D1 for a hand that never
+   * ended, and the record drains so the match summary can follow.
+   */
+  private async handleEnd(request: Request): Promise<Response> {
+    const secret = this.env.TABLE_SECRET;
+    if (secret && !tokensMatch(request.headers.get("x-mjrc-table-secret") ?? "", secret)) {
+      return new Response("forbidden", { status: 403 });
+    }
+    if (this.tombstone || this.book.matchOver) return new Response("match over", { status: 410 });
+    if (!this.meta || !this.state) return new Response("table not started", { status: 409 });
+    const state = this.state;
+    await this.commit(this.deps.rules.endMatch(state, "hostEnded"));
+    const rec = this.outbox.get(state.handIndex);
+    if (rec && !rec.sealed) {
+      const events = await this.readHandEvents(state.handIndex);
+      rec.sealed = true;
+      rec.seqTo = events.length > 0 ? events[events.length - 1].seq : rec.seqFrom;
+      rec.d1Done = true; // a void hand has no row to write
+      rec.nextAttemptAt = 0;
+      this.outbox.set(state.handIndex, rec);
+      await this.ctx.storage.put({ [outboxKey(state.handIndex)]: rec });
+      this.setDeadline("outboxFlush", this.deps.clock(), "flush");
+    }
+    await this.rearm();
     return new Response(JSON.stringify({ ok: true }), {
       status: 200,
       headers: { "content-type": "application/json; charset=utf-8" },

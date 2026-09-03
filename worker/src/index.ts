@@ -251,6 +251,10 @@ export interface TableStub {
    * shaped by the client. Read-only.
    */
   observe(): Promise<Record<string, unknown>>;
+  /** The creator's "end the table for everyone" (2026-09-03): the match
+   *  ends now with reason `hostEnded`, the hand in flight void. Refused
+   *  once the match is over or before it has started. */
+  end(): Promise<void>;
 }
 
 export interface TableNamespace {
@@ -1814,6 +1818,25 @@ async function postStart(matchId: string, p: Platform, player: PlayerRow): Promi
     await tableStubFor(p, matchId).fill();
   } catch (e) {
     console.error("table fill failed", matchId, e);
+    return fail("table_unavailable", 503);
+  }
+  return json({ ok: true });
+}
+
+/**
+ * POST /api/tables/:matchId/end — the creator ends the table for everyone
+ * (owner request 2026-09-03). Creator only, same 404 doctrine as `postStart`.
+ * The table object emits a `matchEnd` with reason `hostEnded`; every seat's
+ * client shows the scoreboard, and the usual close-out follows.
+ */
+async function postEnd(matchId: string, p: Platform, player: PlayerRow): Promise<Response> {
+  const match = await matchById(p.db, matchId);
+  if (match === null || match.created_by !== player.id) return fail("not_found", 404);
+  if (match.lobby_status === "done") return fail("already_ended", 409);
+  try {
+    await tableStubFor(p, matchId).end();
+  } catch (e) {
+    console.error("table end failed", matchId, e);
     return fail("table_unavailable", 503);
   }
   return json({ ok: true });
@@ -3708,6 +3731,10 @@ export async function handle(request: Request, p: Platform): Promise<Response> {
     if (seg.length === 4 && seg[3] === "start") {
       if (method !== "POST") return fail("method_not_allowed", 405);
       return postStart(seg[2], p, player);
+    }
+    if (seg.length === 4 && seg[3] === "end") {
+      if (method !== "POST") return fail("method_not_allowed", 405);
+      return postEnd(seg[2], p, player);
     }
     if (seg.length === 4 && seg[3] === "leave") {
       if (method !== "POST") return fail("method_not_allowed", 405);
