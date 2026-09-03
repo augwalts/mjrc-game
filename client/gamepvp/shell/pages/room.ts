@@ -20,6 +20,7 @@ function tableRow(tb: LobbyTable): string {
   return `<div class="trow">
     <div class="trow-l">
       <span class="badge ${tb.mode}">${tb.mode}</span>
+      ${tb.name ? `<b>${esc(tb.name)}</b>` : ""}
       <small>${esc(ruleLabel(tb.rulesetId))} · ${matchFormatLabel(tb.matchFormat)}</small>
     </div>
     <div class="mini">${tb.seats.map((s) => `<span class="ms ${s.kind}">${s.kind === "bot" ? "bot" : (s.displayName ? esc(s.displayName.slice(0, 4)) : "·")}</span>`).join("")}</div>
