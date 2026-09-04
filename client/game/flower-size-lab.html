@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Flower legibility — numeral placement and glyph size</title>
+<style>
+body{margin:0;background:#131110;color:#f2ece0;padding:18px 20px 60px;
+  font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+h1{font-size:18px;margin:0 0 4px}
+h2{font-size:13px;margin:28px 0 6px;color:#d8b56a;letter-spacing:.04em}
+.sub{color:#a9b8ae;font-size:12.5px;max-width:920px;margin-bottom:6px}
+.sub b{color:#f2ece0}.sub code{background:rgba(255,255,255,.08);padding:1px 5px;border-radius:4px}
+table{border-collapse:collapse;margin-top:10px}
+th{font-size:11px;font-weight:600;color:#a9b8ae;text-align:left;padding:6px 12px 6px 0;
+  letter-spacing:.05em;text-transform:uppercase;vertical-align:bottom}
+td{padding:9px 12px 9px 0;border-top:1px solid #241f1b;vertical-align:middle}
+td.lab{font-size:11.5px;color:#8b9a90;white-space:nowrap;line-height:1.35}
+td.lab b{color:#f2ece0;display:block;font-size:12.5px}
+td.lab .sel{color:#d8b56a}
+.strip{display:flex;gap:5px;align-items:center}
+.felt{background:radial-gradient(ellipse at 50% 40%,#12503f,#0d3d30 80%);
+  padding:8px 10px;border-radius:8px;display:inline-block}
+.tile{display:inline-block;background:#FAFAF8;border-radius:4px;overflow:hidden;line-height:0;
+  box-shadow:0 1px 0 #b8ad93,0 2px 4px rgba(0,0,0,.35);flex:0 0 auto}
+.tile svg{width:100%;height:100%;display:block}
+/* a side-seat meld tile: box is the rotated bounding box, face turned inside */
+.tile.turned{position:relative}
+.tile.turned svg{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%) rotate(-90deg)}
+.note{font-size:11.5px;color:#8b9a90;max-width:920px;margin-top:8px;line-height:1.5}
+.note b{color:#c7d3cb}
+</style>
+</head>
+<body>
+
+<h1>Flower legibility — numeral placement and glyph size</h1>
+<div class="sub">
+  The index numeral <b>shipped on 2026-09-01</b>: 52px in the <b>top-left</b> corner with a 4.2 halo,
+  the motif scaled 0.78 and dropped 22 to clear it, and the numeral painted <b>after</b> the motif
+  instead of before — every art function used to emit it first, so the flower drew straight over it.
+  This page now renders the <b>real production tile</b> and varies only the one thing still open:
+  the <b>name glyph</b>, which <code>flower-lab.html</code> never laddered — every rung there carries
+  <code>gl:{size:24}</code>.
+</div>
+
+<h2>1 — the same art at every size it is actually drawn</h2>
+<div class="controls" id="ctl"></div>
+<div id="sizes"></div>
+<div class="note">
+  A tile is one 100&times;140 drawing scaled by CSS, so a numeral of <b>N</b> renders at
+  <b>N &times; displayHeight / 140</b> real pixels. That is why one internal size cannot serve every
+  surface: at 52 the index is 20.8px on the studio board and 55.7px on a 150px review tile — the
+  same drawing, two completely different pictures. The <b>ink</b> column is what your eye gets;
+  roughly 11px for a digit and 13px for a CJK glyph is where they stop being legible.
+</div>
+
+<h2>2 — two tiers: small surfaces vs large</h2>
+<div class="note" style="margin-top:0">
+  <code>.fidx</code> (index) and <code>.glyph</code> (name) are now CSS hooks in both renderers — a
+  presentation attribute loses to any CSS rule, so a surface can resize either without a second copy
+  of the art, and <code>recenterGlyphs</code> is delta-based so it re-centres afterwards.
+  Set each tier below; the CSS to paste is generated underneath.
+</div>
+<div class="controls" id="ctl2"></div>
+<div id="tiers"></div>
+<pre id="out" style="background:#1a1815;border:1px solid #2c2823;border-radius:9px;padding:12px;
+  font:12px/1.55 ui-monospace,Menlo,monospace;color:#c7d3cb;overflow-x:auto;max-width:920px"></pre>
+
+<script>document.write('<scr'+'ipt src="tile-engine.js?v='+Date.now()+'"><\/scr'+'ipt>')</script>
+<script>
+const $ = (id) => document.getElementById(id);
+const GLYPH_RE = /(<g[^>]*class="glyph"[^>]*>\s*<text[^>]*font-size=")([\d.]+)(")/;
+const IDX_RE   = /(<text class="fidx"[^>]*font-size=")([\d.]+)(")/;
+
+/* Every surface that draws a bonus tile, at the width it really uses. */
+const SURFACES = [
+  { w: 40,  name: "studio palette",   where: "the tile tray" },
+  { w: 56,  name: "studio board",     where: "the main studio view" },
+  { w: 40,  name: "game meld",        where: "a bot's flowers, upright" },
+  { w: 56,  name: "game meld TURNED", where: "east / west, read sideways", turned: true },
+  { w: 49,  name: "your flowers",     where: "#mymelds, --th:68" },
+  { w: 150, name: "review",           where: "inspection only" },
+];
+
+const PICKS = [0, 3, 4, 7];
+function face(i, idx, gl){
+  const all = [...FLOWER_TILES, ...SEASON_TILES];
+  let svg = all[i][1]();
+  if (idx) svg = svg.replace(IDX_RE, (_m,a,_o,c) => a + idx + c);
+  if (gl)  svg = svg.replace(GLYPH_RE, (_m,a,_o,c) => a + gl + c);
+  return svg;
+}
+const tileAt = (svg, w, turned) => turned
+  ? `<span class="tile turned" style="width:${Math.round(w/0.714)}px;height:${w}px">`
+    + `<svg viewBox="0 0 100 140" preserveAspectRatio="xMidYMid meet" `
+    + `style="width:${w}px;height:${Math.round(w/0.714)}px">${svg}</svg></span>`
+  : `<span class="tile" style="width:${w}px;height:${Math.round(w/0.714)}px">`
+    + `<svg viewBox="0 0 100 140" preserveAspectRatio="xMidYMid meet">${svg}</svg></span>`;
+
+/** What a canvas font-size of N actually renders as, in real pixels. */
+const inkOf = (n, w) => n * (w / 0.714) / 140;
+
+const slider = (id, label, min, max, val) =>
+  `<label>${label} <input type="range" id="${id}" min="${min}" max="${max}" step="1" `
+  + `value="${val}"><span class="v" id="${id}v">${val}</span></label>`;
+
+function boot(){
+  $("ctl").innerHTML  = slider("i1","index",20,80,52) + slider("g1","name glyph",16,60,24);
+  $("ctl2").innerHTML = slider("iS","SMALL index",20,80,58) + slider("gS","SMALL glyph",16,60,38)
+    + slider("iL","LARGE index",20,80,40) + slider("gL","LARGE glyph",16,60,26);
+  for (const id of ["i1","g1","iS","gS","iL","gL"]) $(id).oninput = draw;
+  draw();
+}
+
+function rows(target, pick){
+  return SURFACES.map((s) => {
+    const [i2, g2, tier] = pick(s.w);
+    const faces = PICKS.map((i) => tileAt(face(i, i2, g2), s.w, s.turned)).join("");
+    const ii = inkOf(i2, s.w), gi = inkOf(g2, s.w);
+    return `<tr><td class="lab"><b>${s.name}</b>${s.where || (s.w + "px")}</td>`
+      + `<td class="lab">${tier}</td>`
+      + `<td><span class="felt"><span class="strip">${faces}</span></span></td>`
+      + `<td class="lab" style="color:${ii < 11 ? "#ff9b93" : "#7fe0a4"}">${ii.toFixed(1)}px</td>`
+      + `<td class="lab" style="color:${gi < 13 ? "#ff9b93" : "#7fe0a4"}">${gi.toFixed(1)}px</td></tr>`;
+  }).join("");
+}
+
+function draw(){
+  for (const id of ["i1","g1","iS","gS","iL","gL"]) $(id + "v").textContent = $(id).value;
+  const idx = +$("i1").value, gl = +$("g1").value;
+  const head = `<table><tr><th>surface</th><th>drawn at</th><th>tiles</th>
+      <th>index ink</th><th>glyph ink</th></tr>`;
+
+  $("sizes").innerHTML = head + rows(null, (w) => [idx, gl, w + "px wide"]) + `</table>`;
+
+  const iS=+$("iS").value, gS=+$("gS").value, iL=+$("iL").value, gL=+$("gL").value;
+  $("tiers").innerHTML = head
+    + rows(null, (w) => w <= 60 ? [iS, gS, `small<br>idx ${iS} · gl ${gS}`]
+                                : [iL, gL, `large<br>idx ${iL} · gl ${gL}`])
+    + `</table>`;
+
+  $("out").textContent =
+`/* Bonus-tile optical sizes. The art is ONE drawing; these are the two sizes
+   it gets read at. Large surfaces keep the numeral in proportion; small ones
+   push it up so the digit survives being scaled down. */
+.tile svg .fidx       { font-size: ${iL}px }
+.tile svg .glyph text { font-size: ${gL}px }
+
+/* small surfaces — any tile under about 60px wide */
+.tile.osm svg .fidx       { font-size: ${iS}px }
+.tile.osm svg .glyph text { font-size: ${gS}px }`;
+
+  recenterGlyphs(document);
+}
+boot();
+</script>

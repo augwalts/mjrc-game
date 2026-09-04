@@ -548,13 +548,10 @@ function aboutScreen(back: () => void): void {
   $("veil").style.display = "flex";
   $("panel").classList.add("about");          // prose reads left-aligned
   $("panel").innerHTML = `
-    <h1>Solo — a demo, not a game yet</h1>
+    <h1>A demo, not a game yet</h1>
     <p>A playable Hong Kong Old Style table against three bots. It exists so we
     can find out what breaks before any of it is finished — so play a hand or
     two and tell us what felt wrong.</p>
-    <p class="mut">This build is called <b>Solo</b>. It is frozen: the same rules,
-    the same bots and the same scoring every time you open it, so everything it
-    records stays comparable.</p>
 
     <h2>What we are testing</h2>
     <ul class="about">
@@ -577,8 +574,7 @@ function aboutScreen(back: () => void): void {
     of it to be redrawn.</p>
 
     <h2>Later</h2>
-    <p>Playing against each other rather than against bots. That is a separate
-    build, and it will not change this one.</p>
+    <p>Playing against each other rather than against bots.</p>
 
     <h2>Your games are recorded</h2>
     <p>Every match, every decision we grade, and every note you send goes to our
@@ -1771,18 +1767,39 @@ function render(): void {
   let bar = "";
   if (pending) {
     const btns: string[] = [];
+    /**
+     * The meld the claim would BUILD, drawn as tiles with the tile in play
+     * ringed — rather than "7▮+9▮", which has to be decoded. When two chows
+     * are offered the tiles ARE the choice, so they belong on the button.
+     *
+     * The thrown tile is marked by POSITION, not by value: a pung and a kong
+     * are all the same number, so matching on value would ring every tile.
+     */
+    const strip = (tiles: TileId[], thrown: TileId | null): string => {
+      const parts = tiles.map((t) => ({ t, got: false }));
+      if (thrown !== null) parts.push({ t: thrown, got: true });
+      parts.sort((x, y) => x.t - y.t);          // stable: the thrown one stays last
+      return `<span class="tw">`
+        + parts.map((p) => tileHtml(p.t, p.got ? "got" : "")).join("") + `</span>`;
+    };
+    const inPlay = state.lastDiscard?.tile ?? null;
     pending.forEach((a, i) => {
       if (a.type === "discard") return;
-      const mk = (label: string, cls = "") => btns.push(`<button class="${cls}" data-i="${i}">${label}</button>`);
+      const mk = (label: string, cls = "", tiles = "") =>
+        btns.push(`<button class="${cls}" data-i="${i}"><span class="lb">${label}</span>${tiles}</button>`);
       if (a.type === "declareWin") mk("WIN 食糊", "win");
       else if (a.type === "pass") mk("pass", "pass");
-      else if (a.type === "concealedKong") mk(`kong 暗槓 ${name(a.tile)}`);
-      else if (a.type === "addedKong") mk(`kong 加槓 ${name(a.tile)}`);
+      // a concealed or added kong is made from your OWN hand — nothing is in
+      // play to ring, so all four tiles are drawn plain
+      else if (a.type === "concealedKong") mk("kong 暗槓", "kong", strip([a.tile, a.tile, a.tile, a.tile], null));
+      else if (a.type === "addedKong") mk("kong 加槓", "kong", strip([a.tile, a.tile, a.tile, a.tile], null));
       else if (a.type === "claim") {
         const o = a.option;
         if (o.kind === "win") mk("WIN 食糊", "win");
-        else mk(o.kind === "pung" ? "pung 碰" : o.kind === "kong" ? "kong 槓"
-          : `chow 上 ${(o.with ?? []).map(name).join("+")}`);
+        else if (o.kind === "chow") mk("chow 上", "chow", strip(o.with ?? [], inPlay));
+        else if (o.kind === "pung") mk("pung 碰", "pung",
+          inPlay === null ? "" : strip([inPlay, inPlay], inPlay));
+        else mk("kong 槓", "kong", inPlay === null ? "" : strip([inPlay, inPlay, inPlay], inPlay));
       }
     });
     bar = btns.join("") || (canDiscard ? `<span class="hint">your turn — tap a tile to discard</span>` : "");

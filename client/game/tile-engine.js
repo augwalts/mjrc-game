@@ -652,8 +652,17 @@ function tileSuo(n){
 
 // ═══════════════════ bonus tiles: flowers 花 & seasons 季 (draft) ═══════════════════
 const fglyph = (ch, cx, cy, size, color) => glyph({ ch, cx, cy, size, color });
+// The flower/season index. Was 17px top-left with no halo, which flower-lab.html
+// measured at two pixels of ink at the 40px palette size. The ladder selected 52;
+// the owner kept it in the TOP-LEFT corner (2026-09-01) — bottom-left sat on the
+// stems, and top-left is what R2 of the locked rules asks for. The halo lets it
+// survive a branch; bonusTile() below does the other half by painting it LAST.
 function fIndexNum(n, color){
-  return `<text x="12" y="20" font-family="Helvetica,Arial" font-weight="bold" font-size="17" fill="${PAL[color]}">${n}</text>`;
+  // `fidx` is the OPTICAL-SIZE HOOK — a presentation attribute loses to any
+  // CSS rule, so a surface that draws tiles small can enlarge the numeral
+  // without a second copy of the art. recenterGlyphs is delta-based and
+  // re-centres correctly after a CSS resize.
+  return `<text class="fidx" x="7" y="47" font-family="Helvetica,Arial" font-weight="bold" font-size="52" fill="${PAL[color]}" stroke="${PAL.face}" stroke-width="4.2" stroke-linejoin="round" paint-order="stroke">${n}</text>`;
 }
 function fBloom(cx, cy, r, k, color, ctr){
   const parts = [];
@@ -691,7 +700,7 @@ function fStalk(cx, cy, h){
   return `<line x1="${cx}" y1="${cy-h/2}" x2="${cx}" y2="${cy+h/2}" stroke="${PAL.green}" stroke-width="${fx(w2)}" stroke-linecap="round"/>`
        + `<line x1="${fx(cx-w2*0.8)}" y1="${cy}" x2="${fx(cx+w2*0.8)}" y2="${cy}" stroke="${PAL.face}" stroke-width="${fx(w2*0.32)}"/>`;
 }
-const FLOWER_TILES = [
+const RAW_FLOWER_TILES = [
   ["FA1 · 梅 plum", () => tileBody() + fIndexNum(1,"red") + fglyph("梅",82,18,24,"green")
     + fStroke(22,122,40,84,46,44,"blue",5) + fStroke(42,68,58,62,72,68,"blue",4)
     + fBlade(36,78,16,-55,"green") + fBlade(58,92,14,30,"green")
@@ -709,7 +718,7 @@ const FLOWER_TILES = [
     + fStroke(52,128,50,104,52,84,"green",4.5)
     + fBlade(38,104,22,35,"green") + fBlade(66,112,22,-30,"blue") + fMum(52,60,22)],
 ];
-const SEASON_TILES = [
+const RAW_SEASON_TILES = [
   ["SA1 · 春 spring", () => tileBody() + fIndexNum(1,"blue") + fglyph("春",80,19,26,"green")
     + fStroke(50,130,44,100,36,66,"green",4.5) + fStroke(52,130,60,98,70,74,"green",4)
     + fBlade(30,92,22,-60,"green") + fBlade(66,104,20,55,"green")
@@ -744,3 +753,24 @@ const SEASON_TILES = [
       + fBloom(70,96,8,5,"red","green") + snow(30,48,7) + snow(58,36,6) + snow(78,60,5.5);
   }],
 ];
+
+// ── bonus tiles: re-layer index / name / motif ───────────────────────────
+// Each entry below is written `tileBody() + index + name + motif`, which paints
+// the index FIRST and lets the motif cover it. This pulls the three apart so the
+// motif can be scaled clear of the corner and the index drawn last, without
+// touching the eight art functions — they stay a plain list of drawing calls.
+const BONUS_MOTIF = { s:0.78, tx:17, ty:22 };
+const BONUS_LAYERS = /^([\s\S]*?<\/text>)(<g[^>]*class="glyph"[^>]*>[\s\S]*?<\/g>)([\s\S]*)$/;
+function bonusTile(build){
+  const body = tileBody();
+  let rest = build();
+  if (rest.startsWith(body)) rest = rest.slice(body.length);
+  const m = BONUS_LAYERS.exec(rest);
+  if (!m) return body + rest;               // shape changed: draw it as written
+  return body
+    + `<g transform="translate(${BONUS_MOTIF.tx} ${BONUS_MOTIF.ty}) scale(${BONUS_MOTIF.s})">${m[3]}</g>`
+    + m[1] + m[2];
+}
+
+const FLOWER_TILES = RAW_FLOWER_TILES.map(([label, fn]) => [label, () => bonusTile(fn)]);
+const SEASON_TILES = RAW_SEASON_TILES.map(([label, fn]) => [label, () => bonusTile(fn)]);

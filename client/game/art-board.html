@@ -1,0 +1,1133 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MJRC — art board</title>
+<!--
+  ART BOARD — every direction on one page, side by side.
+
+  This is a DRAWING, not the game. It reuses the real tile art (tile-engine.js)
+  and the real proportions, but the table and the lobby are mock markup, so a
+  direction can be judged before any of it is wired up.
+
+  Each plate is one theme object in THEMES below. The mock markup names tokens
+  and nothing else, exactly as index.html does, so a plate is a palette and a
+  handful of optional overrides — the same shape the shipped sheet uses.
+
+  The first plate is TODAY, unchanged, as the thing to argue against. Its lobby
+  is drawn with the current structure (three identical bars); every plate after
+  it is drawn with the proposed one, because colour alone does not fix that
+  screen and pretending otherwise would waste the comparison.
+-->
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#15161a;color:#e7e4dc;
+  font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+header{padding:26px 30px 6px;max-width:1180px;margin:0 auto}
+header h1{margin:0 0 4px;font-size:22px;letter-spacing:.01em}
+header p{margin:0;color:#93908a;font-size:13px;max-width:70ch}
+#board,#forms,#variants{max-width:1180px;margin:0 auto;padding:0 30px 20px}
+.axis{max-width:1180px;margin:38px auto 0;padding:0 30px;font-size:13px;
+  letter-spacing:.14em;text-transform:uppercase;color:#cfccc4;
+  border-top:1px solid #2a2c33;padding-top:22px}
+.axis small{display:block;margin-top:3px;font-size:11.5px;letter-spacing:0;
+  text-transform:none;color:#8d8a84}
+.axis+#board .plate:first-child,.axis+#forms .plate:first-child{border-top:0;padding-top:14px}
+
+/* ── a plate ── */
+.plate{margin:30px 0 0;border-top:1px solid #2a2c33;padding-top:18px}
+.plabel{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:12px}
+.plabel h2{margin:0;font-size:17px;letter-spacing:.01em}
+.plabel .tag{font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;
+  color:#8d8a84;border:1px solid #34363d;border-radius:20px;padding:2px 9px}
+.plabel p{margin:0;color:#93908a;font-size:12.5px;flex:1;min-width:240px}
+.plabel .from{color:#6f6c67;font-size:11px}
+.sw{display:flex;gap:0;border-radius:6px;overflow:hidden;flex:0 0 auto;
+  box-shadow:0 0 0 1px #2a2c33}
+.sw i{width:26px;height:18px;display:block}
+.panes{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media (max-width:900px){.panes{grid-template-columns:1fr}}
+.pane{border-radius:12px;overflow:hidden;position:relative;
+  box-shadow:0 0 0 1px #2a2c33, 0 10px 30px rgba(0,0,0,.4)}
+.pane .cap{position:absolute;left:0;top:0;z-index:9;font-size:9.5px;letter-spacing:.12em;
+  text-transform:uppercase;background:rgba(0,0,0,.55);color:#cfccc4;
+  padding:3px 8px;border-radius:0 0 7px 0;pointer-events:none}
+
+/* ══ everything below is the MOCK, and names tokens only ══════════════ */
+/* FLAT FIELDS. A soft gradient across a large area does not read as light,
+   it reads as blur — the surface stops being a surface. Every field here is
+   one colour, and where the picture needs light it gets a HARD EDGE: a band,
+   a pool with a rim, a one-pixel highlight. Hard-stop gradients stay, because
+   a hard stop is a shape, not a fade. */
+.room{height:330px;position:relative;display:flex;flex-direction:column;
+  background:var(--room-2);color:var(--ink);font-size:12px}
+
+/* ── the lobby mock ── */
+.veilx{position:absolute;inset:0;background:var(--veil);display:flex;
+  align-items:center;justify-content:center;padding:14px}
+.pnl{background:var(--panel-2);
+  border:1px solid rgba(var(--gold-rgb),.35);border-radius:13px;
+  padding:16px 20px 15px;width:100%;max-width:330px;text-align:center;
+  box-shadow:0 16px 44px rgba(var(--shade),.5)}
+.motif{display:flex;gap:3px;justify-content:center;margin-bottom:9px}
+.motif .tile{--th:26px;opacity:.95}
+.pnl h1{margin:0;font-size:23px;letter-spacing:.06em;line-height:1.1;color:var(--ink)}
+.pnl .sub{margin:4px 0 0;font-size:8.5px;letter-spacing:.19em;text-transform:uppercase;
+  color:var(--gold)}
+.play{display:block;width:100%;margin:13px 0 0;border:0;border-radius:10px;
+  background:var(--gold);color:var(--on-gold,#2a2113);
+  padding:11px;font:inherit;font-size:15px;font-weight:800;letter-spacing:.02em;
+  cursor:pointer;box-shadow:0 5px 16px rgba(var(--gold-rgb),.3)}
+.play span{display:block;font-size:9.5px;font-weight:600;letter-spacing:.14em;
+  text-transform:uppercase;opacity:.72;margin-top:1px}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:8px}
+.card{background:rgba(var(--sheen),.07);border:1px solid rgba(var(--sheen),.13);
+  border-radius:9px;padding:7px 9px;text-align:left;font-size:11.5px;font-weight:700}
+.card i{display:block;font-style:normal;font-size:10px;font-weight:500;color:var(--dim);
+  margin-top:1px}
+.chips{display:flex;gap:5px;justify-content:center;margin-top:10px;flex-wrap:wrap}
+.chips b{background:rgba(var(--sheen),.07);border-radius:20px;padding:2px 9px;
+  font-size:10px;font-weight:600;color:var(--dim)}
+.chips b em{font-style:normal;color:var(--ink)}
+
+/* the CURRENT lobby, for the baseline plate only */
+.pnl.legacy{max-width:360px;text-align:center}
+.pnl.legacy h1{font-size:15px;letter-spacing:0}
+.pnl.legacy .who{color:var(--dim);font-size:10.5px;margin:3px 0 0}
+.pnl.legacy .bar{background:rgba(var(--shade),.25);border:1px solid rgba(var(--sheen),.14);
+  border-radius:9px;padding:8px 10px;text-align:left;margin-top:7px}
+.pnl.legacy .bar b{display:block;font-size:11.5px}
+.pnl.legacy .bar span{color:var(--dim);font-size:9.5px}
+.pnl.legacy .sum{color:var(--dim);font-size:10px;margin-top:9px}
+
+/* ── the table mock ── */
+/* the felt is ONE colour. What was a 44px inset fade is now a tight 6px
+   contact shadow where the cloth meets the rim — an edge, not a vignette. */
+.felt{position:relative;margin:12px auto 0;width:calc(100% - 22px);height:238px;
+  border-radius:16px;border:7px solid var(--rim);background:var(--felt);
+  box-shadow:inset 0 0 0 1px var(--felt-edge), inset 0 3px 6px rgba(var(--shade),.4),
+    0 12px 32px rgba(var(--shade),.5), 0 0 0 2px var(--rim-line)}
+.st{position:absolute;left:7px;top:6px;z-index:4;background:rgba(var(--shade),.4);
+  border:1px solid rgba(var(--sheen),.1);border-radius:8px;padding:3px 7px;line-height:1.2}
+.st .w{font-size:14px;font-weight:700;color:var(--gold)}
+.st .m{font-size:9px;color:var(--dim)}
+.st .m b{color:var(--ink)}
+.np{position:absolute;display:flex;align-items:center;gap:5px;
+  background:rgba(var(--shade),.32);border-radius:20px;padding:2px 8px;
+  font-size:10px;white-space:nowrap;z-index:4}
+.np .av{width:15px;height:15px;border-radius:50%;font-size:8px;
+  background:var(--av-2);
+  display:flex;align-items:center;justify-content:center}
+.np .wd{color:var(--gold);font-size:11px}
+.np.turn{outline:2px solid var(--gold);box-shadow:0 0 12px rgba(var(--gold-rgb),.45)}
+.np.n{top:5px;left:50%;transform:translateX(-50%)}
+.np.s{bottom:5px;left:50%;transform:translateX(-50%)}
+.np.e{right:6px;top:50%;transform:translateY(-50%)}
+.np.w{left:6px;top:50%;transform:translateY(-50%)}
+.surface{position:absolute;inset:0;transform:perspective(1100px) rotateX(16deg);
+  transform-style:preserve-3d}
+.side{position:absolute;display:flex;gap:1.5px}
+.side.t{top:10%;left:50%;transform:translateX(-46%)}
+.side.b{bottom:10%;left:50%;transform:translateX(-54%)}
+.side.l{left:14%;top:50%;transform:translateY(-54%);flex-direction:column}
+.side.r{right:14%;top:50%;transform:translateY(-46%);flex-direction:column}
+.wt{width:11px;height:15px;border-radius:2px;flex:0 0 auto;
+  background:linear-gradient(180deg,var(--wall-1) 0 42%,var(--wall-2) 42% 72%,var(--wall-3) 72% 100%);
+  border:1px solid var(--wall-edge);
+  box-shadow:0 1px 0 rgba(var(--sheen),.5) inset, 0 2px 3px rgba(var(--shade),.45)}
+.side.l .wt,.side.r .wt{width:15px;height:10px;
+  background:linear-gradient(90deg,var(--wall-1) 0 42%,var(--wall-2) 42% 72%,var(--wall-3) 72% 100%)}
+.bk{width:8px;height:11px;border-radius:2px;
+  background:var(--back-1);border:1px solid var(--back-edge);
+  box-shadow:inset 0 -2px 0 var(--back-2)}
+.bkrow{display:flex;gap:1px;position:absolute;z-index:3}
+.bkrow.n{top:22px;left:50%;transform:translateX(-50%)}
+.bkrow.e{right:8px;top:50%;transform:translateY(-50%);flex-direction:column}
+.bkrow.e .bk,.bkrow.w .bk{width:11px;height:8px}
+.bkrow.w{left:8px;top:50%;transform:translateY(-50%);flex-direction:column}
+.heap{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  width:150px;display:flex;flex-wrap:wrap;gap:2px;justify-content:center;z-index:2}
+.heap .tile{--th:21px}
+.hand{flex:0 0 auto;padding:6px 8px 9px;display:flex;gap:3px;justify-content:center;
+  align-items:flex-end}
+.hand .tile{--th:40px}
+.hand .tile.drawn{margin-left:9px}
+
+/* the shared tile box — the art inside it is the site's own SVG */
+.tile{display:inline-block;height:var(--th,40px);width:calc(var(--th,40px) * .714);
+  border-radius:4px;background:var(--tile-face);overflow:hidden;line-height:0;flex:0 0 auto;
+  box-shadow:0 1px 0 var(--tile-shade), 0 2px 4px rgba(var(--shade),.35)}
+.tile svg{width:100%;height:100%;display:block}
+</style>
+</head>
+<body>
+<!-- ── PROVENANCE STAMP ──────────────────────────────────────────────
+  Inline on purpose: these pages live in two repos and are served from three
+  roots, so a shared include would silently vanish from some of them — and a
+  provenance banner that sometimes fails to appear is worse than none, since
+  its absence reads as approval. Duplicated, and kept in step by hand.
+-->
+<style>
+.prov-stamp{font:12px/1.55 ui-monospace,"SF Mono",Menlo,monospace;
+  background:#f6efe0;border-bottom:2px solid #d9c48e;color:#5c4a1e;
+  padding:11px 18px;display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap}
+.prov-stamp .pill{font-family:"Helvetica Neue",Helvetica,sans-serif;font-weight:700;
+  font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;padding:4px 9px;
+  background:#9a7318;color:#fff;flex:0 0 auto;white-space:nowrap}
+.prov-stamp .body{flex:1;min-width:280px}
+.prov-stamp b{font-weight:700}
+.prov-stamp a{color:inherit}
+.prov-stamp .ln{display:block;margin-top:3px}
+.prov-stamp .ln i{font-style:normal;font-weight:700;text-transform:uppercase;
+  font-size:9.5px;letter-spacing:.07em;opacity:.75;margin-right:6px}
+</style>
+<div class="prov-stamp">
+  <span class="pill">Superseded on colour</span>
+  <div class="body">
+    <b>Earlier exploration. Its colour work is overtaken; its lighting and form studies are not.</b>
+    <span class="ln"><i>directed</i>MJ Underground as a named style with a reference photo; neon as letterform, then on the tiles; more dramatic then more incandescent lighting; dragon and wallpaper; no round tables; gradient backgrounds always look bad.</span>
+    <span class="ln"><i>approved</i>Neon as letterform — “looks decent”.</span>
+    <span class="ln"><i>superseded</i>All palettes and grounds here. The current direction is ivory with no black — see pages.html.</span>
+    <span class="ln"><i>ai</i>The felt and tile recommendations, the dragon drawing, and the entire form axis. The form axis was never ruled on and is the live loose end.</span>
+
+    <span class="ln" style="opacity:.7;margin-top:6px">2026-09-01/02 · full record and every
+      other exercise in the
+      <a href="/mjrc-admin/design/index.html">design index</a></span>
+  </div>
+</div>
+
+<header>
+  <h1>MJRC — art board</h1>
+  <p>Three rooms the game could be set in — the street parlour, the private club, the family
+     game — each with a palette read off photographs of that room rather than invented, and the
+     shape each room implies. Drawn at the same size with the site's own tile art. The first plate
+     is what game.mahjongresearch.com serves today. Every plate after it also re-draws the lobby,
+     because colour on its own does not fix that screen.
+     <a href="art-reference.html" style="color:#8fa7c9">The photographs are here.</a></p>
+</header>
+<h2 class="axis">The three rooms <small>each palette read off photographs of that room, and the form each one implies</small></h2>
+<div id="board"></div>
+<h2 class="axis">The felt, and the tile <small>the street parlour throughout — only the table colour and the tile change</small></h2>
+<div id="variants"></div>
+<h2 class="axis">Form on its own <small>the shipped palette, five geometries — outline, depth, corners, type — held apart from colour</small></h2>
+<div id="forms"></div>
+
+<script src="tile-engine.js"></script>
+<script>
+/* ── the tile art, straight from the engine ─────────────────────────── */
+function art(kind, n) {
+  let svg;
+  if (kind === "m") svg = tileWan(n);
+  else if (kind === "s") svg = tileSuo(n);
+  else if (kind === "p") svg = tileTong(n);
+  else if (kind === "w") svg = tileWind(n);
+  else if (kind === "d") svg = tileDragon(n);
+  else svg = FLOWER_TILES[n][1]();
+  return `<span class="tile"><svg viewBox="0 0 100 140">${svg}</svg></span>`;
+}
+const HAND  = [["m",2],["m",6],["m",8],["s",3],["s",3],["s",7],["p",1],["p",2],["p",9],["w","東"],["d","red"]];
+const HEAP  = [["p",4],["m",1],["s",9],["w","北"],["p",7],["s",2],["d","green"],["m",5],
+               ["p",3],["s",5],["w","西"],["m",9],["p",6],["s",1]];
+const MOTIF = [["d","red"],["m",1],["s",1],["p",1]];
+
+/* ── the directions ─────────────────────────────────────────────────── *
+ * Only what DIFFERS from the shipped palette is listed. `base` is today's
+ * set; a theme is spread over it, so a blank field means "unchanged".    */
+const base = {
+  "room-1":"#1e1b17","room-2":"#131110","room-3":"#0a0908",
+  "felt":"#12503f","felt-dk":"#0d3d30","felt-edge":"#0b3427",
+  "rim":"#2e2016","rim-line":"#1b120c",
+  "ink":"#f2ece0","dim":"#a9b8ae",
+  "tile-face":"#FAFAF8","tile-shade":"#b8ad93",
+  "wall-1":"#eef3f7","wall-2":"#7fb6d8","wall-3":"#5a97bd","wall-edge":"#4b7f9f",
+  "back-1":"#2f7a5f","back-2":"#1d5c46","back-edge":"#14493a",
+  "av-1":"#5b7a6a","av-2":"#2c4438",
+  "panel-1":"#1b3a30","panel-2":"#12281f",
+  "veil":"rgba(4,12,9,.82)",
+  "gold":"#d8b56a","gold-rgb":"216,181,106","gold-hi":"#f0d9a0",
+  "sheen":"255,255,255","shade":"0,0,0","on-gold":"#2a2113",
+};
+
+/* ── THE ROOM'S PAPER ───────────────────────────────────────────────────
+ * Two SVGs, built as data URIs so nothing is fetched and nothing has to be
+ * added to the deploy manifest. They are drawn ONCE here at full strength
+ * and dimmed entirely by the colours passed in, so the same drawing serves
+ * a wall you can barely see and a debug pass you can actually check.
+ *
+ * Pass a plain "#2a0f13". encodeURIComponent turns the hash into %23 itself;
+ * handing it a pre-encoded "%232a0f13" gets the PERCENT encoded instead, so
+ * the URI carries %2523… , the SVG never parses, and the wall silently shows
+ * nothing at all.
+ *
+ * Everything is stroked rather than filled. At two or three percent above
+ * the ground a filled shape turns into a vague lighter patch — a smudge by
+ * another route — while a line stays a line, and the eye resolves the motif
+ * without the wall ever getting brighter.
+ */
+/* Scoping a block of CSS to one plate means rewriting each selector, and
+   the regex that does it reads everything between a closing brace and the
+   next opening brace AS a selector — which swallows any comment sitting in
+   front of a rule, so the scoped selector comes out as the plate class, then
+   the whole comment, then the real selector. That is not a valid selector,
+   and the browser drops the rule silently. It had been
+   quietly eating the FIRST rule of every themed block on this page.
+   Comments come out before scoping; they stay in the source above. */
+const scopeCSS = (css, cls) =>
+  css.replace(/\/\*[\s\S]*?\*\//g, "")
+     .replace(/(^|\})\s*([^{}]+)\{/g, (m, br, sel) =>
+       `${br}${sel.split(",").map((x) => `.${cls} ${x.trim()}`).join(",")}{`);
+
+const wallpaper = (ink) => "data:image/svg+xml," + encodeURIComponent(`
+<svg xmlns='http://www.w3.org/2000/svg' width='116' height='116' viewBox='0 0 116 116'>
+  <g fill='none' stroke='${ink}' stroke-width='1.5' stroke-linecap='round'>
+    <path d='M58 112 C58 96 58 82 58 66'/>
+    <path d='M58 100 C47 96 41 87 43 76 C54 79 58 89 58 100'/>
+    <path d='M58 91 C69 87 75 78 73 67 C62 70 58 80 58 91'/>
+    <path d='M58 78 C47 74 41 65 43 54 C54 57 58 67 58 78'/>
+    <path d='M58 66 C56 54 51 45 44 39'/>
+    <path d='M58 66 C60 54 65 45 72 39'/>
+    <path d='M58 60 C58 48 58 40 58 33'/>
+    <circle cx='58' cy='28' r='3.4'/>
+    <path d='M0 0 C10 6 14 12 16 22'/><path d='M116 0 C106 6 102 12 100 22'/>
+    <path d='M0 116 C10 110 14 104 16 94'/><path d='M116 116 C106 110 102 104 100 94'/>
+  </g>
+</svg>`);
+
+/* A coiled dragon roundel — the shape that ends up on every restaurant
+   screen and banquet carpet in the city. Drawn as one spiralling body with
+   a horned head, whiskers, three clawed limbs and a ring of flame, because
+   at this contrast the SILHOUETTE is all that survives: detail inside the
+   coil is invisible, and the coil, the head and the ring are what make the
+   eye say dragon rather than pattern. */
+const dragon = (ink, faint) => "data:image/svg+xml," + encodeURIComponent(`
+<svg xmlns='http://www.w3.org/2000/svg' width='420' height='420' viewBox='0 0 420 420'>
+  <g fill='none' stroke='${faint}' stroke-width='1.6'>
+    <circle cx='210' cy='210' r='182'/><circle cx='210' cy='210' r='173'/>
+  </g>
+  <g fill='none' stroke='${ink}' stroke-linecap='round' stroke-linejoin='round'>
+    <path stroke-width='15' d='M152 118 C236 92 324 134 336 210 C347 280 296 340 224 346
+      C164 351 112 312 112 260 C112 222 140 196 172 200'/>
+    <path stroke-width='4' d='M160 134 C232 114 308 148 320 210 C330 268 288 320 226 328'/>
+    <g stroke-width='6'>
+      <path d='M152 118 C128 104 100 108 87 126 C76 142 83 162 101 169 C117 175 135 166 140 150'/>
+      <path d='M98 152 C112 160 128 158 137 148'/>
+      <path d='M147 104 C152 84 168 70 186 68'/>
+      <path d='M132 101 C127 83 113 73 96 74'/>
+    </g>
+    <g stroke-width='4'>
+      <path d='M90 130 C67 121 50 103 44 81'/>
+      <path d='M96 160 C75 172 61 190 58 212'/>
+    </g>
+    <circle cx='122' cy='127' r='4.6' fill='${ink}' stroke='none'/>
+    <g stroke-width='5'>
+      <path d='M247 106 C262 84 258 60 238 48'/>
+      <path d='M238 48 L226 34 M238 48 L242 30 M238 48 L254 38'/>
+      <path d='M330 258 C350 268 372 262 382 244'/>
+      <path d='M382 244 L400 240 M382 244 L396 254 M382 244 L392 228'/>
+      <path d='M170 340 C166 362 178 382 199 388'/>
+      <path d='M199 388 L204 406 M199 388 L214 398 M199 388 L216 384'/>
+      <path d='M113 234 C92 230 76 214 72 193'/>
+      <path d='M72 193 L55 186 M72 193 L60 205 M72 193 L64 178'/>
+    </g>
+    <g stroke-width='3'>
+      <path d='M186 108 L182 88'/><path d='M214 104 L212 84'/><path d='M242 108 L244 88'/>
+      <path d='M292 132 L302 116'/><path d='M320 166 L336 156'/><path d='M334 206 L352 204'/>
+      <path d='M330 250 L347 256'/><path d='M310 296 L324 308'/>
+    </g>
+    <circle cx='210' cy='214' r='17' stroke-width='5'/>
+    <g stroke-width='3'>
+      <path d='M210 187 C214 178 212 170 205 165'/>
+      <path d='M237 214 C246 218 254 216 259 209'/>
+      <path d='M210 241 C206 250 208 258 215 263'/>
+      <path d='M183 214 C174 210 166 212 161 219'/>
+    </g>
+    <g stroke-width='2.6'>
+      <path d='M262 62 C272 47 270 33 258 24'/>
+      <path d='M366 138 C381 133 388 120 383 106'/>
+      <path d='M372 320 C386 328 400 325 407 313'/>
+      <path d='M128 372 C122 387 128 400 141 406'/>
+      <path d='M46 286 C31 291 18 286 12 274'/>
+      <path d='M52 118 C41 108 40 94 49 84'/>
+    </g>
+  </g>
+</svg>`);
+
+const THEMES = [
+{ id:"current", name:"Current", tag:"live today", legacy:true,
+  from:"—",
+  note:"The shipped look. The darkness is not the problem; spending one accent where the reference spends five is.",
+  vars:{} },
+
+/* ── MJ UNDERGROUND ─────────────────────────────────────────────────────
+ * From the owner's reference photograph, and the closest thing on this board
+ * to a finished art direction rather than a mood.
+ *
+ * What the picture actually contains, in the order it matters:
+ *
+ *   ONE LIGHT, IN THE MIDDLE. A small brass lamp stands on the table and
+ *   everything follows from it — a hot pool of red cloth at the centre, the
+ *   corners falling to almost black, and every tile throwing a hard shadow
+ *   directly away from the middle. This is the exception to the flat-field
+ *   rule and it earns it: a fade is only a smudge when nothing in the picture
+ *   explains it. Here the lamp is drawn, so the falloff is the lamp's.
+ *
+ *   THE TILES ARE ALREADY OURS. Cream faces, blue and red and green glyphs —
+ *   which is exactly what tile-engine.js has drawn all along. This is the one
+ *   direction on the board that needs NO tile recolouring, and it is a point
+ *   in its favour: nothing has to be reconciled with the website's copy.
+ *
+ *   GREEN IS THE BASE, NOT THE FACE. Every tile is a cream face on a jade
+ *   base, so the green is what you see on an EDGE and on anything face-down.
+ *   That falls straight onto the existing pieces: the wall's two-band tile
+ *   goes cream-over-green, the opponents' backs go green, and a tile in hand
+ *   gets a green sliver under it where the base shows. It is also why the
+ *   heap reads at a glance — every tile carries a bright edge against a dark
+ *   cloth without a single outline being drawn.
+ *
+ *   RED IS THE ROOM, BRASS IS THE ONLY METAL. No second accent. */
+{ id:"underground", name:"MJ Underground", tag:"owner reference",
+  from:"owner's photograph — red baize, brass lamp, green-based tiles",
+  note:"Lit from one point above the middle and nothing else: a hot pool of red baize, corners falling away, hard shadows thrown outward. Cream faces on jade bases, so green is what you see on every edge and on everything face-down. Brass is the only metal.",
+  vars:{ "room-1":"#1a0407","room-2":"#0f0204","room-3":"#050101",
+    "felt":"#c2181b","felt-dk":"#6b0a13","felt-edge":"#2b040a",
+    "rim":"#170c0a","rim-line":"#000000",
+    "ink":"#f8f0e5","dim":"#ab918b",
+    /* the cream face and the jade base it stands on */
+    /* nothing is neutral under a bulb: the ivory warms, and so does the
+       cream band on the wall tile */
+    "tile-face":"#f9f1dd","tile-shade":"#0e9a62",
+    /* face-down is green, because the base is all you can see of it */
+    "wall-1":"#f8f0d9","wall-2":"#18bd7b","wall-3":"#0d8f59","wall-edge":"#09693f",
+    "back-1":"#16b276","back-2":"#0c8753","back-edge":"#09693f",
+    "av-1":"#1aa870","av-2":"#0a4a33",
+    "panel-1":"#1d0a0b","panel-2":"#140607","veil":"rgba(8,1,3,.58)",
+    "gold":"#d4a13a","gold-rgb":"212,161,58","gold-hi":"#f6de99","on-gold":"#211504",
+    "danger":"#e8324a" },
+  css:`/* THE WALL. Leafy paper with a dragon roundel behind it, and the whole
+          point is that you should not notice either until you look. The ink
+          is a few steps off the ground — #331419 on #0f0204 — so the room
+          stays almost black and the pattern only appears where the eye
+          rests, which in a game is the margin around the table and never the
+          table itself.
+
+          The dragon tiles at 420px against the paper's 116px, so the two
+          never line up and the wall does not read as a grid. Both are offset
+          from the table's own centre for the same reason.
+
+          Set --wall-ink / --wall-faint to something visible to check the
+          drawing; nothing else has to change. */
+       .room{background-color:var(--room-2);
+         background-image:url("${dragon("#3a171c", "#2b1015")}"),
+                          url("${wallpaper("#331419")}");
+         background-repeat:repeat, repeat;
+         background-size:420px 420px, 116px 116px;
+         background-position:26px -40px, 0 0}
+       /* the cloth is flat; the LAMP does the shading, and the lamp is drawn */
+       /* the cloth: flat crimson, with the weave as a hard-stop rib. Baize is
+          the one surface that genuinely has texture, and a 1px repeat is a
+          shape rather than a fade. */
+       .felt{position:relative;border-width:8px;border-radius:10px;
+         border-color:#1d100c;border-bottom-color:#3a221a;
+         background-color:var(--felt);
+         background-image:repeating-linear-gradient(90deg,
+           rgba(0,0,0,.055) 0 1px, transparent 1px 3px);
+         box-shadow:0 14px 40px rgba(0,0,0,.75), 0 0 0 2px var(--rim-line)}
+       /* ── THE LAMP, IN TWO LAYERS ──────────────────────────────────
+          One light over the middle of a dark room is not a darkening. It is
+          a HOT PLACE and a fall to nothing, and doing only the second half
+          is what made the first cut look like a filter over an evenly lit
+          table rather than a lit table.
+
+          So the light is added below and taken away above:
+
+          ::before is the pool itself, screened onto the cloth UNDERNEATH the
+          tiles. The baize at the centre goes genuinely hotter than its own
+          colour — which is what a lamp does and no amount of edge-darkening
+          can fake. It sits under the tiles on purpose: screening warm light
+          over a cream tile face blows it to paper.
+
+          ::after is the fall, and it sits ABOVE the tiles — the whole reason
+          this reads as depth. A tile in the far corner of the wall is dimmed
+          by the same curve that dims the cloth under it, so the board has a
+          near side and a far side instead of being uniformly bright objects
+          on a shaded background.
+
+          The corners now reach .9 rather than .62. That is only affordable
+          because the nameplates and the state card are lifted above the
+          overlay — the light can go as dark as it likes as long as the
+          things you must read are not in it. */
+       /* INCANDESCENT, WHICH IS A BLUE PROBLEM. The pool was
+          rgba(255,158,120) — and that blue channel at 120 is the entire
+          reason it read as a camera flash rather than a bulb. Screen blend
+          drives every channel up, so any light carrying blue climbs toward
+          white and washes the cloth grey-pink on the way.
+
+          Tungsten sits near 2700K and has almost no blue in it. Screening a
+          near-zero-blue amber over red baize CANNOT go white: red is already
+          at ceiling, green lifts, blue stays where it was — so the centre can
+          only travel toward hot orange, which is exactly what a bulb over a
+          red cloth does. The colour is doing the work; the alphas barely
+          moved.
+
+          Second pass pulled the core back from .34 to .25 and shrank the hot
+          zone from 22% to 14%. At full strength the centre went so far toward
+          orange that the cloth stopped reading as red — and red is the whole
+          idea. A bulb warms a red table; it does not turn it amber. */
+       .felt::before{content:"";position:absolute;inset:0;border-radius:4px;
+         pointer-events:none;z-index:0;mix-blend-mode:screen;
+         background:radial-gradient(ellipse 48% 54% at 50% 44%,
+           rgba(255,176,52,.25) 0 14%, rgba(255,142,28,.19) 38%,
+           rgba(224,96,18,.10) 62%, rgba(190,70,14,.04) 82%, transparent 100%)}
+       .felt::after{content:"";position:absolute;inset:0;border-radius:4px;
+         pointer-events:none;z-index:6;
+         background:radial-gradient(ellipse 70% 78% at 50% 44%,
+           transparent 0 22%, rgba(24,3,7,.18) 38%, rgba(18,2,5,.46) 54%,
+           rgba(11,1,3,.70) 68%, rgba(5,0,2,.86) 82%, rgba(2,0,1,.95) 100%)}
+       /* No drawn lamp. It was a brass disc at dead centre, which is exactly
+          where every discard lands — the heap covered it within four turns
+          and fought it for the whole hand before that. The light is the point;
+          the fitting is not, and a light source you cannot see is still the
+          most ordinary thing in a room. */
+       /* a tile is a cream face standing on a green base: the base is the
+          shadow line under it, so the green shows on every edge for free */
+       .tile{border-radius:4px;
+         box-shadow:0 3px 0 var(--tile-shade), 0 5px 9px rgba(0,0,0,.6)}
+       .hand{padding-bottom:13px;position:relative}
+       /* THE FALLOFF STOPS AT YOUR OWN HAND. At .78 on the ends this looked
+          right and played badly: the two outermost tiles are as hard to read
+          as anything on the table, and they are yours, thirteen times a hand,
+          every hand. The drama is spent on the felt, where nothing has to be
+          read quickly. Here it is a hint — enough that the row is not a flat
+          lit strip, not enough to cost a tile. */
+       .hand::before{content:"";position:absolute;inset:0;pointer-events:none;
+         z-index:3;
+         background:linear-gradient(90deg, rgba(4,0,1,.34) 0%, rgba(6,0,2,.13) 12%,
+           transparent 28%, transparent 72%, rgba(6,0,2,.13) 88%, rgba(4,0,1,.34) 100%)}
+       .hand::after{content:"";position:absolute;inset:0;pointer-events:none;
+         mix-blend-mode:screen;
+         background:radial-gradient(ellipse 46% 160% at 50% 0%,
+           rgba(255,166,58,.17) 0 34%, transparent 100%)}
+       .hand .tile{box-shadow:0 4px 0 var(--tile-shade), 0 9px 14px rgba(0,0,0,.7)}
+       /* one light above the middle means the heap's shadows fall OUTWARD,
+          not straight down — the near row throws toward the viewer */
+       .heap .tile{box-shadow:0 2px 0 var(--tile-shade), 0 4px 7px rgba(0,0,0,.65)}
+       .wt{box-shadow:0 2px 3px rgba(0,0,0,.6)}
+       /* plates and chrome: dark, with one brass hairline. Nothing competes
+          with the cloth — it is the only saturated thing in the room. */
+       .np{background:rgba(26,6,8,.82);border:1px solid rgba(212,161,58,.34);
+         border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,.6);z-index:7}
+       .np.turn{outline:1px solid var(--gold);box-shadow:0 0 16px rgba(212,161,58,.45)}
+       .st{background:rgba(26,6,8,.85);border:1px solid rgba(212,161,58,.34);
+         border-radius:4px;z-index:7}
+       .st .w{color:var(--gold-hi)}
+       .pnl{border:1px solid rgba(212,161,58,.4);border-radius:6px;
+         box-shadow:0 22px 60px rgba(0,0,0,.8)}
+       .pnl h1{font-family:Baskerville,"Songti SC",Georgia,serif;font-weight:400;
+         font-size:27px;letter-spacing:.05em}
+       .pnl .sub{color:var(--gold);letter-spacing:.24em}
+       /* the door is the tiles' own green — the only place it appears big */
+       .play{background:#12a86c;border-radius:4px}
+       .card{border-radius:4px;background:rgba(255,255,255,.045);
+         border-color:rgba(212,161,58,.22)}
+       .chips b{border-radius:3px;background:rgba(255,255,255,.045)}` },
+
+/* ── THE STREET PARLOUR ─────────────────────────────────────────────────
+ * Read off 廟街永鴻麻雀館, Portland Street, Temple Street, Sham Shui Po and
+ * Bowrington Road at night. The measurement that decided this theme: the room
+ * in every one of those photographs is BLACK — rgb(1,1,1) to rgb(13,13,15),
+ * with a warm ember second step around rgb(29,15,3) — and the character is
+ * carried entirely by five saturated lights covering 1–18% of the frame.
+ *
+ * So the mistake in the shipped look is not that it is dark. It is that it
+ * spends ONE accent. A street of signs is a chorus: red, sodium, acid yellow,
+ * neon green and electric blue, all competing, none of them in charge. Here
+ * every call keeps its own light and the panel is a lightbox rather than a
+ * card — a sign in a window, hard-edged, slightly too bright.
+ */
+{ id:"street", name:"The street parlour", tag:"night · neon",
+  from:"廟街永鴻麻雀館 · 砵蘭街 Portland St · Temple St · 深水埗 · 寶靈頓道",
+  note:"Black room, five competing lights. The panel is a lightbox, not a card: hard edges, a hot keyline, tube-light glare across the top and a grain over everything.",
+  vars:{ "room-1":"#241206","room-2":"#0d0a08","room-3":"#030202",
+    /* ink navy, chosen on the grid below: the ground under a lit sign is wet
+       asphalt, not baize, and a cool field is what lets warm light read as
+       light rather than as a stain */
+    "felt":"#16204a","felt-dk":"#0d1533","felt-edge":"#070c22",
+    "rim":"#17110c","rim-line":"#000000",
+    "ink":"#f8f4e6","dim":"#948d82",
+    "wall-1":"#f6efdc","wall-2":"#d8c08a","wall-3":"#b89a5e","wall-edge":"#7d6738",
+    "back-1":"#1f9a54","back-2":"#106038","back-edge":"#0a4527",
+    "av-1":"#3c8f5e","av-2":"#152a1e",
+    "panel-1":"#17110d","panel-2":"#0a0806","veil":"rgba(3,2,2,.88)",
+    "gold":"#f0c414","gold-rgb":"240,196,20","gold-hi":"#ffe95c","on-gold":"#1a1400",
+    "accent":"#2f7cf5","danger":"#f5321c",
+    "tile-face":"#0a0c11","tile-shade":"#000000" },
+  css:`/* ── NEON IS THE LETTERFORM ──────────────────────────────────────
+          The first pass treated neon as ambient wash and coloured keylines
+          and left every glyph white, which is a room lit BY neon rather than
+          a room made OF it. On a real street the character is the tube: the
+          sign is line art in coloured light, and the only white on it is the
+          hot core running down the middle of the glass.
+
+          So two rules. Anything that is TYPE glows in its own tube colour —
+          title, wind, count, label. Anything that is an OBJECT is merely lit
+          by them. The tile art is deliberately left alone: the tiles are the
+          one physical thing on the screen, and letting them stay ordinary
+          bone is what makes everything else read as light.
+
+          A tube is a white-hot core plus three widening haloes of one hue.
+          Two haloes reads as a drop shadow; four is soup. And the sign needs
+          UNLIT parts — the dim grey-blue glass below — or every element
+          shouts and none of them land. */
+       .pnl{border-width:2px;border-radius:4px;position:relative;
+         box-shadow:0 0 0 1px rgba(0,0,0,.9), 0 0 34px -6px rgba(240,196,20,.45),
+           0 20px 50px rgba(0,0,0,.75)}
+       .pnl::before{content:"";position:absolute;left:12%;right:12%;top:-1px;height:2px;
+         background:linear-gradient(90deg,transparent,var(--gold-hi),transparent);
+         box-shadow:0 0 14px 2px rgba(240,196,20,.7)}
+       /* the shop name: the biggest tube on the front */
+       .pnl h1{color:#fff2f0;letter-spacing:.12em;font-weight:700;
+         text-shadow:0 0 1px #fff, 0 0 7px #ff4a2a, 0 0 18px #f5321c,
+                     0 0 40px rgba(245,50,28,.75)}
+       /* the second line, a cooler tube under it */
+       /* the core must stay a HINT of white, not white — at #e8fbff the core
+          swallowed the hue and the line read as grey type with a blur behind
+          it. A tube is its colour first. */
+       .pnl .sub{color:#9ee9ff;letter-spacing:.22em;
+         text-shadow:0 0 1px rgba(255,255,255,.7), 0 0 7px #4fd6ff,
+                     0 0 18px rgba(47,124,245,.95);
+         animation:tubeFlicker 9s steps(1,end) infinite}
+       /* ONE DYING TUBE. Every 麻雀館 front has one, and nothing else sells
+          the room this cheaply. Strictly one element — a sign where several
+          things flicker reads as a broken screen, not a worn sign. */
+       @keyframes tubeFlicker{
+         0%,41%,43%,46%,92%,94%,100%{opacity:1}
+         42%,45%,93%{opacity:.28}}
+       /* the door: an OUTLINED tube, not a filled block. Neon has no fill. */
+       .play{background:rgba(240,196,20,.05);border:2px solid var(--gold);
+         border-radius:3px;color:#fffbe4;font-weight:800;
+         box-shadow:0 0 16px -2px rgba(240,196,20,.75),
+           inset 0 0 22px -8px rgba(240,196,20,.85);
+         text-shadow:0 0 1px rgba(255,255,255,.8), 0 0 9px #ffd83f,
+           0 0 24px rgba(240,196,20,.95)}
+       .play span{color:#ffdf7a;opacity:.8;text-shadow:0 0 8px rgba(240,196,20,.8)}
+       /* two smaller tubes, each its own colour, the way a front never
+          settles on one */
+       .card{border-radius:3px;background:rgba(255,255,255,.04)}
+       .card:nth-child(1){border-color:rgba(47,124,245,.5);color:#dbe9ff;
+         text-shadow:0 0 6px #2f7cf5, 0 0 16px rgba(47,124,245,.75)}
+       .card:nth-child(2){border-color:rgba(18,217,74,.45);color:#dcffe6;
+         text-shadow:0 0 6px #12d94a, 0 0 16px rgba(18,217,74,.7)}
+       /* UNLIT GLASS. The armature the tubes are mounted on — if this glows
+          too, nothing on the sign has any hierarchy left. */
+       .card i{color:#6f7a86;text-shadow:none}
+       .chips b{border-radius:2px;background:rgba(255,255,255,.04)}
+       .chips b:nth-child(1) em{color:#ffd9d2;text-shadow:0 0 6px #f5321c,0 0 14px rgba(245,50,28,.8)}
+       .chips b:nth-child(2) em{color:#d9ffe4;text-shadow:0 0 6px #12d94a,0 0 14px rgba(18,217,74,.8)}
+       .chips b:nth-child(3) em{color:#d9e8ff;text-shadow:0 0 6px #2f7cf5,0 0 14px rgba(47,124,245,.8)}
+
+       /* ── the table ── */
+       /* THE SIGNS REACH THE FELT — as BANDS, not washes. Two soft radial
+          smudges is what a gradient background looks like: the table stops
+          being a surface. Light through a shutter and a window mullion has
+          hard edges, which is both what the room actually has and the only
+          version that still reads as a table underneath. */
+       .felt{position:relative;border-radius:6px;border-width:8px;background:var(--felt)}
+       .felt::after{content:"";position:absolute;inset:0;pointer-events:none;z-index:0;
+         mix-blend-mode:screen;
+         background:
+           linear-gradient(102deg, transparent 0 9%, rgba(245,50,28,.22) 9% 15%,
+             transparent 15% 19%, rgba(245,50,28,.13) 19% 22%, transparent 22%),
+           linear-gradient(258deg, transparent 0 7%, rgba(18,217,74,.16) 7% 12%,
+             transparent 12% 15%, rgba(18,217,74,.09) 15% 17%, transparent 17%)}
+       .felt::before{content:"";position:absolute;left:8%;right:8%;top:4px;height:2px;
+         border-radius:2px;z-index:5;pointer-events:none;filter:blur(1px);
+         background:linear-gradient(90deg,transparent,rgba(255,247,200,.5),transparent)}
+       /* every seat under a different sign, and its WIND is that sign */
+       .np{border-radius:3px;background:rgba(0,0,0,.62);border:1px solid rgba(255,255,255,.14)}
+       .np .wd{color:#fff}
+       .np.n{border-color:rgba(47,124,245,.6)}
+       .np.n .wd{text-shadow:0 0 6px #2f7cf5,0 0 16px rgba(47,124,245,.9)}
+       .np.e{border-color:rgba(18,217,74,.55)}
+       .np.e .wd{text-shadow:0 0 6px #12d94a,0 0 16px rgba(18,217,74,.9)}
+       .np.w{border-color:rgba(238,57,99,.55)}
+       .np.w .wd{text-shadow:0 0 6px #ee3963,0 0 16px rgba(238,57,99,.9)}
+       .np.s{border-color:rgba(240,196,20,.6)}
+       .np.s .wd{text-shadow:0 0 6px #f0c414,0 0 16px rgba(240,196,20,.95)}
+       .np.turn{outline-color:#f0c414;box-shadow:0 0 16px rgba(240,196,20,.55)}
+       /* the round wind is the loudest tube on the table, because it is the
+          one number you look up mid-hand */
+       .st{border-radius:3px;background:rgba(0,0,0,.68);border-color:rgba(240,196,20,.3)}
+       .st .w{color:#fffbe4;font-size:17px;
+         text-shadow:0 0 2px #fff, 0 0 9px #f0c414, 0 0 22px rgba(240,196,20,.95)}
+       .st .m{color:#7f8894}
+       .st .m b{color:#e6f4ff;text-shadow:0 0 7px rgba(47,124,245,.9)}
+       /* ── THE TILES BECOME SIGNS TOO ──────────────────────────────
+          This sheet argued the opposite a commit ago: leave the tiles as
+          ordinary bone, because one physical thing on a screen made of light
+          is what makes the light read as light. Owner's call, and the
+          argument does not survive seeing it — a rack of thirteen little
+          signs beats the principle.
+
+          Nothing in tile-engine.js changes. Its colours are presentation
+          ATTRIBUTES (fill="#D42222"), and a presentation attribute loses to
+          any CSS rule at all — so the art is recoloured by matching the
+          attribute and setting the property, scoped to this plate. Every
+          other room keeps the painted tiles.
+
+          Each hue lights ITSELF: the filter sits on the elements carrying
+          that colour, not on the tile, which is the only way one 三筒 gets a
+          green glow and a red glow on the same face. Blur radii are in the
+          SVG's own user units — the viewBox is 100 wide, so 4 is four percent
+          of a tile and holds at every size the tile is drawn.
+
+          The tile is DARK GLASS: face to the room's black, engraved edge to a
+          dim blue-grey, so an unlit tile still reads as an object and the
+          glyph is the only thing emitting. */
+       /* A DARK TILE STILL HAS TO BE AN OBJECT. The first cut used #0a0c11,
+          which is darker than every felt here — so in the discard heap the
+          bodies vanished and the pile read as loose glyphs floating on the
+          table with no countable edges. Counting discards is a real skill
+          the game supports; a heap you cannot parse is not a style choice.
+          The face is now a dark slate that stays lighter than the felt, with
+          a cool rim and a top highlight, so an unlit tile reads as a solid
+          before its glyph reads as light. */
+       .tile{background:#161b24;
+         box-shadow:0 0 0 1px rgba(150,180,230,.26),
+           inset 0 1px 0 rgba(180,205,245,.18), 0 2px 6px rgba(0,0,0,.75)}
+       .tile svg [fill="#FAFAF8"]{fill:none}
+       .tile svg [stroke="#FAFAF8"]{stroke:#141922}
+       .tile svg [stroke="#CCCCCC"]{stroke:none}
+       .tile svg [stroke="#888"]{stroke:#48536a}
+       .tile svg [fill="#D42222"]{fill:#ff3347;
+         filter:drop-shadow(0 0 1.6px #ff3347) drop-shadow(0 0 4.5px rgba(255,51,71,.75))}
+       .tile svg [stroke="#D42222"]{stroke:#ff3347;
+         filter:drop-shadow(0 0 1.6px #ff3347) drop-shadow(0 0 4.5px rgba(255,51,71,.75))}
+       .tile svg [fill="#1A8B3A"]{fill:#22ff90;
+         filter:drop-shadow(0 0 1.6px #22ff90) drop-shadow(0 0 4.5px rgba(34,255,144,.7))}
+       .tile svg [stroke="#1A8B3A"]{stroke:#22ff90;
+         filter:drop-shadow(0 0 1.6px #22ff90) drop-shadow(0 0 4.5px rgba(34,255,144,.7))}
+       .tile svg [fill="#1845A5"]{fill:#45a8ff;
+         filter:drop-shadow(0 0 1.6px #45a8ff) drop-shadow(0 0 4.5px rgba(69,168,255,.72))}
+       .tile svg [stroke="#1845A5"]{stroke:#45a8ff;
+         filter:drop-shadow(0 0 1.6px #45a8ff) drop-shadow(0 0 4.5px rgba(69,168,255,.72))}
+       .tile svg [fill="#B07020"]{fill:#ffae2e;
+         filter:drop-shadow(0 0 1.4px #ffae2e) drop-shadow(0 0 4px rgba(255,174,46,.7))}
+       .tile svg [stroke="#B07020"]{stroke:#ffae2e;
+         filter:drop-shadow(0 0 1.4px #ffae2e) drop-shadow(0 0 4px rgba(255,174,46,.7))}
+       /* the grain. A parlour is not a clean room. */
+       .room::after{content:"";position:absolute;inset:0;pointer-events:none;opacity:.5;
+         background:repeating-linear-gradient(0deg,rgba(255,255,255,.035) 0 1px,transparent 1px 3px);
+         mix-blend-mode:overlay}` },
+
+/* ── THE PRIVATE CLUB ───────────────────────────────────────────────────
+ * Read off the Peninsula lobby, the Police Officers' Club dining room, a Ming
+ * kang table and the Shang Palace private room. The opposite measurement: no
+ * points of light anywhere. The warm colours run 12–35% of the frame, so the
+ * room is a warm BATH rather than a dark hall with lamps in it, and the whole
+ * picture sits in a narrow band of contrast.
+ *
+ * Which tells you what the interface must not do: no glow, no filled accent
+ * blocks, nothing louder than its neighbour. Light comes from above, so
+ * surfaces catch a highlight on their top edge instead of casting a shadow
+ * below. Rules are brass hairlines. Type is a serif at a generous size.
+ */
+{ id:"club", name:"The private club", tag:"warm · quiet",
+  from:"Peninsula lobby · 警官俱樂部 · Shang Palace · Ming kang table",
+  note:"A warm bath, not a dark room with lamps in it. No glow anywhere, brass hairlines instead of borders, serif type, and light that falls from above rather than shadows that fall below.",
+  vars:{ "room-1":"#3d2c1f","room-2":"#221913","room-3":"#120c09",
+    "felt":"#1c5741","felt-dk":"#144130","felt-edge":"#0d2c20",
+    "rim":"#4a2519","rim-line":"#2a170f",
+    "ink":"#f4ece0","dim":"#b6a894",
+    "tile-shade":"#a8927a","tile-face":"#FBF7EC",
+    "wall-1":"#f7f0df","wall-2":"#ddc9a4","wall-3":"#c0a878","wall-edge":"#8f7647",
+    "back-1":"#7a3326","back-2":"#521f16","back-edge":"#3a140d",
+    "av-1":"#a07a52","av-2":"#3d2418",
+    "panel-1":"#2c2019","panel-2":"#1a1310","veil":"rgba(14,9,6,.85)",
+    "gold":"#d9a441","gold-rgb":"217,164,65","gold-hi":"#f0cd8a" },
+  css:`.pnl{border-radius:6px;padding:22px 26px 20px;
+         border:1px solid rgba(217,164,65,.45);
+         box-shadow:inset 0 1px 0 rgba(255,255,255,.09), 0 18px 48px rgba(0,0,0,.55)}
+       .pnl h1{font-family:Baskerville,"Songti SC",Georgia,serif;font-size:26px;
+         letter-spacing:.03em;font-weight:400}
+       .pnl .sub{letter-spacing:.26em;font-size:8px;opacity:.85}
+       .motif{opacity:.8}
+       /* brass hairline, never a filled block */
+       .play{background:none;border:1px solid var(--gold);color:var(--gold);
+         border-radius:4px;box-shadow:none;font-weight:600;letter-spacing:.08em;
+         font-family:Baskerville,Georgia,serif;font-size:16px}
+       .play span{opacity:.6}
+       .card{background:none;border:1px solid rgba(217,164,65,.28);border-radius:4px;
+         font-weight:600}
+       .chips b{background:none;border-bottom:1px solid rgba(217,164,65,.3);border-radius:0}
+       .felt{border-radius:12px;border-width:8px;
+         box-shadow:inset 0 2px 0 rgba(255,255,255,.1), inset 0 0 50px rgba(0,0,0,.4),
+           0 0 0 1px rgba(217,164,65,.35), 0 14px 36px rgba(0,0,0,.5)}
+       .np{border-radius:3px;background:rgba(20,12,8,.55);
+         border:1px solid rgba(217,164,65,.25);
+         box-shadow:inset 0 1px 0 rgba(255,255,255,.07)}
+       .np.turn{outline:1px solid var(--gold);box-shadow:inset 0 1px 0 rgba(255,255,255,.12)}
+       .st{border-radius:3px;background:rgba(20,12,8,.6);border-color:rgba(217,164,65,.25)}
+       .tile{border-radius:3px;box-shadow:0 1px 0 var(--tile-shade),0 1px 3px rgba(0,0,0,.3)}
+       /* ONE LAMP, low and central — and a lamp has a SHADE, so its pool has
+          an edge. A soft radial fade would be the smudge again; a hard-stop
+          radial is a shape, and a circle of light with a visible boundary is
+          what a shaded lamp over a table actually throws. */
+       .felt{position:relative;background:var(--felt)}
+       .felt::after{content:"";position:absolute;inset:0;border-radius:9px;
+         pointer-events:none;mix-blend-mode:screen;
+         background:radial-gradient(ellipse 62% 74% at 50% 46%,
+           rgba(255,214,140,.16) 0 62%, rgba(255,214,140,.05) 62% 74%, transparent 74%)}
+       /* the rim reads as rosewood: a warm edge highlight, not a flat block */
+       /* hard stops, so the rim reads as chamfered wood catching light on two
+          faces rather than as a soft smear along it */
+       .felt{border-image:linear-gradient(160deg,#6b3a26 0 44%,#3a1c12 44% 74%,
+         #5c2f1e 74% 100%) 1 stretch}` },
+
+/* ── THE FAMILY GAME ────────────────────────────────────────────────────
+ * Read off four Taiwanese playing at home, Hangzhou, Kunming, Lhasa and a
+ * reunion dinner. Cool grey-green daylight — rgb(199,207,202) and
+ * rgb(217,226,236) at the light end — and, decisively, NOTHING vivid: the
+ * strongest colours in the set are a muted red rgb(165,46,39) and the
+ * yellow-green of table mats and plastic stools rgb(143,167,37).
+ *
+ * That is greyer than a "light theme" instinctively wants to be, and getting
+ * it right means resisting the sunny cream version. The room is a flat after
+ * dinner, not a conservatory. Shapes go fat and friendly, everything is
+ * laminate and plastic, and no edge is sharp.
+ */
+{ id:"family", name:"The family game", tag:"day · domestic",
+  from:"Taiwanese home game · Hangzhou · Kunming · Lhasa · reunion dinner",
+  note:"Cool grey-green daylight, and nothing vivid in the whole set — a muted red and the yellow-green of table mats do all the work. Fat, friendly, laminate shapes; no sharp edges anywhere.",
+  vars:{ "room-1":"#e2e7e1","room-2":"#c7d0ca","room-3":"#a5b0aa",
+    "felt":"#1a8f5c","felt-dk":"#147a4d","felt-edge":"#0e5f3c",
+    "rim":"#c2a273","rim-line":"#8a6f45",
+    "ink":"#22261f","dim":"#5c635b",
+    "tile-face":"#fffdf6","tile-shade":"#c6c2b2",
+    "wall-1":"#fdfbf4","wall-2":"#dfe4e0","wall-3":"#bcc6c0","wall-edge":"#97a29b",
+    "back-1":"#2fa06a","back-2":"#1d7a50","back-edge":"#14603d",
+    "av-1":"#9dc3ab","av-2":"#3d7a5c",
+    "panel-1":"#fdfbf5","panel-2":"#eceee7","veil":"rgba(40,46,40,.45)",
+    "gold":"#b0392c","gold-rgb":"176,57,44","gold-hi":"#c9584a","on-gold":"#fff6f2",
+    "accent":"#8fa725","danger":"#b0392c",
+    "sheen":"34,38,33","shade":"60,66,58" },
+  css:`.pnl{border-radius:20px;border:1px solid rgba(34,38,33,.12);
+         box-shadow:0 14px 34px rgba(60,66,58,.28)}
+       .pnl h1{font-size:25px}
+       .pnl .sub{color:#8fa725}
+       .play{border-radius:14px;font-size:16px;
+         box-shadow:0 4px 0 rgba(140,40,30,.5), 0 8px 20px rgba(60,66,58,.25)}
+       .card{border-radius:12px;background:rgba(34,38,33,.05);
+         border-color:rgba(34,38,33,.1)}
+       .chips b{border-radius:20px;background:rgba(143,167,37,.16);color:#5f6d1a}
+       .chips b em{color:#22261f}
+       .felt{border-radius:22px;border-width:9px}
+       .tile{border-radius:6px}
+       /* cards on a bright felt go LIGHTER than it, never darker */
+       .st,.np{background:rgba(255,253,246,.93);color:#22261f;border-radius:14px;
+         border:1px solid rgba(34,38,33,.1);box-shadow:0 2px 5px rgba(60,66,58,.2)}
+       .st{border-radius:12px}
+       .st .m,.st .m b{color:#22261f}
+       .np.turn{outline:2px solid var(--gold)}
+       /* a flat, not a studio — and a FLAT field. The floor is a separate
+          band with a real edge rather than the room fading into it, which is
+          also how a room meets its floor. */
+       .room{background:#dfe5df}
+       .room::before{content:"";position:absolute;left:0;right:0;bottom:0;height:26%;
+         background:#b9ad99;border-top:1px solid #a2957f}` },
+];
+
+/* ── draw ───────────────────────────────────────────────────────────── */
+const rep = (n, s) => Array.from({length:n}, () => s).join("");
+
+function lobbyNew() {
+  return `<div class="veilx"><div class="pnl">
+    <div class="motif">${MOTIF.map(([k,n]) => art(k,n)).join("")}</div>
+    <h1>香港麻雀</h1>
+    <div class="sub">Mahjong Research Co · Hong Kong old style</div>
+    <button class="play">開枱<span>sit down &amp; play</span></button>
+    <div class="two">
+      <div class="card">Your games<i>17 matches · 62% agreement</i></div>
+      <div class="card">Leaderboard<i>4th of 26</i></div>
+    </div>
+    <div class="chips"><b><em>17</em> games</b><b><em>134</em> hands</b><b><em>+820</em> chips</b></div>
+  </div></div>`;
+}
+function lobbyOld() {
+  return `<div class="veilx"><div class="pnl legacy">
+    <h1>香港麻雀 · MJRC</h1>
+    <p class="who">Playing as <b>Art Lab</b> · change name</p>
+    <div class="bar"><b>Play ▸</b><span>Pick a length and a table, then sit down.</span></div>
+    <div class="bar"><b>Your games</b><span>Every match you have played, and how close to the engine you played it.</span></div>
+    <div class="bar"><b>Leaderboard</b><span>How your games compare.</span></div>
+    <p class="sum"><b>17</b> games · <b>134</b> hands · lifetime <b>+820</b> chips</p>
+  </div></div>`;
+}
+/* The wall is the one piece of the table whose SHAPE is not CSS: a ring has
+   to place each tile on an arc, so it is generated. "none" is a real option —
+   a table with no wall drawn at all reads as a screen rather than a room, and
+   that is a legitimate direction rather than an omission. */
+function wallMarkup(kind) {
+  if (kind === "none") return "";   /* a table with no wall drawn is a real option */
+  return `<div class="side t">${rep(13,'<span class="wt"></span>')}</div>
+    <div class="side b">${rep(13,'<span class="wt"></span>')}</div>
+    <div class="side l">${rep(9,'<span class="wt"></span>')}</div>
+    <div class="side r">${rep(9,'<span class="wt"></span>')}</div>`;
+}
+function tableMock(wall) {
+  return `<div class="felt">
+    <div class="st"><div class="w">東</div><div class="m">hand <b>1</b></div><div class="m">wall <b>62</b></div></div>
+    <div class="np n"><span class="av">M</span>Ming <span class="wd">西</span> 0</div>
+    <div class="np w"><span class="av">L</span>Ling <span class="wd">北</span> 0</div>
+    <div class="np e"><span class="av">K</span>Kwan <span class="wd">南</span> 0</div>
+    <div class="np s turn"><span class="av">Y</span>You <span class="wd">東</span> 0</div>
+    <div class="bkrow n">${rep(13,'<span class="bk"></span>')}</div>
+    <div class="bkrow w">${rep(13,'<span class="bk"></span>')}</div>
+    <div class="bkrow e">${rep(13,'<span class="bk"></span>')}</div>
+    <div class="surface">
+      ${wallMarkup(wall || "square")}
+      <div class="heap">${HEAP.map(([k,n]) => art(k,n)).join("")}</div>
+    </div>
+  </div>
+  <div class="hand">${HAND.map(([k,n]) => art(k,n)).join("")}
+    <span class="tile drawn"><svg viewBox="0 0 100 140">${tileTong(5)}</svg></span></div>`;
+}
+
+const SWATCH = ["room-2","felt","rim","wall-2","back-1","gold"];
+
+document.getElementById("board").innerHTML = THEMES.map((t) => {
+  const v = Object.assign({}, base, t.vars);
+  const style = Object.entries(v).map(([k, val]) => `--${k}:${val}`).join(";");
+  const sw = SWATCH.map((k) => `<i style="background:${v[k]}"></i>`).join("");
+  const scoped = t.css ? `<style>${scopeCSS(t.css, `p-${t.id}`)}</style>` : "";
+  return `<section class="plate p-${t.id}">${scoped}
+    <div class="plabel">
+      <h2>${t.name}</h2><span class="tag">${t.tag}</span>
+      <p>${t.note}${t.from && t.from !== "\u2014"
+          ? `<br><span class="from">read off \u2014 ${t.from}</span>` : ""}</p>
+      <div class="sw">${sw}</div>
+    </div>
+    <div class="panes">
+      <div class="pane"><span class="cap">lobby</span>
+        <div class="room" style="${style}">${t.legacy ? lobbyOld() : lobbyNew()}</div></div>
+      <div class="pane"><span class="cap">table</span>
+        <div class="room" style="${style}">${tableMock("square")}</div></div>
+    </div>
+  </section>`;
+}).join("");
+
+/* ══ AXIS TWO: FORM ═══════════════════════════════════════════════════ *
+ * Colour is the cheap variable. Shape is the one that decides whether the
+ * thing reads as a spreadsheet or a toy, and it is nearly independent of
+ * palette — so every plate below is drawn in the SHIPPED palette and varies
+ * only geometry: the table's outline, the tile's edge, the depth, the
+ * corners on every box, and the type.
+ *
+ * Each is scoped CSS over the same markup, except the wall, which needs its
+ * own arrangement and is passed in.
+ * ══════════════════════════════════════════════════════════════════════ */
+const CONTROL = THEMES.find((t) => t.id === "current").vars;
+
+const FORMS = [
+{ id:"f-now", name:"Current", tag:"live today", wall:"square",
+  note:"A rounded rectangle inside a thick wooden rim, the wall tilted 16°, everything soft-edged and drop-shadowed. Skeuomorphic: it is pretending to be furniture.",
+  css:`` },
+
+{ id:"f-flat", name:"Flat Board", tag:"modern", wall:"square",
+  note:"The furniture removed. No wood, no perspective, no drop shadows — a flat field with a hairline inset, square-ish corners, and labels that sit ON the surface rather than floating above it. What a modern digital board game looks like.",
+  css:`.felt{border:0;border-radius:8px;box-shadow:inset 0 0 0 1px rgba(var(--sheen),.14);
+         background:var(--felt)}
+       .surface{transform:none}
+       .tile{border-radius:2px;box-shadow:none;outline:1px solid rgba(var(--shade),.18);
+         outline-offset:-1px}
+       .wt{border-radius:1px;box-shadow:none;background:var(--wall-2);
+         border:1px solid var(--felt-dk)}
+       .side.l .wt,.side.r .wt{background:var(--wall-2)}
+       .side{gap:0}
+       .bk{border-radius:1px;background:var(--back-1);border-color:transparent}
+       .np{border-radius:4px;background:rgba(var(--shade),.3);padding:3px 9px}
+       .np.turn{outline-width:1.5px;box-shadow:none}
+       .st{border-radius:4px}
+       .pnl{border-radius:8px;background:var(--panel-2);border-color:rgba(var(--sheen),.12);
+         box-shadow:none}
+       .play{border-radius:5px;background:var(--gold);box-shadow:none}
+       .card{border-radius:5px}
+       .chips b{border-radius:4px}
+       .hand{background:none}` },
+
+{ id:"f-chunky", name:"Chunky", tag:"toy", wall:"square",
+  note:"Everything fattened and outlined. Tiles get a visible thickness under them, corners go generous, every box wears a dark keyline, and the type gets heavy. This is the shape of 'fun' as most mobile games spell it — and the furthest from the current sketch.",
+  css:`.felt{border-radius:26px;border:9px solid var(--rim);
+         box-shadow:inset 0 0 40px rgba(var(--shade),.4), 0 14px 0 -2px rgba(var(--shade),.6),
+           0 0 0 4px var(--rim-line)}
+       .tile{border-radius:8px;position:relative;
+         box-shadow:0 4px 0 var(--tile-shade), 0 6px 10px rgba(var(--shade),.45)}
+       .hand{gap:5px;padding-bottom:13px}
+       .hand .tile{--th:42px}
+       .wt{border-radius:4px;border-width:1.5px;
+         box-shadow:0 2px 0 rgba(var(--shade),.4), 0 1px 0 rgba(var(--sheen),.55) inset}
+       .bk{border-radius:3px;border-width:1.5px}
+       .np{border-radius:22px;padding:3px 11px;font-weight:800;font-size:11px;
+         border:2px solid rgba(var(--shade),.5);background:rgba(var(--shade),.42)}
+       .np .av{width:17px;height:17px}
+       .st{border-radius:12px;border:2px solid rgba(var(--shade),.5);padding:4px 9px}
+       .pnl{border-radius:22px;border:3px solid rgba(var(--gold-rgb),.55);
+         box-shadow:0 10px 0 -2px rgba(var(--shade),.55), 0 20px 44px rgba(var(--shade),.5)}
+       .pnl h1{font-size:27px;font-weight:900}
+       .play{border-radius:16px;font-size:17px;font-weight:900;padding:13px;
+         box-shadow:0 6px 0 rgba(var(--shade),.45)}
+       .card{border-radius:14px;border-width:2px}
+       .chips b{border-radius:20px;font-weight:800}` },
+
+{ id:"f-paper", name:"Almanac", tag:"print", wall:"none",
+  note:"The 通勝 reading: a printed sheet, not a room. No shadows anywhere, hairline rules instead of borders, seats as ruled entries, and the wall not drawn at all — a wall count is a number on a page. Serif and kai type. It is the one direction that ties the game to the Almanac rather than to other games.",
+  css:`.room{background:var(--paper,#efe6d2);color:#241f18;
+         font-family:Baskerville,"Songti SC",Georgia,serif}
+       .felt{background:#e6dbc2;border:0;border-radius:0;margin-top:10px;
+         box-shadow:inset 0 0 0 1px #241f18, inset 0 0 0 4px #e6dbc2, inset 0 0 0 5px #241f18}
+       .surface{transform:none}
+       .heap{width:168px;gap:3px}
+       .heap .tile{--th:22px;border-radius:0;box-shadow:none;outline:1px solid #241f18;
+         outline-offset:-1px}
+       .np{background:none;border-radius:0;color:#241f18;font-size:10px;
+         letter-spacing:.06em;border-bottom:1px solid #241f18;padding:1px 4px}
+       .np .av{display:none}
+       .np .wd{color:#a33328}
+       .np.turn{outline:0;box-shadow:none;border-bottom-width:3px}
+       .st{background:none;border:0;border-left:3px solid #a33328;border-radius:0;padding:1px 8px}
+       .st .w{color:#a33328}.st .m,.st .m b{color:#241f18}
+       .bkrow{display:none}
+       .hand{background:none;border-top:1px solid #241f18;margin:0 11px;padding-top:8px}
+       .hand .tile{border-radius:0;box-shadow:none;outline:1px solid #241f18;outline-offset:-1px}
+       .veilx{background:rgba(36,31,24,.35)}
+       .pnl{background:#f6efdd;border:1px solid #241f18;border-radius:0;box-shadow:6px 6px 0 rgba(36,31,24,.25)}
+       .pnl h1{color:#241f18;font-size:26px}
+       .pnl .sub{color:#a33328}
+       .motif .tile{border-radius:0;box-shadow:none;outline:1px solid #241f18;outline-offset:-1px}
+       .play{background:#a33328;color:#f6efdd;border-radius:0;box-shadow:none;font-family:inherit}
+       .card{background:none;border:1px solid #241f18;border-radius:0;color:#241f18}
+       .card i{color:#6b6252}
+       .chips b{background:none;border:1px solid #241f18;border-radius:0;color:#241f18}
+       .chips b em{color:#a33328}` },
+
+{ id:"f-hud", name:"Console", tag:"arcade", wall:"square",
+  note:"The table as a readout. Chamfered corners instead of round ones, bracket rules, tabular monospace numerals, a glow ring in place of a rim. Everything is a panel in a machine.",
+  css:`.felt{border:0;border-radius:0;clip-path:polygon(14px 0,100% 0,100% calc(100% - 14px),calc(100% - 14px) 100%,0 100%,0 14px);
+         box-shadow:inset 0 0 0 1px rgba(var(--gold-rgb),.5), inset 0 0 60px rgba(var(--shade),.5),
+           0 0 44px -8px rgba(var(--gold-rgb),.4)}
+       .surface{transform:perspective(1100px) rotateX(9deg)}
+       .np{border-radius:0;clip-path:polygon(6px 0,100% 0,100% calc(100% - 6px),calc(100% - 6px) 100%,0 100%,0 6px);
+         background:rgba(var(--shade),.55);border:1px solid rgba(var(--gold-rgb),.35);
+         font:600 9.5px/1.4 ui-monospace,Menlo,monospace;letter-spacing:.08em;text-transform:uppercase}
+       .np .av{border-radius:0}
+       .st{border-radius:0;background:rgba(var(--shade),.6);
+         border:1px solid rgba(var(--gold-rgb),.35);
+         font:600 9px/1.35 ui-monospace,Menlo,monospace;letter-spacing:.1em}
+       .tile{border-radius:2px}
+       .wt{border-radius:0}
+       .bk{border-radius:0}
+       .pnl{border-radius:0;clip-path:polygon(18px 0,100% 0,100% calc(100% - 18px),calc(100% - 18px) 100%,0 100%,0 18px);
+         border:1px solid rgba(var(--gold-rgb),.5)}
+       .pnl h1{font-size:24px;letter-spacing:.14em}
+       .pnl .sub{font-family:ui-monospace,Menlo,monospace;letter-spacing:.24em}
+       .play{border-radius:0;clip-path:polygon(9px 0,100% 0,100% calc(100% - 9px),calc(100% - 9px) 100%,0 100%,0 9px);
+         font:800 14px/1 ui-monospace,Menlo,monospace;letter-spacing:.1em;padding:12px}
+       .play span{font-family:ui-monospace,Menlo,monospace;letter-spacing:.2em}
+       .card{border-radius:0;font:700 11px/1.4 ui-monospace,Menlo,monospace}
+       .card i{font-family:ui-monospace,Menlo,monospace;font-size:9px}
+       .chips b{border-radius:0;font-family:ui-monospace,Menlo,monospace;font-size:9px}` },
+];
+
+const controlStyle = Object.entries(Object.assign({}, base, CONTROL))
+  .map(([k, v]) => `--${k}:${v}`).join(";");
+
+document.getElementById("forms").innerHTML = FORMS.map((f) => {
+  const scoped = f.css.trim() ? `<style>${scopeCSS(f.css, f.id)}</style>` : "";
+  return `<section class="plate ${f.id}">${scoped}
+    <div class="plabel">
+      <h2>${f.name}</h2><span class="tag">${f.tag}</span>
+      <p>${f.note}</p>
+    </div>
+    <div class="panes">
+      <div class="pane"><span class="cap">lobby</span>
+        <div class="room" style="${controlStyle}">${lobbyNew()}</div></div>
+      <div class="pane"><span class="cap">table</span>
+        <div class="room" style="${controlStyle}">${tableMock(f.wall)}</div></div>
+    </div>
+  </section>`;
+}).join("");
+
+/* ══ THE FELT, AND THE TILE ═══════════════════════════════════════════ *
+ * Two questions that cannot be answered apart: the felt is the largest
+ * single colour on the screen, and whether a tile reads better dark or
+ * light depends entirely on what it is lying on.
+ *
+ * Every pane below is the street parlour — same room, same tubes, same
+ * washes. Only the felt colour and the tile change. The variant plates
+ * carry the `p-street` class as well as their own, so they inherit the
+ * whole neon sheet already in the document and add only the difference.
+ *
+ * The dark tile is a SIGN: it emits, and its glyph carries the glow.
+ * The light tile is an OBJECT: it is lit BY the signs, so the glyphs go
+ * saturated but the glow moves off the glyph and onto the tile's edge as
+ * a warm rim. Glow painted inside a white tile is invisible anyway — a
+ * halo needs somewhere dark to fall.
+ * ══════════════════════════════════════════════════════════════════════ */
+const FELTS = [
+  { id:"green", name:"Deep green", note:"The shipped felt. Traditional, but it sits at the same mid-luminance as the green tubes and takes the sting out of them.",
+    c:["#146b3c","#0d4d2b","#07321c"] },
+  { id:"ink",   name:"Ink navy", note:"Wet asphalt at night, which is what the reference photographs actually put under the signs. Cool ground, warm lights — every amber and red gains.",
+    c:["#16204a","#0d1533","#070c22"] },
+  { id:"ox",    name:"Oxblood", note:"The parlour's own red, pulled down to a table. Makes the greens and cyans ring — at the cost of the red tubes, which have nowhere to stand.",
+    c:["#5a1a20","#3d1016","#26080d"] },
+  { id:"teal",  name:"Deep teal", note:"Between the green and the navy. Keeps a table-like colour without competing with the green tubes.",
+    c:["#0d4f57","#093a42","#05262c"] },
+  { id:"char",  name:"Charcoal", note:"The table stops being an object and becomes the dark the tiles float in. Dramatic, and it costs you the edge of the table.",
+    c:["#1b1e22","#141619","#0c0e10"] },
+];
+
+/* one flat colour; the sign-bands are inherited from .p-street's ::after */
+const feltCSS = (f) => `.v-${f.id} .felt{background:${f.c[0]}}
+  .v-${f.id} .felt{box-shadow:inset 0 0 0 1px ${f.c[2]},
+    inset 0 3px 6px rgba(0,0,0,.4), 0 12px 32px rgba(0,0,0,.5), 0 0 0 2px var(--rim-line)}`;
+
+/* the light tile has to out-specify the dark rules already in the sheet,
+   which is why every selector here repeats .p-street */
+const LIGHT_TILE = `
+.p-street.v-light .tile{background:#f3eee1;
+  box-shadow:0 0 0 1px rgba(255,214,150,.3), 0 0 12px -3px rgba(255,186,90,.55),
+    0 2px 5px rgba(0,0,0,.6)}
+.p-street.v-light .tile svg [fill="#FAFAF8"]{fill:#f3eee1}
+.p-street.v-light .tile svg [stroke="#FAFAF8"]{stroke:#f3eee1}
+.p-street.v-light .tile svg [stroke="#CCCCCC"]{stroke:#c6bca6}
+.p-street.v-light .tile svg [stroke="#888"]{stroke:#9a9182}
+.p-street.v-light .tile svg [fill="#D42222"]{fill:#e5142c;filter:none}
+.p-street.v-light .tile svg [stroke="#D42222"]{stroke:#e5142c;filter:none}
+.p-street.v-light .tile svg [fill="#1A8B3A"]{fill:#00a844;filter:none}
+.p-street.v-light .tile svg [stroke="#1A8B3A"]{stroke:#00a844;filter:none}
+.p-street.v-light .tile svg [fill="#1845A5"]{fill:#0d4fd8;filter:none}
+.p-street.v-light .tile svg [stroke="#1845A5"]{stroke:#0d4fd8;filter:none}
+.p-street.v-light .tile svg [fill="#B07020"]{fill:#c47a12;filter:none}
+.p-street.v-light .tile svg [stroke="#B07020"]{stroke:#c47a12;filter:none}`;
+
+const streetVars = THEMES.find((t) => t.id === "street").vars;
+const streetStyle = Object.entries(Object.assign({}, base, streetVars))
+  .map(([k, v]) => `--${k}:${v}`).join(";");
+
+document.getElementById("variants").innerHTML =
+  `<style>${FELTS.map(feltCSS).join("\n")}${LIGHT_TILE}</style>` +
+  FELTS.map((f) => `<section class="plate">
+    <div class="plabel"><h2>${f.name}</h2>
+      <span class="tag">felt</span><p>${f.note}</p>
+      <div class="sw">${f.c.map(c => `<i style="background:${c}"></i>`).join("")}</div>
+    </div>
+    <div class="panes">
+      <div class="pane p-street v-${f.id}"><span class="cap">black tiles</span>
+        <div class="room" style="${streetStyle}">${tableMock("square")}</div></div>
+      <div class="pane p-street v-${f.id} v-light"><span class="cap">white tiles</span>
+        <div class="room" style="${streetStyle}">${tableMock("square")}</div></div>
+    </div>
+  </section>`).join("");
+</script>
+</body>
+</html>
