@@ -1581,7 +1581,9 @@ async function postTable(req: Request, p: Platform, player: PlayerRow): Promise<
   if (seatPlan === "invalid") return fail("unknown_bot", 400);
 
   const creatorSeat = seatPlan.findIndex((s) => s.kind === "human");
-  if (creatorSeat === -1) return fail("bad_seats", 400);
+  // A host may open a table of four bots and watch them (a test rig);
+  // a player needs a seat.
+  if (creatorSeat === -1 && !hostOnly) return fail("bad_seats", 400);
 
   /* Ranked needs identity and scale that a bot cannot supply (§1.5, §6
    * decision 5) — refused before any row is written, same as every other

@@ -238,7 +238,7 @@ function paint(): void {
         </div>
         ${h3("Seats", "座位")}
         <div class="nt-seats">${[0, 1, 2, 3].map(seatCardHtml).join("")}</div>
-        <p class="nt-seatsum">${esc(draft.hostOnly ? `${humanSeatCount()} open seat${humanSeatCount() === 1 ? "" : "s"}${botSeatCount() > 0 ? ` + ${botSeatCount()} bot${botSeatCount() === 1 ? "" : "s"}` : ""} · you host from the watch page` : `you${botSeatCount() > 0 ? ` + ${botSeatCount()} bot${botSeatCount() === 1 ? "" : "s"}` : ""}${humanSeatCount() > 1 ? ` + ${humanSeatCount() - 1} open seat${humanSeatCount() > 2 ? "s" : ""}` : ""}`)} · playing as <b>${esc(identity?.displayName ?? "—")}</b>${ranked ? "" : " · tap a seat to swap human/bot; slide to pick how strong the bot is"}</p>
+        <p class="nt-seatsum">${esc(draft.hostOnly ? `${humanSeatCount() > 0 ? `${humanSeatCount()} open seat${humanSeatCount() === 1 ? "" : "s"}` : "no human seats"}${botSeatCount() > 0 ? `${humanSeatCount() > 0 ? " + " : ""}${botSeatCount()} bot${botSeatCount() === 1 ? "" : "s"}` : ""} · you host from the watch page${humanSeatCount() === 0 ? " · press start there and the bots play" : ""}` : `you${botSeatCount() > 0 ? ` + ${botSeatCount()} bot${botSeatCount() === 1 ? "" : "s"}` : ""}${humanSeatCount() > 1 ? ` + ${humanSeatCount() - 1} open seat${humanSeatCount() > 2 ? "s" : ""}` : ""}`)} · playing as <b>${esc(identity?.displayName ?? "—")}</b>${ranked ? "" : " · tap a seat to swap human/bot; slide to pick how strong the bot is"}</p>
         <div class="nt-row nt-switch nt-adv"><span class="nt-lbl">Randomize seats at start <span>隨機座位</span></span>${sw("ntRandomize", draft.randomizeSeats)}</div>
       </div>
       <div class="nt-col">
@@ -372,8 +372,8 @@ async function selectRoom(code: string): Promise<void> {
 async function doCreateTable(): Promise<void> {
   if (!identity) return;
   const err = document.getElementById("createErr");
-  if (humanSeatCount() < 1) {
-    if (err) err.innerHTML = `<b style="color:var(--red)">${draft.hostOnly ? "at least one seat has to be an open human seat" : "at least one seat has to be human — that's you"}</b>`;
+  if (humanSeatCount() < 1 && !draft.hostOnly) {
+    if (err) err.innerHTML = `<b style="color:var(--red)">at least one seat has to be human — that's you</b>`;
     return;
   }
   const btn = document.getElementById("btnCreate") as HTMLButtonElement | null;
