@@ -1682,16 +1682,18 @@ function showStartCard(): void {
       <b>${esc(seat.displayName || (seat.bot ? "bot" : "empty seat"))}</b></span>
       <span class="c2 mut" style="width:auto">${seat.bot ? "bot" : ""}</span></div>`).join("");
   const readyBtn = startCardReady
-    ? `<button id="btnStartReady" disabled style="opacity:.55">waiting for others…</button>`
-    : `<button id="btnStartReady">${humanCount <= 1 ? "start now ▸" : "ready ▸"}</button>`;
+    ? `<button id="btnStartReady" class="primary" disabled style="opacity:.55">${esc(t(S.revealWaitingOthers))}</button>`
+    : `<button id="btnStartReady" class="primary">${esc(humanCount <= 1 ? t(S.startNow) : t(S.startReady))} ▸</button>`;
+  const payLabel = PAYMENT_LABELS[s.paymentId]
+    ?? (s.paymentId.startsWith("hkos") ? "doubling" : s.paymentId.startsWith("tvb") ? "linear" : s.paymentId.startsWith("liu") ? "bracket" : s.paymentId);
+  $("panel").classList.add("modal", "startcard");
   $("panel").innerHTML = `
-    <h1>Hong Kong Old Style · ${esc(s.rulesetLabel)}</h1>
-    <p class="mut">${s.minimumFaan}–${s.limitFaan} faan · ${s.useFlowers ? "flowers" : "no flowers"}
-      · ${esc(PAYMENT_LABELS[s.paymentId] ?? s.paymentId)} payments · ${matchFormatLabel(s.matchFormat)}</p>
-    <p class="mut">${esc(SPEED_INFO[s.speed]?.wordy ?? s.speed)}</p>
-    <div class="rows" style="margin-top:10px">${seatRows}</div>
-    <p class="mut" style="margin-top:10px">starting in ${remain}s</p>
-    <div style="margin-top:10px">${readyBtn}</div>`;
+    <div class="mhead"><h2>${esc(s.rulesetLabel)}</h2><span class="sum">${esc(matchFormatLabel(s.matchFormat))} · ${esc(SPEED_INFO[s.speed]?.label ?? s.speed)}</span></div>
+    <div class="mbody">
+      <p class="cap2" style="margin:0 0 8px">${s.minimumFaan}–${s.limitFaan} faan · ${esc(s.useFlowers ? t(S.rulesFlowers) : t(S.rulesNoFlowers))} · ${esc(payLabel)} ${esc(t(S.startPayments))}<br>${esc(SPEED_INFO[s.speed]?.wordy ?? s.speed)}</p>
+      <div class="waitseats">${s.seats.map((seat, i) => `<div class="wseat on${i === mySeat ? " me" : ""}"><b>${WIND_CH[i]} ${esc(seat.displayName || (seat.bot ? t(S.waitBot) : t(S.startEmptySeat)))}</b><span>${seat.bot ? esc(t(S.waitBot)) : i === mySeat ? esc(t(S.startYou)) : esc(t(S.waitConnected))}</span></div>`).join("")}</div>
+    </div>
+    <div class="mfoot"><span class="hint2">${esc(t(S.startIn))} ${remain}s</span>${readyBtn}</div>`;
   const b = document.getElementById("btnStartReady") as HTMLButtonElement | null;
   if (b && !startCardReady) {
     b.onclick = () => {
@@ -1704,9 +1706,14 @@ function showStartCard(): void {
 function showPausedScreen(): void {
   beforeScreen();
   $("veil").style.display = "flex";
-  const who = paused?.displayName || "a player";
-  $("panel").innerHTML = `<h1>Paused</h1><p>Paused by <b>${esc(who)}</b></p>
-    <button id="btnResume">Resume ▸</button>`;
+  const who = paused?.displayName || t(S.pauseSomeone);
+  $("panel").classList.add("modal");
+  $("panel").innerHTML = `
+    <div class="mhead"><h2>${esc(t(S.pauseTitle))}</h2></div>
+    <div class="mbody">${esc(t(S.pauseBy))} <b>${esc(who)}</b>${paused?.since ? ` · <span class="mut">${esc(t(S.pauseSince))} ${new Date(paused.since).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>` : ""}<br><span class="cap2">${esc(t(S.pauseHint))}</span></div>
+    <div class="mfoot"><button id="btnPauseLeave" class="ghost">${esc(t(S.menuLeave))}</button><span class="hint2"></span><button id="btnResume" class="primary">${esc(t(S.pauseResume))} ▸</button></div>`;
+  const lv = document.getElementById("btnPauseLeave") as HTMLButtonElement | null;
+  if (lv) lv.onclick = () => { if (ts && currentMatchUuid && !matchEndInfo) quitScreen(() => syncVeil()); else leaveTable(); };
   const b = document.getElementById("btnResume") as HTMLButtonElement | null;
   if (b) {
     b.onclick = () => {
@@ -2901,8 +2908,9 @@ export function connectToMatch(r: {
 function fatalScreen(msg: string): void {
   beforeScreen();
   $("veil").style.display = "flex";
-  $("panel").innerHTML = `<h1>Something needs a reload</h1><p>${msg}</p>
-    <button id="btnReload">reload ▸</button>`;
+  $("panel").classList.add("modal");
+  $("panel").innerHTML = `<div class="mhead"><h2>${esc(t(S.fatalTitle))}</h2></div><div class="mbody">${esc(msg)}</div>
+    <div class="mfoot"><span class="hint2"></span><button id="btnReload" class="primary">${esc(t(S.fatalReload))} ▸</button></div>`;
   (document.getElementById("btnReload") as HTMLButtonElement).onclick = () => location.reload();
 }
 
