@@ -168,8 +168,12 @@ export const mount: PageMount = (container, params, router) => {
           <button class="sit sm ghost" data-host="end" style="margin-left:auto;color:var(--red);border-color:var(--red)">end the table</button></div>` : ""}
         <div class="zoombar"><span class="lbl">per row</span><div class="seg" data-zoom="cols">${[1, 2, 4].map((n) => `<button data-v="${n}">${n}</button>`).join("")}</div>
           <span class="lbl" style="margin-left:8px">screen</span><div class="seg" data-zoom="size">${(["phone", "tablet", "desktop"] as const).map((k) => `<button data-v="${k}">${k}</button>`).join("")}</div></div>
-        <div class="screens" id="screens">${w.tokens.map((tok, seat) => `<div><p class="who">${WINDS[seat]} · seat ${seat + 1}</p><div class="cell">
-        <iframe src="/?spectate=${encodeURIComponent(id)}&seat=${seat}&token=${encodeURIComponent(tok)}&rules=${encodeURIComponent(w.rulesetId)}&format=${encodeURIComponent(w.matchFormat)}" title="seat ${seat + 1}"></iframe></div></div>`).join("")}</div>
+        <div class="screens" id="screens">${w.tokens.map((tok, seat) => {
+          const who = w.seats?.find((x) => x.seat === seat);
+          const label = who ? `${esc(who.displayName)}${who.bot ? " · bot" : ""}` : `seat ${seat + 1}`;
+          return `<div><p class="who">${WINDS[seat]} · ${label}</p><div class="cell">
+        <iframe src="/?spectate=${encodeURIComponent(id)}&seat=${seat}&token=${encodeURIComponent(tok)}&rules=${encodeURIComponent(w.rulesetId)}&format=${encodeURIComponent(w.matchFormat)}" title="seat ${seat + 1}"></iframe></div></div>`;
+        }).join("")}</div>
         <p class="mut" style="margin-top:8px"><a href="/watch/${esc(id)}?panels=1">summary panels instead ›</a></p>`;
       wireZoom(el);
       // Two taps on remove/end (arm, then send); start is one tap.

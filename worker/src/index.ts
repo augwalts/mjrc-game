@@ -1907,10 +1907,11 @@ async function getWatchTokens(matchId: string, p: Platform, player: PlayerRow): 
   const match = await matchById(p.db, matchId);
   if (match === null || !(await canWatch(p, match, player))) return fail("not_found", 404);
   try {
-    const tokens = await tableStubFor(p, matchId).observerTokens();
+    const [tokens, seats] = await Promise.all([tableStubFor(p, matchId).observerTokens(), seatsOfMatch(p.db, matchId)]);
     return json({
       matchId, rulesetId: match.ruleset_id, matchFormat: match.match_format, tokens,
       createdBy: match.created_by, lobbyStatus: match.lobby_status,
+      seats: seats.map((s) => ({ seat: s.seat, displayName: s.display_name, bot: s.kind === "bot" })),
     });
   } catch (e) {
     console.error("observer tokens failed", matchId, e);

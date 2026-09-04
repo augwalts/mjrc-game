@@ -1073,7 +1073,7 @@ export interface WatchView {
   presence: { seat: 0 | 1 | 2 | 3; connected: boolean; botActing: boolean; botControlled: boolean }[];
   seats: WatchSnapshot[] | null;
 }
-export interface WatchTokens { matchId: string; rulesetId: string; matchFormat: MatchFormat; tokens: string[]; createdBy?: string; lobbyStatus?: LobbyStatus; }
+export interface WatchTokens { matchId: string; rulesetId: string; matchFormat: MatchFormat; tokens: string[]; createdBy?: string; lobbyStatus?: LobbyStatus; seats?: { seat: number; displayName: string; bot: boolean }[]; }
 export async function getWatchTokens(token: string, matchId: string): Promise<WatchTokens> {
   return apiFetch(`watch/${encodeURIComponent(matchId)}/tokens`, { token });
 }

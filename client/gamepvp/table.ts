@@ -1920,6 +1920,9 @@ function showMatchEndScreen(): void {
       <div><span>${mine.movesGraded}</span>decisions graded</div></div>`}
     <div class="mfoot" style="margin:14px -18px -10px;padding-bottom:12px"><span class="hint2"></span><button id="btnBackLobby" class="primary">${esc(t(S.revealBackLobby))} ▸</button></div>`;
   (document.getElementById("btnBackLobby") as HTMLButtonElement).onclick = () => {
+    // The scoreboard is a veil screen; nothing below closed it, so the panel
+    // stayed over the shell until a refresh (beta test #1, T3).
+    $("veil").style.display = "none"; beforeScreen();
     matchEndInfo = null; ts?.close(); ts = null; snap = null; directory = null;
     sessionHands.length = 0; coachTally.graded = 0; coachTally.matched = 0; matchAgreement = undefined;
     currentMatchUuid = null; currentJoinCode = null; isCreatorOfCurrentTable = false;
