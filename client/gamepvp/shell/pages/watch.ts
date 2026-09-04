@@ -180,8 +180,18 @@ export const mount: PageMount = (container, params, router) => {
           b.disabled = true;
           const done = (): void => { b.textContent = "done"; };
           const fail = (): void => { b.disabled = false; delete b.dataset.armed; b.textContent = b.dataset.label ?? b.textContent; };
-          if (kind === "start") void startTable(token, id).then(done).catch(fail);
-          else if (kind === "end") void endTable(token, id).then(done).catch(fail);
+          // Say what happened where the host is looking: the bar becomes a
+          // banner and every screen reloads onto the scoreboard (a fresh
+          // observer join of a finished table lands on the final standings).
+          const ended = (): void => {
+            const bar = el.querySelector<HTMLElement>(".hostbar");
+            if (bar) bar.innerHTML = `<b>table ended</b><span class="mut">final standings on every screen · this table is closed</span><a class="sit sm ghost" data-nav="/watch" style="margin-left:auto">all tables ›</a>`;
+            for (const f of Array.from(el.querySelectorAll<HTMLIFrameElement>("iframe"))) { const src = f.src; f.src = "about:blank"; window.setTimeout(() => { f.src = src; }, 300); }
+            wireNav(container, router);
+          };
+          const started = (): void => { done(); b.textContent = "started"; window.setTimeout(() => { for (const f of Array.from(el.querySelectorAll<HTMLIFrameElement>("iframe"))) { const src = f.src; f.src = "about:blank"; window.setTimeout(() => { f.src = src; }, 300); } }, 800); };
+          if (kind === "start") void startTable(token, id).then(started).catch(fail);
+          else if (kind === "end") void endTable(token, id).then(ended).catch(fail);
           else void kickSeat(token, id, Number(b.dataset.seat) as 0 | 1 | 2 | 3).then(done).catch(fail);
         };
       }
