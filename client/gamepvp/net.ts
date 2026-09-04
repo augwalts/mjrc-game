@@ -350,9 +350,11 @@ export interface CreateTableResult {
   tableId: string;
   matchUuid: string;
   joinCode: string;
-  seat: 0 | 1 | 2 | 3;
-  seatToken: string;
-  seatTokenExpiresAt: string;
+  /** Null when the creator hosts without a seat (`hostOnly`, 2026-09-03). */
+  seat: 0 | 1 | 2 | 3 | null;
+  seatToken: string | null;
+  seatTokenExpiresAt: string | null;
+  hostOnly?: boolean;
   rulesetId: string;
   rulesetHash: string;
   engineVersion: string;
@@ -372,6 +374,8 @@ export async function createTable(
   opts: {
     rulesetId: string; matchFormat: MatchFormat; mode: TableMode; access: TableAccess;
     randomizeSeats: boolean; seats: [SeatSpec, SeatSpec, SeatSpec, SeatSpec];
+    /** The creator takes no seat and hosts from the watch page (2026-09-03). */
+    hostOnly?: boolean;
     /** §8a-2. Optional here only so an older caller of this module still
      *  compiles; `game.ts`'s `doCreateTable()` always sends one now. */
     speed?: TableSpeed;
@@ -1058,7 +1062,7 @@ export interface WatchView {
   presence: { seat: 0 | 1 | 2 | 3; connected: boolean; botActing: boolean; botControlled: boolean }[];
   seats: WatchSnapshot[] | null;
 }
-export interface WatchTokens { matchId: string; rulesetId: string; matchFormat: MatchFormat; tokens: string[]; }
+export interface WatchTokens { matchId: string; rulesetId: string; matchFormat: MatchFormat; tokens: string[]; createdBy?: string; lobbyStatus?: LobbyStatus; }
 export async function getWatchTokens(token: string, matchId: string): Promise<WatchTokens> {
   return apiFetch(`watch/${encodeURIComponent(matchId)}/tokens`, { token });
 }

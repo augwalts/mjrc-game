@@ -77,12 +77,15 @@ const draft: {
   roomCode: string | null; roomLocked: boolean;
   rulesetId: string; matchFormat: MatchFormat; mode: TableMode; access: TableAccess;
   randomizeSeats: boolean; seats: [SeatDraft, SeatDraft, SeatDraft, SeatDraft];
+  /** "I host only" (2026-09-03): no seat for the creator, four open human
+   *  seats by default, casual, and the creator lands on the watch page. */
+  hostOnly: boolean;
   speed: TableSpeed; speedManual: boolean;
   advanced: boolean; payoutOpen: boolean;
 } = {
   name: "",
   roomCode: null, roomLocked: false,
-  rulesetId: "mjrc-standard", matchFormat: "east", mode: "casual", access: "open", randomizeSeats: false,
+  rulesetId: "mjrc-standard", matchFormat: "east", mode: "casual", access: "open", randomizeSeats: false, hostOnly: false,
   speed: "untimed", speedManual: false,
   advanced: false, payoutOpen: false,
   seats: [
@@ -120,7 +123,7 @@ const sw = (id: string, on: boolean, disabled = false): string => `<button class
 
 function seatCardHtml(i: number): string {
   const seat = draft.seats[i]!;
-  const isCreator = seat.kind === "human" && firstHumanSeatIx() === i;
+  const isCreator = !draft.hostOnly && seat.kind === "human" && firstHumanSeatIx() === i;
   const ranked = draft.mode === "ranked";
   const who = seat.kind === "bot" ? "Bot" : isCreator ? "You" : "Open seat";
   const tag = isCreator ? "host" : ranked ? "human" : "swap";
@@ -187,7 +190,9 @@ function summaryLine(): string {
   const roomName = draft.roomCode === OPEN_HALL_CODE || !draft.roomCode ? "Open hall" : (myRooms.find((r) => r.code === draft.roomCode)?.name ?? draft.roomCode);
   const rules = RULE_PICKS.find(([id]) => id === draft.rulesetId)?.[1] ?? draft.rulesetId;
   const humans = humanSeatCount(), bots = botSeatCount();
-  const seatsWord = `you${bots > 0 ? ` + ${bots} bot${bots === 1 ? "" : "s"}` : ""}${humans > 1 ? ` + ${humans - 1} open` : ""}`;
+  const seatsWord = draft.hostOnly
+    ? `host only · ${humans} open${bots > 0 ? ` + ${bots} bot${bots === 1 ? "" : "s"}` : ""}`
+    : `you${bots > 0 ? ` + ${bots} bot${bots === 1 ? "" : "s"}` : ""}${humans > 1 ? ` + ${humans - 1} open` : ""}`;
   return [draft.name.trim() || null, roomName, draft.matchFormat === "full" ? "全莊" : "東圈", rules, "全銃", draft.mode, draft.access,
     SPEED_INFO[draft.speed]?.label.toLowerCase() ?? draft.speed, seatsWord].filter(Boolean).join(" · ");
 }
@@ -226,9 +231,14 @@ function paint(): void {
           draft.access === "open" ? "anyone can sit down" : "needs the code to sit down", true)}
         ${row("Mode", "模式", seg([{ v: "casual", label: "Casual", on: !ranked }, { v: "ranked", label: "Ranked", on: ranked }], "mode"),
           ranked ? "rated · four humans · counts toward your rating" : "unrated · any mix of bots")}
+        ${h3("Your role", "你嘅角色")}
+        <div class="nt-roles">
+          <button type="button" class="nt-role${draft.hostOnly ? "" : " on"}" data-role="play"><b>I play <span>我落場</span></b><small>You take a seat; the other three are bots or open seats.</small></button>
+          <button type="button" class="nt-role${draft.hostOnly ? " on" : ""}" data-role="host"><b>I host only <span>只做枱主</span></b><small>No seat. You see all four hands and keep the host controls — for a playtest or a lesson. Never rated.</small></button>
+        </div>
         ${h3("Seats", "座位")}
         <div class="nt-seats">${[0, 1, 2, 3].map(seatCardHtml).join("")}</div>
-        <p class="nt-seatsum">${esc(`you${botSeatCount() > 0 ? ` + ${botSeatCount()} bot${botSeatCount() === 1 ? "" : "s"}` : ""}${humanSeatCount() > 1 ? ` + ${humanSeatCount() - 1} open seat${humanSeatCount() > 2 ? "s" : ""}` : ""}`)} · playing as <b>${esc(identity?.displayName ?? "—")}</b>${ranked ? "" : " · tap a seat to swap human/bot; slide to pick how strong the bot is"}</p>
+        <p class="nt-seatsum">${esc(draft.hostOnly ? `${humanSeatCount()} open seat${humanSeatCount() === 1 ? "" : "s"}${botSeatCount() > 0 ? ` + ${botSeatCount()} bot${botSeatCount() === 1 ? "" : "s"}` : ""} · you host from the watch page` : `you${botSeatCount() > 0 ? ` + ${botSeatCount()} bot${botSeatCount() === 1 ? "" : "s"}` : ""}${humanSeatCount() > 1 ? ` + ${humanSeatCount() - 1} open seat${humanSeatCount() > 2 ? "s" : ""}` : ""}`)} · playing as <b>${esc(identity?.displayName ?? "—")}</b>${ranked ? "" : " · tap a seat to swap human/bot; slide to pick how strong the bot is"}</p>
         <div class="nt-row nt-switch nt-adv"><span class="nt-lbl">Randomize seats at start <span>隨機座位</span></span>${sw("ntRandomize", draft.randomizeSeats)}</div>
       </div>
       <div class="nt-col">
@@ -311,6 +321,19 @@ function paint(): void {
   }
   const rnd = document.getElementById("ntRandomize") as HTMLButtonElement | null;
   if (rnd) rnd.onclick = () => { draft.randomizeSeats = !draft.randomizeSeats; paint(); };
+  for (const el of q<HTMLElement>("[data-role]")) el.onclick = () => {
+    const host = el.dataset.role === "host";
+    if (host === draft.hostOnly) return;
+    draft.hostOnly = host;
+    if (host) {
+      // four open human seats by default; a host cannot run a rated table
+      for (const st of draft.seats) st.kind = "human";
+      draft.mode = "casual";
+    } else if (draft.seats[0]!.kind !== "human") {
+      draft.seats[0]!.kind = "human";
+    }
+    paint();
+  };
   const tog = document.getElementById("ntPayoutTog");
   if (tog) tog.onclick = () => { draft.payoutOpen = !draft.payoutOpen; paint(); };
   const adv = document.getElementById("ntAdvTog");
@@ -350,7 +373,7 @@ async function doCreateTable(): Promise<void> {
   if (!identity) return;
   const err = document.getElementById("createErr");
   if (humanSeatCount() < 1) {
-    if (err) err.innerHTML = `<b style="color:var(--red)">at least one seat has to be human — that's you</b>`;
+    if (err) err.innerHTML = `<b style="color:var(--red)">${draft.hostOnly ? "at least one seat has to be an open human seat" : "at least one seat has to be human — that's you"}</b>`;
     return;
   }
   const btn = document.getElementById("btnCreate") as HTMLButtonElement | null;
@@ -361,11 +384,17 @@ async function doCreateTable(): Promise<void> {
     const r: CreateTableResult = await createTable(identity.deviceToken, {
       rulesetId: draft.rulesetId, matchFormat: draft.matchFormat, mode: draft.mode, access: draft.access,
       randomizeSeats: draft.randomizeSeats, speed: draft.speed, seats,
+      ...(draft.hostOnly ? { hostOnly: true } : {}),
       ...(name ? { name } : {}),
       ...(draft.roomCode && draft.roomCode !== OPEN_HALL_CODE ? { roomCode: draft.roomCode } : {}),
     } as Parameters<typeof createTable>[1]);
     const plan = draft.seats.map((s) => s.kind === "bot" ? { bot: true, displayName: botDisplayName(s.bot) } : { bot: false });
     closeVeil();
+    if (r.hostOnly || r.seat === null || r.seatToken === null) {
+      // the host has no seat: straight to the watch page, all four screens
+      window.location.href = `/watch/${encodeURIComponent(r.matchUuid)}`;
+      return;
+    }
     connectToMatch({
       matchUuid: r.matchUuid, joinCode: r.joinCode, seat: r.seat, seatToken: r.seatToken,
       rulesetId: r.rulesetId, matchFormat: r.matchFormat, creator: true,

@@ -553,3 +553,11 @@
   #shell .pl-tilerows{display:grid; grid-template-columns:1fr 1fr; gap:6px}
   #shell .pl-pid.lg .pl-nm small{white-space:nowrap}
 }
+
+/* ── New table: the role picker (2026-09-03) ── */
+#shell .nt-roles{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:0 0 12px}
+#shell .nt-role{border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:none;text-align:left;color:var(--ink);font:inherit;cursor:pointer}
+#shell .nt-role.on{border-color:var(--blue);box-shadow:inset 0 0 0 1px var(--blue);background:var(--panel)}
+#shell .nt-role b{display:block;font-size:14px} #shell .nt-role b span{color:var(--dim);font-weight:400;font-size:12px;margin-left:4px}
+#shell .nt-role small{display:block;color:var(--dim);font-size:11.5px;line-height:1.35;margin-top:2px}
+@media (max-width:520px){#shell .nt-roles{grid-template-columns:1fr}}

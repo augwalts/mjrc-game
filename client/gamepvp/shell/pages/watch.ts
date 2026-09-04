@@ -7,7 +7,7 @@
  * tile, melds, flowers, discards, and who is on turn. Deliberately plain:
  * it is a monitor for a playtest host, not a player surface.
  */
-import { getLobby, getWatch, getWatchTokens, type LobbyTable, type WatchSeatOwn, type WatchView } from "../../net.js";
+import { endTable, getLobby, getWatch, getWatchTokens, kickSeat, startTable, type LobbyTable, type WatchSeatOwn, type WatchView } from "../../net.js";
 import { handLabel, meldHtml, ruleLabel, tileHtml } from "../../table.js";
 import type { PageMount } from "../router.js";
 import { esc, identity } from "../session.js";
@@ -75,6 +75,7 @@ const STYLE = `<style>
   @media (max-width:900px){#shell .screens{grid-template-columns:1fr}}
   #shell .screens iframe{width:100%;aspect-ratio:4/3;border:1px solid var(--line);border-radius:12px;background:#111}
   #shell .screens .who{font-family:var(--mono);font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--dim);margin:0 0 4px}
+  #shell .hostbar{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 </style>`;
 
 export const mount: PageMount = (container, params, router) => {
@@ -108,9 +109,27 @@ export const mount: PageMount = (container, params, router) => {
     void getWatchTokens(token, id).then((w) => {
       const el = document.getElementById("watchBody");
       if (!el || !alive) return;
-      el.innerHTML = `<div class="screens">${w.tokens.map((tok, seat) => `<div><p class="who">${WINDS[seat]} · seat ${seat + 1}</p>
+      const host = !!identity && w.createdBy === identity.playerId;
+      el.innerHTML = `${host ? `<div class="card hostbar"><span class="mut" style="font-family:var(--mono);font-size:10.5px;letter-spacing:.09em;text-transform:uppercase">host controls</span>
+          ${w.lobbyStatus === "waiting" ? `<button class="sit sm" data-host="start">start now · fill empty seats with bots</button>` : ""}
+          ${[0, 1, 2, 3].map((s) => `<button class="sit sm ghost" data-host="kick" data-seat="${s}">remove ${WINDS[s]}</button>`).join("")}
+          <button class="sit sm ghost" data-host="end" style="margin-left:auto;color:var(--red);border-color:var(--red)">end the table</button></div>` : ""}
+        <div class="screens">${w.tokens.map((tok, seat) => `<div><p class="who">${WINDS[seat]} · seat ${seat + 1}</p>
         <iframe src="/?spectate=${encodeURIComponent(id)}&seat=${seat}&token=${encodeURIComponent(tok)}&rules=${encodeURIComponent(w.rulesetId)}&format=${encodeURIComponent(w.matchFormat)}" title="seat ${seat + 1}"></iframe></div>`).join("")}</div>
         <p class="mut" style="margin-top:8px"><a href="/watch/${esc(id)}?panels=1">summary panels instead ›</a></p>`;
+      // Two taps on remove/end (arm, then send); start is one tap.
+      for (const b of Array.from(el.querySelectorAll<HTMLButtonElement>("[data-host]"))) {
+        b.onclick = () => {
+          const kind = b.dataset.host!;
+          if (kind !== "start" && !b.dataset.armed) { b.dataset.armed = "1"; b.dataset.label = b.textContent ?? ""; b.textContent = "tap again to confirm"; return; }
+          b.disabled = true;
+          const done = (): void => { b.textContent = "done"; };
+          const fail = (): void => { b.disabled = false; delete b.dataset.armed; b.textContent = b.dataset.label ?? b.textContent; };
+          if (kind === "start") void startTable(token, id).then(done).catch(fail);
+          else if (kind === "end") void endTable(token, id).then(done).catch(fail);
+          else void kickSeat(token, id, Number(b.dataset.seat) as 0 | 1 | 2 | 3).then(done).catch(fail);
+        };
+      }
     }).catch((e) => {
       const el = document.getElementById("watchBody");
       if (el && alive) el.innerHTML = `<p class="empty">${esc(String(e).includes("not_found") ? "not found — or you are not an admin" : String(e))}</p>`;

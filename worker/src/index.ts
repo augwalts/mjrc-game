@@ -1569,7 +1569,11 @@ async function postTable(req: Request, p: Platform, player: PlayerRow): Promise<
   }
 
   const matchFormat = roomGame !== null ? roomGame.matchFormat : (body.matchFormat === "full" ? "full" : "east");
-  const mode = body.mode === "ranked" ? "ranked" : "casual";
+  /* Host-only (owner, 2026-09-03): the creator takes NO seat — every human
+   * seat is open, they land on the watch page with all four hands and keep
+   * the creator's controls (start, remove, end). Never rated. */
+  const hostOnly = body.hostOnly === true;
+  const mode = body.mode === "ranked" && !hostOnly ? "ranked" : "casual";
   const access = resolveAccess(body.access, roomGame?.access);
   const randomizeSeats = body.randomizeSeats === true;
 
@@ -1622,9 +1626,7 @@ async function postTable(req: Request, p: Platform, player: PlayerRow): Promise<
     name,
   });
 
-  if (!(await claimSeat(p.db, matchId, creatorSeat as SeatIndex, player.id))) return fail("conflict", 409);
-
-  const handoff = await openAndSeat(p, matchId, creatorSeat as SeatIndex, player, {
+  const spec: TableSpec = {
     matchId,
     rulesetId: rules.id,
     rulesetHash: hash,
@@ -1635,8 +1637,22 @@ async function postTable(req: Request, p: Platform, player: PlayerRow): Promise<
     randomizeSeats,
     speed,
     startedAt: now,
-  });
-  if (handoff === null) return fail("table_unavailable", 503);
+  };
+  let handoff: Handoff | null = null;
+  if (hostOnly) {
+    try {
+      const id = p.tables.idFromName(matchId);
+      await p.tables.get(id).openTable(spec);
+      handoff = { tableId: id.toString(), seatToken: "", expiresAt: "" };
+    } catch (e) {
+      console.error("table open failed (host-only)", matchId, e);
+      return fail("table_unavailable", 503);
+    }
+  } else {
+    if (!(await claimSeat(p.db, matchId, creatorSeat as SeatIndex, player.id))) return fail("conflict", 409);
+    handoff = await openAndSeat(p, matchId, creatorSeat as SeatIndex, player, spec);
+    if (handoff === null) return fail("table_unavailable", 503);
+  }
 
   /* §8's "room" inbox kind: every OTHER member of a real (non-Open-Hall)
    * room the creator just opened a table in gets one notice. Skipped for
@@ -1664,9 +1680,10 @@ async function postTable(req: Request, p: Platform, player: PlayerRow): Promise<
       tableId: handoff.tableId,
       matchUuid: matchId,
       joinCode,
-      seat: creatorSeat,
-      seatToken: handoff.seatToken,
-      seatTokenExpiresAt: handoff.expiresAt,
+      seat: hostOnly ? null : creatorSeat,
+      seatToken: hostOnly ? null : handoff.seatToken,
+      seatTokenExpiresAt: hostOnly ? null : handoff.expiresAt,
+      hostOnly,
       rulesetId: rules.id,
       rulesetHash: hash,
       engineVersion: p.engineVersion,
@@ -1885,12 +1902,14 @@ async function postKick(matchId: string, request: Request, p: Platform, player: 
  * attached as a watcher of a seat (2026-09-03). Admin only, 404 otherwise.
  */
 async function getWatchTokens(matchId: string, p: Platform, player: PlayerRow): Promise<Response> {
-  if (!(await isAdminPlayer(p, player))) return fail("not_found", 404);
   const match = await matchById(p.db, matchId);
-  if (match === null) return fail("not_found", 404);
+  if (match === null || !(await canWatch(p, match, player))) return fail("not_found", 404);
   try {
     const tokens = await tableStubFor(p, matchId).observerTokens();
-    return json({ matchId, rulesetId: match.ruleset_id, matchFormat: match.match_format, tokens });
+    return json({
+      matchId, rulesetId: match.ruleset_id, matchFormat: match.match_format, tokens,
+      createdBy: match.created_by, lobbyStatus: match.lobby_status,
+    });
   } catch (e) {
     console.error("observer tokens failed", matchId, e);
     return fail("table_unavailable", 503);
@@ -1913,10 +1932,18 @@ async function isAdminPlayer(p: Platform, player: PlayerRow): Promise<boolean> {
  * match would, so the route's existence is not learnable by probing.
  * Read-only — the table object touches nothing on this call.
  */
+/** Who may see every hand of a table: an admin, or its creator while they
+ *  hold NO seat there — a host (2026-09-03). A seated creator is a player
+ *  and gets nothing more than their own seat. */
+async function canWatch(p: Platform, match: MatchRow, player: PlayerRow): Promise<boolean> {
+  if (await isAdminPlayer(p, player)) return true;
+  if (match.created_by !== player.id) return false;
+  return (await seatOf(p.db, match.id, player.id)) === null;
+}
+
 async function getWatch(matchId: string, p: Platform, player: PlayerRow): Promise<Response> {
-  if (!(await isAdminPlayer(p, player))) return fail("not_found", 404);
   const match = await matchById(p.db, matchId);
-  if (match === null) return fail("not_found", 404);
+  if (match === null || !(await canWatch(p, match, player))) return fail("not_found", 404);
   try {
     const view = await tableStubFor(p, matchId).observe();
     return json({
