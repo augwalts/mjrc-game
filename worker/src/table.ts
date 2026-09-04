@@ -2142,6 +2142,7 @@ export class TableCore {
           return this.send(ws, protocolFault("malformedMessage"));
         }
         if (!this.offerIsCurrent(seat, msg.payload.offerSeq)) {
+          console.log("request rejected", this.meta?.matchId ?? "?", "seat", seat, msg.type, "staleOffer", JSON.stringify(msg.payload ?? null).slice(0, 200));
           return this.send(ws, rejected(msg.requestId, "staleOffer"));
         }
         return this.submit(seat, { type: "claim", seat, option }, ws, msg.requestId);
@@ -2149,6 +2150,7 @@ export class TableCore {
 
       case "requestPass": {
         if (!this.offerIsCurrent(seat, msg.payload?.offerSeq)) {
+          console.log("request rejected", this.meta?.matchId ?? "?", "seat", seat, msg.type, "staleOffer", JSON.stringify(msg.payload ?? null).slice(0, 200));
           return this.send(ws, rejected(msg.requestId, "staleOffer"));
         }
         return this.submit(seat, { type: "pass", seat }, ws, msg.requestId);
@@ -2157,6 +2159,7 @@ export class TableCore {
       case "requestWinOnDiscard":
       case "requestRobKong": {
         if (!this.offerIsCurrent(seat, msg.payload?.offerSeq)) {
+          console.log("request rejected", this.meta?.matchId ?? "?", "seat", seat, msg.type, "staleOffer", JSON.stringify(msg.payload ?? null).slice(0, 200));
           return this.send(ws, rejected(msg.requestId, "staleOffer"));
         }
         const win: Action = { type: "claim", seat, option: { kind: "win" } };
@@ -2324,6 +2327,7 @@ export class TableCore {
       const code = isRejectCode((err as { code?: unknown })?.code)
         ? ((err as { code: RejectCode }).code)
         : "notALegalMove";
+            console.log("request rejected", this.meta?.matchId ?? "?", "seat", seat, "action", String(code), String((err as Error)?.message ?? err).slice(0, 160));
       if (ws && requestId) this.send(ws, rejected(requestId, code, String(err)));
       return;
     }
