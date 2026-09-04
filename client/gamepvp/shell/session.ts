@@ -183,6 +183,8 @@ export type Language = "en" | "zh";
 export interface Settings {
   tileScale: number; dev: boolean;
   hcCount: boolean; hcCalling: boolean; hcWhatIf: boolean;
+  /** Index labels in the tiles' corners (2026-09-03). Default on. */
+  tileLabels: boolean;
   sound: boolean; haptics: boolean; coaching: boolean; language: Language;
   /** Double tap to discard (table.ts build item 3) — TWO independent flags,
    *  because the two input models want different answers and a laptop that
@@ -202,7 +204,7 @@ export const TILE_SCALE_MAX = 1.5;
 export const clampTileScale = (v: unknown): number =>
   Math.min(TILE_SCALE_MAX, Math.max(TILE_SCALE_MIN, Number(v) || 1));
 export const SETTINGS: Settings = {
-  tileScale: 1, dev: false, hcCount: true, hcCalling: false, hcWhatIf: false,
+  tileScale: 1, dev: false, hcCount: true, hcCalling: false, hcWhatIf: false, tileLabels: true,
   sound: true, haptics: true, coaching: true, language: "en",
   discardDoubleTapDesktop: true, discardDoubleTapMobile: true,
   ...JSON.parse(localStorage.getItem("mjrc.gamepvp.settings") ?? "{}"),
@@ -221,6 +223,7 @@ export const saveSettings = (): void => {
   localStorage.setItem("mjrc.gamepvp.settings", JSON.stringify(SETTINGS));
   document.documentElement.style.setProperty("--tscale", String(SETTINGS.tileScale));
   document.body.classList.toggle("devmode", SETTINGS.dev);
+  document.body.classList.toggle("notilelabels", !SETTINGS.tileLabels);
 };
 
 /* ── theme (light / dark / system) ────────────────────────────────────────

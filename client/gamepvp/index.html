@@ -262,6 +262,15 @@ body.spectator #hud::after{content:"watching";font-family:var(--mono);font-size:
   border-radius:5px;box-shadow:0 1px 0 #b8ad93,0 2px 5px rgba(0,0,0,.35);
   background:#FAFAF8;user-select:none;overflow:hidden;line-height:0;flex:0 0 auto}
 .tile svg{width:100%;height:100%;display:block}
+/* the corner index (owner, 2026-09-03): a small chip over the art, sized
+   off the tile's own height so it scales with the hand slider; hidden as a
+   whole by body.notilelabels (menu → coach → tile labels) */
+.tile .ix{position:absolute;left:5%;top:3%;font:700 calc(var(--th) * .2) / 1 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  color:#22201c;background:rgba(255,255,255,.82);border-radius:calc(var(--th) * .06);padding:calc(var(--th) * .02) calc(var(--th) * .05);
+  pointer-events:none;letter-spacing:0;font-style:normal;z-index:2}
+#myhand .tile .ix{font-size:calc(var(--th) * .17)}
+body.notilelabels .tile .ix{display:none}
+.back .ix{display:none}
 .tile.sm{--th:40px}
 
 /* ── your area ── */

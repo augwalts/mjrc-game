@@ -113,8 +113,18 @@ const HONOUR_NAMES = ["East", "South", "West", "North", "Red", "Green", "White",
 const name = (t: TileId): string =>
   t < 9 ? `${t + 1}萬` : t < 18 ? `${t - 8}▮` : t < 27 ? `${t - 17}●`
   : HONOUR_NAMES[t - 27] ?? "?";
-export const tileHtml = (t: TileId, cls = "", attrs = ""): string =>
-  `<span class="tile ${cls}" data-t="${t}" ${attrs}><svg viewBox="0 0 100 140" preserveAspectRatio="xMidYMid meet">${face(t)}</svg></span>`;
+/** The index label in a tile's corner (owner, 2026-09-03: "numbers on the
+ *  tiles in case people can't read Chinese"): 1–9 on the three suits,
+ *  E S W N on the winds, Rd Gn Wh on the dragons, nothing on flowers. Drawn
+ *  as a separate element over the art, sized off the tile, hidden by
+ *  `body.notilelabels` (the coach tab's switch). */
+const TILE_LABEL: readonly string[] = ["E", "S", "W", "N", "Rd", "Gn", "Wh"];
+const tileLabel = (t: TileId): string =>
+  t < 27 ? String((t % 9) + 1) : t < 34 ? (TILE_LABEL[t - 27] ?? "") : "";
+export const tileHtml = (t: TileId, cls = "", attrs = ""): string => {
+  const lb = tileLabel(t);
+  return `<span class="tile ${cls}" data-t="${t}" ${attrs}><svg viewBox="0 0 100 140" preserveAspectRatio="xMidYMid meet">${face(t)}</svg>${lb ? `<i class="ix">${lb}</i>` : ""}</span>`;
+};
 /** A meld as another seat may show it: a concealed kong they hold is hidden
  *  from us (`tiles: null`) and renders as four backs, never a guess. */
 export const meldHtml = (m: Meld | SeatVisibleMeld, cls = ""): string =>
@@ -3063,6 +3073,7 @@ function menuBody(tab: MenuTab): string {
       ${menuSwitch("hcCount", SETTINGS.hcCount, t(S.menuCount), t(S.menuCountHint))}
       ${menuSwitch("hcCalling", SETTINGS.hcCalling, t(S.menuCalling), t(S.menuCallingHint))}
       ${menuSwitch("hcWhatIf", SETTINGS.hcWhatIf, t(S.menuWhatIf), t(S.menuWhatIfHint))}
+      ${menuSwitch("tileLabels", SETTINGS.tileLabels, t(S.menuTileLabels), t(S.menuTileLabelsHint))}
       ${menuSwitch("dev", SETTINGS.dev, t(S.menuDev), t(S.menuDevHint))}`;
   }
   const theme = getThemeChoice();

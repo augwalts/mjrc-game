@@ -281,6 +281,8 @@ export const S = {
   menuCallingHint: s("whether you are 聽牌, what you wait on, how many are live", "你有冇聽牌、聽咩牌、仲剩幾多隻"),
   menuWhatIf: s("what-if", "如果打呢隻"),
   menuWhatIfHint: s("lift a tile to see what cutting it leaves you waiting on", "撳起一隻牌，睇下打咗佢之後你會聽咩"),
+  menuTileLabels: s("tile labels", "牌面標示"),
+  menuTileLabelsHint: s("1–9 on the suits, E S W N on the winds, Rd Gn Wh on the dragons — in the corner of every tile", "三門數牌標 1–9、風牌標 E S W N、三元牌標 Rd Gn Wh — 每隻牌角落都有"),
   menuDev: s("dev mode", "開發者模式"),
   menuDevHint: s("show how the champion would rank your discards and claims", "顯示冠軍程式點樣評你嘅出牌同叫牌"),
   menuTheme: s("theme", "主題"),
