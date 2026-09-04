@@ -279,7 +279,7 @@ export function setHostHooks(h: Partial<typeof hostHooks>): void {
  *  end, fatal) render is harmless and keeps this a one-line no-op change
  *  instead of touching every call site. */
 function beforeScreen(): void {
-  $("panel").classList.remove("about", "lobby3", "modal");
+  $("panel").classList.remove("about", "lobby3", "modal", "menu", "reveal");
 }
 
 /* ── the live table ────────────────────────────────────────────────────
@@ -1609,15 +1609,21 @@ function syncVeil(): void {
  *  dismiss; absent (an older server) falls back to a plain "continue" tap,
  *  same as the fixed 6s hold `startReveal()` already armed for that case. */
 function showOverlay(): void {
+  // beforeScreen() strips the `modal`/`menu` variants another screen may
+  // have left on the shared panel — without it the reveal inherited the
+  // menu's zero padding (owner, 2026-09-03: "the margins got screwed up").
+  beforeScreen();
   $("veil").style.display = "flex";
+  $("panel").classList.add("modal", "reveal");
   const countdown = revealDeadlineTs !== null
-    ? `<p class="mut">next hand in ${Math.max(0, Math.ceil((revealDeadlineTs - Date.now()) / 1000))}s</p>` : "";
+    ? `${t(S.revealNextIn)} ${Math.max(0, Math.ceil((revealDeadlineTs - Date.now()) / 1000))}s` : "";
   const nextBtn = revealRequested
-    ? `<button id="btnNextHand" disabled style="opacity:.55">waiting for others…</button>`
-    : `<button id="btnNextHand">next hand ▸</button>`;
+    ? `<button id="btnNextHand" class="primary" disabled style="opacity:.55">${esc(t(S.revealWaitingOthers))}</button>`
+    : `<button id="btnNextHand" class="primary">${esc(t(S.revealNextHand))} ▸</button>`;
   const contBtn = revealDeadlineTs === null
-    ? `<button id="btnCont" style="background:rgba(255,255,255,.08);margin-left:8px">continue ▸</button>` : "";
-  $("panel").innerHTML = `${overlay}${countdown}<div style="margin-top:10px">${nextBtn}${contBtn}</div>`;
+    ? `<button id="btnCont" class="ghost">${esc(t(S.revealContinue))}</button>` : "";
+  $("panel").innerHTML = `<div class="mbody">${overlay}</div>
+    <div class="mfoot">${contBtn}<span class="hint2">${esc(countdown)}</span>${nextBtn}</div>`;
   const nb = document.getElementById("btnNextHand") as HTMLButtonElement | null;
   if (nb && !revealRequested) {
     nb.onclick = () => {
@@ -1666,6 +1672,7 @@ function closeStartCardOnPlay(): void {
 function showStartCard(): void {
   const info = startingInfo;
   if (!info) return;
+  beforeScreen();
   $("veil").style.display = "flex";
   const s = info.settings;
   const remain = Math.max(0, Math.ceil((info.startsAt - Date.now()) / 1000));
@@ -1695,6 +1702,7 @@ function showStartCard(): void {
   }
 }
 function showPausedScreen(): void {
+  beforeScreen();
   $("veil").style.display = "flex";
   const who = paused?.displayName || "a player";
   $("panel").innerHTML = `<h1>Paused</h1><p>Paused by <b>${esc(who)}</b></p>
@@ -1870,6 +1878,7 @@ function showMatchEndScreen(): void {
   const info = matchEndInfo;
   if (!info) return;
   beforeScreen();
+  $("panel").classList.add("modal", "reveal");
   $("veil").style.display = "flex";
   const order = [0, 1, 2, 3].sort((a, b) => info.standings[b]! - info.standings[a]!);
   const place = order.indexOf(mySeat) + 1;
@@ -1892,7 +1901,7 @@ function showMatchEndScreen(): void {
     <h2 style="margin-top:14px">How you played it</h2>
     <div class="statgrid"><div><span>${Math.round(mine.agreement * 100)}%</span>engine agreement</div>
       <div><span>${mine.movesGraded}</span>decisions graded</div></div>`}
-    <button id="btnBackLobby" style="margin-top:16px">◂ back to lobby</button>`;
+    <div class="mfoot" style="margin:14px -18px -10px;padding-bottom:12px"><span class="hint2"></span><button id="btnBackLobby" class="primary">${esc(t(S.revealBackLobby))} ▸</button></div>`;
   (document.getElementById("btnBackLobby") as HTMLButtonElement).onclick = () => {
     matchEndInfo = null; ts?.close(); ts = null; snap = null; directory = null;
     sessionHands.length = 0; coachTally.graded = 0; coachTally.matched = 0; matchAgreement = undefined;

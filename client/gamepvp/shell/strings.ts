@@ -286,6 +286,12 @@ export const S = {
   menuTheme: s("theme", "主題"),
   menuAccount: s("account", "帳戶"),
   menuAccountLink: s("profile, picture, sign out", "個人資料、相片、登出"),
+  /* the hand-end reveal on the modal (2026-09-03) */
+  revealNextIn: s("next hand in", "下一鋪"),
+  revealNextHand: s("next hand", "下一鋪"),
+  revealWaitingOthers: s("waiting for others…", "等緊其他人…"),
+  revealContinue: s("continue", "繼續"),
+  revealBackLobby: s("back to lobby", "返回大廳"),
   /* rules tab — the payment scheme (2026-09-03) */
   rulesFaan: s("faan", "番"),
   rulesFlowers: s("flowers count", "計花"),

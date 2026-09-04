@@ -25,17 +25,17 @@
      by default, charcoal under the system dark scheme or the explicit
      choice; the class rides on <html> (shell/session.ts applyTheme). */
   --c-bg:#fffdf7; --c-panel:#f6f1e4; --c-panel2:#efeade; --c-line:#ddd6c4; --c-ink:#1a1a18; --c-dim:#777770;
-  --c-blue:#1845a5; --c-on-blue:#fff; --c-danger:#c1272d; --c-veil:rgba(26,26,24,.45);
+  --c-blue:#1845a5; --c-on-blue:#fff; --c-danger:#c1272d; --c-veil:rgba(26,26,24,.45); --c-good:#127a30;
   --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
 }
 @media (prefers-color-scheme: dark){
   html:not(.theme-light){
     --c-bg:#1e1f1d; --c-panel:#2a2b29; --c-panel2:#363733; --c-line:#4a4b46; --c-ink:#f3efe4; --c-dim:#b3b0a5;
-    --c-blue:#9fbaf0; --c-on-blue:#1e1f1d; --c-danger:#e2857f; --c-veil:rgba(0,0,0,.62)}
+    --c-blue:#9fbaf0; --c-on-blue:#1e1f1d; --c-danger:#e2857f; --c-veil:rgba(0,0,0,.62); --c-good:#7fdc97}
 }
 html.theme-dark{
   --c-bg:#1e1f1d; --c-panel:#2a2b29; --c-panel2:#363733; --c-line:#4a4b46; --c-ink:#f3efe4; --c-dim:#b3b0a5;
-  --c-blue:#9fbaf0; --c-on-blue:#1e1f1d; --c-danger:#e2857f; --c-veil:rgba(0,0,0,.62)}
+  --c-blue:#9fbaf0; --c-on-blue:#1e1f1d; --c-danger:#e2857f; --c-veil:rgba(0,0,0,.62); --c-good:#7fdc97}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{height:100%;margin:0}
 body{background:var(--c-bg);
@@ -455,6 +455,26 @@ body.spectator #hud::after{content:"watching";font-family:var(--mono);font-size:
 #panel.menu input[type=range]{width:100%;accent-color:var(--c-blue)}
 #panel.menu input[type=range]:disabled{opacity:.45}
 #panel.menu .rules b{color:var(--c-ink)} #panel.menu .rules p{margin:4px 0 8px;color:var(--c-dim);font-size:13px;line-height:1.5}
+/* ── the hand-end reveal on the modal (2026-09-03) ── */
+#panel.reveal{max-width:640px}
+#panel.reveal .mbody{padding:16px 18px 10px;text-align:center;color:var(--c-ink)}
+#panel.reveal h1{font-size:22px;margin:0 0 2px;color:var(--c-ink)}
+#panel.reveal h2{font-size:14px;margin:0 0 10px;color:var(--c-dim);font-weight:500}
+#panel.reveal .tiles{display:flex;flex-wrap:wrap;justify-content:center;gap:3px;align-items:flex-end;margin:6px 0}
+#panel.reveal .awards{font-size:13px;color:var(--c-dim);margin:8px 0} #panel.reveal .awards b{color:var(--c-ink)}
+#panel.reveal .pay{display:flex;gap:10px;justify-content:center;font-size:13px;margin:12px 0 4px;flex-wrap:wrap}
+#panel.reveal .pay div{background:var(--c-panel2);border:1px solid var(--c-line);border-radius:10px;padding:7px 12px;color:var(--c-dim);min-width:96px}
+#panel.reveal .pay .d{font-variant-numeric:tabular-nums;font-weight:700;font-size:15px;color:var(--c-ink)}
+#panel.reveal .pay .up{color:var(--c-good)} #panel.reveal .pay .down{color:var(--c-danger)}
+#panel.reveal .mut{color:var(--c-dim)}
+#panel.reveal .rows{max-height:230px;overflow-y:auto;margin:6px auto 0;max-width:360px;text-align:left}
+#panel.reveal .rows .row:nth-child(odd){background:var(--c-panel2)}
+#panel.reveal .rows .row.me{background:var(--c-panel2);border:1px solid var(--c-ink)}
+#panel.reveal .rows .up{color:var(--c-good)} #panel.reveal .rows .down{color:var(--c-danger)}
+#panel.reveal .mfoot .ghost{margin-right:auto}
+#panel.reveal .statgrid{display:flex;gap:10px;justify-content:center;margin:8px 0}
+#panel.reveal .statgrid div{background:var(--c-panel2);border:1px solid var(--c-line);border-radius:10px;padding:8px 14px;color:var(--c-dim);font-size:12px}
+#panel.reveal .statgrid span{display:block;font-size:18px;font-weight:700;color:var(--c-ink)}
 #panel.menu table.pay{width:100%;border-collapse:collapse;margin:6px 0 8px;font-variant-numeric:tabular-nums;font-size:13px}
 #panel.menu table.pay th{font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--c-dim);text-align:right;padding:4px 8px;border-bottom:1px solid var(--c-line);font-weight:600}
 #panel.menu table.pay th:first-child{text-align:left}
