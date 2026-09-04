@@ -128,6 +128,39 @@ land and I'll push further in that direction:
 
 ---
 
+## Needs manual capture — not scriptable
+
+Two references were requested that I could not collect automatically. Both are worth having.
+
+### Chess.com — highest priority on this list
+
+Not a Steam title, and the settings pages require a login I won't perform. **This is the most
+structurally relevant reference on the board** — see the group note in `notes.json` for why.
+
+Screenshots worth taking, into `games/chesscom/`:
+
+1. `https://www.chess.com/play/computer` — the board and the bot-selection panel
+2. `https://www.chess.com/settings/board` *(needs your login)* — **the board-theme and
+   piece-set picker. This is the single most valuable frame**: it is the theme contract shipped
+   to consumers, and it is the argument for MJRC's tile-set architecture made by someone else's
+   product at scale
+3. `https://www.chess.com/puzzles` — the daily-puzzle loop
+4. `https://www.chess.com/analysis` — evaluation bar, move list, annotation glyphs
+5. `https://www.chess.com/leaderboard` — rating presentation
+
+Observed while looking: two page loads produced **two different board and piece themes** for the
+same position, and the default board is flat green-and-cream at low saturation rather than
+skeuomorphic wood. The largest chess site in the world chose legibility over realism.
+
+### Fortnite
+
+Epic Games Store only, and `epicgames.com` returns 403 to automated requests. Grab four or five
+frames from the official site or a match — the useful ones are the **cosmetics shop** (the
+economy that shapes the art style) and any **crowded fight**, which shows the readability
+engineering that drives the convergence described in `GENERIC-GAME-STYLE.md`.
+
+---
+
 ## Related documents
 
 - `RENDER-AXIS-PROPOSAL.md` — the content/render axis split, and the theme-contract idea
