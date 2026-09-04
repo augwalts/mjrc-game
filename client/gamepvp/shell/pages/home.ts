@@ -61,8 +61,14 @@ export const mount: PageMount = (container, _params, router) => {
    * a dropped connection this is the way back, and a table created from
    * Home has no room page to find it on. */
   let rejoin: LobbyHereEntry | null = null;
+  let hosting: { matchId: string; name: string | null; status: string } | null = null;
   let unreadNow = 0;
   const rejoinHtml = (): string => {
+    if (hosting) {
+      return `<div class="card" style="margin-bottom:10px"><div class="row">
+        <div><b>${esc(t(S.hostingTitle))}</b><br><small class="mut">${esc(hosting.name ?? "")}${hosting.name ? " · " : ""}${esc(hosting.status)}</small></div>
+        <a class="sit" data-nav="/watch/${esc(hosting.matchId)}" style="margin-left:auto">${esc(t(S.watchTable))}</a></div></div>`;
+    }
     if (!rejoin?.joinCode) return "";
     const label = rejoin.state === "playing" ? `playing, ${handLabel(rejoin.hand, rejoin.handsBase)}` : "waiting at a table";
     return `<div class="card" style="margin-bottom:10px"><div class="row">
@@ -102,7 +108,11 @@ export const mount: PageMount = (container, _params, router) => {
 
   void getLobby(token).then((lobby) => {
     const me = lobby.here.find((e) => e.playerId === playerId && (e.state === "waiting" || e.state === "playing") && !!e.joinCode);
-    if (me && alive) { rejoin = me; paintShell(unreadNow); }
+    // hosting: a live table I created and hold no seat at (host-only, 2026-09-03)
+    const host = lobby.tables.find((tb) => tb.createdBy === playerId && tb.lobbyStatus !== "done"
+      && !tb.seats.some((s) => s.kind === "human" && s.playerId === playerId));
+    if (host) hosting = { matchId: host.matchId, name: host.name ?? null, status: host.lobbyStatus === "playing" ? handLabel(host.hand, host.handsBase) : "waiting to start" };
+    if ((me || host) && alive) { rejoin = me ?? null; paintShell(unreadNow); }
   }).catch(() => { /* degrade: no banner */ });
 
   void getInbox(token).then((inbox) => { if (alive) paintShell(inbox.filter((i) => i.unread).length); }).catch(() => { /* degrade: badge stays 0 */ });

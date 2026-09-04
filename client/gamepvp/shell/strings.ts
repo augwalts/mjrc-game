@@ -315,6 +315,8 @@ export const S = {
   waitStartNow: s("start now · fill empty seats with bots", "即刻開始 · 空位由電腦補上"),
   kickedNotice: s("The host removed you from this table — a bot plays your seat and you cannot rejoin it.", "枱主已經請你離開呢張枱 — 你嘅位由電腦代打，你唔可以再返嚟。"),
   rejoinTitle: s("You have a seat at a live table", "你喺牌桌仲有個位"),
+  hostingTitle: s("You are hosting a table", "你正在主持一張枱"),
+  watchTable: s("watch", "觀看"),
   sortHand: s("sort", "整理"),
   sortHandTitle: s("put your hand back in the default order", "回復預設排序"),
 

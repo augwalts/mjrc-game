@@ -20,6 +20,9 @@ export function tableRow(tb: LobbyTable): string {
   // `/join` hands the same seat back with a fresh token. Before this, a
   // playing table showed "playing, hand 3" and nothing to press.
   const mine = !!identity && tb.seats.some((s) => s.kind === "human" && s.playerId === identity!.playerId);
+  // The creator with NO seat is the table's host (2026-09-03): their way
+  // back in is the watch page, not a seat.
+  const hosting = !!identity && !mine && tb.createdBy === identity!.playerId && tb.lobbyStatus !== "done";
   const canRejoin = mine && tb.lobbyStatus !== "done" && !!tb.joinCode;
   const canSit = !canRejoin && tb.access === "open" && tb.lobbyStatus === "waiting" && !!tb.joinCode;
   const status = tb.lobbyStatus === "playing" ? handLabel(tb.hand, tb.handsBase) : `${filled}/4 seated`;
@@ -30,7 +33,8 @@ export function tableRow(tb: LobbyTable): string {
       <small>${esc(ruleLabel(tb.rulesetId))} · ${matchFormatLabel(tb.matchFormat)}</small>
     </div>
     <div class="mini">${tb.seats.map((s) => `<span class="ms ${s.kind}">${s.kind === "bot" ? "bot" : (s.displayName ? esc(s.displayName.slice(0, 4)) : "·")}</span>`).join("")}</div>
-    ${canRejoin ? `<button class="sit sm" data-sit="${tb.joinCode}">${esc(t(S.rejoin))}</button>`
+    ${hosting ? `<a class="sit sm" data-nav="/watch/${esc(tb.matchId)}">${esc(t(S.watchTable))}</a>`
+      : canRejoin ? `<button class="sit sm" data-sit="${tb.joinCode}">${esc(t(S.rejoin))}</button>`
       : canSit ? `<button class="sit sm" data-sit="${tb.joinCode}">Sit ${filled}/4</button>` : `<small class="playing">${status}</small>`}
   </div>`;
 }
