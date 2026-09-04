@@ -1,0 +1,449 @@
+<!doctype html>
+<html lang="en" class="theme-light"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>HUD · quit · watch — mockups 2026-09-03</title>
+<style>
+:root{
+  /* The felt: a woven green table mat (owner photo, 2026-09-03) — a mid,
+     saturated green rather than the old dark teal, darkening toward the rim.
+     `--felt-weave` is the pitch of the basket weave drawn over it. */
+  --felt:#34b562; --felt-dk:#2a9e54; --felt-edge:#1f8243; --felt-weave:3px;
+  --wood:#3a2a1e; --ink:#f2ece0; --dim:#a9b8ae;
+  --tile:#f6f1e4; --tile-edge:#cdc3ab; --tile-ink:#22201c; --red:#b23b32; --green:#1f6b46;
+  --gold:#d8b56a; --accent:#7fb3ff; --danger:#e08a6a;
+  /* site kit, used FUNCTIONALLY only (owner's ruling: neutral on neutral,
+     colour carries meaning or it does not appear). --seal rings the tile that
+     is actually in play and underlines a win; --royal underlines a kong;
+     --tilegreen is the kit's third colour, kept here so the felt and the kit
+     never drift apart. */
+  --seal:#C1272D; --royal:#1845A5; --tilegreen:#1A8B3A;
+  /* CHROME tokens (gameplay-lab.html / shell/theme.css, same values): the
+     HUD, the rim, the tray and the modal. "The felt is content, everything
+     else is chrome" — these never touch anything drawn on the felt. Paper
+     by default, charcoal under the system dark scheme or the explicit
+     choice; the class rides on <html> (shell/session.ts applyTheme). */
+  --c-bg:#fffdf7; --c-panel:#f6f1e4; --c-panel2:#efeade; --c-line:#ddd6c4; --c-ink:#1a1a18; --c-dim:#777770;
+  --c-blue:#1845a5; --c-on-blue:#fff; --c-danger:#c1272d; --c-veil:rgba(26,26,24,.45);
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){
+  html:not(.theme-light){
+    --c-bg:#1e1f1d; --c-panel:#2a2b29; --c-panel2:#363733; --c-line:#4a4b46; --c-ink:#f3efe4; --c-dim:#b3b0a5;
+    --c-blue:#9fbaf0; --c-on-blue:#1e1f1d; --c-danger:#e2857f; --c-veil:rgba(0,0,0,.62)}
+}
+html.theme-dark{
+  --c-bg:#1e1f1d; --c-panel:#2a2b29; --c-panel2:#363733; --c-line:#4a4b46; --c-ink:#f3efe4; --c-dim:#b3b0a5;
+  --c-blue:#9fbaf0; --c-on-blue:#1e1f1d; --c-danger:#e2857f; --c-veil:rgba(0,0,0,.62)}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;margin:0}
+body{background:var(--c-bg);
+  color:var(--ink);font:15px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;overflow:hidden;
+  display:flex;flex-direction:column}
+
+/* Ported from gameplay-lab.html (2026-09-03): a panel strip with a hairline
+   under it, the table's name and ruleset in mono caps on the left, text
+   pills (no emoji) filled only when on, and quit as the one seal-red pill —
+   with a real tap target: 36px tall, the old one was 24. */
+.hud{display:flex;align-items:center;gap:8px;padding:7px 10px;font-size:12px;color:var(--c-dim);
+  background:var(--c-panel);border-bottom:1px solid var(--c-line);flex:0 0 auto;min-height:50px;
+  /* ABOVE EVERYTHING — the veil (40), the chat overlay (13), flying tiles —
+     so nothing ever paints over the gear (owner, 2026-09-03). */
+  position:relative;z-index:70}
+.hud .gear{width:40px;height:40px;padding:0;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  color:var(--c-ink);border:1px solid var(--c-line);background:none;cursor:pointer;flex:0 0 auto}
+.hud .gear:hover,.hud .gear[aria-expanded="true"]{border-color:var(--c-ink);background:var(--c-panel2)}
+/* .hudMenu is now only a WIRING HOST (owner, 2026-09-03: the gear opens a
+   full tabbed menu instead of a dropdown): the four buttons keep their ids
+   and their boot-time handlers, stay hidden, and the menu's own buttons
+   forward clicks to them (menuScreen). */
+.hudMenu{display:none !important}
+/* `.hud .hudMenu …` outranks the pill rule `.hud button` below, which
+   would otherwise win on source order and draw the rows as pills */
+.hud .hudMenu button{width:100%;text-align:left;border:0;border-radius:8px;padding:11px 12px;min-height:42px;font-size:14px;
+  color:var(--c-ink);background:none;font-weight:400}
+.hud .hudMenu button:hover{background:var(--c-panel2);color:var(--c-ink)}
+.hud .hudMenu button.on{background:var(--c-panel2);color:var(--c-ink);font-weight:600}
+.hud .hudMenu .btnQuit{color:var(--c-danger);border-top:1px solid var(--c-line);border-radius:0 0 8px 8px;margin-top:2px;padding-top:12px;font-weight:600}
+.hud .hudMenu .btnQuit:hover{background:color-mix(in srgb, var(--c-danger) 12%, transparent)}
+.hud b{color:var(--c-ink)}
+.hud .spacer{flex:1}
+.hud .tt{font-family:var(--mono);font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--c-dim);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+/* the game clock: elapsed since the first deal, tabular so it does not jitter */
+.hud .clock{color:var(--c-ink);font-variant-numeric:tabular-nums;flex:0 0 auto;overflow:visible}
+.hud .clock:empty{display:none}
+.hud .mut{font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--c-dim);white-space:nowrap}
+.hud .netchip{display:inline-flex;align-items:center;gap:6px;color:var(--c-danger)}
+.hud .netchip:empty{display:none}
+.hud .netchip::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--seal);flex:0 0 auto}
+.hud button{font:inherit;font-size:12.5px;padding:7px 13px;min-height:36px;border-radius:20px;border:1px solid var(--c-line);
+  background:none;color:var(--c-dim);cursor:pointer;white-space:nowrap}
+.hud button:hover{color:var(--c-ink);border-color:var(--c-dim)}
+.hud button.on{background:none;color:var(--c-ink);border-color:var(--c-ink)}
+.hud .btnQuit:hover{background:color-mix(in srgb, var(--c-danger) 12%, transparent)}
+/* The lab's shell modal, as a variant of #panel (gameplay-lab.html
+   `.modal/.mhead/.mbody/.mfoot`): head with a hairline, body in dim ink,
+   foot with one primary (blue fill) and one ghost (hairline). Used by the
+   quit dialog; `beforeScreen()` strips it so every other screen keeps the
+   felt-green panel it always had. */
+.panel.modal{background:var(--c-bg);color:var(--c-ink);border:1px solid var(--c-line);border-radius:16px;
+  padding:0;max-width:460px;text-align:left;box-shadow:0 20px 60px rgba(0,0,0,.35)}
+.panel.modal .mhead{display:flex;align-items:center;gap:10px;padding:14px 16px 11px;border-bottom:1px solid var(--c-line)}
+.panel.modal .mhead h2{font-size:17px;margin:0;color:var(--c-ink);font-weight:700}
+.panel.modal .mbody{padding:12px 16px 14px;color:var(--c-dim);font-size:13.5px;line-height:1.5}
+.panel.modal .mbody b{color:var(--c-ink)}
+.panel.modal .mfoot{padding:10px 16px 13px;border-top:1px solid var(--c-line);display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.panel.modal .mfoot .hint2{color:var(--c-dim);font-size:11px;font-family:var(--mono);flex:1;min-width:0}
+.panel.modal button{margin:0}
+.panel.modal .kickrow{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.panel.modal .primary{font:inherit;font-weight:600;font-size:14px;padding:11px 22px;border-radius:10px;border:0;
+  background:var(--c-blue);color:var(--c-on-blue);cursor:pointer;min-height:42px}
+.panel.modal .ghost{font:inherit;font-size:13px;padding:10px 16px;border-radius:10px;border:1px solid var(--c-line);
+  background:none;color:var(--c-ink);cursor:pointer;min-height:42px}
+@media (max-width:520px){.panel.modal .mfoot .primary{flex:1 1 100%;order:-1}.panel.modal .mfoot .ghost{flex:1}}
+/* ── the tabbed menu behind the gear (hud-quit-watch-lab.html §4) ── */
+.panel.menu{max-width:560px}
+.panel.menu .mhead .sum{color:var(--c-dim);font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.panel.menu .mhead .x{margin-left:auto;width:32px;height:32px;border-radius:16px;border:1px solid var(--c-line);background:var(--c-panel);color:var(--c-ink);font:inherit;font-size:18px;line-height:1;padding:0;cursor:pointer;flex:0 0 auto}
+.panel.menu .tabs{display:flex;gap:4px;padding:8px 12px 0;border-bottom:1px solid var(--c-line);overflow-x:auto}
+.panel.menu .tab{font-family:var(--mono);font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--c-dim);padding:8px 10px;border:0;background:none;border-bottom:2px solid transparent;margin:0 0 -1px;white-space:nowrap;cursor:pointer;border-radius:0;min-height:0}
+.panel.menu .tab.on{color:var(--c-ink);border-bottom-color:var(--c-ink)}
+.panel.menu .mbody{max-height:min(60vh,480px);overflow:auto}
+.panel.menu .srow{display:grid;grid-template-columns:120px 1fr;align-items:center;gap:10px;min-height:42px;padding:2px 0}
+@media (max-width:520px){.panel.menu .srow{grid-template-columns:96px 1fr}}
+.panel.menu .srow .lbl{font-size:13.5px;color:var(--c-ink)}
+.panel.menu .cap2{color:var(--c-dim);font-size:11px;margin:-2px 0 6px;line-height:1.35}
+.panel.menu .act{display:flex;gap:8px;flex-wrap:wrap}
+.panel.menu .ghost.on{border-color:var(--c-ink);background:var(--c-panel2);font-weight:600}
+.panel.menu .ghost.danger{border-color:var(--c-danger);color:var(--c-danger)}
+.panel.menu .ghost:disabled{opacity:.5;cursor:default}
+.panel.menu .hostblk{margin-top:12px;padding-top:10px;border-top:1px solid var(--c-line)}
+.panel.menu .cap{font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--c-dim);font-weight:600;margin:0 0 6px}
+.panel.menu .seg{display:inline-flex;border:1px solid var(--c-line);border-radius:10px;overflow:hidden}
+.panel.menu .seg button{border:0;border-radius:0;padding:7px 12px;font-size:12.5px;color:var(--c-dim);background:none;min-height:0;cursor:pointer}
+.panel.menu .seg button.on{background:var(--c-panel2);color:var(--c-ink);font-weight:600}
+.panel.menu input[type=range]{width:100%;accent-color:var(--c-blue)}
+.panel.menu input[type=range]:disabled{opacity:.45}
+.panel.menu .rules b{color:var(--c-ink)} .panel.menu .rules p{margin:4px 0 8px;color:var(--c-dim);font-size:13px;line-height:1.5}
+.veil{position:absolute;inset:0;background:var(--c-veil);display:none;
+  align-items:flex-start;justify-content:center;overflow-y:auto;
+  -webkit-overflow-scrolling:touch;z-index:40;padding:16px}
+.panel{background:linear-gradient(180deg,#1b3a30,#12281f);border:1px solid rgba(216,181,106,.35);
+  border-radius:14px;padding:22px 26px;max-width:640px;width:100%;text-align:center;
+  margin:auto;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+.chatBtn{position:relative}
+.chatBtn.open{border-color:var(--c-ink);background:var(--c-panel2)}
+.chatBadge{position:absolute;top:-3px;right:-3px;background:var(--danger);color:#2a1410;
+  border-radius:10px;min-width:18px;height:18px;padding:0 4px;font-size:10px;font-weight:800;
+  display:flex;align-items:center;justify-content:center;border:2px solid #171512}
+
+*{box-sizing:border-box}
+body{margin:0;background:var(--c-bg);color:var(--c-ink);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:18px 20px 60px}
+h1{font-size:17px;margin:0 0 4px} .note{color:var(--c-dim);font-size:12.5px;max-width:900px;margin:4px 0 0}
+.cap{font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--c-dim);font-weight:600;margin:0 0 8px}
+#controls{display:flex;gap:8px;margin:10px 0 6px}
+#controls button{font:inherit;padding:6px 14px;border-radius:8px;border:1px solid var(--c-line);background:var(--c-panel);color:var(--c-ink);cursor:pointer}
+#controls button.on{background:var(--c-blue);border-color:var(--c-blue);color:var(--c-on-blue);font-weight:600}
+.sec{margin:28px 0 0;border-top:1px solid var(--c-line);padding-top:16px}
+.row2{display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start}
+.frame{position:relative;background:var(--c-panel2);border-radius:22px;padding:8px;box-shadow:0 14px 40px rgba(0,0,0,.25);margin-top:20px;flex:0 0 auto}
+.frame .label{position:absolute;top:-18px;left:8px;font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--c-dim)}
+.frame.phone{width:393px} .frame.desk{width:960px}
+.screen{background:var(--c-bg);border-radius:16px;overflow:hidden;position:relative;display:flex;flex-direction:column;height:520px}
+.frame.phone .screen{height:820px}
+.hud .spacer{flex:1}
+.tablearea{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:10px}
+.felt{position:relative;width:100%;height:100%;border-radius:18px;background:repeating-linear-gradient(0deg,rgba(0,0,0,.055) 0 1px,transparent 1px 3px),repeating-linear-gradient(90deg,rgba(255,255,255,.028) 0 1px,transparent 1px 3px),radial-gradient(ellipse at 50% 42%,var(--felt) 0%,var(--felt-dk) 72%,var(--felt-edge) 100%);border:8px solid var(--c-panel);box-shadow:inset 0 0 40px rgba(0,0,0,.4),0 10px 26px rgba(0,0,0,.3);color:#f2ece0}
+.state{position:absolute;left:10px;top:8px;background:rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:5px 10px;line-height:1.25;white-space:nowrap;font-size:12px}
+.state .wind{font-size:17px;font-weight:700}
+.tray{flex:0 0 auto;background:var(--c-panel);border-top:1px solid var(--c-line)}
+.clockbar{height:3px;background:var(--c-panel2)} .clockbar i{display:block;height:100%;width:62%;background:var(--c-blue)}
+.hint{font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--c-dim);text-align:center;padding:6px 0 2px} .hint b{color:var(--c-ink)}
+.mine{padding:4px 10px 10px;display:flex;gap:4px;justify-content:center;align-items:flex-end}
+.t{width:34px;height:48px;border-radius:5px;background:#FAFAF8;color:#22201c;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;box-shadow:0 1px 0 #b8ad93,0 2px 5px rgba(0,0,0,.35);flex:0 0 auto}
+.frame.phone .t{width:24px;height:34px;font-size:12px}
+.t.r{color:#b23b32} .t.g{color:#1a8b3a} .t.b{color:#1845a5}
+.sortbtn{align-self:center;margin-left:8px;font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;padding:6px 11px;border-radius:20px;border:1px solid var(--c-line);background:none;color:var(--c-dim)}
+.veil{display:flex;padding:16px;align-items:flex-start;justify-content:center;overflow-y:auto}
+.frame.desk .veil{align-items:center}
+.panel{width:100%;margin:auto}
+.mut{color:var(--c-dim)}
+.shell{background:var(--c-bg);color:var(--c-ink);padding:12px;height:100%;overflow:auto}
+.shell .top{display:flex;align-items:center;gap:10px;margin-bottom:10px} .shell .top h2{font-size:16px;margin:0}
+.card{background:var(--c-panel);border:1px solid var(--c-line);border-radius:12px;padding:10px 12px;margin-bottom:8px}
+.watchgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.watchseat.onturn{outline:2px solid var(--c-blue)}
+.wrow{display:flex;gap:8px;align-items:flex-start;margin-top:6px} .wrow small{width:58px;flex:0 0 auto;padding-top:4px;color:var(--c-dim)}
+.tiles{display:flex;flex-wrap:wrap;gap:2px;align-items:flex-end}
+.tiles .t{width:26px;height:36px;font-size:12px} .tiles.dis .t{width:19px;height:26px;font-size:9px}
+.badge{font-family:var(--mono);font-size:10px;letter-spacing:.06em;text-transform:uppercase;border:1px solid var(--c-line);border-radius:10px;padding:1px 7px;color:var(--c-dim)}
+.badge.on{border-color:var(--c-blue);color:var(--c-blue)}
+.rowh{display:flex;align-items:center;gap:8px}
+
+/* ── section 4: only what the real CSS does not draw (mock-only widgets) ── */
+.menu .mhead .sum{color:var(--c-dim);font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase}
+.sw{display:inline-block;font:inherit;font-size:13px;padding:8px 16px;border-radius:10px;border:1px solid var(--c-line);color:var(--c-ink)}
+.sw.on{border-color:var(--c-ink);background:var(--c-panel2);font-weight:600}
+.sw::after{content:"off"} .sw.on::after{content:"on"}
+.range{height:4px;border-radius:2px;background:var(--c-line);position:relative;margin:8px 0}
+.range i{position:absolute;left:0;top:0;height:100%;width:40%;background:var(--c-blue);border-radius:2px}
+.range b{position:absolute;left:40%;top:-7px;width:18px;height:18px;border-radius:50%;background:var(--c-bg);border:2px solid var(--c-blue);transform:translateX(-50%)}
+.range.off{opacity:.45} .range.off i{width:60%} .range.off b{left:60%}
+
+/* ── section 3: the watch page, four real screens ── */
+.watchpage{background:var(--c-bg);padding:12px;height:100%;overflow:auto}
+.watchpage .top{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.watchpage .top h2{font-size:16px;margin:0}
+.screens{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.screens .who{font-family:var(--mono);font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--c-dim);margin:0 0 4px}
+.mini{border:1px solid var(--c-line);border-radius:12px;overflow:hidden;background:var(--c-bg);display:flex;flex-direction:column;aspect-ratio:4/3}
+.mini .hud{min-height:34px;padding:4px 8px;gap:6px}
+.mini .hud .tt{font-size:8.5px}
+.mini .hud .watching{font-family:var(--mono);font-size:8.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--c-danger);border:1px solid var(--c-danger);border-radius:20px;padding:3px 7px}
+.mini .tablearea{padding:6px}
+.mini .felt{border-width:5px;border-radius:12px}
+.mini .state{font-size:9px;padding:3px 6px;left:6px;top:5px} .mini .state .wind{font-size:12px}
+.mini .tray{padding:0} .mini .clockbar{height:2px}
+.mini .hint{font-size:8px;padding:3px 0 1px}
+.mini .mine{padding:2px 6px 6px;gap:2px}
+.mini .t{width:17px;height:24px;font-size:9px;border-radius:3px}
+.plate{position:absolute;background:rgba(8,20,15,.72);border:1px solid rgba(255,255,255,.16);border-radius:14px;padding:2px 7px;font-size:8.5px;color:#f2ece0;white-space:nowrap}
+.plate.n{top:5px;left:50%;transform:translateX(-50%)} .plate.e{right:6px;top:50%;transform:translateY(-50%)} .plate.w{left:6px;top:50%;transform:translateY(-50%)}
+.plate.turn{border-color:rgba(255,255,255,.6)}
+.backs{position:absolute;display:flex;gap:1px} .backs i{display:block;width:7px;height:10px;border-radius:1px;background:linear-gradient(180deg,#2f7a5f,#1d5c46);border:1px solid #14493a}
+.backs.n{top:22px;left:50%;transform:translateX(-50%)} .backs.e{right:8px;top:calc(50% + 12px);flex-direction:column} .backs.w{left:8px;top:calc(50% + 12px);flex-direction:column}
+.backs.e i,.backs.w i{width:10px;height:7px}
+.pilec{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:grid;grid-template-columns:repeat(6,1fr);gap:1px;width:36%}
+.pilec .t{width:12px;height:17px;font-size:7px}
+.pilec .t.hot{outline:2px solid var(--seal);outline-offset:0}
+
+/* ── section 5: the table set-up menu with a role ── */
+.nt .mbody{padding:10px 16px 12px}
+.ntsec{margin:0 0 12px} .ntsec .cap{margin-bottom:6px}
+.roles{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.role{border:1px solid var(--c-line);border-radius:12px;padding:10px 12px;background:none;text-align:left;color:var(--c-ink);font:inherit;cursor:pointer}
+.role.on{border-color:var(--c-blue);box-shadow:inset 0 0 0 1px var(--c-blue);background:var(--c-panel)}
+.role b{display:block;font-size:14px} .role small{display:block;color:var(--c-dim);font-size:11.5px;line-height:1.35;margin-top:2px}
+.seats{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.frame.phone .seats{grid-template-columns:1fr 1fr}
+.seat{border:1px solid var(--c-line);border-radius:12px;padding:8px 9px;min-height:78px;display:flex;flex-direction:column;gap:6px}
+.seat.you{border-color:var(--c-ink)}
+.seat .w{display:flex;align-items:baseline;gap:6px} .seat .w b{font-size:16px} .seat .w span{font-size:11.5px;color:var(--c-dim)}
+.seat .tag{margin-left:auto;font-family:var(--mono);font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--c-dim);border:1px solid var(--c-line);border-radius:10px;padding:1px 6px}
+.seat .seg{display:inline-flex;border:1px solid var(--c-line);border-radius:8px;overflow:hidden;align-self:flex-start}
+.seat .seg span{padding:4px 9px;font-size:11.5px;color:var(--c-dim)} .seat .seg span.on{background:var(--c-panel2);color:var(--c-ink);font-weight:600}
+.seat .bot{height:4px;border-radius:2px;background:var(--c-line);position:relative;margin:6px 0 2px} .seat .bot i{position:absolute;left:0;top:0;height:100%;width:50%;background:var(--c-blue);border-radius:2px} .seat .bot b{position:absolute;left:50%;top:-5px;width:14px;height:14px;border-radius:50%;background:var(--c-bg);border:2px solid var(--c-blue);transform:translateX(-50%)}
+.seatsum{color:var(--c-dim);font-size:12px;margin:8px 0 0} .seatsum b{color:var(--c-ink)}
+.ntrow{display:grid;grid-template-columns:110px 1fr;align-items:center;gap:10px;min-height:36px} .frame.phone .ntrow{grid-template-columns:92px 1fr}
+.ntrow .lbl{font-size:13px;color:var(--c-ink)}
+.warn{border:1px solid var(--c-line);border-left:3px solid var(--c-blue);border-radius:8px;padding:8px 10px;font-size:12px;color:var(--c-dim);margin-top:8px} .warn b{color:var(--c-ink)}
+</style></head><body class="">
+<div id="controls"><button class="on" onclick="setT('light',this)">paper</button><button onclick="setT('dark',this)">charcoal</button></div>
+<script>function setT(t,b){document.documentElement.className='theme-'+t;for(const x of document.querySelectorAll('#controls button'))x.classList.toggle('on',x===b)}</script>
+<h1>HUD · quit dialog · watch — as built, 2026-09-03</h1>
+<p class="note">Paper by default, charcoal on the toggle — the chrome follows the shell theme, the felt never changes. The HUD and modal CSS below is copied verbatim from <code>client/gamepvp/index.html</code> at <code>HEAD</code> (ids swapped for classes so several frames can sit on one page). The felt, tiles and the watch page are sketched, not the real renderer.</p>
+
+<div class="sec"><p class="cap">1 · the menu bar (HUD)</p>
+<p class="note">Panel strip with a hairline. Left: ruleset · round wind · speed in mono caps, then the <b>game clock</b> (elapsed since the first deal), then a seal-red reconnect chip when the socket drops. Right: two round icons only — <b>chat</b> (with its unread badge) and the <b>gear</b>. Pause, auto, settings and quit live in the gear's dropdown (open in the desktop frame); quit is the seal-red row. The bar sits above everything on the page, the veil included, so nothing ever paints over the icons.</p>
+<div class="row2">
+<div class="frame desk"><span class="label">desktop · 960</span><div class="screen">
+  <div class="hud"><span class="tt">MJRC standard · 東圈 · normal</span><span class="tt clock">12:34</span><span class="netchip"></span><span class="spacer"></span><button class="gear chatBtn"><svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M4 4h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 4v-4H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/></svg><span class="chatBadge">2</span></button><button class="gear" aria-expanded="true"><svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M19.4 13a7.6 7.6 0 0 0 .1-1 7.6 7.6 0 0 0-.1-1l2.1-1.6a.5.5 0 0 0 .1-.7l-2-3.4a.5.5 0 0 0-.6-.2l-2.5 1a7.3 7.3 0 0 0-1.7-1l-.4-2.6a.5.5 0 0 0-.5-.5h-4a.5.5 0 0 0-.5.4l-.4 2.7a7.3 7.3 0 0 0-1.7 1l-2.5-1a.5.5 0 0 0-.6.2l-2 3.4a.5.5 0 0 0 .1.7L4.6 11a7.6 7.6 0 0 0-.1 1 7.6 7.6 0 0 0 .1 1l-2.1 1.6a.5.5 0 0 0-.1.7l2 3.4c.1.2.4.3.6.2l2.5-1a7.3 7.3 0 0 0 1.7 1l.4 2.6c0 .3.2.5.5.5h4c.2 0 .5-.2.5-.4l.4-2.7a7.3 7.3 0 0 0 1.7-1l2.5 1c.2.1.5 0 .6-.2l2-3.4a.5.5 0 0 0-.1-.7L19.4 13zM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z"/></svg></button><div class="hudMenu"><button>pause</button><button class="on">auto · on</button><button>settings</button><button class="btnQuit">quit</button></div></div>
+  <div class="tablearea"><div class="felt"><div class="state"><span class="wind">東</span> hand 3 · wall 42</div></div></div>
+  <div class="tray"><div class="clockbar"><i></i></div><div class="hint">your turn · <b>tap a tile, tap again to discard</b></div>
+  <div class="mine"><span class="t">1</span><span class="t">2</span><span class="t">3</span><span class="t b">四</span><span class="t b">五</span><span class="t g">6</span><span class="t g">7</span><span class="t r">中</span><span class="t r">中</span><span class="t">東</span><span class="t">東</span><span class="t">白</span><span class="t">白</span><span class="sortbtn">sort</span></div></div>
+</div></div>
+<div class="frame phone"><span class="label">phone · 393 · reconnecting</span><div class="screen">
+  <div class="hud"><span class="tt">TVB 2026 · 南圈</span><span class="tt clock">41:07</span><span class="netchip">reconnecting…</span><span class="spacer"></span><button class="gear chatBtn"><svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M4 4h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 4v-4H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/></svg></button><button class="gear" aria-expanded="false"><svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M19.4 13a7.6 7.6 0 0 0 .1-1 7.6 7.6 0 0 0-.1-1l2.1-1.6a.5.5 0 0 0 .1-.7l-2-3.4a.5.5 0 0 0-.6-.2l-2.5 1a7.3 7.3 0 0 0-1.7-1l-.4-2.6a.5.5 0 0 0-.5-.5h-4a.5.5 0 0 0-.5.4l-.4 2.7a7.3 7.3 0 0 0-1.7 1l-2.5-1a.5.5 0 0 0-.6.2l-2 3.4a.5.5 0 0 0 .1.7L4.6 11a7.6 7.6 0 0 0-.1 1 7.6 7.6 0 0 0 .1 1l-2.1 1.6a.5.5 0 0 0-.1.7l2 3.4c.1.2.4.3.6.2l2.5-1a7.3 7.3 0 0 0 1.7 1l.4 2.6c0 .3.2.5.5.5h4c.2 0 .5-.2.5-.4l.4-2.7a7.3 7.3 0 0 0 1.7-1l2.5 1c.2.1.5 0 .6-.2l2-3.4a.5.5 0 0 0-.1-.7L19.4 13zM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z"/></svg></button></div>
+  <div class="tablearea"><div class="felt"><div class="state"><span class="wind">南</span> hand 6</div></div></div>
+  <div class="mine"><span class="t">1</span><span class="t">2</span><span class="t">3</span><span class="t b">四</span><span class="t b">五</span><span class="t g">6</span><span class="t g">7</span><span class="t r">中</span><span class="t r">中</span><span class="t">東</span><span class="t">東</span><span class="t">白</span><span class="t">白</span></div>
+</div></div>
+</div></div>
+
+<div class="sec"><p class="cap">2 · the quit dialog</p>
+<p class="note">The lab's modal: head with a hairline, body in dim ink, foot with one blue primary (stay — the default, also Esc) and one ghost (leave). The host sees two more blocks: <b>remove a player</b> (the other human seats; first tap arms the name in seal red, second tap removes) and <b>end the table for everyone</b>, its button in seal red. A bot plays the seat after leave; the seat and tiles are kept — rejoin from Home or the room page.</p>
+<div class="row2">
+<div class="frame phone"><span class="label">phone · player</span><div class="screen">
+  <div class="hud"><span class="tt">MJRC standard · 東圈</span><span class="tt clock">08:12</span><span class="netchip"></span><span class="spacer"></span><button class="gear chatBtn"><svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M4 4h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 4v-4H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/></svg></button><button class="gear" aria-expanded="false"><svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M19.4 13a7.6 7.6 0 0 0 .1-1 7.6 7.6 0 0 0-.1-1l2.1-1.6a.5.5 0 0 0 .1-.7l-2-3.4a.5.5 0 0 0-.6-.2l-2.5 1a7.3 7.3 0 0 0-1.7-1l-.4-2.6a.5.5 0 0 0-.5-.5h-4a.5.5 0 0 0-.5.4l-.4 2.7a7.3 7.3 0 0 0-1.7 1l-2.5-1a.5.5 0 0 0-.6.2l-2 3.4a.5.5 0 0 0 .1.7L4.6 11a7.6 7.6 0 0 0-.1 1 7.6 7.6 0 0 0 .1 1l-2.1 1.6a.5.5 0 0 0-.1.7l2 3.4c.1.2.4.3.6.2l2.5-1a7.3 7.3 0 0 0 1.7 1l.4 2.6c0 .3.2.5.5.5h4c.2 0 .5-.2.5-.4l.4-2.7a7.3 7.3 0 0 0 1.7-1l2.5 1c.2.1.5 0 .6-.2l2-3.4a.5.5 0 0 0-.1-.7L19.4 13zM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z"/></svg></button></div>
+  <div class="tablearea"><div class="felt"></div></div>
+  <div class="veil" style="position:absolute;inset:0"><div class="panel modal">
+    <div class="mhead"><h2>Leave the table?</h2></div>
+    <div class="mbody">A bot plays your seat until you come back. Your seat and your tiles are kept — rejoin from Home or from the room page.</div>
+    <div class="mfoot"><button class="ghost">leave — a bot plays for me</button><span class="hint2">esc · stay</span><button class="primary">stay ▸</button></div>
+  </div></div>
+</div></div>
+<div class="frame desk"><span class="label">desktop · host</span><div class="screen">
+  <div class="hud"><span class="tt">MJRC sta
+</div></div></div></div></div>
+<div class="sec"><p class="cap">3 · /watch — the admin observer, four real screens</p>
+<p class="note">Admin only. <code>/watch/:id</code> opens the actual client four times, each attached as an <b>observer</b> of one seat: the same welcome, the same event stream, the same felt that player is looking at — their own hand at the bottom, the others as backs, the last discard ringed in seal red on their screen when it is their turn. Chrome is stripped (no gear, no chat), input is blocked, and a red <b>watching</b> chip in the HUD says so. Each cell is the client at 4:3; the grid is 2×2 on desktop, one column on a phone. <code>?panels=1</code> keeps the summary view from before. Tokens are minted per seat by the table and handed only to <code>is_admin</code>; an observer socket can send nothing but heartbeat and resync.</p>
+<div class="row2">
+<div class="frame desk"><span class="label">desktop · /watch/:id · 東 on turn</span><div class="screen"><div class="watchpage">
+  <div class="top"><span class="badge">‹ watch</span><h2>Watch</h2><span class="mut" style="font-family:var(--mono);font-size:11px;margin-left:auto">MJRC standard · TVBHALL</span></div>
+  <div class="screens">
+    <div><p class="who">東 · seat 1</p><div class="mini">
+    <div class="hud"><span class="tt">MJRC standard · 東圈</span><span class="tt clock">12:34</span><span class="spacer"></span><span class="watching">watching</span></div>
+    <div class="tablearea"><div class="felt"><div class="state"><span class="wind">東</span> hand 3 · wall 42</div>
+      <span class="plate n">Wen</span><div class="backs n"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      <span class="plate e">Jefferson Stewart</span><div class="backs e"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      <span class="plate w">Bot · 阿強</span><div class="backs w"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      <div class="pilec"><span class="t">北</span><span class="t g">1</span><span class="t b">九</span><span class="t">發</span><span class="t">1</span><span class="t">南</span><span class="t g">9</span><span class="t r hot">中</span><span class="t">東</span><span class="t b">八</span><span class="t g">7</span><span class="t">9</span><span class="t">西</span><span class="t g">6</span><span class="t b">二</span><span class="t">4</span></div></div></div>
+    <div class="tray"><div class="clockbar"><i style="width:62%"></i></div><div class="hint">your turn · <b>tap a tile, tap again to discard</b></div>
+    <div class="mine"><span class="t">1</span><span class="t">1</span><span class="t">2</span><span class="t b">三</span><span class="t b">四</span><span class="t b">五</span><span class="t g">6</span><span class="t g">7</span><span class="t g">8</span><span class="t r">中</span><span class="t r">中</span><span class="t">東</span><span class="t">白</span><span class="t">9</span></div></div></div></div>
+    <div><p class="who">南 · seat 2</p><div class="mini">
+    <div class="hud"><span class="tt">MJRC standard · 東圈</span><span class="tt clock">12:34</span><span class="spacer"></span><span class="watching">watching</span></div>
+    <div class="tablearea"><div class="felt"><div class="state"><span class="wind">東</span> hand 3 · wall 42</div>
+      <span class="plate n">Bot · 阿強</span><div class="backs n"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      <span class="plate e">Wen</span><div class="backs e"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      <span class="plate w turn">augie</span><div class="backs w"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      <div class="pilec"><span class="t">北</span><span class="t g">1</span><span class="t b">九</span><span class="t">發</span><span class="t">1</span><span class="t">南</span><span class="t g">9</span><span class="t r hot">中</span><span class="t">東</span><span class="t b">八</span><span class="t g">7</span><span class="t">9</span><span class="t">西</span><span class="t g">6</span><span class="t b">二</span><span class="t">4</span></div></div></div>
+    <div class="tray"><div class="clockbar"><i style="width:0%"></i></div><div class="hint">waiting for augie …</div>
+    <div class="mine"><span class="t">2</span><span class="t">3</span><span class="t">4</span><span class="t b">六</span><span class="t b">六</span><span class="t g">3</span><span class="t g">4</span><span class="t g">5</span><span class="t">西</span><span class="t">西</span></div></div></div></div>
+    <div><p class="who">西 · seat 3</p><div class="mini">
+    <div class="hud"><span class="tt">MJRC standard · 東圈</span><span class="tt clock">12:34</span><span class="spacer"></span><span class="watching">watching</span></div>
+    <div class="tablearea"><div class="felt"><div class="state"><span class="wind">東</span> hand 3 · wall 42</div>
+      <span class="plate n turn">augie</span><div class="backs n"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      <span class="plate e">Bot · 阿強</span><div class="backs e"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      <span class="plate w">Jefferson Stewart</span><div class="backs w"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      <div class="pilec"><span class="t">北</span><span class="t g">1</span><span class="t b">九</span><span class="t">發</span><span class="t">1</span><span class="t">南</span><span class="t g">9</span><span class="t r hot">中</span><span class="t">東</span><span class="t b">八</span><span class="t g">7</span><span class="t">9</span><span class="t">西</span><span class="t g">6</span><span class="t b">二</span><span class="t">4</span></div></div></div>
+    <div class="tray"><div class="clockbar"><i style="width:0%"></i></div><div class="hint">waiting for augie …</div>
+    <div class="mine"><span class="t">5</span><span class="t">6</span><span class="t">7</span><span class="t b">一</span><span class="t b">二</span><span class="t b">三</span><span class="t g">2</span><span class="t g">2</span><span class="t g">2</span><span class="t">北</span><span class="t">北</span><span class="t">發</span><span class="t">發</span></div></div></div></div>
+    <div><p class="who">北 · seat 4</p><div class="mini">
+    <div class="hud"><span class="tt">MJRC standard · 東圈</span><span class="tt clock">12:34</span><span class="spacer"></span><span class="watching">watching</span></div>
+    <div class="tablearea"><div class="felt"><div class="state"><span class="wind">東</span> hand 3 · wall 42</div>
+      <span class="plate n">Jefferson Stewart</span><div class="backs n"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      <span class="plate e turn">augie</span><div class="backs e"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      <span class="plate w">Wen</span><div class="backs w"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      <div class="pilec"><span class="t">北</span><span class="t g">1</span><span class="t b">九</span><span class="t">發</span><span class="t">1</span><span class="t">南</span><span class="t g">9</span><span class="t r hot">中</span><span class="t">東</span><span class="t b">八</span><span class="t g">7</span><span class="t">9</span><span class="t">西</span><span class="t g">6</span><span class="t b">二</span><span class="t">4</span></div></div></div>
+    <div class="tray"><div class="clockbar"><i style="width:0%"></i></div><div class="hint">waiting for augie …</div>
+    <div class="mine"><span class="t">3</span><span class="t">4</span><span class="t">5</span><span class="t b">七</span><span class="t b">八</span><span class="t b">九</span><span class="t g">1</span><span class="t g">1</span><span class="t">南</span><span class="t">南</span><span class="t">南</span><span class="t">白</span><span class="t">白</span></div></div></div></div>
+  </div>
+  <p class="mut" style="margin-top:8px;font-size:12px"><u>summary panels instead ›</u></p>
+</div></div></div>
+</div></div>
+<div class="sec"><p class="cap">4 · the menu behind the gear — tabbed</p>
+<p class="note">Gear → one full menu, not a dropdown. Five tabs: <b>game</b> (pause, auto; host block: remove a player, end for everyone) · <b>rules</b> (the ruleset we are playing by, match length, the table's speed as a greyed slider) · <b>table</b> (tile size, double-tap on/off buttons, sort) · <b>coach</b> (the handicaps + beginner labels) · <b>app</b> (theme, language, sound, haptics, account). The footer is the same on every tab: <b>leave the table</b> in seal red on the left, <b>done</b> as the primary on the right, Esc = done. The head repeats the HUD title so you never lose where you are. Quit is no longer a separate menu item — leaving is always one tap away in the footer, and it still goes through the confirm dialog (section 2).</p>
+<div class="row2">
+<div class="frame phone"><span class="label">phone · game tab · host</span><div class="screen"><div class="hud"><span class="tt">MJRC standard · 東圈</span><span class="tt clock">12:34</span><span class="netchip"></span><span class="spacer"></span><button class="gear chatBtn"><svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M4 4h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 4v-4H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/></svg></button><button class="gear" aria-expanded="true"><svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M19.4 13a7.6 7.6 0 0 0 .1-1 7.6 7.6 0 0 0-.1-1l2.1-1.6a.5.5 0 0 0 .1-.7l-2-3.4a.5.5 0 0 0-.6-.2l-2.5 1a7.3 7.3 0 0 0-1.7-1l-.4-2.6a.5.5 0 0 0-.5-.5h-4a.5.5 0 0 0-.5.4l-.4 2.7a7.3 7.3 0 0 0-1.7 1l-2.5-1a.5.5 0 0 0-.6.2l-2 3.4a.5.5 0 0 0 .1.7L4.6 11a7.6 7.6 0 0 0-.1 1 7.6 7.6 0 0 0 .1 1l-2.1 1.6a.5.5 0 0 0-.1.7l2 3.4c.1.2.4.3.6.2l2.5-1a7.3 7.3 0 0 0 1.7 1l.4 2.6c0 .3.2.5.5.5h4c.2 0 .5-.2.5-.4l.4-2.7a7.3 7.3 0 0 0 1.7-1l2.5 1c.2.1.5 0 .6-.2l2-3.4a.5.5 0 0 0-.1-.7L19.4 13zM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z"/></svg></button></div><div class="tablearea"><div class="felt"></div></div><div class="veil" style="position:absolute;inset:0"><div class="panel modal menu">
+    <div class="mhead"><h2>Menu</h2><span class="mut" style="font-family:var(--mono);font-size:11px">MJRC standard · 東圈 · 12:34</span><button class="x">×</button></div>
+    <div class="tabs"><button class="tab on">game</button><button class="tab">rules</button><button class="tab">table</button><button class="tab">coach</button><button class="tab">app</button></div>
+    <div class="mbody">
+      <div class="act"><button class="ghost">⏸ pause the table</button><button class="ghost">auto-play · off</button></div>
+      <p class="mut" style="font-size:11.5px;margin:0 0 6px">Pause holds every seat's clock; anyone can resume. Auto lets a bot play your seat until you turn it off — you keep the seat.</p>
+      <div class="hostblk"><p class="cap">you opened this table</p>
+        <div class="srow"><span class="lbl">remove a player</span><div class="act" style="margin:0"><button class="ghost">Jefferson Stewart</button><button class="ghost">Wen</button></div></div>
+        <div class="srow"><span class="lbl">end the table</span><div><button class="ghost" style="border-color:var(--c-danger);color:var(--c-danger)">end for everyone</button></div>
+        <span class="cap2">Stops the game for all four seats and shows the final standings — the hand in play is void.</span></div>
+      </div>
+    </div>
+    <div class="mfoot"><button class="ghost" style="border-color:var(--c-danger);color:var(--c-danger)">leave the table</button><span class="hint2">esc · done</span><button class="primary">done ▸</button></div>
+  </div></div></div></div>
+<div class="frame phone"><span class="label">phone · table tab</span><div class="screen"><div class="hud"><span class="tt">MJRC standard · 東圈</span><span class="tt clock">12:34</span><span class="netchip"></span><span class="spacer"></span><button class="gear chatBtn"><svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M4 4h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 4v-4H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/></svg></button><button class="gear" aria-expanded="true"><svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M19.4 13a7.6 7.6 0 0 0 .1-1 7.6 7.6 0 0 0-.1-1l2.1-1.6a.5.5 0 0 0 .1-.7l-2-3.4a.5.5 0 0 0-.6-.2l-2.5 1a7.3 7.3 0 0 0-1.7-1l-.4-2.6a.5.5 0 0 0-.5-.5h-4a.5.5 0 0 0-.5.4l-.4 2.7a7.3 7.3 0 0 0-1.7 1l-2.5-1a.5.5 0 0 0-.6.2l-2 3.4a.5.5 0 0 0 .1.7L4.6 11a7.6 7.6 0 0 0-.1 1 7.6 7.6 0 0 0 .1 1l-2.1 1.6a.5.5 0 0 0-.1.7l2 3.4c.1.2.4.3.6.2l2.5-1a7.3 7.3 0 0 0 1.7 1l.4 2.6c0 .3.2.5.5.5h4c.2 0 .5-.2.5-.4l.4-2.7a7.3 7.3 0 0 0 1.7-1l2.5 1c.2.1.5 0 .6-.2l2-3.4a.5.5 0 0 0-.1-.7L19.4 13zM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z"/></svg></button></div><div class="tablearea"><div class="felt"></div></div><div class="veil" style="position:absolute;inset:0"><div class="panel modal menu">
+    <div class="mhead"><h2>Menu</h2><span class="mut" style="font-family:var(--mono);font-size:11px">MJRC standard · 東圈 · 12:34</span><button class="x">×</button></div>
+    <div class="tabs"><button class="tab">game</button><button class="tab">rules</button><button class="tab on">table</button><button class="tab">coach</button><button class="tab">app</button></div>
+    <div class="mbody">
+      <div class="srow"><span class="lbl">tile size</span><div><div class="range"><i></i><b></b></div></div><span class="cap2">80–150% · your own hand only · <u>reset</u></span></div>
+      <div class="srow"><span class="lbl">double tap to discard · phone</span><span class="sw on"></span></div>
+      <div class="srow"><span class="lbl">double tap to discard · desktop</span><span class="sw on"></span></div>
+      <span class="cap2">First tap lifts the tile and reads it, second tap throws it — a thrown tile cannot be taken back.</span>
+      <div class="srow"><span class="lbl">hand order</span><div><button class="ghost">sort my hand</button></div></div>
+    </div>
+    <div class="mfoot"><button class="ghost" style="border-color:var(--c-danger);color:var(--c-danger)">leave the table</button><span class="hint2">esc · done</span><button class="primary">done ▸</button></div>
+  </div></div></div></div>
+</div>
+<div class="row2">
+<div class="frame desk"><span class="label">desktop · coach tab</span><div class="screen"><div class="hud"><span class="tt">MJRC standard · 東圈 · normal</span><span class="tt clock">25:50</span><span class="netchip"></span><span class="spacer"></span><button class="gear chatBtn"><svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M4 4h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 4v-4H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/></svg></button><button class="gear" aria-expanded="true"><svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M19.4 13a7.6 7.6 0 0 0 .1-1 7.6 7.6 0 0 0-.1-1l2.1-1.6a.5.5 0 0 0 .1-.7l-2-3.4a.5.5 0 0 0-.6-.2l-2.5 1a7.3 7.3 0 0 0-1.7-1l-.4-2.6a.5.5 0 0 0-.5-.5h-4a.5.5 0 0 0-.5.4l-.4 2.7a7.3 7.3 0 0 0-1.7 1l-2.5-1a.5.5 0 0 0-.6.2l-2 3.4a.5.5 0 0 0 .1.7L4.6 11a7.6 7.6 0 0 0-.1 1 7.6 7.6 0 0 0 .1 1l-2.1 1.6a.5.5 0 0 0-.1.7l2 3.4c.1.2.4.3.6.2l2.5-1a7.3 7.3 0 0 0 1.7 1l.4 2.6c0 .3.2.5.5.5h4c.2 0 .5-.2.5-.4l.4-2.7a7.3 7.3 0 0 0 1.7-1l2.5 1c.2.1.5 0 .6-.2l2-3.4a.5.5 0 0 0-.1-.7L19.4 13zM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z"/></svg></button></div><div class="tablearea"><div class="felt"></div></div><div class="veil" style="position:absolute;inset:0"><div class="panel modal menu">
+    <div class="mhead"><h2>Menu</h2><span class="mut" style="font-family:var(--mono);font-size:11px">MJRC standard · 東圈 · 12:34</span><button class="x">×</button></div>
+    <div class="tabs"><button class="tab">game</button><button class="tab">rules</button><button class="tab">table</button><button class="tab on">coach</button><button class="tab">app</button></div>
+    <div class="mbody">
+      <p class="mut" style="font-size:12px;margin:0 0 6px">Training wheels. Each only tells you what a careful player could work out from the table — nothing hidden is revealed.</p>
+      <div class="srow"><span class="lbl">count tiles</span><span class="sw on"></span></div><span class="cap2">tap or hover any tile to light up every copy on the table</span>
+      <div class="srow"><span class="lbl">calling read</span><span class="sw"></span></div><span class="cap2">whether you are 聽牌, what you wait on, how many are live</span>
+      <div class="srow"><span class="lbl">what-if</span><span class="sw"></span></div><span class="cap2">lift a tile to see what cutting it leaves you waiting on</span>
+      <div class="srow"><span class="lbl">beginner labels</span><span class="sw on"></span></div><span class="cap2">names the timer, the calls and the buttons</span>
+    </div>
+    <div class="mfoot"><button class="ghost" style="border-color:var(--c-danger);color:var(--c-danger)">leave the table</button><span class="hint2">esc · done</span><button class="primary">done ▸</button></div>
+  </div></div></div></div>
+</div>
+<div class="row2">
+<div class="frame desk"><span class="label">desktop · rules tab</span><div class="screen"><div class="hud"><span class="tt">MJRC standard · 東圈 · normal</span><span class="tt clock">25:50</span><span class="netchip"></span><span class="spacer"></span><button class="gear chatBtn"><svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M4 4h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 4v-4H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/></svg></button><button class="gear" aria-expanded="true"><svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M19.4 13a7.6 7.6 0 0 0 .1-1 7.6 7.6 0 0 0-.1-1l2.1-1.6a.5.5 0 0 0 .1-.7l-2-3.4a.5.5 0 0 0-.6-.2l-2.5 1a7.3 7.3 0 0 0-1.7-1l-.4-2.6a.5.5 0 0 0-.5-.5h-4a.5.5 0 0 0-.5.4l-.4 2.7a7.3 7.3 0 0 0-1.7 1l-2.5-1a.5.5 0 0 0-.6.2l-2 3.4a.5.5 0 0 0 .1.7L4.6 11a7.6 7.6 0 0 0-.1 1 7.6 7.6 0 0 0 .1 1l-2.1 1.6a.5.5 0 0 0-.1.7l2 3.4c.1.2.4.3.6.2l2.5-1a7.3 7.3 0 0 0 1.7 1l.4 2.6c0 .3.2.5.5.5h4c.2 0 .5-.2.5-.4l.4-2.7a7.3 7.3 0 0 0 1.7-1l2.5 1c.2.1.5 0 .6-.2l2-3.4a.5.5 0 0 0-.1-.7L19.4 13zM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z"/></svg></button></div><div class="tablearea"><div class="felt"></div></div><div class="veil" style="position:absolute;inset:0"><div class="panel modal menu">
+    <div class="mhead"><h2>Menu</h2><span class="mut" style="font-family:var(--mono);font-size:11px">MJRC standard · 東圈 · 12:34</span><button class="x">×</button></div>
+    <div class="tabs"><button class="tab">game</button><button class="tab">table</button><button class="tab">coach</button><button class="tab">app</button></div>
+    <div class="mbody"><div class="rules"><b>MJRC standard</b><p>3–10 faan · flowers · doubling payments. The house game.</p>
+      <div class="srow"><span class="lbl">length</span><span>one wind round 東圈</span></div>
+      <div class="srow"><span class="lbl">speed</span><div><div class="range off"><i></i><b></b></div><p class="cap2">Normal · 12s to discard, 6s to call · set when the table was opened</p></div></div>
+      <p><a style="color:var(--c-blue)">full scoring reference ›</a></p></div></div>
+    <div class="mfoot"><button class="ghost" style="border-color:var(--c-danger);color:var(--c-danger)">leave the table</button><span class="hint2">esc · done</span><button class="primary">done ▸</button></div>
+  </div></div></div></div>
+</div>
+<div class="row2">
+<div class="frame desk"><span class="label">desktop · app tab</span><div class="screen"><div class="hud"><span class="tt">MJRC standard · 東圈 · normal</span><span class="tt clock">25:50</span><span class="netchip"></span><span class="spacer"></span><button class="gear chatBtn"><svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M4 4h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 4v-4H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/></svg></button><button class="gear" aria-expanded="true"><svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M19.4 13a7.6 7.6 0 0 0 .1-1 7.6 7.6 0 0 0-.1-1l2.1-1.6a.5.5 0 0 0 .1-.7l-2-3.4a.5.5 0 0 0-.6-.2l-2.5 1a7.3 7.3 0 0 0-1.7-1l-.4-2.6a.5.5 0 0 0-.5-.5h-4a.5.5 0 0 0-.5.4l-.4 2.7a7.3 7.3 0 0 0-1.7 1l-2.5-1a.5.5 0 0 0-.6.2l-2 3.4a.5.5 0 0 0 .1.7L4.6 11a7.6 7.6 0 0 0-.1 1 7.6 7.6 0 0 0 .1 1l-2.1 1.6a.5.5 0 0 0-.1.7l2 3.4c.1.2.4.3.6.2l2.5-1a7.3 7.3 0 0 0 1.7 1l.4 2.6c0 .3.2.5.5.5h4c.2 0 .5-.2.5-.4l.4-2.7a7.3 7.3 0 0 0 1.7-1l2.5 1c.2.1.5 0 .6-.2l2-3.4a.5.5 0 0 0-.1-.7L19.4 13zM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z"/></svg></button></div><div class="tablearea"><div class="felt"></div></div><div class="veil" style="position:absolute;inset:0"><div class="panel modal menu">
+    <div class="mhead"><h2>Menu</h2><span class="mut" style="font-family:var(--mono);font-size:11px">MJRC standard · 東圈 · 12:34</span><button class="x">×</button></div>
+    <div class="tabs"><button class="tab">game</button><button class="tab">rules</button><button class="tab">table</button><button class="tab">coach</button><button class="tab on">app</button></div>
+    <div class="mbody">
+      <div class="srow"><span class="lbl">theme</span><div class="seg"><span class="on">system</span><span>paper</span><span>charcoal</span></div></div>
+      <div class="srow"><span class="lbl">language</span><div class="seg"><span class="on">English</span><span>廣東話</span></div></div>
+      <div class="srow"><span class="lbl">sound</span><span class="sw on"></span></div>
+      <div class="srow"><span class="lbl">haptics</span><span class="sw on"></span></div>
+      <div class="srow"><span class="lbl">account</span><div><a class="mut" style="text-decoration:underline">profile, picture, sign out ›</a></div></div>
+    </div>
+    <div class="mfoot"><button class="ghost" style="border-color:var(--c-danger);color:var(--c-danger)">leave the table</button><span class="hint2">esc · done</span><button class="primary">done ▸</button></div>
+  </div></div></div></div>
+</div></div>
+
+<div class="sec"><p class="cap">5 · new table — a role, and four empty human seats</p>
+<p class="note">The New-table modal gains one question at the top: <b>your role</b>. <b>I play</b> is today's behaviour — you take 東 and the other three are bots or open seats. <b>I host only</b> gives you no seat: all four seats start as <b>open human seats</b> (tap any to make it a bot), you land on the watch page with all four hands, and you keep the host controls — pause, remove a player, end the table — from there. Host-only tables are never rated, and a plate on every player's felt reads <b>host: augie · watching</b>, so nobody is observed without knowing. "Admin" stays what it is (<code>is_admin</code>, can watch any table); "teacher" is host-only plus, later, pause-and-ask — same role, more verbs. The rest of the modal is unchanged: name, rules and length (fixed when the room fixes them), speed, who can join.</p>
+<div class="row2">
+<div class="frame phone"><span class="label">phone · I play (today)</span><div class="screen"><div class="watchpage"><div class="top"><span class="badge">‹ rooms</span><h2>TVB training hall</h2></div><div class="card"><span class="mut">Live tables · 0</span></div><div class="card"><span class="mut">Here · 4</span></div></div><div class="veil" style="position:absolute;inset:0"><div class="panel modal menu nt">
+    <div class="mhead"><h2>New table</h2><span class="sum">TVB training hall · TVB 2026 · east</span><button class="x">×</button></div>
+    <div class="mbody">
+      <div class="ntsec"><p class="cap">your role</p><div class="roles">
+      <button class="role on"><b>I play</b><small>You take a seat. The other three are bots or open seats.</small></button>
+      <button class="role"><b>I host only</b><small>No seat. You see all four hands, can pause, remove a player or end the table — for running a playtest or teaching.</small></button>
+    </div></div>
+      <div class="ntsec"><p class="cap">seats</p><div class="seats"><div class="seat you"><div class="w"><b>東</b><span>East · You</span><span class="tag">host</span></div><small class="mut" style="font-size:11px">playing as <b>augie</b></small></div><div class="seat"><div class="w"><b>南</b><span>South · Bot</span><span class="tag">swap</span></div><div class="seg"><span>Human</span><span class="on">Bot</span></div><div class="bot"><i></i><b></b></div><small class="mut" style="font-size:10.5px">阿強 · steady</small></div><div class="seat"><div class="w"><b>西</b><span>West · Bot</span><span class="tag">swap</span></div><div class="seg"><span>Human</span><span class="on">Bot</span></div><div class="bot"><i></i><b></b></div><small class="mut" style="font-size:10.5px">阿強 · steady</small></div><div class="seat"><div class="w"><b>北</b><span>North · Open seat</span><span class="tag">swap</span></div><div class="seg"><span class="on">Human</span><span>Bot</span></div><small class="mut" style="font-size:10.5px">open — anyone with the code</small></div></div><p class="seatsum">you + 2 bots + 1 open seat · playing as <b>augie</b> · tap a seat to open it or slide to pick the bot</p></div>
+      <div class="ntsec"><p class="cap">table</p>
+        <div class="ntrow"><span class="lbl">name</span><span class="mut">Thursday beta #1</span></div>
+        <div class="ntrow"><span class="lbl">rules · length</span><span class="mut">TVB 2026 · east round <small>(fixed by the room)</small></span></div>
+        <div class="ntrow"><span class="lbl">speed</span><div class="seg" style="display:inline-flex;border:1px solid var(--c-line);border-radius:10px;overflow:hidden"><span style="padding:6px 10px;font-size:12px;color:var(--c-dim)">untimed</span><span style="padding:6px 10px;font-size:12px;color:var(--c-dim)">relaxed</span><span class="on" style="padding:6px 10px;font-size:12px;background:var(--c-panel2);color:var(--c-ink);font-weight:600">normal</span><span style="padding:6px 10px;font-size:12px;color:var(--c-dim)">fast</span></div></div>
+        <div class="ntrow"><span class="lbl">who can join</span><div class="seg" style="display:inline-flex;border:1px solid var(--c-line);border-radius:10px;overflow:hidden"><span class="on" style="padding:6px 10px;font-size:12px;background:var(--c-panel2);color:var(--c-ink);font-weight:600">anyone in the room</span><span style="padding:6px 10px;font-size:12px;color:var(--c-dim)">code only</span></div></div>
+      </div>
+    </div>
+    <div class="mfoot"><span class="hint2">you will land at the table</span><button class="primary">open table ▸</button></div>
+  </div></div></div></div>
+<div class="frame phone"><span class="label">phone · I host only · 4 open seats</span><div class="screen"><div class="watchpage"><div class="top"><span class="badge">‹ rooms</span><h2>TVB training hall</h2></div><div class="card"><span class="mut">Live tables · 0</span></div><div class="card"><span class="mut">Here · 4</span></div></div><div class="veil" style="position:absolute;inset:0"><div class="panel modal menu nt">
+    <div class="mhead"><h2>New table</h2><span class="sum">TVB training hall · TVB 2026 · east</span><button class="x">×</button></div>
+    <div class="mbody">
+      <div class="ntsec"><p class="cap">your role</p><div class="roles">
+      <button class="role"><b>I play</b><small>You take a seat. The other three are bots or open seats.</small></button>
+      <button class="role on"><b>I host only</b><small>No seat. You see all four hands, can pause, remove a player or end the table — for running a playtest or teaching.</small></button>
+    </div></div>
+      <div class="ntsec"><p class="cap">seats</p><div class="seats"><div class="seat"><div class="w"><b>東</b><span>East · Open seat</span></div><div class="seg"><span class="on">Human</span><span>Bot</span></div><small class="mut" style="font-size:10.5px">open — anyone with the code</small></div><div class="seat"><div class="w"><b>南</b><span>South · Open seat</span></div><div class="seg"><span class="on">Human</span><span>Bot</span></div><small class="mut" style="font-size:10.5px">open — anyone with the code</small></div><div class="seat"><div class="w"><b>西</b><span>West · Open seat</span></div><div class="seg"><span class="on">Human</span><span>Bot</span></div><small class="mut" style="font-size:10.5px">open — anyone with the code</small></div><div class="seat"><div class="w"><b>北</b><span>North · Open seat</span></div><div class="seg"><span class="on">Human</span><span>Bot</span></div><small class="mut" style="font-size:10.5px">open — anyone with the code</small></div></div><p class="seatsum"><b>4 open seats</b> · you host from the watch page · tap a seat to make it a bot</p><div class="warn"><b>Host-only tables</b> are never rated, and the players are told a host is watching — a plate on the felt reads <b>host: augie · watching</b>.</div></div>
+      <div class="ntsec"><p class="cap">table</p>
+        <div class="ntrow"><span class="lbl">name</span><span class="mut">Thursday beta #1</span></div>
+        <div class="ntrow"><span class="lbl">rules · length</span><span class="mut">TVB 2026 · east round <small>(fixed by the room)</small></span></div>
+        <div class="ntrow"><span class="lbl">speed</span><div class="seg" style="display:inline-flex;border:1px solid var(--c-line);border-radius:10px;overflow:hidden"><span style="padding:6px 10px;font-size:12px;color:var(--c-dim)">untimed</span><span style="padding:6px 10px;font-size:12px;color:var(--c-dim)">relaxed</span><span class="on" style="padding:6px 10px;font-size:12px;background:var(--c-panel2);color:var(--c-ink);font-weight:600">normal</span><span style="padding:6px 10px;font-size:12px;color:var(--c-dim)">fast</span></div></div>
+        <div class="ntrow"><span class="lbl">who can join</span><div class="seg" style="display:inline-flex;border:1px solid var(--c-line);border-radius:10px;overflow:hidden"><span class="on" style="padding:6px 10px;font-size:12px;background:var(--c-panel2);color:var(--c-ink);font-weight:600">anyone in the room</span><span style="padding:6px 10px;font-size:12px;color:var(--c-dim)">code only</span></div></div>
+      </div>
+    </div>
+    <div class="mfoot"><span class="hint2">you will land on the watch page</span><button class="primary">open table & watch ▸</button></div>
+  </div></div></div></div>
+</div>
+<div class="row2">
+<div class="frame desk"><span class="label">desktop · I host only</span><div class="screen"><div class="watchpage"><div class="top"><span class="badge">‹ rooms</span><h2>TVB training hall</h2></div><div class="card"><span class="mut">Live tables · 0</span></div><div class="card"><span class="mut">Here · 4</span></div></div><div class="veil" style="position:absolute;inset:0"><div class="panel modal menu nt">
+    <div class="mhead"><h2>New table</h2><span class="sum">TVB training hall · TVB 2026 · east</span><button class="x">×</button></div>
+    <div class="mbody">
+      <div class="ntsec"><p class="cap">your role</p><div class="roles">
+      <button class="role"><b>I play</b><small>You take a seat. The other three are bots or open seats.</small></button>
+      <button class="role on"><b>I host only</b><small>No seat. You see all four hands, can pause, remove a player or end the table — for running a playtest or teaching.</small></button>
+    </div></div>
+      <div class="ntsec"><p class="cap">seats</p><div class="seats"><div class="seat"><div class="w"><b>東</b><span>East · Open seat</span></div><div class="seg"><span class="on">Human</span><span>Bot</span></div><small class="mut" style="font-size:10.5px">open — anyone with the code</small></div><div class="seat"><div class="w"><b>南</b><span>South · Open seat</span></div><div class="seg"><span class="on">Human</span><span>Bot</span></div><small class="mut" style="font-size:10.5px">open — anyone with the code</small></div><div class="seat"><div class="w"><b>西</b><span>West · Open seat</span></div><div class="seg"><span class="on">Human</span><span>Bot</span></div><small class="mut" style="font-size:10.5px">open — anyone with the code</small></div><div class="seat"><div class="w"><b>北</b><span>North · Open seat</span></div><div class="seg"><span class="on">Human</span><span>Bot</span></div><small class="mut" style="font-size:10.5px">open — anyone with the code</small></div></div><p class="seatsum"><b>4 open seats</b> · you host from the watch page · tap a seat to make it a bot</p><div class="warn"><b>Host-only tables</b> are never rated, and the players are told a host is watching — a plate on the felt reads <b>host: augie · watching</b>.</div></div>
+      <div class="ntsec"><p class="cap">table</p>
+        <div class="ntrow"><span class="lbl">name</span><span class="mut">Thursday beta #1</span></div>
+        <div class="ntrow"><span class="lbl">rules · length</span><span class="mut">TVB 2026 · east round <small>(fixed by the room)</small></span></div>
+        <div class="ntrow"><span class="lbl">speed</span><div class="seg" style="display:inline-flex;border:1px solid var(--c-line);border-radius:10px;overflow:hidden"><span style="padding:6px 10px;font-size:12px;color:var(--c-dim)">untimed</span><span style="padding:6px 10px;font-size:12px;color:var(--c-dim)">relaxed</span><span class="on" style="padding:6px 10px;font-size:12px;background:var(--c-panel2);color:var(--c-ink);font-weight:600">normal</span><span style="padding:6px 10px;font-size:12px;color:var(--c-dim)">fast</span></div></div>
+        <div class="ntrow"><span class="lbl">who can join</span><div class="seg" style="display:inline-flex;border:1px solid var(--c-line);border-radius:10px;overflow:hidden"><span class="on" style="padding:6px 10px;font-size:12px;background:var(--c-panel2);color:var(--c-ink);font-weight:600">anyone in the room</span><span style="padding:6px 10px;font-size:12px;color:var(--c-dim)">code only</span></div></div>
+      </div>
+    </div>
+    <div class="mfoot"><span class="hint2">you will land on the watch page</span><button class="primary">open table & watch ▸</button></div>
+  </div></div></div></div>
+</div></div>
+</body></html>

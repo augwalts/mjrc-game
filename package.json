@@ -1,0 +1,18 @@
+{
+  "name": "mjrc-game",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "engine",
+    "protocol",
+    "rulesets"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p engine && tsc --noEmit -p protocol && tsc --noEmit -p rulesets && tsc --noEmit -p worker && tsc --noEmit -p client && tsc --noEmit -p gamepvp"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}

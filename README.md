@@ -1,19 +1,53 @@
 # mjrc-game
 
-Design workspace for the MJRC competitive Hong Kong mahjong game. No code yet — the build
-happens in a new `mjrc-game` repo per `DESIGN.md` §8.
+The MJRC competitive Hong Kong mahjong game: a pure rules engine, a versioned
+wire protocol, a server-authoritative table (Durable Object), a platform Worker,
+bots, and two clients.
+
+## Two versions
+
+| | **Solo** | **gamepvp** |
+| --- | --- | --- |
+| What | The live demo: you against three bots, everything runs in the browser | Real-time play against people, server-authoritative |
+| Source | `client/game/` | `client/gamepvp/` + `gamepvp/` (the Worker) |
+| Built into | `deploy/` (`tools/publish-demo.sh`) | `gamepvp/assets/` |
+| Cloudflare | Pages project `mjrc-game` → game.mahjongresearch.com | Worker `mjrc-gamepvp` → gamepvp.mahjongresearch.com |
+| Status | **Frozen** at tag `solo-1.0` | In build — see `../PVP-MULTIPLAYER-PLAN-2026-09-01.md` |
+
+Solo is frozen on purpose: its action logs replay through the reducer, so a
+rebuild against a newer engine would silently change what old records mean. A
+Solo fix is built from the tag in a worktree, and `deploy/` is never rebuilt
+from a newer engine. gamepvp work never touches `client/game/` or `deploy/`.
+
+## Packages
+
+| Dir | What |
+| --- | --- |
+| `engine/` | `@mjrc/engine` — pure reducer (`applyAction`, `legalActions`), seeded wall, scoring, bots, analysis |
+| `rulesets/` | `@mjrc/rulesets` — ruleset presets as data (`mjrc-standard`, `tvb-2026`, …) |
+| `protocol/` | `@mjrc/protocol` — client/server messages, omniscient vs per-seat event serializers |
+| `worker/` | Table Durable Object (`src/table.ts`), platform routes (`src/index.ts`), D1 schema |
+| `client/` | `game/` Solo · `gamepvp/` the PvP client · `src/` the `MatchScene` renderer boundary |
+| `gamepvp/` | The gamepvp Worker project: wrangler config, entry, static assets |
+| `tools/` | sim/training stack, replay, validation, `publish-demo.sh` |
+
+```sh
+npm test          # vitest across engine, protocol, rulesets, worker, client
+npm run typecheck
+```
+
+## Design docs
 
 Read in this order:
 
-1. **`DESIGN.md`** — the working design (v1.1, adversarially reviewed). Positioning, product
-   shape, two-track roadmap with gates and effort, canonical-HKOS ruleset + match structure,
-   architecture (event-sourced reducer, DO-per-table, claim state machine), bots, teaching,
-   validation harnesses, open actions.
-2. **`ENGINE-AUDIT.md`** — verified facts about the existing code and market (6-agent audit,
-   2026-07-18): scoring/replay/bot/shanten findings incl. the shanten prune bug, mj-queue
-   reuse map, corrected competitive landscape (Amatsuki broke the naive wedge claim).
-3. **`SKETCH.md`** — the original decision-forcing draft, kept as the record of why the pivot
-   was made (2026-07-18) and which leans were confirmed.
+1. **`DESIGN.md`** — the working design (v1.1). Positioning, two-track roadmap,
+   ruleset + match structure, architecture (event-sourced reducer, DO-per-table,
+   claim state machine), bots, teaching, validation harnesses.
+2. **`ENGINE-AUDIT.md`** — verified facts about the code and market (2026-07-18).
+3. **`sketches/BACKEND.md`**, **`sketches/BUILD-PLAN.md`** — the two-planes rule
+   and the build order.
+4. **`AUTH.md`** — identity for the game; P0 is guest play.
+5. **`REVIEW-GUIDE.md`** — what deserves scrutiny.
 
-Context: the game is HK-specific by design; the MJRC hub (mjrc-app) stays region-agnostic.
-`mjrc-admin/STRATEGY.md` carries a dated amendment reflecting the pivot.
+Context: the game is HK-specific by design; the MJRC hub (mjrc-app) stays
+region-agnostic. `TERMINOLOGY.md` binds names in code and copy alike.

@@ -1,0 +1,1233 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>MJRC gamepvp — 香港麻雀</title>
+<style>
+:root{
+  /* The felt: a woven green table mat (owner photo, 2026-09-03) — a mid,
+     saturated green rather than the old dark teal, darkening toward the rim.
+     `--felt-weave` is the pitch of the basket weave drawn over it. */
+  --felt:#34b562; --felt-dk:#2a9e54; --felt-edge:#1f8243; --felt-weave:3px;
+  --wood:#3a2a1e; --ink:#f2ece0; --dim:#a9b8ae;
+  --tile:#f6f1e4; --tile-edge:#cdc3ab; --tile-ink:#22201c; --red:#b23b32; --green:#1f6b46;
+  --gold:#d8b56a; --accent:#7fb3ff; --danger:#e08a6a;
+  /* site kit, used FUNCTIONALLY only (owner's ruling: neutral on neutral,
+     colour carries meaning or it does not appear). --seal rings the tile that
+     is actually in play and underlines a win; --royal underlines a kong;
+     --tilegreen is the kit's third colour, kept here so the felt and the kit
+     never drift apart. */
+  --seal:#C1272D; --royal:#1845A5; --tilegreen:#1A8B3A;
+  /* CHROME tokens (gameplay-lab.html / shell/theme.css, same values): the
+     HUD, the rim, the tray and the modal. "The felt is content, everything
+     else is chrome" — these never touch anything drawn on the felt. Paper
+     by default, charcoal under the system dark scheme or the explicit
+     choice; the class rides on <html> (shell/session.ts applyTheme). */
+  --c-bg:#fffdf7; --c-panel:#f6f1e4; --c-panel2:#efeade; --c-line:#ddd6c4; --c-ink:#1a1a18; --c-dim:#777770;
+  --c-blue:#1845a5; --c-on-blue:#fff; --c-danger:#c1272d; --c-veil:rgba(26,26,24,.45); --c-good:#127a30;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){
+  html:not(.theme-light){
+    --c-bg:#1e1f1d; --c-panel:#2a2b29; --c-panel2:#363733; --c-line:#4a4b46; --c-ink:#f3efe4; --c-dim:#b3b0a5;
+    --c-blue:#9fbaf0; --c-on-blue:#1e1f1d; --c-danger:#e2857f; --c-veil:rgba(0,0,0,.62); --c-good:#7fdc97}
+}
+html.theme-dark{
+  --c-bg:#1e1f1d; --c-panel:#2a2b29; --c-panel2:#363733; --c-line:#4a4b46; --c-ink:#f3efe4; --c-dim:#b3b0a5;
+  --c-blue:#9fbaf0; --c-on-blue:#1e1f1d; --c-danger:#e2857f; --c-veil:rgba(0,0,0,.62); --c-good:#7fdc97}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;margin:0}
+body{background:var(--c-bg);
+  color:var(--ink);font:15px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;overflow:hidden;
+  display:flex;flex-direction:column}
+
+/* ── top bar ── */
+/* Ported from gameplay-lab.html (2026-09-03): a panel strip with a hairline
+   under it, the table's name and ruleset in mono caps on the left, text
+   pills (no emoji) filled only when on, and quit as the one seal-red pill —
+   with a real tap target: 36px tall, the old one was 24. */
+#hud{display:flex;align-items:center;gap:8px;padding:7px 10px;font-size:12px;color:var(--c-dim);
+  background:var(--c-panel);border-bottom:1px solid var(--c-line);flex:0 0 auto;min-height:50px;
+  /* ABOVE EVERYTHING — the veil (40), the chat overlay (13), flying tiles —
+     so nothing ever paints over the gear (owner, 2026-09-03). */
+  position:relative;z-index:70}
+#hud .gear{width:40px;height:40px;padding:0;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  color:var(--c-ink);border:1px solid var(--c-line);background:none;cursor:pointer;flex:0 0 auto}
+#hud .gear:hover,#hud .gear[aria-expanded="true"]{border-color:var(--c-ink);background:var(--c-panel2)}
+/* #hudMenu is now only a WIRING HOST (owner, 2026-09-03: the gear opens a
+   full tabbed menu instead of a dropdown): the four buttons keep their ids
+   and their boot-time handlers, stay hidden, and the menu's own buttons
+   forward clicks to them (menuScreen). */
+#hudMenu{display:none !important}
+/* `#hud #hudMenu …` outranks the pill rule `#hud button` below, which
+   would otherwise win on source order and draw the rows as pills */
+#hud #hudMenu button{width:100%;text-align:left;border:0;border-radius:8px;padding:11px 12px;min-height:42px;font-size:14px;
+  color:var(--c-ink);background:none;font-weight:400}
+#hud #hudMenu button:hover{background:var(--c-panel2);color:var(--c-ink)}
+#hud #hudMenu button.on{background:var(--c-panel2);color:var(--c-ink);font-weight:600}
+#hud #hudMenu #btnQuit{color:var(--c-danger);border-top:1px solid var(--c-line);border-radius:0 0 8px 8px;margin-top:2px;padding-top:12px;font-weight:600}
+#hud #hudMenu #btnQuit:hover{background:color-mix(in srgb, var(--c-danger) 12%, transparent)}
+#hud b{color:var(--c-ink)}
+#hud .spacer{flex:1}
+#hud .tt{font-family:var(--mono);font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--c-dim);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+/* the game clock: elapsed since the first deal, tabular so it does not jitter */
+#hud .clock{color:var(--c-ink);font-variant-numeric:tabular-nums;flex:0 0 auto;overflow:visible}
+#hud .clock:empty{display:none}
+/* spectator (the admin watch page's iframes): no chrome to press, no tile
+   to touch — the felt is a window onto the seat, nothing more */
+body.spectator #hud .gear,body.spectator #chatOverlay,body.spectator #chatPreview{display:none !important}
+body.spectator #mine,body.spectator #actions,body.spectator #felt{pointer-events:none}
+body.spectator #hud::after{content:"watching";font-family:var(--mono);font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--c-danger);border:1px solid var(--c-danger);border-radius:20px;padding:5px 10px}
+#hud .mut{font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--c-dim);white-space:nowrap}
+#hud .netchip{display:inline-flex;align-items:center;gap:6px;color:var(--c-danger)}
+#hud .netchip:empty{display:none}
+#hud .netchip::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--seal);flex:0 0 auto}
+#hud button{font:inherit;font-size:12.5px;padding:7px 13px;min-height:36px;border-radius:20px;border:1px solid var(--c-line);
+  background:none;color:var(--c-dim);cursor:pointer;white-space:nowrap}
+#hud button:hover{color:var(--c-ink);border-color:var(--c-dim)}
+#hud button.on{background:none;color:var(--c-ink);border-color:var(--c-ink)}
+#hud #btnQuit:hover{background:color-mix(in srgb, var(--c-danger) 12%, transparent)}
+.panel textarea{width:100%;min-height:110px;padding:10px 12px;font:14px/1.45 inherit;
+  border-radius:9px;background:rgba(255,255,255,.07);color:var(--ink);
+  border:1px solid rgba(255,255,255,.18);resize:vertical}
+
+/* ── table ── */
+#table{flex:1;position:relative;min-height:0;display:flex;align-items:center;justify-content:center}
+/* THE TABLE — a felt surface with a wooden rim, not the whole window. */
+#felt{position:relative;width:min(94%,1040px);height:min(96%,660px);border-radius:22px;
+  /* a slight basket weave: two crossed hairline grids over the green, the
+     warp a touch darker, the weft a touch lighter — read as texture at arm's
+     length, invisible as lines */
+  background:
+    repeating-linear-gradient(0deg, rgba(0,0,0,.055) 0 1px, transparent 1px var(--felt-weave)),
+    repeating-linear-gradient(90deg, rgba(255,255,255,.028) 0 1px, transparent 1px var(--felt-weave)),
+    radial-gradient(ellipse at 50% 42%, var(--felt) 0%, var(--felt-dk) 72%, var(--felt-edge) 100%);
+  border:8px solid var(--c-panel);
+  box-shadow:inset 0 0 40px rgba(0,0,0,.4), 0 10px 26px rgba(0,0,0,.3)}
+/* MATCH STATE LIVES ON THE TABLE. Round, hand and wall used to sit in a 12px
+   strip in the corner of the WINDOW, outside the felt — easy to miss on a
+   desktop and with nowhere to hide on a phone (owner 2026-08-30). They go in
+   the felt's top-left, and your own seat plate goes at the near edge opposite
+   them, so everything you need is inside the one box you are looking at.
+
+   It must FIT THE CORNER. The wall square leaves roughly an 18%-of-felt margin
+   each side, and #surface is `preserve-3d`, so its tiles paint by 3D depth and
+   sail straight over a z-index — a card that overlaps the wall loses, however
+   high you stack it. Hence one narrow two-line card, not a row of chips. */
+#state{position:absolute;left:10px;top:8px;z-index:4;max-width:17%;
+  background:rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.1);border-radius:10px;
+  padding:5px 10px;line-height:1.25;white-space:nowrap}
+#state .r1{display:flex;align-items:baseline;gap:7px}
+#state .wind{font-size:19px;font-weight:700;color:var(--gold);line-height:1}
+#state .r1 span:last-child,#state .r2{font-size:11px;color:var(--dim);letter-spacing:.03em}
+#state b{color:var(--ink);font-variant-numeric:tabular-nums;font-size:13px;font-weight:700}
+#state.low .r2 b{color:var(--gold)}
+
+.seat{position:absolute;display:flex;flex-direction:column;align-items:center;gap:3px}
+.seat.n{top:6px;left:50%;transform:translateX(-50%)}
+.seat.e{right:8px;top:50%;transform:translateY(-50%);align-items:flex-end}
+.seat.w{left:8px;top:50%;transform:translateY(-50%);align-items:flex-start}
+/* your seat: the near edge, mirroring north, directly above your own hand */
+.seat.s{bottom:5px;left:50%;transform:translateX(-50%)}
+.seat.s .nameplate{font-size:13.5px;padding:5px 13px;background:rgba(0,0,0,.44)}
+.seat.s .avatar{width:24px;height:24px;font-size:12px}
+.nameplate{display:flex;align-items:center;gap:6px;background:rgba(0,0,0,.32);border-radius:20px;
+  padding:3px 10px;font-size:12px;white-space:nowrap}
+.nameplate .wind{font-size:14px;color:var(--gold)}
+.nameplate .chips{font-variant-numeric:tabular-nums;font-weight:600}
+.nameplate .chips.up{color:#7fe0a4}.nameplate .chips.down{color:#ff9b93}
+.nameplate.turn{outline:2px solid var(--gold);box-shadow:0 0 14px rgba(216,181,106,.45)}
+.nameplate .dealer{background:var(--red);color:#fff;border-radius:4px;padding:0 4px;font-size:10px}
+.avatar{width:22px;height:22px;border-radius:50%;background:linear-gradient(160deg,#5b7a6a,#2c4438);
+  display:flex;align-items:center;justify-content:center;font-size:12px}
+.backrow{display:flex;gap:1px}
+.back{width:12px;height:17px;border-radius:2px;background:linear-gradient(180deg,#2f7a5f,#1d5c46);
+  border:1px solid #14493a}
+.seat.e .backrow,.seat.w .backrow{flex-direction:column}
+.seat.e .back,.seat.w .back{width:17px;height:12px}
+.meldrow .tile{--th:50px}
+.meldrow{display:flex;gap:4px;flex-wrap:wrap;justify-content:center;max-width:230px}
+
+/* ── centre: the pile ── */
+#centre{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  width:min(64vw,600px);height:min(52vh,360px)}
+
+/* ── the wall ──────────────────────────────────────────────────────────
+ * Four walls in a square, but PINWHEELED: each wall runs past its neighbour's
+ * end rather than meeting it, which is what a real set looks like (owner photo
+ * 2026-08-29). The whole surface sits in perspective, so the square reads as
+ * the diamond you see across a table. Tiles are stacked two high.            */
+#surface{position:absolute;inset:0;transform:perspective(1500px) rotateX(17deg);
+  transform-style:preserve-3d}
+#wall{position:absolute;inset:0;pointer-events:none}
+#wall .side{position:absolute;display:flex;gap:2px}
+#wall .side.top{top:1%;left:50%;transform:translateX(-46%);justify-content:center}
+#wall .side.bottom{bottom:1%;left:50%;transform:translateX(-54%);justify-content:center}
+#wall .side.left{left:1%;top:50%;transform:translateY(-54%);flex-direction:column;justify-content:center}
+#wall .side.right{right:1%;top:50%;transform:translateY(-46%);flex-direction:column;justify-content:center}
+/* The wall SCALES to the table (--ws, set in renderWall).
+   It drew 17 stacks a side at a fixed 17px, needing ~289px of width — but the
+   table centre is about 227px on a phone, so the bottom row ran off the edge
+   and the side columns cut straight through the seat nameplates. Portrait was
+   unusable. Sizes below are the desktop dimensions times --ws. */
+.wt{width:calc(17px * var(--ws,1));height:calc(23px * var(--ws,1));
+  border-radius:3px;flex:0 0 auto;
+  background:linear-gradient(180deg,#eef3f7 0 42%,#7fb6d8 42% 72%,#5a97bd 72% 100%);
+  border:1px solid #4b7f9f;
+  box-shadow:0 1px 0 rgba(255,255,255,.5) inset, 0 2px 3px rgba(0,0,0,.45)}
+#wall .side.left .wt,#wall .side.right .wt{
+  width:calc(23px * var(--ws,1));height:calc(15px * var(--ws,1));
+  background:linear-gradient(90deg,#eef3f7 0 42%,#7fb6d8 42% 72%,#5a97bd 72% 100%)}
+#wall .wt.gone{visibility:hidden}
+#wall .wt.dead{filter:saturate(.45) brightness(.9)}
+#wall .wt.dead{filter:brightness(.72) saturate(.6)}
+#wall.building .wt{animation:assemble .82s cubic-bezier(.2,.8,.3,1.1) backwards}
+@keyframes assemble{
+  from{transform:translate(var(--ax,0px),var(--ay,-70px)) rotate(var(--ar,-25deg)) scale(.7);opacity:0}
+  60%{opacity:1}
+}
+#pile{position:relative;width:100%;height:100%}
+/* The pile tile SCALES WITH THE BOX, set from JS as --pileth.
+   A fixed size cannot work: the heap's footprint is driven by the tile, and an
+   84-discard 流局 hand — about a third of hands, since that is the draw rate —
+   needs room. Measured against the real box, a fixed 36px already spilled out
+   of a laptop-sized 480x300 centre in 2 of 4 runs, and 42px spilled in 4 of 4.
+   That was a pre-existing bug; making tiles bigger only made it louder. */
+#pile .tile{position:absolute;--th:var(--pileth,38px)}
+/* ── the toss (task item 4, revised 2026-09-02 per owner's `discard-lab.html`
+ * trial — "fling: short push, then constant speed, hard stop") ────────────
+ * ONE motion, ONE destination, decided BEFORE this animation ever starts —
+ * `d.pos` (game.ts's pile-placement loop) fixes the tile's final slot before
+ * this class is ever applied, and that slot is never recomputed once set
+ * (nodes are keyed to the discard's own id and never rebuilt — see game.ts),
+ * so nothing here ever needs a second leg to correct a landing spot the way
+ * the old FLIGHT→CONTACT→SKID three-phase keyframe did (a tile visibly
+ * accelerated in, stopped short, then slid again — "relocates a second
+ * time", owner 2026-09-02). `cubic-bezier(.15,0,.85,.85)`: a short push off
+ * the finger for about the first 15% of the 380ms, constant speed through
+ * the middle, then a dead stop exactly on the slot — no separate skid. */
+#pile .tile.fresh{animation:toss var(--tossms,480ms) cubic-bezier(.2,.8,.3,1.1) backwards,
+                            tossFade 120ms ease-out backwards;
+                  animation-delay:var(--tossdelay,0ms), var(--tossdelay,0ms)}
+@keyframes tossFade{from{opacity:0}to{opacity:1}}
+@keyframes toss{
+  0%{transform:translate(calc(-50% + var(--fx,0px)),calc(-50% + var(--fy,140px))) rotate(var(--fr,0deg))}
+  /* `scale(var(--hotscale,1))` matches the inline transform render() writes,
+     so the tile that is about to be ringed lands already at its final size
+     instead of jumping when the animation stops filling. */
+  100%{transform:translate(-50%,-50%) rotate(var(--rot,0deg)) scale(var(--hotscale,1))}
+}
+/* ── THE TILE IN PLAY (build item 1, 2026-09-02) ────────────────────────
+ * The freshly thrown tile used to wear the same gold as every training
+ * highlight on the screen, so during a claim window the player's own lit-up
+ * hand shouted louder than the one tile the decision is actually about.
+ *
+ * It is now the only SEAL RED thing on the table (--seal, the site kit's own
+ * red — no other element on the felt uses it), 3px so it survives a phone,
+ * scaled 1.12x and lifted to the top of the heap. `#pile` sets no
+ * transform-style of its own, so it flattens its children and a z-index
+ * among pile tiles is honoured — unlike `#surface`, which is preserve-3d.
+ *
+ * The scale rides a CUSTOM PROPERTY, not a transform in this rule: every pile
+ * tile carries an inline `transform` with its own rotation, and an inline
+ * transform beats any class. `render()` writes
+ * `…rotate(Xdeg) scale(var(--hotscale,1))` into that inline style and the
+ * class only flips the variable — which is also why the `toss` keyframe's
+ * 100% frame below reads the same variable, so a tile that is still landing
+ * grows into the ring instead of popping when the animation hands back.
+ *
+ * `render()` (not the insert) decides which tile wears this, off `liveThrowId`
+ * — set when a discard lands, cleared by the very next event that resolves
+ * it (a draw, a claim, the next throw). The ring is up for exactly as long as
+ * the tile can still be taken, which is many seconds, not the 480ms toss. */
+#pile .tile.hot{
+  --hotscale:1.12;
+  outline:3px solid var(--seal);outline-offset:1px;
+  box-shadow:0 0 0 1px rgba(0,0,0,.5), 0 3px 12px rgba(0,0,0,.5);
+  z-index:30}
+
+/* ── tiles ── */
+/* Tiles are the site's own SVG art. The settings' scale knob (--tscale) is
+   YOUR OWN HAND ONLY — see #myhand .tile. It used to sit on this base rule,
+   so one slider grew every seat, the pile and the wall on the player's own
+   screen, which read as "it changed for everyone" and at 200% pushed the
+   chrome around (owner, 2026-09-03). The pile packs itself (--pileth) and
+   the opponents' tiles are information, not something to enlarge. */
+:root{--th:44px}
+.tile{display:inline-block;height:var(--th);
+  width:calc(var(--th) * 0.714);
+  border-radius:5px;box-shadow:0 1px 0 #b8ad93,0 2px 5px rgba(0,0,0,.35);
+  background:#FAFAF8;user-select:none;overflow:hidden;line-height:0;flex:0 0 auto}
+.tile svg{width:100%;height:100%;display:block}
+/* the corner index (owner, 2026-09-03): a small chip over the art, sized
+   off the tile's own height so it scales with the hand slider; hidden as a
+   whole by body.notilelabels (menu → coach → tile labels) */
+.tile .ix{position:absolute;left:5%;top:3%;font:700 calc(var(--th) * .2) / 1 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  color:#22201c;background:rgba(255,255,255,.82);border-radius:calc(var(--th) * .06);padding:calc(var(--th) * .02) calc(var(--th) * .05);
+  pointer-events:none;letter-spacing:0;font-style:normal;z-index:2}
+#myhand .tile .ix{font-size:calc(var(--th) * .17)}
+body.notilelabels .tile .ix{display:none}
+.back .ix{display:none}
+.tile.sm{--th:40px}
+
+/* ── your area ── */
+#mine{flex:0 0 auto;padding:6px 10px 10px;background:var(--c-panel);border-top:1px solid var(--c-line)}
+#mymelds{display:flex;gap:10px;justify-content:center;min-height:38px;margin-bottom:3px}
+/* A flower is the SAME PIECE as every other tile, and it is drawn as one —
+   no separate `.fl` size override here or in `.meldrow` below. It used to be
+   inflated (56 against a 50 meld, 68 against a 58) to compensate for an index
+   numeral that was unreadable at tile size; the index is drawn bigger now
+   (tile-engine.js `fIndexNum`, the `fidx` class), so the compensation goes
+   and a flower simply inherits the size of the melds it sits beside (demo
+   port, task item 4c). */
+#mymelds .tile{--th:58px}
+/* `touch-action:none` on the tiles (below) is what makes the drag-to-rearrange
+   pointer stream usable on a phone: without it the browser claims the gesture
+   for a scroll/pan the moment a finger moves and stops sending pointermove.
+   It is set on the TILES, not the row, so the page can still be panned by
+   dragging the gap between them. */
+#myhand{display:flex;gap:5px;justify-content:center;align-items:flex-end;min-height:62px;flex-wrap:wrap}
+#myhand .tile{--th:calc(86px * var(--tscale,1));cursor:pointer;transition:transform .12s,box-shadow .12s;touch-action:none}
+#myhand .tile:hover{transform:translateY(-9px);box-shadow:0 6px 14px rgba(0,0,0,.45)}
+/* ── LIFTED (build item 3) ─────────────────────────────────────────────
+ * Double tap to discard, on by default: the first tap LIFTS a tile out of the
+ * hand and lights up its count/what-if read, the second tap on the same tile
+ * throws it. A mis-thrown tile is unrecoverable, so the cost of the second tap
+ * is trivially worth it — and the lift is deliberately the same raise the
+ * desktop hover already uses, so the gesture teaches itself.
+ *
+ * `!important` because `#myhand .tile:hover` is the same specificity and
+ * appears first: on a desktop the pointer is usually still resting on the
+ * tile it just lifted, and without this the hover rule and this one are a
+ * coin toss decided by source order the moment either changes. */
+#myhand .tile.lifted{transform:translateY(-16px) !important;
+  box-shadow:0 10px 20px rgba(0,0,0,.5) !important}
+/* ── DRAGGING (build item 4) ───────────────────────────────────────────
+ * The tile under the finger follows it (an inline transform written by
+ * table.ts, so no transition on this one — it must track, not lag), and its
+ * neighbours slide out of the way through the same `transition:transform`
+ * the row already had. CSS transitions, never a rAF loop: nothing here runs
+ * a frame when nothing is moving. */
+#myhand .tile.dragging{transition:none;z-index:40;cursor:grabbing;
+  box-shadow:0 14px 26px rgba(0,0,0,.55)}
+/* Restores the DEFAULT order — the one the server/renderer already uses. Only
+   rendered when the local arrangement actually differs from it, so it is not
+   a permanent button the eye has to learn to ignore. */
+.handsort{flex:0 0 auto;align-self:center;margin-left:8px;font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;
+  padding:6px 11px;border-radius:20px;border:1px solid var(--c-line);background:none;color:var(--c-dim);cursor:pointer}
+.handsort:hover{color:var(--c-ink);border-color:var(--c-dim)}
+/* `backwards` + a delay is what makes a motion QUEUE: the tile sits at frame 0
+   — invisible, out at the wall — until its turn comes, rather than appearing in
+   place and then jumping. See ANIMATION-SEQUENCE.md. */
+#myhand .tile.drawn{margin-left:18px;animation:drawFromWall var(--drawms,900ms)
+  cubic-bezier(.2,.75,.3,1.05) var(--drawdelay,0ms) backwards}
+@keyframes drawFromWall{
+  0%{transform:translate(var(--wx,0px),var(--wy,-190px)) rotate(-18deg) scale(.62);opacity:0}
+  30%{opacity:1}
+  100%{transform:translate(0,0) rotate(0) scale(1)}
+}
+.backrow .wtnew{animation:botDraw .9s cubic-bezier(.2,.75,.3,1.05) var(--drawdelay,0ms) backwards}
+@keyframes botDraw{0%{transform:scale(.4) translateY(-26px);opacity:0}60%{opacity:1}100%{transform:none}}
+#myhand.locked .tile{cursor:default}#myhand.locked .tile:hover{transform:none;box-shadow:0 1px 0 #b8ad93,0 2px 4px rgba(0,0,0,.3)}
+/* ── the claim bar (demo port, task item 4a) ─────────────────────────────
+ * These used to be 38px tall, 15px type and all one grey, at the very bottom
+ * of the page below your hand — the last thing on a phone screen. They now
+ * sit ABOVE the hand (see #mine below) and each call wears the colour its own
+ * announcement already flashes when you press it: press the blue one, the
+ * blue 碰 flashes. Chow is the exception — the announcement is green and the
+ * FELT IS GREEN, so a green button is camouflage; it takes orange here and the
+ * ramp reads chow → pung → kong → win by warmth.
+ *
+ * Padding is deliberately tight. At 20px a side, 43px of a 112px button was
+ * chrome; at 10px the same button is 92px, which is the difference between
+ * four buttons wrapping to two rows on a 375px phone and fitting on one.   */
+#actions{display:flex;gap:8px;justify-content:center;align-items:center;
+  min-height:54px;margin-top:6px;flex-wrap:wrap}
+#actions button{
+  --c:#cfe3d8;--bg:rgba(255,255,255,.08);--bd:rgba(255,255,255,.2);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;
+  background:var(--bg);color:var(--c);border:1.5px solid var(--bd);
+  border-radius:12px;padding:7px 10px;min-height:52px;
+  font-size:18px;font-weight:700;cursor:pointer;
+  box-shadow:0 5px 16px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.13);
+  animation:callRise .17s cubic-bezier(.2,.9,.3,1.1) backwards}
+@keyframes callRise{from{transform:translateY(10px);opacity:0}}
+#actions button:active{transform:translateY(1px)}
+/* the meld the claim would build. Sized explicitly because the mobile block
+   forces .tile to a smaller --th, which would be wider than the button's own
+   padding otherwise. */
+#actions button .tw{display:flex;gap:3px;align-items:center;margin-top:2px}
+#actions button .tw .tile{width:20px;height:28px;border-radius:3px;
+  box-shadow:0 1px 0 #b8ad93,0 1px 3px rgba(0,0,0,.45)}
+#actions button .tw .tile.got{outline:2px solid var(--gold);outline-offset:1px}
+#actions button.chow{--c:#ffb277;--bg:rgba(110,56,20,.94);--bd:rgba(255,157,92,.7)}
+#actions button.pung{--c:#8ccff7;--bg:rgba(24,70,104,.94);--bd:rgba(93,184,240,.6)}
+#actions button.kong{--c:#c9aaff;--bg:rgba(62,46,100,.94);--bd:rgba(177,139,245,.6)}
+#actions button.pass{--c:#93a79d;--bg:rgba(255,255,255,.055);--bd:rgba(255,255,255,.15);
+  font-size:16px;font-weight:500;padding:7px 14px}
+/* THE WIN. It is the rarest thing you will ever be offered and it ends the
+   hand, so it is bigger as well as brighter — size is what the eye catches
+   before colour resolves. No tiles on it: every other button shows the meld
+   because that is the choice being made, and the win has no choice in it. */
+#actions button.win{--c:#2a2113;--bg:var(--gold);--bd:var(--gold);
+  font-size:21px;padding:9px 18px;min-height:56px;letter-spacing:.02em;
+  position:relative;overflow:visible;isolation:isolate;
+  animation:winPulse 1.4s ease-in-out infinite}
+#actions button.win::before{content:"";position:absolute;inset:-55%;z-index:-1;border-radius:50%;
+  background:repeating-conic-gradient(rgba(255,210,63,.5) 0deg 4deg, transparent 4deg 24deg);
+  -webkit-mask:radial-gradient(closest-side,transparent 42%,#000 62%,transparent 100%);
+  mask:radial-gradient(closest-side,transparent 42%,#000 62%,transparent 100%);
+  animation:winRays 11s linear infinite;pointer-events:none}
+@keyframes winRays{to{transform:rotate(360deg)}}
+@keyframes winPulse{
+  0%,100%{box-shadow:0 5px 16px rgba(0,0,0,.45), 0 0 20px -2px rgba(255,210,63,.6);
+          transform:scale(1)}
+  50%    {box-shadow:0 7px 22px rgba(0,0,0,.5),  0 0 42px 2px rgba(255,210,63,.95);
+          transform:scale(1.045)}}
+/* lab: mono caps, the instruction itself in ink */
+#actions .hint{color:var(--c-dim);font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase}
+#actions .hint b{color:var(--c-ink)}
+
+/* ── overlays ── */
+/* A PANEL TALLER THAN THE PHONE MUST SCROLL.
+   This centred the panel with flex and gave it no overflow, while body is
+   overflow:hidden — so anything taller than the viewport spilled off both ends
+   with no way to reach it. On a phone the About screen's "got it" button was
+   simply unreachable and a tester could not start a game at all. The same trap
+   sat under the match scoreboard, Your games and the leaderboard.
+
+   `align-items:flex-start` + `margin:auto` on the child is the combination that
+   works: auto margins still centre the panel when it fits, and when it does not
+   the panel starts at the top and the veil scrolls. Centring with
+   `align-items:center` clips the overflow ABOVE the container, which no amount
+   of scrolling can reach. */
+/* `display:none` by default (2026-09-02 shell rebuild) — every screen that
+   uses this (table.ts's waiting room/match end/fatal/settings,
+   shell/pages/newtable.ts's New table/Join modals) already sets
+   `style.display = "flex"` itself before painting #panel and "none" when it
+   closes, so this only changes the state before any of that JS has run yet.
+   Before the shell existed the whole app WAS this veil (every boot path led
+   straight into one of those screens), so defaulting to visible was
+   harmless; now the shell's own pages render behind it while nothing has
+   claimed it, and a `flex` default painted an empty dark #panel over them. */
+.veil{position:fixed;inset:0;background:var(--c-veil);display:none;
+  align-items:flex-start;justify-content:center;overflow-y:auto;
+  -webkit-overflow-scrolling:touch;z-index:40;padding:16px}
+.panel{background:linear-gradient(180deg,#1b3a30,#12281f);border:1px solid rgba(216,181,106,.35);
+  border-radius:14px;padding:22px 26px;max-width:640px;width:100%;text-align:center;
+  margin:auto;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+.panel h1{font-size:20px;margin:0 0 4px}
+/* The lab's shell modal, as a variant of #panel (gameplay-lab.html
+   `.modal/.mhead/.mbody/.mfoot`): head with a hairline, body in dim ink,
+   foot with one primary (blue fill) and one ghost (hairline). Used by the
+   quit dialog; `beforeScreen()` strips it so every other screen keeps the
+   felt-green panel it always had. */
+#panel.modal{background:var(--c-bg);color:var(--c-ink);border:1px solid var(--c-line);border-radius:16px;
+  padding:0;max-width:460px;text-align:left;box-shadow:0 20px 60px rgba(0,0,0,.35)}
+#panel.modal .mhead{display:flex;align-items:center;gap:10px;padding:14px 16px 11px;border-bottom:1px solid var(--c-line)}
+#panel.modal .mhead h2{font-size:17px;margin:0;color:var(--c-ink);font-weight:700}
+#panel.modal .mbody{padding:12px 16px 14px;color:var(--c-dim);font-size:13.5px;line-height:1.5}
+#panel.modal .mbody b{color:var(--c-ink)}
+#panel.modal .mfoot{padding:10px 16px 13px;border-top:1px solid var(--c-line);display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+#panel.modal .mfoot .hint2{color:var(--c-dim);font-size:11px;font-family:var(--mono);flex:1;min-width:0}
+#panel.modal button{margin:0}
+#panel.modal .kickrow{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+#panel.modal .primary{font:inherit;font-weight:600;font-size:14px;padding:11px 22px;border-radius:10px;border:0;
+  background:var(--c-blue);color:var(--c-on-blue);cursor:pointer;min-height:42px}
+#panel.modal .ghost{font:inherit;font-size:13px;padding:10px 16px;border-radius:10px;border:1px solid var(--c-line);
+  background:none;color:var(--c-ink);cursor:pointer;min-height:42px}
+@media (max-width:520px){#panel.modal .mfoot .primary{flex:1 1 100%;order:-1}#panel.modal .mfoot .ghost{flex:1}}
+/* ── the tabbed menu behind the gear (hud-quit-watch-lab.html §4) ── */
+#panel.menu{max-width:560px}
+#panel.menu .mhead .sum{color:var(--c-dim);font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#panel.menu .mhead .x{margin-left:auto;width:32px;height:32px;border-radius:16px;border:1px solid var(--c-line);background:var(--c-panel);color:var(--c-ink);font:inherit;font-size:18px;line-height:1;padding:0;cursor:pointer;flex:0 0 auto}
+#panel.menu .tabs{display:flex;gap:4px;padding:8px 12px 0;border-bottom:1px solid var(--c-line);overflow-x:auto}
+#panel.menu .tab{font-family:var(--mono);font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--c-dim);padding:8px 10px;border:0;background:none;border-bottom:2px solid transparent;margin:0 0 -1px;white-space:nowrap;cursor:pointer;border-radius:0;min-height:0}
+#panel.menu .tab.on{color:var(--c-ink);border-bottom-color:var(--c-ink)}
+#panel.menu .mbody{max-height:min(60vh,480px);overflow:auto}
+#panel.menu .srow{display:grid;grid-template-columns:120px 1fr;align-items:center;gap:10px;min-height:42px;padding:2px 0}
+@media (max-width:520px){#panel.menu .srow{grid-template-columns:96px 1fr}}
+#panel.menu .srow .lbl{font-size:13.5px;color:var(--c-ink)}
+#panel.menu .cap2{color:var(--c-dim);font-size:11px;margin:-2px 0 6px;line-height:1.35}
+#panel.menu .act{display:flex;gap:8px;flex-wrap:wrap}
+#panel.menu .ghost.on{border-color:var(--c-ink);background:var(--c-panel2);font-weight:600}
+#panel.menu .ghost.danger{border-color:var(--c-danger);color:var(--c-danger)}
+#panel.menu .ghost:disabled{opacity:.5;cursor:default}
+#panel.menu .hostblk{margin-top:12px;padding-top:10px;border-top:1px solid var(--c-line)}
+#panel.menu .cap{font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--c-dim);font-weight:600;margin:0 0 6px}
+#panel.menu .seg{display:inline-flex;border:1px solid var(--c-line);border-radius:10px;overflow:hidden}
+#panel.menu .seg button{border:0;border-radius:0;padding:7px 12px;font-size:12.5px;color:var(--c-dim);background:none;min-height:0;cursor:pointer}
+#panel.menu .seg button.on{background:var(--c-panel2);color:var(--c-ink);font-weight:600}
+#panel.menu input[type=range]{width:100%;accent-color:var(--c-blue)}
+#panel.menu input[type=range]:disabled{opacity:.45}
+#panel.menu .rules b{color:var(--c-ink)} #panel.menu .rules p{margin:4px 0 8px;color:var(--c-dim);font-size:13px;line-height:1.5}
+/* ── the hand-end reveal on the modal (2026-09-03) ── */
+#panel.reveal{max-width:640px}
+#panel.reveal .mbody{padding:16px 18px 10px;text-align:center;color:var(--c-ink)}
+#panel.reveal h1{font-size:22px;margin:0 0 2px;color:var(--c-ink)}
+#panel.reveal h2{font-size:14px;margin:0 0 10px;color:var(--c-dim);font-weight:500}
+#panel.reveal .tiles{display:flex;flex-wrap:wrap;justify-content:center;gap:3px;align-items:flex-end;margin:6px 0}
+#panel.reveal .awards{font-size:13px;color:var(--c-dim);margin:8px 0} #panel.reveal .awards b{color:var(--c-ink)}
+#panel.reveal .pay{display:flex;gap:10px;justify-content:center;font-size:13px;margin:12px 0 4px;flex-wrap:wrap}
+#panel.reveal .pay div{background:var(--c-panel2);border:1px solid var(--c-line);border-radius:10px;padding:7px 12px;color:var(--c-dim);min-width:96px}
+#panel.reveal .pay .d{font-variant-numeric:tabular-nums;font-weight:700;font-size:15px;color:var(--c-ink)}
+#panel.reveal .pay .up{color:var(--c-good)} #panel.reveal .pay .down{color:var(--c-danger)}
+#panel.reveal .mut{color:var(--c-dim)}
+#panel.reveal .rows{max-height:230px;overflow-y:auto;margin:6px auto 0;max-width:360px;text-align:left}
+#panel.reveal .rows .row:nth-child(odd){background:var(--c-panel2)}
+#panel.reveal .rows .row.me{background:var(--c-panel2);border:1px solid var(--c-ink)}
+#panel.reveal .rows .up{color:var(--c-good)} #panel.reveal .rows .down{color:var(--c-danger)}
+#panel.reveal .mfoot .ghost{margin-right:auto}
+#panel.startcard{max-width:520px}
+#panel.reveal .statgrid{display:flex;gap:10px;justify-content:center;margin:8px 0}
+#panel.reveal .statgrid div{background:var(--c-panel2);border:1px solid var(--c-line);border-radius:10px;padding:8px 14px;color:var(--c-dim);font-size:12px}
+#panel.reveal .statgrid span{display:block;font-size:18px;font-weight:700;color:var(--c-ink)}
+#panel.menu table.pay{width:100%;border-collapse:collapse;margin:6px 0 8px;font-variant-numeric:tabular-nums;font-size:13px}
+#panel.menu table.pay th{font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--c-dim);text-align:right;padding:4px 8px;border-bottom:1px solid var(--c-line);font-weight:600}
+#panel.menu table.pay th:first-child{text-align:left}
+#panel.menu table.pay td{padding:5px 8px;text-align:right;border-bottom:1px solid var(--c-line);color:var(--c-ink)}
+#panel.menu table.pay td:first-child{text-align:left;color:var(--c-dim)}
+#panel.menu details.faantable summary{cursor:pointer;color:var(--c-blue);font-size:13px;margin:6px 0}
+#panel.menu .faanrows{display:grid;grid-template-columns:1fr 1fr;gap:2px 12px;font-size:12.5px;color:var(--c-dim);margin:4px 0 8px}
+#panel.menu .faanrows b{color:var(--c-ink);display:inline-block;min-width:22px}
+/* the waiting room on the same modal — seats as four cells */
+#panel.modal .waitseats{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:8px 0 6px}
+#panel.modal .wseat{border:1px solid var(--c-line);border-radius:10px;padding:8px 10px;display:flex;flex-direction:column;gap:2px}
+#panel.modal .wseat b{color:var(--c-ink);font-size:13.5px} #panel.modal .wseat span{color:var(--c-dim);font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase}
+#panel.modal .wseat.on span{color:var(--c-ink)} #panel.modal .wseat.me{border-color:var(--c-ink)}
+#panel.modal .srow{display:grid;grid-template-columns:120px 1fr;align-items:center;gap:10px;min-height:42px;padding:2px 0}
+#panel.modal .srow .lbl{font-size:13.5px;color:var(--c-ink)}
+#panel.modal .cap2{color:var(--c-dim);font-size:11px;margin:-2px 0 6px;line-height:1.35}
+#panel.modal .act{display:flex;gap:8px;flex-wrap:wrap}
+@media (max-width:520px){#panel.modal .srow{grid-template-columns:96px 1fr}}
+.panel h2{font-size:16px;margin:0 0 10px;color:var(--gold)}
+.panel p{color:var(--dim);font-size:13px;margin:6px 0}
+.panel .tiles{display:flex;gap:4px;justify-content:center;flex-wrap:wrap;margin:12px 0}
+/* The winning tile, marked in the hand-end reveal (game.ts's handEnd case). */
+.panel .tiles .tile.win-tile{outline:2px solid var(--gold);outline-offset:1px}
+.awards{font-size:13px;color:var(--dim);margin:8px 0}
+.awards b{color:var(--ink)}
+.pay{display:flex;gap:14px;justify-content:center;font-size:14px;margin:12px 0;flex-wrap:wrap}
+.pay div{background:rgba(0,0,0,.25);border-radius:8px;padding:6px 12px}
+.pay .d{font-variant-numeric:tabular-nums;font-weight:700}
+.pay .up{color:#7fd6a0}.pay .down{color:var(--danger)}
+.panel button{background:var(--gold);color:#2a2113;border:0;border-radius:9px;padding:11px 22px;
+  font-size:15px;font-weight:700;cursor:pointer;margin-top:6px}
+.choices{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:14px 0}
+.choice{background:rgba(0,0,0,.25);border:1px solid rgba(255,255,255,.14);border-radius:10px;padding:12px;
+  cursor:pointer;text-align:left}
+.choice:hover{border-color:var(--gold)}
+.choice.sel{border-color:var(--gold);background:rgba(216,181,106,.14)}
+.choice b{display:block;font-size:14px;margin-bottom:3px}
+.choice span{color:var(--dim);font-size:11.5px;line-height:1.35;display:block}
+/* Bot commentary lives in the dark band with the hand, never on the felt. */
+#devwrap{flex:0 0 auto;padding:0 10px}
+/* ── handicaps ── */
+/* Every copy of the hovered tile, wherever it is. Counting the discards is a
+   core skill; this does the counting, it does not reveal anything hidden.
+
+   It works by CONTRAST, not by stacking. A highlighted pile tile cannot be
+   lifted above its neighbours: #surface is `preserve-3d`, so its children paint
+   by 3D depth and a z-index is ignored — the same trap the state card hit. So
+   everything that does NOT match is dimmed and desaturated instead, which needs
+   no stacking at all. Both halves are deliberately gentle (owner, 2026-08-31):
+   the dim is 10%, enough to push the rest back without draining the table, and
+   the ring and glow are about half the strength they started at. The first cut
+   was unmissable and far too loud to sit behind for a whole hand.
+
+   Nothing here touches `transform`: pile tiles carry an inline transform with
+   their rotation, so a scale in a class would be silently overridden. */
+/* opacity only — a `filter` here re-rasterises every pile tile on each flip */
+body.counting .tile:not(.samet){opacity:.9}
+body.counting #wall .wt{opacity:.85}
+/* THE TILE GLOWS. Not a halo painted around it — the tile itself reads as lit:
+   a hot yellow edge, a warm wash across the face, and light spilling a short
+   way past the border.
+
+   The spill is `filter: drop-shadow` in YELLOW rather than `box-shadow`, and
+   that choice is the whole reason this works where the first attempt did not.
+   A box-shadow glow paints UNDER neighbouring tiles, so in a dense heap it is
+   swallowed by the very tiles it needs to stand out from. drop-shadow follows
+   the tile's shape and composites OVER them.
+
+   Uniform and tight — no offset, small radii — so it reads as the tile
+   emitting light rather than being lit from one side (owner, 2026-08-31).
+
+   The tile cannot be moved or scaled to help: pile tiles carry an inline
+   transform for their rotation, and anything in a class is silently
+   overridden. */
+.tile.samet{
+  outline:3px solid #ffd23f;
+  outline-offset:0;                       /* the ring sits OUTSIDE the tile */
+  filter:
+    drop-shadow(0 0 3px rgba(255,216,80,.9))
+    drop-shadow(0 0 7px rgba(255,196,40,.55))
+    brightness(1.04);
+  z-index:20}
+/* the warm wash that makes the FACE look lit rather than merely ringed */
+.tile.samet::after{content:"";position:absolute;inset:0;border-radius:5px;
+  background:radial-gradient(ellipse at 50% 45%,
+    rgba(255,232,150,.30) 0%, rgba(255,205,60,.14) 70%, rgba(255,196,40,.05) 100%);
+  pointer-events:none}
+.tile{position:relative}
+
+/* ── WHILE A CLAIM WINDOW IS OPEN (build item 1) ────────────────────────
+ * `body.claimwindow` is on for exactly as long as this seat is being offered
+ * a claim (table.ts render(), off `pending`). Every OTHER highlight on the
+ * screen — count-on-tap, the calling read, what-if — steps back to 40% for
+ * the duration, so the seal-red ring on the tile in play is the loudest thing
+ * in view during the one moment that matters. Nothing is hidden and nothing
+ * moves; the training wheels are still readable, just no longer competing.
+ * An `outline` cannot take an opacity of its own, so `.samet`'s ring steps
+ * back through its colour's alpha instead. */
+body.claimwindow .tile.samet{
+  outline-color:rgba(255,210,63,.4);
+  filter:drop-shadow(0 0 3px rgba(255,216,80,.36)) drop-shadow(0 0 7px rgba(255,196,40,.22))}
+body.claimwindow .tile.samet::after{opacity:.4}
+body.claimwindow #callbar{opacity:.4}
+body.claimwindow #myhand .tile.lifted{box-shadow:0 4px 10px rgba(0,0,0,.35)}
+#callwrap{flex:0 0 auto;padding:0 10px}
+#callbar{max-width:1040px;margin:0 auto 4px;background:rgba(255,255,255,.05);
+  border:1px solid rgba(255,255,255,.1);border-radius:9px;padding:5px 11px;
+  font-size:12px;color:var(--dim);display:flex;align-items:baseline;gap:9px;flex-wrap:wrap}
+#callbar.calling{border-color:rgba(78,201,126,.5);background:rgba(78,201,126,.12)}
+#callbar.whatif{border-color:rgba(111,211,255,.5);background:rgba(111,211,255,.1)}
+#callbar .lead{color:var(--ink);font-size:12.5px}
+#callbar.calling .lead{color:#7fe0a4}
+#callbar.whatif .lead{color:#a5e2ff}
+#callbar b{color:var(--ink)}
+#callbar .n{color:var(--gold);font-size:10.5px;font-variant-numeric:tabular-nums}
+#callbar .tot{margin-left:auto;color:var(--dim);font-variant-numeric:tabular-nums}
+#callbar .faan{width:100%;font-size:11px}
+#callbar .ok{color:#7fe0a4}#callbar .warn{color:#ffa39b}
+
+/* ── the about panel ── */
+/* Prose, so it reads left-aligned. The panel centres by default, which is right
+   for a result screen and wrong for three paragraphs and a bullet list. */
+#panel.about{text-align:left}
+#panel.about h1,#panel.about button{text-align:center}
+#panel.about button{display:block;margin:18px auto 0}
+#panel.about h2{margin-top:16px}
+#panel.about p{margin:5px 0 0}
+.panel ul.about{margin:6px 0 0;padding-left:20px;color:var(--dim);font-size:13px;line-height:1.6}
+.panel ul.about b{color:var(--ink)}
+.panel h2+p{margin-top:4px}
+
+/* ── the setup screen ── */
+/* Length is a segmented control rather than four cards: it is one number, and
+   four blurb-carrying tiles wrapped to two rows for a choice that reads as a
+   dial. The cost of the choice moves to a caption under it, which also stops
+   the four options competing on how much text they carry. */
+.seg{display:flex;gap:6px;margin-top:6px}
+.seg button{flex:1;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);
+  border-radius:9px;padding:7px 4px;cursor:pointer;color:var(--dim);line-height:1.2;
+  font:inherit;transition:background .12s,border-color .12s}
+.seg button:hover{background:rgba(255,255,255,.1)}
+.seg button b{display:block;font-size:15px;color:var(--ink)}
+.seg button span{display:block;font-size:10px;letter-spacing:.03em}
+.seg button.on{background:rgba(216,181,106,.16);border-color:var(--gold)}
+.seg button.on b{color:var(--gold)}
+.segcap{margin:6px 0 0;font-size:11.5px;color:var(--dim)}
+/* Speed picker (§8a-2, task item 1): five pills, one line of caption each —
+ * too many for one flex row on a phone without squeezing the labels, so this
+ * variant wraps instead of shrinking every button to fit. */
+.seg.wrap{flex-wrap:wrap}
+.seg.wrap button{flex:1 1 30%;min-width:100px}
+.seg.wrap button span{font-size:9.5px;letter-spacing:0}
+/* Bot picker: one compact row per bot seat, a wrap of small name chips — no
+   modal, and it never forces horizontal scroll on a portrait phone. */
+.botpicks{display:flex;flex-direction:column;gap:8px;margin-top:4px}
+.botrow{display:flex;flex-direction:column;gap:4px}
+.botrow .botlabel{font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--dim)}
+.botrow .chips{display:flex;flex-wrap:wrap;gap:5px}
+.botchip{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);border-radius:20px;
+  padding:5px 11px;cursor:pointer;color:var(--dim);font:inherit;font-size:11.5px;line-height:1.2;
+  transition:background .12s,border-color .12s}
+.botchip:hover{background:rgba(255,255,255,.1)}
+.botchip.on{background:rgba(216,181,106,.16);border-color:var(--gold);color:var(--gold)}
+.choices.two{grid-template-columns:1fr 1fr}
+.choice .seats{margin-top:5px;color:var(--gold);font-size:11px}
+.panel h2{margin-top:14px}
+
+/* ── lobby, stats, leaderboard ── */
+.choices.lobby{grid-template-columns:1fr}
+.choices.lobby .choice b{font-size:15px}
+.statgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:8px;margin-top:12px}
+.statgrid div{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.09);
+  border-radius:9px;padding:8px 10px;font-size:11px;color:var(--dim);letter-spacing:.03em}
+.statgrid span{display:block;font-size:20px;font-weight:700;color:var(--ink);
+  font-variant-numeric:tabular-nums;margin-bottom:2px}
+.rows{max-height:230px;overflow-y:auto;margin-top:6px}
+.rows.head{max-height:none;overflow:visible;color:var(--dim);font-size:9.5px;
+  text-transform:uppercase;letter-spacing:.02em;margin-top:10px;padding:0 8px;display:flex;gap:8px}
+.rows .row{display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:7px;font-size:12.5px}
+.rows .row:nth-child(odd){background:rgba(255,255,255,.035)}
+.rows .row.me{background:rgba(216,181,106,.14);border:1px solid rgba(216,181,106,.3)}
+.rows .c1{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rows .c2{width:56px;text-align:right;font-variant-numeric:tabular-nums;flex:0 0 auto}
+.rows .up{color:#7fe0a4}.rows .down{color:#ff9b93}
+.rows .c2.sortable{cursor:pointer;user-select:none}
+.rows .c2.sortable:hover{color:var(--ink)}
+.rows .c2.sortable.on{color:var(--gold)}
+.rows .c1 .mut{font-size:10.5px}
+.panel h2{font-size:12px;color:var(--gold);text-transform:uppercase;letter-spacing:.08em}
+
+/* ── the lobby screen: three panels (PVP-LOBBY-PROPOSAL §3.1) ──────────────
+ * Stacked on a phone; the panel itself grows wide enough at >=900px for a
+ * side-by-side row — this is the one screen that needs more than the
+ * standard 640px panel width, hence its own `.lobby3` modifier.
+ *
+ * Bug (browser test, 2026-09-01): this used to be written `.panel.lobby3`
+ * (specificity 0-2-0), which the base `#panel{text-align:center;
+ * max-width:640px}` rule (0-1-0... actually 1-0-0, an ID) always beat
+ * regardless of source order or which class was added/removed in JS — so
+ * `.lobby3` never actually widened the panel or left-aligned its text; it
+ * only ever looked right by accident (little enough content to not notice
+ * the centering, or a stale cached stylesheet). `#panel.about` a few rules
+ * up already got this right by pairing the ID; do the same here. */
+#panel.lobby3{max-width:1040px;text-align:left}
+/* ── lobby tabs (task item 3, 2026-09-02) ─────────────────────────────────
+ * Play / Chat / Stats / Games / Rooms across the top, remembered in
+ * `sessionStorage` (game.ts `setLobbyTab`). Portrait-first: a horizontally
+ * SCROLLABLE row of pills (no wrap — five short labels already fit most
+ * phones, and a scrollable row is the one layout that never reflows the
+ * page as the active pill's width/position changes), a plain row on wider
+ * screens where they all fit anyway. */
+.tabbar{display:flex;gap:6px;margin:12px 0 4px;overflow-x:auto;padding-bottom:2px;
+  -webkit-overflow-scrolling:touch;scrollbar-width:none}
+.tabbar::-webkit-scrollbar{display:none}
+/* Paired with `#panel` (specificity 1-1-0), same fix as `#panel.lobby3`
+ * above and for the same reason: the base `.panel button{background:
+ * var(--gold);…}` rule (0-1-1, an element selector beats a bare class of
+ * equal class-count) otherwise wins over plain `.tabpill` (0-1-0) and every
+ * INACTIVE pill renders as a bold gold button — backwards from the
+ * highlighted ACTIVE pill `.tabpill.on` (0-2-0) already correctly shows.
+ * Verified live (browser test, 2026-09-02): without the `#panel` pairing,
+ * every pill but the active one showed solid gold. */
+#panel .tabpill{flex:0 0 auto;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.14);
+  border-radius:20px;padding:7px 16px;color:var(--dim);font:inherit;font-size:13px;font-weight:700;
+  cursor:pointer;white-space:nowrap}
+#panel .tabpill:hover{background:rgba(255,255,255,.1)}
+#panel .tabpill.on{background:rgba(216,181,106,.16);border-color:var(--gold);color:var(--gold)}
+/* Each pane is built once with the rest of the shell (`lobbyShellHtml`) and
+ * simply hidden/shown — never rebuilt on a tab switch — so the live panels
+ * inside it (Here now/Open tables/Chat/Recent) keep their own DOM nodes and
+ * scroll positions across a switch away and back. */
+.tabpane{display:none}
+.tabpane.on{display:block}
+.lobbygrid{display:flex;flex-direction:column;gap:16px;margin-top:10px}
+.lobbycol{min-width:0}
+.lobbycol h2{margin-top:0}
+@media (min-width:900px){
+  .lobbygrid{flex-direction:row;align-items:flex-start}
+  .lobbycol{flex:1}
+}
+/* "here now": a state dot ahead of the name, coloured by what it means */
+.rows .dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto}
+.rows .dot.here{background:#7fe0a4}
+.rows .dot.wait{background:var(--gold)}
+.rows .dot.play{background:var(--accent)}
+.rows .row.clickable{cursor:pointer}
+.rows .row.clickable:hover{background:rgba(255,255,255,.07)}
+/* a name that opens the Player page — inside a row that may ALSO be
+ * clickable for something else (sit down), so this needs its own affordance
+ * and its own stopPropagation()'d handler (game.ts wireLobbyPanel). */
+.pname{cursor:pointer}
+.pname:hover{color:var(--gold);text-decoration:underline}
+/* stats screen: four placement bars, #1-#4 */
+.placebars{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+.placebars .prow{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--dim)}
+.placebars .plabel{width:24px;flex:0 0 auto}
+.placebars .ptrack{flex:1;height:9px;border-radius:5px;background:rgba(255,255,255,.08);overflow:hidden}
+.placebars .pfill{display:block;height:100%;background:var(--gold);border-radius:5px}
+.placebars .pcount{width:24px;text-align:right;flex:0 0 auto;color:var(--ink);font-variant-numeric:tabular-nums}
+/* open tables: one card per table, not a `.rows` list — a table carries more
+ * than two columns' worth (creator, badges, four seats, a Sit down button) */
+.tablelist{display:flex;flex-direction:column;gap:8px;margin-top:6px;max-height:280px;overflow-y:auto}
+.tablerow{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);
+  border-radius:9px;padding:8px 10px}
+.tr-head{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12.5px}
+.tr-head .mut{font-size:11px;margin-left:auto}
+.badge{font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;padding:1px 6px;
+  border-radius:10px;border:1px solid rgba(255,255,255,.2);color:var(--dim)}
+.badge.ranked{color:var(--gold);border-color:rgba(216,181,106,.5)}
+.badge.casual{color:var(--accent);border-color:rgba(127,179,255,.4)}
+/* §8a-2 speed badge — lobby table rows and the waiting room. */
+.badge.speed{color:#9fd6ff;border-color:rgba(159,214,255,.4)}
+.tablerow .lock{font-size:11px;line-height:1}
+.tr-seats{display:flex;gap:5px;margin-top:6px;flex-wrap:wrap}
+.seattile{font-size:10.5px;padding:3px 8px;border-radius:7px;background:rgba(255,255,255,.05);
+  border:1px solid rgba(255,255,255,.1);color:var(--dim)}
+.seattile.human{color:var(--ink);border-color:rgba(127,179,255,.35)}
+.tr-foot{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:6px}
+button.sitdown{background:var(--gold);color:#2a2113;border:0;border-radius:7px;padding:5px 13px;
+  font-size:11.5px;font-weight:700;cursor:pointer}
+
+/* ── new-table seat grid (§6 items 3, 5): 2x2, seat order 東南西北 ── */
+.seatgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:6px}
+.seatslot{display:flex;flex-direction:column;gap:5px}
+.seatcard{background:rgba(0,0,0,.22);border:1px solid rgba(255,255,255,.14);border-radius:10px;
+  padding:8px 10px;cursor:pointer;text-align:left;transition:border-color .12s,background .12s}
+.seatcard:hover{border-color:rgba(255,255,255,.3)}
+.seatcard.bot{border-color:rgba(216,181,106,.35);background:rgba(216,181,106,.06)}
+.seatcard.locked{cursor:default;opacity:.55}
+.seatcard.locked:hover{border-color:rgba(255,255,255,.14)}
+.seatcard .sc-wind{color:var(--gold);font-size:16px;font-weight:700;display:block;line-height:1}
+.seatcard .sc-kind{display:block;font-size:12.5px;margin-top:3px}
+.seatcard .sc-label{display:block;font-size:10.5px;color:var(--dim);margin-top:1px}
+.seatslot .chips{display:flex;flex-wrap:wrap;gap:5px}
+
+#dev{display:grid;grid-template-columns:1fr 1fr;gap:10px;max-width:1040px;margin:0 auto}
+body.devmode #mine{padding-top:2px}
+#dev .devbox{background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.09);border-radius:9px;
+  padding:7px 10px;font-size:11.5px;line-height:1.45}
+#dev .scroll{max-height:96px;overflow-y:auto}
+#dev .devbox>b{color:var(--gold);display:block;font-size:10px;text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px}
+#dev .mut{color:rgba(255,255,255,.5)}
+#dev .best{color:#7fe0a4;font-weight:700}
+#dev .sug{color:var(--dim);margin-bottom:5px;padding-bottom:5px;border-bottom:1px solid rgba(255,255,255,.1)}
+/* The helper's verdict is a COLOUR first and prose second: green you played
+   it, amber close enough, red it cost you. A 3px border stripe was not
+   readable at a glance (owner 2026-08-30). */
+#dev .ce{border-left:3px solid var(--line);padding:3px 6px 3px 7px;margin:4px 0;border-radius:0 5px 5px 0}
+#dev .ce.good{border-left-color:#4ec97e;background:rgba(78,201,126,.13)}
+#dev .ce.ok{border-left-color:#e0bd6b;background:rgba(224,189,107,.12)}
+#dev .ce.bad{border-left-color:#e8685f;background:rgba(232,104,95,.14)}
+#dev .ce .g{display:inline-block;font-size:9px;font-weight:800;letter-spacing:.09em;
+  padding:1px 5px;border-radius:4px;margin-right:6px;color:#0f1512}
+#dev .ce.good .g{background:#4ec97e}#dev .ce.ok .g{background:#e0bd6b}#dev .ce.bad .g{background:#e8685f}
+#dev .ce.good b{color:#8ae7ad}#dev .ce.ok b{color:#efd08c}#dev .ce.bad b{color:#ffa39b}
+#dev .ce .mut{margin-top:1px}
+/* lab: 3px flat blue on --c-panel2; seal red when low */
+#clockbar{height:3px;background:var(--c-panel2);flex:0 0 auto}
+#clock{height:100%;width:0;background:var(--c-blue);transition:width .1s linear;border-radius:0 2px 2px 0}
+#clock.low{background:var(--seal)}
+/* §8a-2 task item 4: sits where #clockbar's own 3px track would be, for the
+ * two states that have no running clock to show there — untimed play (bare
+ * "no clock"), and this seat's own auto-play after the 10-minute idle
+ * timeout flips it on server-side (`.idle`, gold — a call to action, not
+ * just a status line, since tapping any tile takes it back). */
+#clockNote{flex:0 0 auto;text-align:center;font-size:10.5px;color:var(--dim);
+  padding:2px 8px;letter-spacing:.02em;background:rgba(255,255,255,.04)}
+#clockNote.idle{color:var(--gold);background:rgba(216,181,106,.1)}
+.setrow{display:flex;align-items:center;gap:10px;margin:8px 0;font-size:13px;text-align:left}
+.setrow label{width:80px;flex:0 0 auto;color:var(--dim)}
+.setrow input[type=range]{flex:1}
+.setrow .mut{color:var(--dim);font-size:11.5px}
+.panel h2{text-align:left}
+/* the call — canned, Cantonese-led, gone in about a second */
+/* `width:max-content` so the banner is centred on its anchor at every one of
+   the four seat positions. Without it an absolutely-positioned box shrinks to
+   fit whatever space is left between its `left` offset and the felt's edge —
+   which at `left:82%` (the east seat) is 18% of the felt, far narrower than
+   the banner — and the tile art and the text would be squeezed or pushed off
+   centre depending on which seat called. It overflows the felt's rim instead,
+   which is fine: #felt sets no `overflow`, and the banner is up for two
+   seconds over the top of everything (z-index 20). */
+#call{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);opacity:0;
+  width:max-content;pointer-events:none;text-align:center;z-index:20;transition:opacity .12s}
+#call.s0{left:50%;top:88%}      /* you   — just above your hand */
+#call.s1{left:82%;top:50%}      /* right */
+#call.s2{left:50%;top:14%}      /* across */
+#call.s3{left:18%;top:50%}      /* left  */
+/* The call HOLDS. It arrives just as fast as before — the entrance and exit
+   are pinned to the same fraction of a longer run — but it sits legible on
+   screen for ~1.6s instead of ~0.7s (owner 2026-08-30). Keep in step with the
+   timers in announce(). */
+#call.show{animation:callIn 2.2s cubic-bezier(.2,.9,.3,1.15) forwards}
+#call.show.big{animation-duration:3.2s}
+/* ── the call (rebuilt 2026-09-02, build item 2) ────────────────────────
+ * It used to be a 54px coloured glyph in a coloured box with a coloured glow
+ * behind it — teal chow, blue pung, violet kong, rose flower, gold win — and
+ * the English word was a 13px afterthought underneath. Six saturated hues on
+ * a green felt, none of them carrying information a player could act on.
+ *
+ * The owner's ruling: neutral on neutral, colour is functional only. So:
+ *
+ *   碰 pung   — ONE LINE, both halves the same size and the same ink. The
+ *               Cantonese leads and the English follows it, because that is
+ *               how the table actually says it; neither is a translation
+ *               hung off the other, so neither is shrunk.
+ *   [tiles]   — the tile(s) the call is ABOUT, drawn left of the text at
+ *               1.4x the pile tile (--pileth, which render() mirrors onto
+ *               :root so this element — a sibling of #centre — can read it).
+ *               Pung/kong: the tile. Chow: all three. Win: the winning tile.
+ *               Flower: the flower. This is the thing a player wants to see
+ *               and it was never shown at all.
+ *   caption   — who called it, 11px dim. POSITION already says who (the
+ *               banner sits at that seat), so the name is a confirmation,
+ *               not a headline. Any `extra` the caller passes (a win's faan)
+ *               rides here too.
+ *   underline — 2px, the ONLY colour in the whole banner, and it means
+ *               something: ink for the ordinary claims (pung, chow), royal
+ *               blue for a kong in all three forms, seal red for a win or a
+ *               self-draw, dim for a flower. Four steps of consequence, not
+ *               six decorations.
+ *
+ * No filled colour fields, no glow, no burst, no pastels — a neutral dark
+ * plate for legibility over the felt and nothing else. */
+#call .inner{position:relative;border-radius:12px;padding:8px 14px 7px;
+  display:flex;align-items:center;gap:11px;
+  background:rgba(8,20,15,.78);border:1px solid rgba(255,255,255,.14);
+  box-shadow:0 6px 26px -8px rgba(0,0,0,.9);backdrop-filter:blur(3px)}
+/* the tile(s) the call is about — 1.4x the pile tile, so it reads as the same
+   object that is sitting on the felt, one size up */
+#call .ct{display:flex;gap:3px;align-items:center;flex:0 0 auto}
+#call .ct .tile{--th:calc(var(--pileth,38px) * 1.4)}
+#call .cb{display:flex;flex-direction:column;align-items:flex-start;gap:3px}
+/* SAME SIZE, SAME INK — the whole point of the rebuild */
+#call .cline{display:flex;align-items:baseline;gap:7px;white-space:nowrap;
+  font-size:22px;font-weight:700;line-height:1.1;color:var(--ink);
+  padding-bottom:4px;border-bottom:2px solid var(--callline,var(--ink));
+  text-shadow:0 1px 5px rgba(0,0,0,.85)}
+#call .cc,#call .ce{font-size:inherit;font-weight:inherit;color:inherit;letter-spacing:0}
+#call .cw{font-size:11px;color:var(--dim);letter-spacing:.04em;font-weight:600;
+  text-shadow:0 1px 4px rgba(0,0,0,.9);white-space:nowrap}
+
+/* the underline, and it is the only colour here */
+#call.k-pung,#call.k-chow      {--callline:var(--ink)}
+#call.k-kong,
+#call.k-concealedKong,
+#call.k-addedKong              {--callline:var(--royal)}
+#call.k-win,
+#call.k-selfDraw,
+#call.k-robbingKong            {--callline:var(--seal)}
+#call.k-flower                 {--callline:var(--dim)}
+
+/* the win is one step bigger — it ends the hand. Size, not colour. */
+#call.big .cline{font-size:28px}
+#call.big .inner{padding:10px 18px 9px}
+
+@media (min-width:1100px){
+  #call .cline{font-size:28px}
+  #call.big .cline{font-size:36px}
+}
+
+/* ── the grab ───────────────────────────────────────────────────────────
+ * A claimed tile used to vanish from the pile and reappear in a meld in the
+ * same frame, which read as a glitch rather than an action (owner 2026-08-31).
+ * It now travels: lifted off the pile, carried across, set down in the meld.
+ *
+ * The flier lives in a fixed overlay so it can cross from the felt into the
+ * seat boxes without being clipped by either. It is a MOTION, so the claim hold
+ * covers it and nothing else moves while it is in the air.
+ *
+ * The meld it is heading for is held invisible until it lands (`.claimed`
+ * below) — otherwise the destination tile is already sitting there and you
+ * watch a duplicate fly onto it, which is worse than the jump it replaced.
+ */
+#fly{position:fixed;inset:0;pointer-events:none;z-index:60}
+#fly .tile{position:absolute;animation:grab var(--grabms,760ms) cubic-bezier(.34,.02,.28,1) forwards}
+@keyframes grab{
+  /* picked up — lifts and grows as it comes off the felt */
+  0%{transform:translate(0,0) scale(1) rotate(var(--r0,0deg))}
+  26%{transform:translate(calc(var(--dx,0px) * .18),calc(var(--dy,0px) * .18 - 26px))
+        scale(1.22) rotate(calc(var(--r0,0deg) * .35))}
+  /* set down into the meld */
+  100%{transform:translate(var(--dx,0px),var(--dy,0px)) scale(var(--ds,1)) rotate(0deg)}
+}
+/* the destination meld, invisible until the tile arrives */
+.claimed{animation:meldLand 160ms ease-out var(--grabms,760ms) backwards}
+@keyframes meldLand{from{opacity:0}to{opacity:1}}
+
+/* ── declaring the throw ────────────────────────────────────────────────
+ * At a table you say what you throw. This is the ANNOUNCEMENT lane (see
+ * ANIMATION-SEQUENCE.md): it runs alongside the toss, never before or after it,
+ * and it does not touch the motion queue.
+ *
+ * It is deliberately much quieter than #call. A call happens six or seven times
+ * a hand; this happens eighty. Same idea at call weight would be unreadable
+ * noise, so it is small, low-contrast, and gone before the tile lands — the
+ * label's whole life is inside the toss's flight.
+ *
+ * Its own element, not #call: a claim fires on the very next event after the
+ * discard it claims, so sharing one banner would have 碰 stomping the
+ * declaration that caused it. They sit at different offsets so both can show.
+ */
+#say{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);opacity:0;
+  pointer-events:none;z-index:8;white-space:nowrap}
+#say.s0{left:50%;top:80%}
+#say.s1{left:78%;top:62%}
+#say.s2{left:50%;top:22%}
+#say.s3{left:22%;top:62%}
+#say .inner{background:rgba(8,20,15,.5);border:1px solid rgba(255,255,255,.14);
+  border-radius:9px;padding:3px 9px;font-size:15px;font-weight:600;color:#e8e2d4;
+  text-shadow:0 1px 4px rgba(0,0,0,.8)}
+#say.show{animation:sayIn var(--sayms,900ms) cubic-bezier(.2,.85,.35,1) forwards}
+/* ── THE THROW, STILL ON THE TABLE (build item 1) ───────────────────────
+ * The 640ms flash above says what was thrown; it is gone long before the
+ * claim window on that throw closes, which left a player deciding whether to
+ * pung with nothing on screen naming the tile. When a claim window is open
+ * this same element settles — no animation, nothing moving — into a small
+ * neutral label at the THROWER's screen position (`.s0`-`.s3`, unchanged),
+ * and stays there until the window closes. Deliberately quieter than the
+ * flash it replaces: dim ink, one step down in size, no scale-in. The loud
+ * thing during a claim window is the ring on the tile itself, not this. */
+#say.held{opacity:1}
+#say.held .inner{background:rgba(8,20,15,.5);border-color:rgba(255,255,255,.1);
+  font-size:12px;font-weight:600;color:var(--dim);padding:2px 8px;letter-spacing:.02em}
+@keyframes sayIn{
+  0%{opacity:0;transform:translate(-50%,-50%) scale(.7)}
+  14%{opacity:1;transform:translate(-50%,-50%) scale(1.04)}
+  26%{transform:translate(-50%,-50%) scale(1)}
+  62%{opacity:1}
+  100%{opacity:0;transform:translate(-50%,-58%) scale(.98)}
+}
+
+@keyframes callIn{
+  0%{opacity:0;transform:translate(-50%,-50%) scale(.55) rotate(-7deg)}
+  9%{opacity:1;transform:translate(-50%,-50%) scale(1.12) rotate(2deg)}
+  16%{transform:translate(-50%,-50%) scale(1) rotate(0)}
+  88%{opacity:1;transform:translate(-50%,-50%) scale(1)}
+  100%{opacity:0;transform:translate(-50%,-58%) scale(.96)}
+}
+#log{position:absolute;left:8px;bottom:8px;font-size:11px;color:rgba(255,255,255,.5);max-width:210px;
+  pointer-events:none;line-height:1.5}
+
+/* ── table chat (PVP-LOBBY-PROPOSAL §8, reworked 2026-09-02 — task item 1)
+ * "Chat must not be a window." One round FAB, bottom-right of the felt, on
+ * every breakpoint now (it used to hide on desktop in favour of a
+ * permanently-open sidebar — gone). Tapping it shows a fully TRANSPARENT
+ * overlay directly on the felt: bare translucent text over the table, no
+ * panel background, no border, no shadow — bottom-right just above the
+ * button on a phone, top-left (below #state) on desktop, see the media
+ * query below. Tapping the button again, or the felt itself, closes it
+ * (game.ts wireChatDrawer). Nothing here ever pushes #mine/#table around:
+ * both the button and the overlay are `position:absolute` children of
+ * #felt, exactly like #state/#call/#say, laid OVER the table. */
+/* A child of #felt (like #state/#call/#say) so "bottom-right of the felt"
+ * is literal, not a viewport-relative guess — it can never drift over #mine
+ * (the hand/actions strip below the table) the way a fixed position would. */
+/* In the HUD beside the gear (owner, 2026-09-03), not a FAB on the felt —
+   `.gear` gives it the round hairline look; only the badge is its own. */
+#chatBtn{position:relative}
+#chatBtn.open{border-color:var(--c-ink);background:var(--c-panel2)}
+#chatBadge{position:absolute;top:-3px;right:-3px;background:var(--danger);color:#2a1410;
+  border-radius:10px;min-width:18px;height:18px;padding:0 4px;font-size:10px;font-weight:800;
+  display:flex;align-items:center;justify-content:center;border:2px solid #171512}
+/* phone: bottom-right, stacked just above the FAB (46px tall + 10px gap +
+   10px inset — see the desktop override below for the top-left version). No
+   background/border/shadow of its own: legibility over the felt comes from
+   each line's own text-shadow (`.crow`/.chat-phrases/.chat-input-row below),
+   the same trick `#chatbubble`/`#say` already use for text over the table. */
+/* TOP-RIGHT, on every layout (2026-09-03). It used to be bottom-right above
+   the button on a phone/iPad and top-left under #state on a desktop, and
+   each of those sits on a SIDE SEAT: bottom-right runs up into the east
+   seat's melds, top-left runs down into the west seat's — "covers the other
+   player's hand" in the playtest. Top-right is the one corner nothing owns
+   (#state top-left, #log bottom-left, #chatBtn bottom-right), and the
+   message list is capped at ~5 lines so the overlay ends above the east
+   seat's row. The button does not move. */
+#chatOverlay{position:absolute;right:10px;top:8px;z-index:13;
+  display:flex;flex-direction:column;gap:6px;width:min(230px,calc(100% - 20px))}
+.chat-msgs{display:flex;flex-direction:column;gap:2px;max-height:96px;overflow-y:auto}
+.crow{font-size:12.5px;line-height:1.5;color:#eef0ea;
+  text-shadow:0 1px 3px rgba(0,0,0,.9),0 0 6px rgba(0,0,0,.55)}
+.crow.mine{color:#fff6de}
+.cname{font-weight:700;color:var(--accent);cursor:pointer}
+.crow.mine .cname{color:var(--gold);cursor:default}
+.cname:hover{text-decoration:underline}
+.ctext{margin-left:5px}
+.chat-phrases{display:flex;gap:5px;flex-wrap:wrap}
+.phrasebtn{background:rgba(8,20,15,.55);border:1px solid rgba(255,255,255,.22);border-radius:20px;
+  padding:4px 10px 4px 11px;color:var(--ink);font:inherit;font-size:12.5px;cursor:pointer;
+  display:flex;flex-direction:column;align-items:center;line-height:1.15;
+  text-shadow:0 1px 2px rgba(0,0,0,.7);backdrop-filter:blur(2px)}
+.phrasebtn span{font-size:8.5px;color:#d8dcd2;letter-spacing:.02em}
+.phrasebtn:hover{background:rgba(8,20,15,.78)}
+/* Task item 1: "the five quick-phrase buttons in one row." The overlay is
+ * only `min(230px, …)` wide (a phone), too narrow for five two-line chips
+ * without wrapping — so inside it specifically the English sub-label
+ * (`.phrasebtn span`, still in the DOM as a `title` tooltip) is hidden and
+ * each chip shares the row evenly instead of wrapping. */
+#chatOverlay .chat-phrases{flex-wrap:nowrap}
+#chatOverlay .phrasebtn{flex:1 1 0;min-width:0;padding:5px 2px;font-size:14px}
+#chatOverlay .phrasebtn span{display:none}
+.chat-input-row{display:flex;gap:6px;flex:0 0 auto}
+.chat-input-row input{flex:1;min-width:0;padding:8px 10px;font-size:14px;border-radius:8px;
+  background:rgba(8,20,15,.6);border:1px solid rgba(255,255,255,.25);color:var(--ink);
+  backdrop-filter:blur(2px)}
+.chat-input-row button{background:var(--gold);color:#2a2113;border:0;border-radius:8px;
+  padding:0 14px;font-size:12.5px;font-weight:700;cursor:pointer}
+.chat-input-row button:disabled{opacity:.5;cursor:default}
+/* lobby's copy of the same input row, inline in its `.lobbycol` (a normal
+ * solid panel, not the transparent felt) rather than an overlay — its own
+ * plain background, no blur needed there. */
+.chat-input-row.lobby{padding:8px 0 0}
+.chat-input-row.lobby input{background:rgba(255,255,255,.07);backdrop-filter:none}
+.chatrows{max-height:220px}
+#chatOverlay #chatShowAll{align-self:flex-end;font-size:10.5px;color:var(--gold);
+  text-shadow:0 1px 2px rgba(0,0,0,.8)}
+/* the near-button preview (task item 1): a bare fading line for an incoming
+ * message while the overlay is closed — same "no panel" rule, its own
+ * element so it never fights `#chatOverlay`/`#chatbubble` for a slot. */
+#chatPreview{position:absolute;right:10px;top:8px;z-index:12;max-width:190px;
+  text-align:right;font-size:12px;line-height:1.35;color:#eef0ea;
+  text-shadow:0 1px 3px rgba(0,0,0,.9),0 0 6px rgba(0,0,0,.55);
+  pointer-events:none;opacity:0}
+#chatPreview.show{animation:chatPreviewFade var(--previewms,4000ms) ease-in-out forwards}
+@keyframes chatPreviewFade{0%{opacity:0}8%{opacity:1}78%{opacity:1}100%{opacity:0}}
+
+
+/* the phrase bubble near a seat's nameplate (§8) — same positions and same
+ * `sayIn` animation as #say (a discard's own declaration), on its own
+ * element so the two never race for one slot. */
+#chatbubble{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);opacity:0;
+  pointer-events:none;z-index:9;white-space:nowrap}
+#chatbubble.s0{left:50%;top:92%}
+#chatbubble.s1{left:92%;top:50%}
+#chatbubble.s2{left:50%;top:9%}
+#chatbubble.s3{left:8%;top:50%}
+#chatbubble .inner{background:rgba(8,20,15,.72);border:1px solid rgba(216,181,106,.4);
+  border-radius:9px;padding:4px 10px;font-size:14px;font-weight:600;color:#e8e2d4;
+  text-shadow:0 1px 4px rgba(0,0,0,.8)}
+#chatbubble.show{animation:sayIn var(--bubblems,2500ms) cubic-bezier(.2,.85,.35,1) forwards}
+@media (max-width:820px){
+  /* Shrink tiles through --th, NEVER by setting width/height here (demo port,
+     task item 4e). Hard-coding `.tile{width:24px;height:33px}` outranks
+     `#pile .tile{--th:var(--pileth)}` on width and height and so defeats the
+     pile's own scaling entirely: renderWall/render() size the tile to fit a
+     phone's narrow centre box, then the browser draws it at the hard-coded
+     size instead. A 流局 hand's ~84 discards need most of that box — no packer
+     fits that — so the surplus gets pushed out of the heap and buries the
+     bots' melds. Sizing through --th leaves #pile's own rule in charge. The
+     numbers are unchanged: --th * 0.714 is the same 32 and 24. */
+  #myhand .tile{--th:calc(44px * var(--tscale,1))}#myhand .tile .g{font-size:21px}
+  .tile{--th:33px}.tile .g{font-size:16px}
+  #centre{width:60vw}
+  /* The running commentary is the only thing that may go: state and seat
+     plates are the information you cannot play without. */
+  #log{display:none}
+  #state{left:6px;top:6px;padding:4px 8px}
+  #state .wind{font-size:16px}
+  #state b{font-size:12px}
+  .seat.s .nameplate{font-size:12.5px;padding:4px 10px}
+
+  /* ── OPPONENTS' MELDS FACE THEIR OWN PLAYER (demo port, task item 4e) ────
+     A phone leaves a narrow gutter each side of the discard box, and a meld
+     row laid out horizontally cannot live in it — so the side seats' melds
+     lay across the table and the discard heap covered them. Turned into a
+     column instead, nothing is buried and the tiles read at full size.
+
+     A tile in front of a player points AWAY from them, toward the middle of
+     the table — so east sits on the right and its tops point LEFT, west's
+     point RIGHT. Turning both the same way leaves one upside down. */
+  .seat.e .meldrow,.seat.w .meldrow{flex-direction:column;max-width:none}
+  .seat.e .meldrow{align-items:flex-end}
+  .seat.w .meldrow{align-items:flex-start}
+  /* the box becomes the tile's OWN rotated bounding box — width and height
+     swapped — and the face turns about the centre inside it, so the flow
+     layout and the picture agree and nothing needs nudging back into place */
+  .seat.e .meldrow .tile,.seat.w .meldrow .tile{
+    --tw:calc(var(--th) * .714);
+    width:var(--th);height:var(--tw);position:relative}
+  .seat.e .meldrow .tile svg,.seat.w .meldrow .tile svg{
+    position:absolute;left:50%;top:50%;
+    width:var(--tw);height:var(--th)}
+  .seat.e .meldrow .tile svg{transform:translate(-50%,-50%) rotate(-90deg)}
+  .seat.w .meldrow .tile svg{transform:translate(-50%,-50%) rotate(90deg)}
+  .seat.n .meldrow .tile svg{transform:rotate(180deg)}
+  /* the 6px spacer between melds is a WIDTH; in a column it must be a height */
+  .seat.e .meldrow>span[style*="width"],.seat.w .meldrow>span[style*="width"]{height:5px}
+}
+</style>
+<!-- The shell's own stylesheet — every token and component class in it is
+     scoped under #shell{…}, so it can never touch the table's :root palette
+     above. Absolute path: this page is also served at /j/<code>, /r/<code>,
+     and every shell route (task brief §11.3). -->
+<link rel="stylesheet" href="/shell/theme.css">
+</head>
+<body>
+<!-- The shell (router-driven pages: Home, Rooms, Friends, Stats, Messages,
+     Profile, …) and the table (everything from here through #veil, unchanged
+     by the 2026-09-02 shell rebuild) are SIBLINGS, never nested — the
+     bootstrap (game.ts) toggles which one is visible via #tableRoot/#shell,
+     see its own header comment. #veil/#panel stay OUTSIDE #tableRoot: the
+     table's own waiting-room/match-end/fatal screens and the shell's New
+     table/Join modals (shell/pages/newtable.ts) both render into it. -->
+<div id="shell" hidden></div>
+<div id="tableRoot" style="display:none;flex:1 1 auto;min-height:0;flex-direction:column">
+<div id="hud">
+  <span id="hudTitle" class="tt"></span>
+  <span id="hudClock" class="tt clock"></span>
+  <span id="netStatus" class="netchip"></span>
+  <span class="spacer"></span>
+  <span id="hudNote" class="mut"></span>
+  <!-- One gear (owner, 2026-09-03: "bury pause, auto and quit under a settings
+       gear to keep it simple"). The four actions keep their ids — table.ts
+       wires them once at boot — and live in a dropdown the gear toggles
+       (wireHudMenu). The HUD sits above everything, the veil included, so
+       nothing ever paints over the gear. -->
+  <button id="chatBtn" class="gear" aria-label="chat" style="display:none"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M4 4h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 4v-4H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/></svg><span id="chatBadge" hidden></span></button>
+  <button id="btnMenu" class="gear" aria-label="menu" aria-expanded="false"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M19.4 13a7.6 7.6 0 0 0 .1-1 7.6 7.6 0 0 0-.1-1l2.1-1.6a.5.5 0 0 0 .1-.7l-2-3.4a.5.5 0 0 0-.6-.2l-2.5 1a7.3 7.3 0 0 0-1.7-1l-.4-2.6a.5.5 0 0 0-.5-.5h-4a.5.5 0 0 0-.5.4l-.4 2.7a7.3 7.3 0 0 0-1.7 1l-2.5-1a.5.5 0 0 0-.6.2l-2 3.4a.5.5 0 0 0 .1.7L4.6 11a7.6 7.6 0 0 0-.1 1 7.6 7.6 0 0 0 .1 1l-2.1 1.6a.5.5 0 0 0-.1.7l2 3.4c.1.2.4.3.6.2l2.5-1a7.3 7.3 0 0 0 1.7 1l.4 2.6c0 .3.2.5.5.5h4c.2 0 .5-.2.5-.4l.4-2.7a7.3 7.3 0 0 0 1.7-1l2.5 1c.2.1.5 0 .6-.2l2-3.4a.5.5 0 0 0-.1-.7L19.4 13zM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z"/></svg></button>
+  <div id="hudMenu" hidden>
+    <button id="btnPause" style="display:none">pause</button>
+    <button id="btnAuto" style="display:none">auto</button>
+    <button id="btnSettings">settings</button>
+    <button id="btnQuit">quit</button>
+  </div>
+</div>
+<div id="table"><div id="felt">
+  <div id="state"></div>
+  <div class="seat n" id="seatN"></div>
+  <div class="seat w" id="seatW"></div>
+  <div class="seat e" id="seatE"></div>
+  <div id="centre"><div id="surface"><div id="wall"></div><div id="pile"></div></div></div>
+  <div class="seat s" id="seatS"></div>
+  <div id="log"></div>
+  <div id="say"></div>
+  <div id="chatbubble"></div>
+  <div id="call"></div>
+  <!-- ── table chat overlay (task item 1, 2026-09-02) ────────────────────
+       Chat is never a window: no panel background, laid directly over the
+       felt as a child of it — like #state/#say/#call above — so its corner
+       is relative to the TABLE, not the viewport, and it can never push the
+       table layout around. #chatBtn (below) toggles it open/closed
+       (game.ts wireChatDrawer); tapping the felt itself also closes it.
+       #chatPreview is the separate near-button fading line for an incoming
+       message while the overlay is closed. -->
+  <div id="chatOverlay" style="display:none">
+    <div class="chat-msgs" id="chatMsgs"></div>
+    <div class="chat-phrases" id="chatPhrases"></div>
+    <div class="chat-input-row">
+      <input id="chatInput" type="text" placeholder="say something…">
+      <button id="chatSend">send</button>
+    </div>
+    <a href="#" id="chatShowAll" class="mut">show all</a>
+  </div>
+  <div id="chatPreview"></div>
+</div></div>
+<div id="callwrap"></div>
+<div id="devwrap"></div>
+<div id="clockNote" style="display:none"></div>
+<div id="clockbar"><div id="clock"></div></div>
+<div id="mine">
+  <div id="mymelds"></div>
+  <!-- The claim bar sits ABOVE your hand on purpose (demo port, task item 4a):
+       table -> buttons -> your tiles is the order your eye travels. Below the
+       hand it was the last element on the page and easy to miss entirely. -->
+  <div id="actions"></div>
+  <div id="myhand"></div>
+</div>
+<div id="fly"></div>
+</div> <!-- /#tableRoot -->
+<div class="veil" id="veil"><div class="panel" id="panel"></div></div>
+<script>
+// ABSOLUTE paths (leading "/"), not page-relative ones: this same index.html
+// is served at deep-link URLs like /j/<code> (task item — verified live: a
+// relative "game.js" resolves against /j/<code>/ and 404s into the SPA's own
+// HTML fallback, which then fails to parse as a script — "Unexpected token
+// '<'" — and the app never boots at all). A leading slash always resolves
+// to the site root regardless of what path this page was opened at.
+for (const f of ["tile-engine.js", "bots.js", "game.js"]) {
+  const t = document.createElement("script");
+  t.src = "/" + f + "?v=" + Date.now();
+  t.async = false;
+  document.head.appendChild(t);
+}
+</script>
+</body>
+</html>

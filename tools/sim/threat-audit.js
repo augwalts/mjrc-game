@@ -1,0 +1,1 @@
+window.THREAT_AUDIT = {"matches":40,"wins":214,"detectionRate":0.6542056074766355,"detectionExposed":0.93,"detectionConcealed":0.1,"winsConcealedShare":0.33,"falseAlarmRate":0.6723549488054608,"faanBias":-0.79,"faanMAE":1.85,"generated":"2026-08-28 15:33"};

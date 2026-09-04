@@ -1,0 +1,563 @@
+/**
+ * Shell tokens + component styles — design of record: lobby-lab.html
+ * (Variant D, PVP-LOBBY-PROPOSAL-2026-09-02.md §11). Ported close to
+ * verbatim from the lab, with two changes: every selector is scoped under
+ * `#shell` (never `:root`/`body`), and light/dark switching uses
+ * `#shell.theme-light`/`#shell.theme-dark` (an explicit choice) with
+ * `@media (prefers-color-scheme: dark)` as the *default* (system) fallback
+ * — see shell/session.ts's `applyTheme()`.
+ *
+ * Scoping under `#shell` (rather than `:root`) is load-bearing, not a style
+ * choice: `index.html`'s own `:root` already defines `--ink`/`--gold`/
+ * `--dim`/etc. for the TABLE screen's dark-felt palette. If this file set
+ * those names on `:root` too, the last stylesheet loaded would win and
+ * silently recolour the table — the one screen this whole rebuild is
+ * forbidden from changing. Scoped to `#shell`, these names only resolve
+ * inside the shell's own subtree; the table DOM (a sibling, `#tableRoot`)
+ * keeps reading its own `:root` tokens exactly as before.
+ */
+
+/* ── tokens: light (default) ──────────────────────────────────────────── */
+#shell{
+  --bg:#fffdf7; --panel:#f6f1e4; --panel2:#efeade; --line:#ddd6c4; --ink:#1a1a18; --dim:#777770;
+  --gold:#1845a5; --green:#127a30; --red:#c1272d; --blue:#1845a5; --chrome:#e7dfc9;
+  --primary:#1a1a18; --primary-ink:#fffdf7; --grid:rgba(26,26,24,.12);
+  --accent-soft:#e2e8f8; --gild:#9a7318; --series2:#9a7318; --series3:#127a30;
+}
+/* ── tokens: dark, system default ─────────────────────────────────────── */
+@media (prefers-color-scheme: dark){
+  #shell:not(.theme-light){
+    --bg:#1e1f1d; --panel:#2a2b29; --panel2:#363733; --line:#4a4b46; --ink:#f3efe4; --dim:#b3b0a5;
+    --gold:#9fbaf0; --green:#7fdc97; --red:#f19c9c; --blue:#9fbaf0; --chrome:#111210;
+    --primary:#f3efe4; --primary-ink:#1e1f1d; --grid:rgba(243,239,228,.18);
+    --accent-soft:#363733; --gild:#ffdf8a; --series2:#ffdf8a; --series3:#7fdc97;
+  }
+}
+/* ── tokens: dark, explicit choice ────────────────────────────────────── */
+#shell.theme-dark{
+  --bg:#1e1f1d; --panel:#2a2b29; --panel2:#363733; --line:#4a4b46; --ink:#f3efe4; --dim:#b3b0a5;
+  --gold:#9fbaf0; --green:#7fdc97; --red:#f19c9c; --blue:#9fbaf0; --chrome:#111210;
+  --primary:#f3efe4; --primary-ink:#1e1f1d; --grid:rgba(243,239,228,.18);
+  --accent-soft:#363733; --gild:#ffdf8a; --series2:#ffdf8a; --series3:#7fdc97;
+}
+
+/* ── layout shell ──────────────────────────────────────────────────────── */
+#shell{
+  position:fixed; inset:0; background:var(--bg); color:var(--ink);
+  font:14px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  display:flex; flex-direction:column; z-index:5; overflow:hidden;
+}
+#shell *{box-sizing:border-box}
+#shell[hidden]{display:none}
+#shell .view{flex:1; overflow:auto; padding:14px 14px calc(84px + env(safe-area-inset-bottom))}
+#shell a{color:inherit}
+#shell .mut{color:var(--dim)}
+#shell .up{color:var(--green)} #shell .down{color:var(--red)}
+#shell .spinner{color:var(--dim); font-size:13px; padding:10px 0; text-align:center}
+#shell .empty{color:var(--dim); font-size:13px; padding:10px 4px; text-align:center; margin:0}
+#shell .spinner .empty{padding:0}
+
+/* ── top bar ───────────────────────────────────────────────────────────── */
+#shell .top{display:flex; align-items:center; gap:10px; margin-bottom:12px}
+#shell .top h2{font-size:18px; margin:0; display:flex; align-items:center}
+#shell .top h2 .k{display:inline-block; width:8px; height:8px; border-radius:2px; margin-right:8px}
+#shell .top .back{font:inherit; font-size:22px; line-height:1; background:none; border:0; color:var(--blue); padding:0 6px 0 0; cursor:pointer}
+#shell .me{margin-left:auto; display:flex; align-items:center; gap:8px; color:var(--dim); white-space:nowrap}
+#shell .me .inbox{position:relative; background:none; border:0; color:var(--dim); padding:0; margin:0 4px 0 0; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; width:26px; height:26px; line-height:0}
+#shell .me .inbox svg{display:block}
+#shell .me .inbox .n{position:absolute; top:-3px; right:-5px; background:var(--red); color:#fff; font-size:10px; font-weight:700; border-radius:8px; padding:0 4px; line-height:14px; min-width:14px; text-align:center}
+#shell .me .name{font:inherit; background:none; border:0; color:var(--dim); cursor:pointer; display:inline-flex; align-items:center; gap:6px; padding:0}
+#shell .me .dot{margin-left:2px}
+
+/* ── dots, avatars, badges ─────────────────────────────────────────────── */
+#shell .dot{width:8px; height:8px; border-radius:50%; background:var(--green); display:inline-block; flex:0 0 auto}
+#shell .dot.wait{background:#e3cf70} #shell .dot.play{background:#1a8b3a}
+#shell .avatar{width:28px; height:28px; border-radius:50%; background:var(--accent-soft); display:flex; align-items:center; justify-content:center; font-size:12px; color:var(--ink); flex:0 0 auto}
+#shell .badge{font-size:10px; letter-spacing:.08em; text-transform:uppercase; border:1px solid var(--line); border-radius:6px; padding:2px 6px; color:var(--dim)}
+#shell .badge.ranked{color:var(--blue); border-color:var(--blue)}
+#shell .star{color:var(--dim); font-size:16px; width:20px; text-align:center; cursor:pointer; background:none; border:0}
+#shell .star.on{color:var(--gild)}
+
+/* ── shell modals: New table / Join by code (shell/pages/newtable.ts) ──
+ * Same paper/charcoal tokens as every page; the table's `.seg`/`.choice`/
+ * `.seatcard`/`.botchip` classes (index.html, dark-felt colours) are
+ * overridden here by specificity, not re-declared in the markup. */
+#shell .shellveil{position:fixed; inset:0; background:rgba(26,26,24,.45); display:none; align-items:flex-start; justify-content:center; overflow-y:auto; -webkit-overflow-scrolling:touch; z-index:40; padding:16px}
+#shell .shellpanel{position:relative; background:var(--bg); color:var(--ink); border:1px solid var(--line); border-radius:14px; padding:20px 22px 22px; max-width:640px; width:100%; margin:auto; box-shadow:0 20px 60px rgba(0,0,0,.25); text-align:left}
+#shell .shellpanel h1{font-size:20px; margin:0 0 6px; padding-right:40px; font-weight:700}
+#shell .shellpanel h2{font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:var(--dim); margin:16px 0 6px; font-weight:600}
+#shell .shellpanel p{color:var(--dim); font-size:13px; margin:6px 0}
+#shell .shellpanel .mclose{position:absolute; top:12px; right:12px; width:32px; height:32px; border-radius:16px; border:1px solid var(--line); background:var(--panel); color:var(--ink); font:inherit; font-size:20px; line-height:1; cursor:pointer; padding:0}
+#shell .shellpanel .mclose:hover{background:var(--panel2)}
+#shell .shellpanel .seg button,#shell .shellpanel .choice,#shell .shellpanel .seatcard,#shell .shellpanel .botchip{background:var(--panel); border:1px solid var(--line); color:var(--ink); font:inherit}
+#shell .shellpanel .seg button b,#shell .shellpanel .choice b,#shell .shellpanel .seatcard .sc-kind{color:var(--ink)}
+#shell .shellpanel .seg button span,#shell .shellpanel .choice span,#shell .shellpanel .seatcard .sc-label{color:var(--dim)}
+#shell .shellpanel .seg button:hover,#shell .shellpanel .choice:hover,#shell .shellpanel .seatcard:hover,#shell .shellpanel .botchip:hover{border-color:var(--dim); background:var(--panel2)}
+#shell .shellpanel .seg button.on,#shell .shellpanel .choice.sel,#shell .shellpanel .botchip.on{background:var(--ink); border-color:var(--ink); color:var(--bg)}
+#shell .shellpanel .seg button.on b,#shell .shellpanel .seg button.on span,#shell .shellpanel .choice.sel b,#shell .shellpanel .choice.sel span{color:var(--bg)}
+#shell .shellpanel .seatcard.bot{background:var(--accent-soft); border-color:var(--blue)}
+#shell .shellpanel .seatcard .sc-wind{color:var(--blue)}
+#shell .shellpanel .seatcard.locked{opacity:.55}
+#shell .shellpanel .seatcard.locked:hover{border-color:var(--line); background:var(--panel)}
+#shell .shellpanel .segcap,#shell .shellpanel .mut{color:var(--dim)}
+#shell .shellpanel .setrow{display:flex; align-items:center; gap:10px; margin-top:6px}
+#shell .shellpanel .setrow label{color:var(--ink); font-size:13px}
+#shell .shellpanel select,#shell .shellpanel input[type=text]{font:inherit; padding:9px 12px; border-radius:10px; border:1px solid var(--line); background:var(--panel2); color:var(--ink); flex:1; min-width:0}
+#shell .shellpanel button.primary{display:block; width:100%; font:inherit; font-weight:600; font-size:15px; padding:12px 20px; border-radius:10px; border:0; background:var(--blue); color:#fff; cursor:pointer; margin-top:16px}
+#shell .shellpanel button.primary:disabled{opacity:.55; cursor:default}
+#shell .welcome b{display:block; font-size:15px; margin-bottom:4px}
+#shell .welcome p{margin:0; line-height:1.45}
+
+/* ── section headers, cards ────────────────────────────────────────────── */
+#shell .sec{font-size:11px; letter-spacing:.12em; color:var(--dim); text-transform:uppercase; margin:16px 0 8px}
+#shell .sec.in{margin:0 0 8px}
+#shell .card{background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:12px 14px; margin:0 0 12px}
+#shell .cta{margin-bottom:12px}
+#shell .more{display:block; margin-top:8px; color:var(--blue); font-size:12px; text-decoration:none; background:none; border:0; font:inherit; cursor:pointer; padding:0}
+
+/* ── CTA tiles (Play now / Join by code) ──────────────────────────────── */
+#shell .cta{display:grid; grid-template-columns:1fr 1fr; gap:10px}
+#shell .cta button{font:inherit; padding:16px 12px; border-radius:14px; border:1px solid var(--line); background:var(--panel2); color:var(--ink); text-align:left; cursor:pointer}
+#shell .cta button b{display:block; font-size:16px; margin-bottom:2px}
+#shell .cta button.primary{background:var(--primary); color:var(--primary-ink); border-color:transparent}
+#shell .cta button small{color:inherit; opacity:.75}
+
+/* ── generic rows and lists ───────────────────────────────────────────── */
+#shell .row{display:flex; align-items:center; gap:8px}
+#shell .frow{cursor:pointer}
+#shell .frow:hover{color:var(--gold)}
+#shell input[type=text],#shell input[type=search]{font:inherit; padding:9px 10px; border-radius:10px; border:1px solid var(--line); background:var(--panel2); color:var(--ink)}
+#shell button.sit{font:inherit; font-weight:600; padding:8px 14px; border-radius:10px; border:0; background:var(--blue); color:#fff; cursor:pointer}
+#shell button.sit.sm{padding:6px 10px; font-size:12px}
+#shell button.sit.ghost{background:var(--panel2); color:var(--ink)}
+#shell button.sit:disabled{opacity:.55; cursor:default}
+
+/* ── filter pills / tabs ──────────────────────────────────────────────── */
+#shell .tabs{display:flex; gap:6px; overflow-x:auto; margin-bottom:12px}
+#shell .tabs button{font:inherit; padding:6px 12px; border-radius:20px; border:1px solid var(--line); background:none; color:var(--dim); white-space:nowrap; cursor:pointer}
+#shell .tabs button.on{background:var(--ink); color:var(--bg); border-color:transparent; font-weight:600}
+#shell .toggle button{font:inherit; font-size:11px; padding:2px 8px; border-radius:10px; border:1px solid var(--line); background:none; color:var(--dim); cursor:pointer}
+#shell .toggle button.on{background:var(--ink); color:var(--bg); border-color:transparent}
+
+/* ── rooms ─────────────────────────────────────────────────────────────── */
+#shell .rooms .room{display:flex; align-items:center; gap:10px; padding:10px 0; border-bottom:1px solid var(--line); cursor:pointer}
+#shell .rooms .room:last-child{border:0}
+#shell .rooms .room b{font-size:15px}
+#shell .rooms .room small{color:var(--dim); display:block}
+#shell .rooms .room .n{margin-left:auto; color:var(--dim); font-size:12px; text-align:right; white-space:nowrap}
+
+/* ── tables (rooms page, room page) ───────────────────────────────────── */
+#shell .trow{display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid var(--line)}
+#shell .trow:last-child{border:0}
+#shell .trow-l{flex:1; min-width:0; display:flex; flex-wrap:wrap; align-items:center; gap:6px}
+#shell .trow-l small{color:var(--dim); font-size:12px; width:100%}
+#shell .mini{display:flex; gap:3px}
+#shell .ms{width:34px; height:22px; border-radius:5px; border:1px dashed var(--line); font-size:10px; display:flex; align-items:center; justify-content:center; color:var(--dim); overflow:hidden}
+#shell .ms.human{border-style:solid; color:var(--ink); background:rgba(0,0,0,.04)}
+#shell .ms.bot{border-style:solid; background:rgba(24,69,165,.08)}
+#shell .trow .playing{color:var(--dim); font-size:12px; white-space:nowrap}
+
+/* ── stats: tiles + streak ────────────────────────────────────────────── */
+#shell .stats .tiles{display:grid; grid-template-columns:repeat(4,1fr); gap:8px; text-align:center}
+#shell .stats .tiles b{display:block; font-size:18px}
+#shell .stats .tiles small{color:var(--dim); font-size:11px}
+#shell .stats .streak{display:flex; align-items:center; gap:8px; margin-top:10px; padding-top:10px; border-top:1px solid var(--line); color:var(--dim); font-size:12px}
+#shell .stats .streak .flame{color:var(--gild); display:flex}
+#shell .stats .streak b{color:var(--ink); font-size:13px}
+
+/* ── leaderboard table ─────────────────────────────────────────────────── */
+#shell table.lb{width:100%; border-collapse:collapse; font-size:12px}
+#shell table.lb th{text-align:left; color:var(--dim); font-weight:500; font-size:10px; letter-spacing:.06em; text-transform:uppercase; padding:2px 6px 6px 0}
+#shell table.lb td{padding:4px 6px 4px 0; border-top:1px solid var(--line)}
+#shell table.lb tr.me td{color:var(--gold)}
+
+/* ── heat grid (wins by seat × round) ─────────────────────────────────── */
+#shell .heat{display:grid; grid-template-columns:auto repeat(4,1fr); gap:3px; margin-top:6px; font-size:11px}
+#shell .heat .hl{color:var(--dim); display:flex; align-items:center; justify-content:center; padding:2px}
+#shell .heat .cell{height:26px; border-radius:4px; display:flex; align-items:center; justify-content:center; color:var(--ink)}
+
+/* ── DM thread bubbles ─────────────────────────────────────────────────── */
+#shell .thread{display:flex; flex-direction:column; gap:8px}
+#shell .bub{max-width:78%; padding:8px 12px; border-radius:14px; background:var(--panel2); display:flex; flex-direction:column; gap:2px}
+#shell .bub small{color:var(--dim); font-size:10px}
+#shell .bub.me{align-self:flex-end; background:var(--accent-soft)}
+#shell .bub.them{align-self:flex-start}
+#shell .bub.sys{align-self:center; max-width:100%; flex-direction:row; align-items:center; gap:10px; background:var(--accent-soft); font-size:12px}
+
+/* ── messages list ─────────────────────────────────────────────────────── */
+#shell .msg{padding:8px 0; border-bottom:1px solid var(--line); align-items:flex-start}
+#shell .msg:last-child{border:0}
+#shell .msg.unread b{color:var(--gold)}
+
+/* ── list rows (Account / Game settings) ──────────────────────────────── */
+#shell .listrow{padding:9px 0; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:10px}
+#shell .listrow:last-child{border:0}
+#shell .listrow > span:first-child{flex:1}
+#shell .listrow b{margin-left:auto; font-weight:600}
+#shell .listrow select,#shell .listrow input[type=range]{font:inherit}
+#shell .switch{position:relative; width:38px; height:22px; border-radius:11px; background:var(--line); border:0; cursor:pointer; flex:0 0 auto}
+#shell .switch::after{content:""; position:absolute; top:2px; left:2px; width:18px; height:18px; border-radius:50%; background:#fff; transition:transform .15s}
+#shell .switch.on{background:var(--green)}
+#shell .switch.on::after{transform:translateX(16px)}
+
+/* ── bottom nav ────────────────────────────────────────────────────────── */
+#shell .nav{position:absolute; left:0; right:0; bottom:0; display:flex; background:var(--panel); border-top:1px solid var(--line); padding:8px 6px calc(8px + env(safe-area-inset-bottom)); z-index:2}
+#shell .nav button{flex:1; font:inherit; font-size:11px; background:none; border:0; color:var(--dim); display:flex; flex-direction:column; align-items:center; gap:3px; cursor:pointer}
+#shell .nav button span.i{display:block; height:22px}
+#shell .nav button.on{color:var(--ink); font-weight:600}
+#shell .nav button[data-k="home"].on{color:var(--ink)}
+#shell .nav button[data-k="rooms"].on{color:#1a8b3a}
+#shell .nav button[data-k="players"].on{color:#1845a5}
+#shell .nav button[data-k="stats"].on{color:#7a5a12}
+@media (prefers-color-scheme: dark){ #shell:not(.theme-light) .nav button[data-k="home"].on{color:#e0d5c8} }
+#shell.theme-dark .nav button[data-k="home"].on{color:#e0d5c8}
+
+/* ── desktop (≥1100px): two/three column dashboards, top nav row ───────── */
+@media (min-width:1100px){
+  #shell .view{padding:20px 28px 28px; max-width:1320px; margin:0 auto; width:100%}
+  /* The bar becomes a top row. The nav is rendered inside the scrolling view with the page, so the
+     view becomes a flex column and the nav is ordered first; the page's own blocks keep their order. */
+  #shell .view{display:flex; flex-direction:column}
+  #shell .view > *{flex:0 0 auto}
+  #shell .nav{position:static; order:-1; background:var(--bg); border:0; border-bottom:1px solid var(--line); justify-content:flex-start; gap:14px; padding:0 0 12px; margin:0 0 16px; width:100%}
+  #shell .nav button{flex:0 0 auto; flex-direction:row; font-size:13px; gap:6px}
+  #shell .cols{display:grid; grid-template-columns:1.4fr 1fr; gap:0 20px; align-items:start}
+  #shell .dash{display:grid; grid-template-columns:repeat(3,1fr); gap:18px 22px; align-items:start}
+  #shell .dash > .cell{min-width:0}
+  #shell .dash .span3{grid-column:1 / -1}
+  #shell .dash .stats .tiles{grid-template-columns:repeat(8,1fr)}
+}
+
+/* ── stats + friends ── */
+/* section title row: label, optional small ink readout (rating's current/Δ),
+   optional ⓘ button — right-aligned, 28px tap target per owner ruling */
+#shell .sec.infot{display:flex; align-items:center; gap:6px}
+#shell .sec.infot .sec-right{margin-left:auto; color:var(--ink); font-weight:600; font-size:12px; text-transform:none; letter-spacing:0; white-space:nowrap}
+#shell .sec.infot .info{margin-left:auto; width:28px; height:28px; flex:0 0 auto; border-radius:50%; border:0; background:none; color:var(--dim); font-size:15px; line-height:1; cursor:pointer; display:inline-flex; align-items:center; justify-content:center}
+#shell .sec.infot .sec-right + .info{margin-left:0}
+#shell .sec.infot .info:hover{color:var(--ink)}
+
+/* info sheet: a card overlay inside #shell, closed by × / Esc / backdrop */
+#shell .infoveil{position:fixed; inset:0; background:rgba(26,26,24,.45); display:flex; align-items:flex-end; justify-content:center; z-index:60; padding:16px; -webkit-overflow-scrolling:touch}
+#shell .infocard{position:relative; background:var(--bg); color:var(--ink); border:1px solid var(--line); border-radius:14px; padding:18px 40px 20px 20px; max-width:420px; width:100%; margin-bottom:10vh; box-shadow:0 20px 60px rgba(0,0,0,.3)}
+#shell .infocard h3{font-size:15px; margin:0 0 8px}
+#shell .infocard p{color:var(--dim); font-size:13px; line-height:1.5; margin:0; white-space:pre-line}
+#shell .infocard .iclose{position:absolute; top:10px; right:10px; width:28px; height:28px; border-radius:14px; border:1px solid var(--line); background:var(--panel); color:var(--ink); font:inherit; font-size:16px; line-height:1; cursor:pointer; padding:0}
+@media (min-width:1100px){ #shell .infoveil{align-items:center} #shell .infocard{margin-bottom:0} }
+
+/* stats: placements sparkline (replaces the "3·1·2·0" text tile) */
+#shell .stats .tiles .place-tile{grid-column:span 1}
+
+/* stats: feeds rows — names never truncate, bars scale to the row's own max */
+#shell .feedrow{display:flex; align-items:center; gap:8px; padding:3px 0}
+#shell .feedrow .fname{min-width:76px; max-width:120px; white-space:normal; word-break:break-word; font-size:12px; line-height:1.25}
+#shell .feedrow svg{flex:1; min-width:0}
+#shell .feedrow b{margin-left:auto; white-space:nowrap; font-size:12px; font-weight:600; flex:0 0 auto}
+
+/* stats: recent games — opponents' names, second line, dim ink */
+#shell .recent-item{padding:2px 0}
+#shell .recent-item .opps{display:block; color:var(--dim); font-size:11px; margin:1px 0 4px; padding-left:0}
+
+/* friends: outline star (☆ dim) fills to a muted-gold star (★) when on;
+   no "disabled" look either way, 18px glyph in a 36px tap target */
+#shell .star{color:var(--dim); font-size:18px; width:36px; height:36px; border-radius:18px; display:inline-flex; align-items:center; justify-content:center; text-align:center; cursor:pointer; background:none; border:0; flex:0 0 auto}
+#shell .star.on{color:var(--gild)}
+#shell .star:hover{background:var(--panel2)}
+
+/* friends: offline rows (any pill) render in dim ink with last-seen */
+#shell .friend-off b{color:var(--dim); font-weight:600}
+
+/* ── avatar ── */
+/* Profile pictures (owner request 2026-09-03) — same 28px `.avatar` circle
+   the letter avatar already uses (see ui.ts avatarHtml/avatarLetter); the
+   image variant just needs cropping to fill it instead of centring a glyph. */
+#shell img.avatar-img{object-fit:cover; background:var(--panel2)}
+/* A larger avatar in context (the player page's header, the account page's
+   own picture row) — wrap avatarHtml()'s output in `<span class="avatar-lg">`
+   rather than sizing `.avatar`/`.avatar-img` inline at every call site. */
+#shell .avatar-lg .avatar{width:44px; height:44px; font-size:18px}
+#shell .avatar-lg.avatar-pick .avatar{width:64px; height:64px; font-size:26px}
+
+/* ── avatar placements (top corner, leaderboard) ── */
+#shell .me .avatar{width:22px; height:22px; font-size:10px}
+#shell .me .name{gap:6px}
+#shell table.lb td.lbname{display:flex; align-items:center; gap:8px}
+#shell table.lb td.lbname .avatar{width:22px; height:22px; font-size:10px}
+
+/* ── New table modal (shell/pages/newtable.ts; design: newtable-lab.html) ──
+ * Three groups, blue as the one config colour, Chinese paired with English,
+ * basic/advanced split, the Almanac-style rules summary + payout band. */
+#shell .shellpanel.nt-panel{padding:0; max-width:920px; overflow:hidden; display:flex; flex-direction:column; max-height:calc(100vh - 32px)}
+#shell .nt{display:flex; flex-direction:column; min-height:0; max-height:calc(100vh - 34px); --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace}
+#shell .nt-head{display:flex; align-items:center; gap:12px; padding:14px 18px 10px; border-bottom:1px solid var(--line); flex:0 0 auto}
+#shell .nt-head h1{font-size:18px; margin:0; padding:0; white-space:nowrap}
+#shell .nt-head .mclose{position:static; margin-left:auto}
+#shell .nt-sum{color:var(--dim); font-size:12px; flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-family:var(--mono)}
+#shell .nt-body{padding:6px 18px 12px; overflow:auto; flex:1 1 auto; min-height:0}
+#shell .nt-h{font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:var(--dim); margin:14px 0 4px; font-weight:600; font-family:var(--mono)}
+#shell .nt-h span{letter-spacing:.06em}
+#shell .nt-row{display:grid; grid-template-columns:104px 1fr; align-items:center; gap:10px; min-height:40px; padding:3px 0}
+#shell .nt-lbl{font-size:13px; color:var(--ink)} #shell .nt-lbl span{color:var(--dim); font-size:12px}
+#shell .nt-cap{grid-column:2; color:var(--dim); font-size:11.5px; margin:-2px 0 4px; line-height:1.35}
+#shell .nt-row.nt-switch{grid-template-columns:1fr auto}
+#shell .nt:not(.showadv) .nt-adv{display:none}
+#shell .nt-txt,#shell .nt-sel{font:inherit; padding:7px 10px; border-radius:9px; border:1px solid var(--line); background:var(--panel); color:var(--ink); width:100%; min-width:0}
+#shell .nt-txt::placeholder{color:var(--dim)}
+#shell .nt-seg{display:flex; gap:6px}
+#shell .nt-seg button{flex:1; font:inherit; font-size:13px; padding:7px 8px; border-radius:9px; border:1px solid var(--line); background:none; color:var(--dim); cursor:pointer; white-space:nowrap; line-height:1.2; min-width:0}
+#shell .nt-seg button b{font-weight:600; color:inherit}
+#shell .nt-seg button small{display:block; font-size:10.5px; color:var(--dim); font-weight:400; margin-top:1px; white-space:normal}
+#shell .nt-seg button:hover{border-color:var(--blue); color:var(--ink)}
+#shell .nt-seg button.on{background:var(--blue); border-color:var(--blue); color:#fff}
+#shell .nt-seg button.on small{color:#fff; opacity:.8}
+#shell .nt-seg button:disabled{opacity:.5; cursor:default} #shell .nt-seg button:disabled:hover{border-color:var(--line); color:var(--dim)}
+#shell .nt-seg button.on:disabled{opacity:.7}
+#shell .nt-sw{width:40px; height:24px; border-radius:12px; background:var(--panel2); border:1px solid var(--line); position:relative; cursor:pointer; justify-self:end; flex:0 0 auto; padding:0}
+#shell .nt-sw::after{content:""; position:absolute; top:2px; left:2px; width:18px; height:18px; border-radius:9px; background:var(--dim); transition:left .12s,background .12s}
+#shell .nt-sw.on{background:var(--blue); border-color:var(--blue)} #shell .nt-sw.on::after{left:18px; background:#fff}
+#shell .nt-sw:disabled{opacity:.6; cursor:default}
+#shell .nt-rsum{display:flex; align-items:center; justify-content:space-between; gap:8px; min-height:40px; padding:8px 12px; border:1px solid var(--line); border-radius:9px; background:var(--panel); cursor:pointer; font:inherit; color:var(--ink); text-align:left; width:100%; margin:2px 0 6px}
+#shell .nt-rsum .s{font-family:var(--mono); font-size:12px; color:var(--ink)}
+#shell .nt-rsum .l{font-family:var(--mono); font-size:12px; color:var(--blue); text-decoration:underline; text-underline-offset:2px; white-space:nowrap}
+#shell .nt-band{grid-column:1 / -1; display:flex; flex-direction:column; gap:8px; margin-top:10px; padding-top:12px; border-top:1px solid var(--line)}
+#shell .nt-band[hidden]{display:none}
+#shell .nt-paywrap{display:grid; grid-template-columns:1fr; gap:10px}
+#shell .nt-curve{border:1px solid var(--line); border-radius:8px; padding:8px 10px 4px; background:var(--bg)}
+#shell .nt-curve .t{font-family:var(--mono); font-size:10px; letter-spacing:.06em; text-transform:uppercase; color:var(--dim); display:flex; justify-content:space-between; gap:8px; white-space:nowrap}
+#shell .nt-curve svg{width:100%; height:120px; display:block; overflow:visible}
+#shell .nt-paytable{border:1px solid var(--line); border-radius:8px; display:grid; grid-template-columns:56px 1fr 1fr; overflow:hidden; font-family:var(--mono); font-size:12px}
+#shell .nt-paytable > span{padding:6px 10px; border-bottom:1px solid var(--line); display:flex; align-items:center}
+#shell .nt-paytable > span:nth-last-child(-n+3){border-bottom:0}
+#shell .nt-paytable .h{font-size:10px; letter-spacing:.08em; text-transform:uppercase; color:var(--dim); background:var(--panel)}
+#shell .nt-paytable .v{justify-content:flex-end; font-variant-numeric:tabular-nums}
+#shell .nt-paytable .f{color:var(--dim)} #shell .nt-paytable .capf{color:var(--blue)}
+#shell .nt-ptsub{font-family:var(--mono); font-size:10px; color:var(--dim); line-height:1.5} #shell .nt-ptsub a{color:var(--blue)}
+#shell .nt-seats{display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:4px}
+#shell .nt-seat{border:1px solid var(--line); border-radius:12px; padding:8px 10px; display:flex; flex-direction:column; gap:6px; background:var(--panel)}
+#shell .nt-seat .w{display:flex; align-items:center; gap:8px; min-width:0}
+#shell .nt-seat .w[role=button]{cursor:pointer}
+#shell .nt-seat .w b{font-size:16px; color:var(--blue)} #shell .nt-seat.you .w b{color:var(--ink)}
+#shell .nt-seat .w span{font-size:12.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+#shell .nt-seat .w .tag{margin-left:auto; font-size:10px; letter-spacing:.08em; text-transform:uppercase; color:var(--dim); font-family:var(--mono); flex:0 0 auto}
+#shell .nt-seat .nt-seg button{padding:5px 6px; font-size:12px}
+#shell .nt-bot,#shell .nt-speed{display:flex; flex-direction:column; gap:2px}
+#shell .nt-speed{padding:4px 0}
+#shell .nt-bot input[type=range],#shell .nt-speed input[type=range]{width:100%; accent-color:var(--blue); margin:4px 0 0}
+#shell .nt-bot .ends,#shell .nt-speed .ends{display:flex; justify-content:space-between; font-size:10px; color:var(--dim); letter-spacing:.04em; text-transform:uppercase; font-family:var(--mono)}
+#shell .nt-bot .who,#shell .nt-speed .who{font-size:12px; margin-top:2px} #shell .nt-bot .who b,#shell .nt-speed .who b{font-weight:600} #shell .nt-bot .who span,#shell .nt-speed .who span{color:var(--dim)}
+#shell .nt-seatsum{color:var(--dim); font-size:12px; margin:8px 0 0}
+#shell .nt-foot{padding:10px 18px 14px; border-top:1px solid var(--line); display:flex; align-items:center; gap:12px; background:var(--bg); flex:0 0 auto}
+#shell .nt-advtog{font-size:12px; color:var(--blue); text-decoration:none; white-space:nowrap; font-family:var(--mono)}
+#shell .nt-hint{color:var(--dim); font-size:12px; flex:1}
+#shell .nt-foot .primary{margin:0; width:auto; font-size:15px; padding:11px 22px}
+#shell .nt-err{margin:0; padding:0 18px 10px} #shell .nt-err:empty{display:none}
+@media (max-width:640px){
+  #shell .nt-row{grid-template-columns:92px 1fr}
+  #shell .nt-hint{display:none}
+  #shell .nt-foot .primary{flex:1}
+  #shell .nt-speed .ends span:nth-child(2),#shell .nt-speed .ends span:nth-child(4){visibility:hidden}
+  #shell .shellveil{padding:8px}
+  #shell .shellpanel.nt-panel{max-height:calc(100vh - 16px)} #shell .nt{max-height:calc(100vh - 18px)}
+}
+@media (min-width:900px){
+  #shell .nt-body{display:grid; grid-template-columns:1fr 1.15fr; gap:6px 28px; align-content:start}
+  #shell .nt-paywrap{grid-template-columns:1.4fr 1fr; align-items:start}
+  #shell .nt-curve svg{height:170px}
+}
+
+/* ── sign-in / sign-up (ACCOUNTS-GAME-SIGNIN-2026-09-04 §4) ─────────────
+ * Two screens that exist OUTSIDE the app: no top bar, no bottom nav, no
+ * identity to render — a single centred card on the shell background. They
+ * are the first thing a stranger sees, so everything here is built out of
+ * the tokens above (paper light / charcoal dark, both) rather than new
+ * colours; `--si-blue` is the ONE thing this block configures, because the
+ * Google button is the only element on either screen that has to read as a
+ * button at a glance. Redeclared for both dark paths here (not up in the
+ * token blocks) so this whole feature is one contiguous block of the file. */
+#shell{--si-blue:#1845a5}
+@media (prefers-color-scheme: dark){ #shell:not(.theme-light){--si-blue:#4f7fe0} }
+#shell.theme-dark{--si-blue:#4f7fe0}
+
+#shell .view:has(.si-wrap){padding-bottom:14px}
+#shell .si-wrap{min-height:100%; display:flex; align-items:center; justify-content:center; padding:8px 0 20px}
+#shell .si-card{width:100%; max-width:380px; background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:26px 22px 20px; text-align:center}
+#shell .si-mark{font-size:15px; font-weight:600; letter-spacing:.04em; color:var(--ink); margin-bottom:14px}
+#shell .si-lede{color:var(--dim); font-size:13px; line-height:1.55; margin:0 0 4px}
+#shell .si-alt{margin:0 0 2px}
+#shell .si-google{display:flex; align-items:center; justify-content:center; gap:9px; margin:18px 0 12px; padding:12px 16px; border:0; border-radius:10px; background:var(--si-blue); color:#fff; font:inherit; font-weight:600; font-size:15px; text-decoration:none; cursor:pointer; width:100%}
+#shell .si-google:hover{filter:brightness(1.06)}
+#shell .si-google .si-g{flex:0 0 auto}
+#shell .si-legal{margin:0; font-size:12px; color:var(--dim)}
+#shell .si-legal a{color:var(--dim); text-decoration:underline; text-underline-offset:2px; margin:0 4px}
+
+/* sign-up: the same card, widened, with the New table modal's row geometry
+ * (.nt-row / .nt-seg / .nt-txt) reused verbatim inside it. */
+#shell .su-card{max-width:460px; text-align:left}
+#shell .su-card .si-mark,#shell .su-card .su-title,#shell .su-card .si-lede{text-align:center}
+#shell .su-title{margin:0 0 4px; font-size:19px}
+#shell .su-card .si-lede{margin:0 auto 14px; max-width:34em}
+#shell .su-zh{display:block; font-size:11px; color:var(--dim); line-height:1.3}
+#shell .su-handle{display:flex; align-items:center; gap:0; border:1px solid var(--line); border-radius:9px; background:var(--panel2); overflow:hidden}
+#shell .su-handle .su-at{padding:0 2px 0 10px; color:var(--dim); font-family:var(--mono)}
+#shell .su-handle .nt-txt{border:0; background:none; padding-left:4px}
+#shell .su-sub{min-height:0; padding:0 0 6px; margin-top:-4px}
+/* narrow: the rule/availability line drops its label column rather than
+   squeezing 'a–z, 0–9 and _' into 200px */
+@media (max-width:640px){ #shell .su-sub{grid-template-columns:0 1fr; gap:0} }
+#shell .su-status{font-size:12px; color:var(--dim)}
+#shell .su-status.ok{color:var(--green)}
+#shell .su-status.bad{color:var(--red)}
+#shell .su-pic{display:flex; align-items:center; gap:10px}
+#shell .su-pic .avatar{width:40px; height:40px; font-size:15px}
+#shell .su-pic small{color:var(--dim); font-size:11px; line-height:1.4}
+#shell .su-check{display:flex; align-items:flex-start; gap:9px; padding:7px 0; font-size:13px; line-height:1.45; cursor:pointer}
+#shell .su-check input{margin:2px 0 0; accent-color:var(--si-blue); width:16px; height:16px; flex:0 0 auto}
+#shell .su-check a{color:var(--si-blue); text-decoration:underline; text-underline-offset:2px}
+#shell .su-err{margin:6px 0 0; color:var(--red); font-size:12.5px}
+#shell .su-go{margin-top:14px}
+
+/* account: the signed-in-as line and the two session-ending buttons */
+#shell .ac-who{margin:0 0 10px; font-size:12.5px; color:var(--dim)}
+#shell .ac-who b{color:var(--ink); font-weight:600}
+#shell .ac-danger{display:flex; flex-direction:column; gap:8px}
+#shell .ac-warn{margin:0; font-size:12.5px; line-height:1.5; color:var(--red)}
+#shell button.sit.danger{background:var(--red); color:#fff}
+#shell .ac-link{color:var(--blue); text-decoration:none; white-space:nowrap}
+
+/* ── players ──────────────────────────────────────────────────────────────
+ * Design of record: client/gamepvp/players-lab.html round 3. Every class is
+ * prefixed `pl-` so the lab's short names (.card, .num, .pres, .lr) cannot
+ * collide with the shell's own; the two helpers the lab draws by hand — the
+ * star and the avatar — are the shell's existing `.star` / `.avatar` instead
+ * of copies. Three tokens the lab has and the shell did not are declared
+ * here rather than up top, so this whole module is one contiguous block.
+ *
+ * ONE deliberate difference from the lab: the star sits in a 34px column,
+ * not 22px. The shell's `.star` is a 36px tap target by an owner ruling
+ * (see the friends block above) and a 22px column would clip it.
+ *
+ * Breakpoint 900px, per the brief — narrower than the shell's own 1100px
+ * desktop switch, so between the two the list is already in its wide form
+ * while the nav is still at the bottom. That is intended: the wide table
+ * needs ~900px of width, not a desktop.
+ */
+#shell{--queue:#e3cf70; --veil:rgba(26,26,24,.45); --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace}
+@media (prefers-color-scheme: dark){ #shell:not(.theme-light){--veil:rgba(0,0,0,.55)} }
+#shell.theme-dark{--veil:rgba(0,0,0,.55)}
+
+/* title row: the second-language word, then the two icon buttons */
+#shell .top h2 .talt{color:var(--dim); font-weight:400; font-size:13px; margin-left:7px}
+#shell .pl-ico{margin-left:auto; display:flex; gap:6px}
+#shell .pl-ico button{width:32px; height:32px; border-radius:16px; border:1px solid var(--line); background:none; color:var(--ink); cursor:pointer; display:inline-flex; align-items:center; justify-content:center; padding:0}
+#shell .pl-ico button svg{width:16px; height:16px; stroke:currentColor; fill:none; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round}
+#shell .pl-ico button.on{background:var(--blue); border-color:var(--blue); color:#fff}
+
+/* chips: the phone's three, and the desktop's four labelled groups */
+#shell .pl-chips{display:flex; gap:5px; margin:4px 0 8px; flex-wrap:wrap; align-items:center}
+#shell .pl-chips button{font:inherit; font-size:12px; padding:4px 10px; border-radius:20px; border:1px solid var(--line); background:none; color:var(--dim); cursor:pointer; white-space:nowrap}
+#shell .pl-chips button.on{background:var(--blue); border-color:var(--blue); color:#fff; font-weight:600}
+#shell .pl-chips .k{font:500 9.5px var(--mono); letter-spacing:.08em; text-transform:uppercase; color:var(--dim); margin:0 4px 0 8px}
+#shell .pl-chips .k:first-child{margin-left:0}
+
+/* phone: the search bar only exists once the search icon opens it, and the
+   chips step aside while it is open. Desktop shows both, always. */
+#shell .pl-web{display:none}
+#shell .pl-search{display:none; gap:6px; margin:0 0 8px}
+#shell .pl-search.open{display:flex}
+#shell .pl-chips.pl-hidep{display:none}
+#shell .pl-search input{flex:1; font:inherit; font-size:12.5px; padding:7px 10px; border-radius:9px; border:1px solid var(--line); background:var(--panel); color:var(--ink); min-width:0}
+
+/* the list card is tighter than a normal card — rows carry their own padding */
+#shell .card.pl-card{padding:4px 14px}
+#shell .pl-count{flex:1; text-align:right; font-size:12px; color:var(--dim)}
+#shell .pl-note{font-size:11.5px; color:var(--dim); margin:8px 0 0}
+
+/* identity: avatar + name (+ @handle on the desktop) */
+#shell .pl-pid{display:flex; align-items:center; gap:9px; min-width:0}
+#shell .pl-pid .avatar{width:26px; height:26px; font-size:11px}
+#shell .pl-pid.unlinked .avatar{background:none; border:1px dashed var(--dim); color:var(--dim)}
+#shell .pl-nm{min-width:0; display:flex; flex-direction:column; line-height:1.2}
+#shell .pl-nm b{font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:13px}
+#shell .pl-nm small{font:10.5px var(--mono); color:var(--dim); white-space:nowrap}
+#shell .pl-pid.lg .avatar{width:52px; height:52px; font-size:20px}
+#shell .pl-pid.lg .pl-nm b{font-size:18px}
+#shell .pl-pid.lg .pl-nm small{font-size:12px; white-space:normal}
+
+/* status: a dot and a phrase — green online/playing, gold queue, hollow off */
+#shell .pl-pres{display:inline-flex; align-items:center; gap:5px; font-size:11.5px; color:var(--dim); white-space:nowrap; min-width:0}
+#shell .pl-pres span.t{overflow:hidden; text-overflow:ellipsis}
+#shell .pl-pres i{width:7px; height:7px; border-radius:50%; background:var(--green); display:inline-block; flex:0 0 auto}
+#shell .pl-pres i.q{background:var(--queue)}
+#shell .pl-pres i.off{background:none; border:1px solid var(--dim)}
+
+/* numbers: tabular, right-aligned, one small caption under the phone's rank */
+#shell .pl-num{font:12.5px var(--mono); text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap}
+#shell .pl-num b{font-weight:600; font-size:13px}
+#shell .pl-num small{display:block; font-size:9.5px; color:var(--dim); letter-spacing:.04em}
+#shell .pl-num.up{color:var(--green)} #shell .pl-num.dn{color:var(--red)}
+
+/* phone rows: star · (name over status) · rank over its game count */
+#shell .pl-lh{display:grid; grid-template-columns:34px 1fr 60px; gap:8px; font:500 9.5px var(--mono); letter-spacing:.08em; text-transform:uppercase; color:var(--dim); padding:6px 0 5px; border-bottom:1px solid var(--line)}
+#shell .pl-lh .r{text-align:right}
+#shell .pl-lr{display:grid; grid-template-columns:34px 1fr 60px; grid-template-areas:"s p r" "s st r"; gap:0 8px; align-items:center; min-height:44px; padding:5px 0; border-bottom:1px solid var(--line); cursor:pointer}
+#shell .pl-lr:last-child{border-bottom:0}
+#shell .pl-lr .star{grid-area:s; font-size:15px}
+#shell .pl-lr .pl-pid{grid-area:p}
+#shell .pl-lr .pl-pres{grid-area:st; padding-left:35px; margin-top:-1px}
+#shell .pl-lr .pl-num{grid-area:r}
+#shell .pl-lr .pl-nm small{display:none}
+#shell .pl-me{background:var(--panel2); margin:0 -14px; padding:0 14px; border-radius:6px}
+
+/* the filter sheet (phone only) — the desktop shows the same three groups
+   inline, so nothing here exists that the wide layout cannot reach */
+#shell .pl-sheet{position:fixed; inset:0; background:var(--veil); display:flex; align-items:flex-end; z-index:60}
+#shell .pl-pane{background:var(--bg); border-radius:16px 16px 0 0; padding:14px 14px calc(18px + env(safe-area-inset-bottom)); width:100%; border-top:1px solid var(--line); max-height:86vh; overflow:auto}
+#shell .pl-pane h4{margin:0 0 6px; font-size:14px; display:flex; align-items:center}
+#shell .pl-pane h4 button{margin-left:auto; font:inherit; font-size:12px; color:var(--blue); background:none; border:0; cursor:pointer; padding:0}
+#shell .pl-pane .k{font:500 9.5px var(--mono); letter-spacing:.08em; text-transform:uppercase; color:var(--dim); margin:10px 0 4px}
+#shell .pl-primary{font:inherit; font-weight:600; font-size:14px; padding:10px 18px; border-radius:10px; border:0; background:var(--blue); color:#fff; cursor:pointer; width:100%; margin-top:12px}
+
+/* player page header (players-lab §3): identity, actions, two tile rows */
+#shell .card.pl-hdr{padding:12px 14px; display:flex; flex-direction:column; gap:8px}
+#shell .pl-idrow{display:flex; align-items:center; gap:14px; flex-wrap:wrap}
+/* phone: the actions get their own row under the name (lab §3, app · phone);
+   the wide layout pulls them back up beside it. */
+#shell .pl-acts{width:100%}
+#shell .pl-tilerows{display:flex; flex-direction:column; gap:6px}
+#shell .pl-acts{display:flex; gap:6px}
+#shell .pl-acts button{font:inherit; font-size:12px; padding:6px 11px; border-radius:9px; border:1px solid var(--line); background:none; color:var(--ink); cursor:pointer}
+#shell .pl-acts button.pri{background:var(--blue); border-color:var(--blue); color:#fff; font-weight:600}
+#shell .pl-acts button:disabled{opacity:.55; cursor:default}
+#shell .pl-acts .star{width:32px; height:32px; font-size:16px; border:1px solid var(--line); border-radius:9px}
+#shell .pl-tiles{display:grid; grid-template-columns:repeat(4,1fr); gap:6px; margin-top:6px}
+#shell .pl-tiles div{background:var(--bg); border:1px solid var(--line); border-radius:9px; padding:7px 4px; text-align:center}
+#shell .pl-tiles b{display:block; font:600 15px var(--mono)}
+#shell .pl-tiles small{font:9px var(--mono); letter-spacing:.06em; text-transform:uppercase; color:var(--dim)}
+
+/* ── players: the wide layout (≥900px) ─────────────────────────────────── */
+@media (min-width:900px){
+  #shell .pl-ico{display:none}
+  #shell .pl-lh{grid-template-columns:34px minmax(120px,1fr) 150px 54px 48px 48px 72px}
+  #shell .pl-lr{grid-template-columns:34px minmax(120px,1fr) 150px 54px 48px 48px 72px; grid-template-areas:none; gap:8px; min-height:42px; padding:0}
+  #shell .pl-lr .star,#shell .pl-lr .pl-pid,#shell .pl-lr .pl-pres,#shell .pl-lr .pl-num{grid-area:auto}
+  #shell .pl-lr .pl-pres{padding-left:0; margin-top:0}
+  #shell .pl-lr .pl-nm small{display:block}
+  #shell .pl-web{display:revert}
+  #shell .pl-search{display:flex}
+  #shell .pl-chips.pl-hidep{display:flex}
+  #shell .pl-lr .pl-num small{display:none}
+  #shell .pl-acts{width:auto; margin-left:auto}
+  /* lab §3 desktop: ranks and record become one eight-tile row. Two grids
+     side by side rather than one grid of eight, so the markup is identical
+     on both surfaces. */
+  #shell .pl-tilerows{display:grid; grid-template-columns:1fr 1fr; gap:6px}
+  #shell .pl-pid.lg .pl-nm small{white-space:nowrap}
+}
+
+/* ── New table: the role picker (2026-09-03) ── */
+#shell .nt-roles{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:0 0 12px}
+#shell .nt-role{border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:none;text-align:left;color:var(--ink);font:inherit;cursor:pointer}
+#shell .nt-role.on{border-color:var(--blue);box-shadow:inset 0 0 0 1px var(--blue);background:var(--panel)}
+#shell .nt-role b{display:block;font-size:14px} #shell .nt-role b span{color:var(--dim);font-weight:400;font-size:12px;margin-left:4px}
+#shell .nt-role small{display:block;color:var(--dim);font-size:11.5px;line-height:1.35;margin-top:2px}
+@media (max-width:520px){#shell .nt-roles{grid-template-columns:1fr}}

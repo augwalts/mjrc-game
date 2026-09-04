@@ -1,0 +1,92 @@
+// gamepvp — the PvP build, as its own Cloudflare Worker.
+//
+// A Worker rather than a Pages project ON PURPOSE: the live match is a Durable
+// Object (worker/src/table.ts), and a DO can only be hosted by a Worker. Static
+// assets, the platform API, the WebSocket path and the DO all ship in this one
+// script, behind one front-door gate (src/index.ts).
+//
+// Solo — the frozen demo — is a separate Pages project (../wrangler.toml) and is
+// not touched by anything here.
+//
+// Local:
+//   npx wrangler d1 execute mjrc-scoring --local --file ../worker/schema.sql   (once)
+//   ../gamepvp/build.sh                                                        (assets)
+//   npx wrangler dev --port 8787
+//
+// Deploy — ONLY with Augustine's explicit approval (worker/README.md §1). The
+// first deploy creates the Worker, the DO namespace and, once uncommented, the
+// custom domain; the R2 bucket must exist first:
+//   npx wrangler r2 bucket create mjrc-game-logs
+//   npx wrangler secret put GAME_PASSWORD
+//   npx wrangler secret put REPLAY_TOKEN_SECRET
+//   npx wrangler deploy
+//
+// Google sign-in (ACCOUNTS-GAME-SIGNIN-2026-09-04.md §2) needs three more
+// secrets. No new binding: `users`, `handle_history` and `consents` live in
+// the SAME mjrc-scoring D1 the `DB` binding below already points at, applied
+// by migrations/remote-2026-09-04-accounts.sql.
+//   npx wrangler secret put GOOGLE_CLIENT_ID       # the OAuth web client id
+//   npx wrangler secret put GOOGLE_CLIENT_SECRET   # confidential client — code flow
+//   npx wrangler secret put SESSION_SECRET         # >= 32 chars; HMAC key for mjrc_session
+// Redirect URIs to register on that Google client, both of them:
+//   https://gamepvp.mahjongresearch.com/auth/google/callback
+//   https://mjrc-gamepvp.augwalts.workers.dev/auth/google/callback
+// Rotating SESSION_SECRET signs everybody out; it revokes no account.
+// AUTH_DEV_BYPASS is deliberately NOT a production secret — it lives only in
+// gamepvp/.dev.vars and turns on GET /auth/dev for local runs and the smoke.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "mjrc-gamepvp",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-06-01",
+
+  // Built by ./build.sh from ../client/gamepvp. `run_worker_first` is the whole
+  // point: every request, assets included, passes through the gate in
+  // src/index.ts before anything is served.
+  "assets": { "directory": "./assets", "binding": "ASSETS", "run_worker_first": true },
+
+  // One object per match, keyed idFromName(matchId) (DESIGN.md §5.3).
+  "durable_objects": {
+    "bindings": [{ "name": "TABLES", "class_name": "TableDO" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["TableDO"] }],
+
+  // The SAME database the website and Solo use (../wrangler.toml). The game's
+  // tables (worker/schema.sql) live alongside the rest so results sit next to
+  // everything else. Migrations are owned by mjrc-app; see the plan §3 W1.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "mjrc-scoring",
+      "database_id": "99279695-d091-496d-902d-4320f2249a42"
+    }
+  ],
+
+  // The omniscient event log, one blob per hand. Server only, forever.
+  "r2_buckets": [{ "binding": "LOGS", "bucket_name": "mjrc-game-logs" }],
+
+  // Pinned onto every match row (DESIGN.md §5.5). Must equal ENGINE_VERSION in
+  // engine/src/reducer.ts for the build being deployed; src/index.ts refuses to
+  // start if they disagree.
+  "vars": {
+    "ENGINE_VERSION": "mjrc-engine/1.0.0",
+    // Augustine's ruling 2026-09-01: 60 s grace — long enough for an app
+    // switch on a phone. `turnMs`/`claimWindowMs` used to live here too (the
+    // 2026-09-02 night timing pass, §8a), but the 2026-09-02 speed-preset
+    // pass (§8a-2, `worker/src/table.ts` `SPEED_PRESETS`) made those PER-TABLE
+    // — a table's `speed` (picked at creation, or a room's fixed one) layers
+    // its preset on TOP of whatever this var sets, so leaving them here would
+    // only ever be silently overridden. `disconnectGraceMs` is the one field
+    // no preset touches, so it is the one field left in this var — see
+    // gamepvp/README.md's "Speed presets" section.
+    "TABLE_CONFIG": "{\"disconnectGraceMs\":60000}"
+  },
+
+  // Live since 2026-09-02. wrangler created the DNS record on deploy.
+  "routes": [{ "pattern": "gamepvp.mahjongresearch.com", "custom_domain": true }],
+  // Keep the workers.dev address too: the headless smoke and a machine whose
+  // resolver lags on the new record can still reach the same deployment.
+  "workers_dev": true,
+
+  "observability": { "enabled": true }
+}

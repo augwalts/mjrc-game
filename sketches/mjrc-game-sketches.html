@@ -1,0 +1,3218 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MJRC Game — P0 screen sketches</title>
+<style>
+:root{
+  --ink:#1a1a1e; --dim:#6b6b76; --faint:#9a9aa4; --line:#d8d8de;
+  --bg:#f4f4f6; --card:#fff; --felt:#e6e9e5; --accent:#1845A5; --warn:#a8341f;
+  --ok:#1A8B3A; --shell:#26262c;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--shell);color:var(--ink);
+  font:13px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+  display:flex;gap:18px;padding:18px;align-items:flex-start;min-height:100vh}
+
+/* ── dev scaffolding ── */
+.rail{width:186px;flex:none;color:#d6d6de;position:sticky;top:18px}
+.rail h1{font-size:12.5px;margin:0 0 2px}
+.rail .sub{font-size:10.5px;color:#8b8b96;margin-bottom:12px;line-height:1.4}
+.rail h2{font-size:9.5px;text-transform:uppercase;letter-spacing:.09em;color:#8b8b96;
+  margin:13px 0 5px;font-weight:600}
+.rail button{display:block;width:100%;text-align:left;background:#32323a;color:#e4e4ea;
+  border:1px solid #43434d;border-radius:5px;padding:5px 8px;margin-bottom:3px;
+  font:inherit;font-size:11.5px;cursor:pointer}
+.rail button:hover{background:#3d3d47}
+.rail button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.rail label{display:flex;align-items:center;gap:6px;font-size:11px;color:#b8b8c2;
+  padding:2px 0;cursor:pointer}
+.rail .stat{font-size:10.5px;color:#8b8b96;line-height:1.55;font-variant-numeric:tabular-nums}
+.rail .stat b{color:#d6d6de;font-weight:600}
+.dimlabel{font-size:10px;color:#6f6f7a;margin:-1px 0 7px}
+
+/* ── device frame ── */
+.stage{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:8px}
+.framewrap{transform-origin:top center}
+.frame{background:var(--bg);border-radius:16px;overflow:hidden;position:relative;
+  box-shadow:0 0 0 7px #3a3a44,0 16px 44px rgba(0,0,0,.5);display:flex;flex-direction:column}
+/* Logical points, landscape. Safe-area insets on notched iPhones are real
+   layout, not decoration: in landscape the Dynamic Island eats ~59pt off one
+   side and the home indicator ~21pt off the bottom. */
+.frame[data-dev="phone"]{width:852px;height:393px;--tile:44px;--pool:15px;--edge:7px;--meld:18px;--nav:52px;--fs:11.5px;
+  --safe-l:59px;--safe-b:21px}
+.frame[data-dev="phonesm"]{width:667px;height:375px;--tile:44px;--pool:13px;--edge:6px;--meld:16px;--nav:48px;--fs:11px;
+  --safe-l:0px;--safe-b:0px}
+.frame[data-dev="ipad"]{width:1194px;height:834px;--tile:54px;--pool:23px;--edge:11px;--meld:28px;--nav:74px;--fs:13px;
+  --safe-l:0px;--safe-b:20px}
+.frame[data-dev="desktop"]{width:1440px;height:900px;--tile:58px;--pool:26px;--edge:12px;--meld:30px;--nav:190px;--fs:13.5px;
+  --safe-l:0px;--safe-b:0px}
+.frame{--safe-l:0px;--safe-b:0px}
+.safeguide{position:absolute;inset:0;pointer-events:none;z-index:30;display:none}
+.frame.showsafe .safeguide{display:block}
+.safeguide i{position:absolute;background:rgba(168,52,31,.13);
+  border:1px dashed rgba(168,52,31,.5);display:block}
+.safeguide .sl{left:0;top:0;bottom:0;width:var(--safe-l)}
+.safeguide .sr{right:0;top:0;bottom:0;width:var(--safe-l)}
+.safeguide .sb{left:0;right:0;bottom:0;height:var(--safe-b)}
+.screen{flex:1;display:flex;min-height:0;font-size:var(--fs)}
+.devcap{color:#8b8b96;font-size:10.5px;font-variant-numeric:tabular-nums}
+
+/* ── notes ── */
+.notes{width:268px;flex:none;color:#b4b4be;font-size:11px;line-height:1.5;position:sticky;top:18px}
+.notes h2{font-size:9.5px;text-transform:uppercase;letter-spacing:.09em;color:#8b8b96;
+  margin:0 0 7px;font-weight:600}
+.notes .n{background:#2e2e36;border-left:2px solid #4a4a56;padding:7px 9px;
+  border-radius:0 5px 5px 0;margin-bottom:6px}
+.notes .n b{color:#e0e0e8;font-weight:600}
+.notes .n code{background:#3a3a44;padding:1px 4px;border-radius:3px;font-size:10px}
+.notes .n.warn{border-left-color:#a8341f} .notes .n.todo{border-left-color:#7a6a2a}
+
+/* ── shell: left nav rail (landscape) ── */
+.shell{flex:1;display:flex;min-width:0}
+.nav{width:var(--nav);flex:none;background:var(--card);border-right:1px solid var(--line);
+  display:flex;flex-direction:column;padding:8px 0;gap:2px}
+.nav .item{display:flex;align-items:center;gap:9px;padding:9px 10px;margin:0 6px;border-radius:7px;
+  cursor:pointer;color:var(--dim);font-weight:600;font-size:11.5px;white-space:nowrap;overflow:hidden}
+.nav .item .ic{font-size:17px;line-height:1;flex:none;width:22px;text-align:center}
+.nav .item.on{background:#eef1f9;color:var(--accent)}
+.nav .item .lb{display:none}
+.frame[data-dev="desktop"] .nav .item .lb{display:inline}
+.nav .sp{flex:1}
+.frame[data-dev="portrait"] .shell{flex-direction:column}
+.frame[data-dev="portrait"] .nav{width:100%;flex-direction:row;border-right:0;
+  border-top:1px solid var(--line);order:2;padding:0}
+.frame[data-dev="portrait"] .nav .item{flex:1;flex-direction:column;gap:2px;margin:4px 2px;
+  justify-content:center;font-size:10px}
+.frame[data-dev="portrait"] .nav .item .lb{display:inline}
+.frame[data-dev="portrait"] .nav .sp{display:none}
+.pane{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0}
+
+/* ── header bar ── */
+.hdr{height:44px;flex:none;display:flex;align-items:center;gap:14px;padding:0 14px;
+  background:var(--card);border-bottom:1px solid var(--line)}
+.hdr .brand{font-size:19px;font-weight:700;color:var(--accent);cursor:pointer;line-height:1}
+.hdr .hnav{display:flex;gap:14px}
+.hdr .hnav span{cursor:pointer;font-weight:600;color:var(--dim);padding:2px 0;
+  border-bottom:2px solid transparent}
+.hdr .hnav span.on{color:var(--accent);border-bottom-color:var(--accent)}
+.hdr .rat{font-weight:700;font-variant-numeric:tabular-nums}
+.hdr .rat i{font-style:normal;font-size:8.5px;color:var(--faint);margin-left:3px;
+  text-transform:uppercase;letter-spacing:.05em}
+.hdr .who{color:var(--dim);cursor:pointer;font-weight:600}
+.hdr .gear{cursor:pointer;color:var(--dim);font-size:15px}
+.hdr .roomchip{font-size:10px;padding:2px 7px;border-radius:9px;background:#eef1f9;
+  color:var(--accent);font-weight:600;cursor:pointer}
+.hero{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  text-align:center;padding:20px}
+.stats{display:flex;gap:16px}
+.st{text-align:right}
+.st b{display:block;font-size:17px;font-variant-numeric:tabular-nums;line-height:1.2}
+.st span{font-size:9.5px;color:var(--faint);text-transform:uppercase;letter-spacing:.05em}
+
+/* ── app chrome ── */
+.appbar{height:42px;flex:none;display:flex;align-items:center;gap:9px;padding:0 14px;
+  background:var(--card);border-bottom:1px solid var(--line)}
+.appbar .ttl{font-weight:650;font-size:calc(var(--fs) + 1px);flex:1}
+.appbar .back{color:var(--accent);cursor:pointer}
+.body{flex:1;overflow-y:auto;padding:14px}
+.body>*{max-width:560px;margin-left:auto;margin-right:auto}
+.col{max-width:560px;margin:0 auto}
+.col.wide{max-width:860px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:9px;padding:12px;margin-bottom:9px}
+.btn{display:block;width:100%;padding:11px;border-radius:8px;border:1px solid var(--accent);
+  background:var(--accent);color:#fff;font:inherit;font-size:calc(var(--fs) + 1px);font-weight:600;
+  cursor:pointer;margin-bottom:8px}
+.btn.ghost{background:transparent;color:var(--accent)}
+.row{display:flex;align-items:center;gap:9px}
+.spacer{flex:1} .mut{color:var(--dim)} .tiny{font-size:calc(var(--fs) - 1.5px)}
+.pill{font-size:9.5px;padding:1px 6px;border-radius:9px;background:#ececed;color:var(--dim);
+  font-weight:600;white-space:nowrap}
+.pill.p1{background:#f0e8d8;color:#7a6a2a}
+.pill.stub{background:#f7e4de;color:var(--warn)}
+input[type=text]{width:100%;padding:9px;border:1px solid var(--line);border-radius:7px;
+  font:inherit;font-size:calc(var(--fs) + 1px)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+.frame[data-dev="phone"] .grid2,.frame[data-dev="portrait"] .grid2{grid-template-columns:1fr}
+
+/* ── tiles ── */
+.t{display:inline-block;line-height:0;vertical-align:top}
+.t svg{display:block;width:100%;height:auto}
+.t.sel{transform:translateY(-8px)}
+.hand .t{width:var(--tile);cursor:pointer;transition:transform .09s}
+.hand .t:active{transform:translateY(-5px)}
+.pool .t{width:var(--pool)} .meld .t{width:var(--meld)} .flow .t{width:calc(var(--pool) + 1px)}
+.big .t{width:calc(var(--tile) * 1.35)}
+
+/* ── match: perspective table (layout per Riichi City reference) ── */
+.match{flex:1;display:flex;flex-direction:column;background:#1f3b34;min-height:0;position:relative}
+.arena{position:relative;flex:1;min-height:0;overflow:hidden;
+  padding-left:var(--safe-l);padding-right:var(--safe-l);
+  background:radial-gradient(ellipse at 50% 46%,#2f6355 0%,#20463c 62%,#173029 100%)}
+
+/* corner furniture — everything lives in the corners, centre stays the table */
+.corner{position:absolute;z-index:4;color:#cfe3dc;font-size:10.5px}
+.corner.tl{top:7px;left:calc(8px + var(--safe-l));background:rgba(0,0,0,.34);border-radius:6px;padding:5px 8px}
+.corner.tr{top:7px;right:calc(8px + var(--safe-l));display:flex;gap:6px}
+.corner.br{bottom:calc(7px + var(--safe-b));right:calc(8px + var(--safe-l))}
+.rnd{position:absolute;bottom:6px;left:50%;transform:translateX(-50%);z-index:4;
+  color:#9fc4b8;font-size:10px;letter-spacing:.04em}
+.iconbtn{width:22px;height:22px;border-radius:50%;background:rgba(0,0,0,.34);color:#cfe3dc;
+  display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:12px;border:0}
+.autos{position:absolute;left:calc(8px + var(--safe-l));top:50%;transform:translateY(-50%);z-index:4;
+  display:flex;flex-direction:column;gap:3px}
+.autos b{width:20px;height:20px;border-radius:5px;background:rgba(0,0,0,.34);color:#9fc4b8;
+  display:flex;align-items:center;justify-content:center;font-size:9.5px;cursor:pointer;font-weight:700}
+.autos b.on{background:var(--accent);color:#fff}
+
+/* the table plane, in perspective */
+.surface{position:absolute;inset:12% 16% 14%;transform:perspective(1150px) rotateX(30deg);
+  transform-origin:50% 66%;z-index:1}
+/* ── the pre-hand ritual: 洗牌 / 砌牌 / 擲骰 / 開牌 ── */
+.ritual{position:absolute;inset:0;z-index:12;cursor:pointer;
+  background:radial-gradient(ellipse at 50% 46%,rgba(20,40,34,.55),rgba(12,26,22,.82))}
+.rwalls{position:absolute;left:50%;top:46%;width:0;height:0}
+.rstk{position:absolute;display:block;transform-origin:50% 50%;border-radius:1.5px;
+  background:linear-gradient(#b3d8ec,#8ab8d4);border:1px solid #5f8ea8;
+  transition:left .62s cubic-bezier(.3,.9,.3,1),top .62s cubic-bezier(.3,.9,.3,1),
+             transform .62s cubic-bezier(.3,.9,.3,1),opacity .3s}
+.rstk.broken{opacity:.12}
+/* the shuffle jostle — every tile drifting slightly, out of phase */
+.ritual .rstk{animation:jostle 420ms ease-in-out infinite alternate}
+.rwalls .rstk:nth-child(3n){animation-duration:520ms}
+.rwalls .rstk:nth-child(3n+1){animation-duration:360ms;animation-delay:80ms}
+@keyframes jostle{
+  from{margin-left:-1px;margin-top:1px}
+  to  {margin-left:1px;margin-top:-1px}
+}
+.dice{position:absolute;left:0;top:0;transform:translate(-50%,-50%);display:flex;gap:6px;z-index:3}
+.die{display:flex;align-items:center;justify-content:center;
+  width:22px;height:22px;border-radius:4px;background:#faf8f2;color:#a8341f;
+  font-size:13px;font-weight:700;border:1px solid #d8d2c4;
+  box-shadow:0 2px 5px rgba(0,0,0,.4);animation:tumble 620ms cubic-bezier(.2,.9,.3,1) both}
+@keyframes tumble{
+  0%  {transform:translateY(-52px) rotate(-540deg) scale(.6);opacity:0}
+  30% {opacity:1}
+  72% {transform:translateY(4px) rotate(12deg) scale(1.12)}
+ 100% {transform:translateY(0) rotate(0deg) scale(1)}
+}
+.rlabel{position:absolute;left:0;right:0;bottom:12px;text-align:center;color:#cfe3dc;
+  font-size:11.5px;letter-spacing:.03em}
+.rlabel b{color:#ffd479;font-size:14px}
+.rlabel span{display:block;font-size:9.5px;color:#7f9a91;margin-top:3px}
+@media (prefers-reduced-motion:reduce){
+  .ritual .rstk{animation:none}
+  .die{animation:none}
+  .rstk{transition-duration:.2s}
+}
+
+/* Wall stacks are positioned by JS (see wallStacks) — CSS only styles them. */
+.walls{position:absolute;left:50%;top:50%;width:0;height:0}
+.stk{position:absolute;display:block;background:#5f8ea8;border:1px solid #47708c;
+  border-radius:1.5px;transform-origin:50% 50%}
+.stk b{position:absolute;left:-1px;right:-1px;top:-2.5px;height:100%;display:block;
+  background:linear-gradient(#b3d8ec,#8ab8d4);border:1px solid #5f8ea8;border-radius:1.5px}
+/* Old-school: one jumbled central pile, positioned by JS (see scatterLayout).
+   Diagram mode uses .dpool instead. */
+.pile{position:absolute;left:50%;top:50%;width:1px;height:1px;z-index:2}
+.pile .t{position:absolute;transform-origin:50% 50%;
+  transform:translate(-50%,-50%) rotate(var(--rot,0deg))}
+
+/* The toss 掟牌 — in HK the discard is THROWN, not placed, and HOW you throw it
+   is character. Four registers, one per personality. Each lands exactly on
+   --rot so the resting scatter is untouched; only the journey differs. */
+
+/* fling — careless, fast, lots of spin, lands askew. the default table register */
+@keyframes toss-fling{
+  0%  {transform:translate(-50%,-50%) translate(var(--fx),var(--fy))
+                rotate(calc(var(--rot) - 260deg)) scale(1.5);opacity:0}
+  20% {opacity:1}
+  70% {transform:translate(-50%,-50%) translate(0,-5px)
+                rotate(calc(var(--rot) + 9deg)) scale(1.07)}
+ 100% {transform:translate(-50%,-50%) rotate(var(--rot)) scale(1)}
+}
+/* place — deliberate, slow, barely turns. the careful player */
+@keyframes toss-place{
+  0%  {transform:translate(-50%,-50%) translate(calc(var(--fx) * .28),calc(var(--fy) * .28))
+                rotate(calc(var(--rot) - 12deg)) scale(1.12);opacity:0}
+  30% {opacity:1}
+ 100% {transform:translate(-50%,-50%) rotate(var(--rot)) scale(1)}
+}
+/* slide — pushed in low along the felt, hardly leaves the surface */
+@keyframes toss-slide{
+  0%  {transform:translate(-50%,-50%) translate(var(--fx),var(--fy))
+                rotate(calc(var(--rot) - 4deg)) scale(.97);opacity:0}
+  18% {opacity:1}
+  82% {transform:translate(-50%,-50%) translate(calc(var(--fx) * .06),calc(var(--fy) * .06))
+                rotate(var(--rot)) scale(1)}
+ 100% {transform:translate(-50%,-50%) rotate(var(--rot)) scale(1)}
+}
+/* slam — decisive, hard landing, overshoots and settles. 打得好大力 */
+@keyframes toss-slam{
+  0%  {transform:translate(-50%,-50%) translate(calc(var(--fx) * .8),calc(var(--fy) * .8))
+                rotate(calc(var(--rot) - 40deg)) scale(1.6);opacity:0}
+  15% {opacity:1}
+  55% {transform:translate(-50%,-50%) translate(0,3px)
+                rotate(calc(var(--rot) + 3deg)) scale(.9)}
+  75% {transform:translate(-50%,-50%) translate(0,-3px)
+                rotate(calc(var(--rot) - 2deg)) scale(1.05)}
+ 100% {transform:translate(-50%,-50%) rotate(var(--rot)) scale(1)}
+}
+.pile .t.toss{z-index:3}
+.pile .t.toss-fling{animation:toss-fling 420ms cubic-bezier(.2,.9,.3,1) both}
+.pile .t.toss-place{animation:toss-place 520ms cubic-bezier(.33,.9,.4,1) both}
+.pile .t.toss-slide{animation:toss-slide 380ms cubic-bezier(.15,.75,.3,1) both}
+.pile .t.toss-slam {animation:toss-slam  300ms cubic-bezier(.25,1.3,.4,1) both}
+@media (prefers-reduced-motion:reduce){
+  .pile .t.toss-fling,.pile .t.toss-place,
+  .pile .t.toss-slide,.pile .t.toss-slam{animation:none}
+}
+.pile .t.last{filter:drop-shadow(0 0 3px #ffd479)}
+.dpool{position:absolute;display:flex;flex-wrap:wrap;gap:1.5px;justify-content:center}
+.dpool.dt{top:14%;left:50%;transform:translateX(-50%);max-width:calc(var(--pool) * 6.4)}
+.dpool.db{bottom:14%;left:50%;transform:translateX(-50%);max-width:calc(var(--pool) * 6.4)}
+.dpool.dl{left:14%;top:50%;transform:translateY(-50%);max-width:calc(var(--pool) * 3.4)}
+.dpool.dr{right:14%;top:50%;transform:translateY(-50%);max-width:calc(var(--pool) * 3.4)}
+.dpool .t{width:var(--pool)}
+.dpool .t.last{outline:2px solid #ffd479;outline-offset:1px;border-radius:2px}
+
+/* centre score box — kept upright rather than in-plane, for legibility at this size */
+.ctrbox{position:absolute;left:50%;top:52%;transform:translate(-50%,-50%);z-index:3;
+  background:rgba(12,26,22,.86);border:1px solid #3f6b5e;border-radius:8px;
+  width:calc(var(--pool) * 5.4);height:calc(var(--pool) * 5.4);max-width:132px;max-height:132px;
+  display:grid;grid-template-columns:1fr auto 1fr;grid-template-rows:auto 1fr auto;
+  place-items:center;color:#d6e8e1;font-variant-numeric:tabular-nums;padding:4px}
+.ctrbox .sc{font-size:10px;font-weight:600}
+.ctrbox .sc.top{grid-area:1/2} .ctrbox .sc.left{grid-area:2/1} .ctrbox .sc.right{grid-area:2/3}
+.ctrbox .sc.bot{grid-area:3/2}
+.ctrbox .mid{grid-area:2/2;text-align:center;line-height:1.15}
+.ctrbox .mid b{display:block;font-size:16px}
+.ctrbox .mid span{font-size:8.5px;color:#8fb3a8;text-transform:uppercase;letter-spacing:.05em}
+
+/* seat badges sit outside the perspective so names stay readable */
+.sb{position:absolute;z-index:4;display:flex;align-items:center;gap:5px;
+  background:rgba(0,0,0,.36);border-radius:7px;padding:3px 7px;color:#dceae5}
+.sb.turn{box-shadow:0 0 0 1.5px #ffd479}
+.sb.top{top:5px;left:50%;transform:translateX(-50%)}
+.sb.left{left:calc(8px + var(--safe-l));top:26%}
+.sb.right{right:calc(8px + var(--safe-l));top:26%}
+.sb .av{width:20px;height:20px;border-radius:5px;background:#4a6f63;display:flex;
+  align-items:center;justify-content:center;font-weight:700;font-size:10px;flex:none}
+.sb .nmw{display:flex;flex-direction:column;line-height:1.2;min-width:0}
+.sb .nmw b{font-size:10.5px;white-space:nowrap}
+.sb .nmw span{font-size:9px;color:#9fc4b8}
+.sbmeld{position:absolute;z-index:3;display:flex;gap:3px;flex-wrap:wrap}
+.sbmeld.top{top:30px;left:50%;transform:translateX(-50%)}
+.sbmeld.left{left:calc(8px + var(--safe-l));top:calc(26% + 26px);max-width:88px}
+.sbmeld.right{right:calc(8px + var(--safe-l));top:calc(26% + 26px);max-width:88px;justify-content:flex-end}
+.sbmeld .set{display:flex;gap:1px;padding:1px;background:rgba(0,0,0,.3);border-radius:3px}
+.sbmeld .t{width:calc(var(--meld) * .82)}
+
+/* your bar *//* your bar */
+.youbar{flex:none;display:flex;align-items:flex-end;gap:10px;min-height:0;
+  padding:5px calc(10px + var(--safe-l)) calc(8px + var(--safe-b));
+  width:100%;max-width:1040px;margin:0 auto}
+/* Narrow seat strip only. Melds move to their own row above the hand so they
+   never steal width from it — the hand is the thing you interact with. */
+.youmeta{flex:none;width:auto;display:flex;flex-direction:column;gap:2px;
+  font-size:calc(var(--fs) - 1px);white-space:nowrap}
+.youmelds{display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end;
+  padding:0 calc(10px + var(--safe-l)) 2px}
+.youmelds .set{display:flex;gap:1px;padding:1px;background:rgba(255,255,255,.5);border-radius:3px}
+.youmelds .t{width:var(--meld)}
+.handwrap{flex:1;display:flex;flex-direction:column;gap:3px;align-items:center;min-width:0}
+.hand{display:flex;gap:2px;align-items:flex-end;padding:4px;background:rgba(255,255,255,.75);
+  border-radius:7px;border:1px solid #d3d7d2;max-width:100%}
+.hand .t{flex:none}
+.hand .gap{width:calc(var(--tile) * .42);flex:none}
+.clock{height:3px;background:#d3d7d2;border-radius:2px;overflow:hidden;width:min(320px,90%)}
+.clock i{display:block;height:100%;background:var(--accent)}
+/* Call buttons float over the table rather than taking width from the hand —
+   as in both references. Frees the full row for tiles, which is what fixes the
+   touch target on the smallest phones. */
+.calls{position:absolute;right:calc(10px + var(--safe-l));bottom:calc(var(--safe-b) + 4px);
+  display:flex;align-items:center;gap:6px;z-index:6}
+.calls:empty{display:none}
+.cbtn{width:calc(var(--tile) * 1.85);height:calc(var(--tile) * 1.85);max-width:60px;max-height:60px;
+  border-radius:50%;border:none;background:var(--accent);color:#fff;font:inherit;
+  font-size:calc(var(--fs) + 1px);font-weight:700;cursor:pointer;position:relative;
+  box-shadow:0 2px 7px rgba(0,0,0,.2)}
+.cbtn.pass{background:#8a8a94} .cbtn.win{background:var(--warn)}
+.cbtn small{display:block;font-size:8px;font-weight:500;opacity:.85}
+.ring{position:absolute;inset:-4px;transform:rotate(-90deg)}
+.ring circle{fill:none;stroke-width:3}
+.banner{padding:5px 9px;border-radius:6px;font-size:10.5px;display:flex;gap:6px;align-items:center}
+.banner.warn{background:#f7e4de;color:var(--warn);border:1px solid #e6c4ba}
+.banner.info{background:#e2e8f5;color:#26417a;border:1px solid #c6d2ea}
+.toast{position:absolute;left:50%;transform:translateX(-50%);top:60px;background:rgba(20,20,24,.93);
+  color:#fff;padding:9px 14px;border-radius:8px;font-size:12px;z-index:9;text-align:center;max-width:330px}
+
+/* results / lists / replay */
+.tabs{display:flex;border-bottom:1px solid var(--line);background:var(--card)}
+.tabs div{flex:1;text-align:center;padding:10px 0;font-weight:600;color:var(--dim);
+  cursor:pointer;border-bottom:2px solid transparent}
+.tabs div.on{color:var(--accent);border-bottom-color:var(--accent)}
+.delta{font-size:32px;font-weight:700;font-variant-numeric:tabular-nums}
+.delta.up{color:var(--ok)} .delta.down{color:var(--warn)}
+table{width:100%;border-collapse:collapse;font-size:calc(var(--fs) - .5px)}
+th{text-align:left;font-size:9.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--faint);
+  font-weight:600;padding:5px 4px;border-bottom:1px solid var(--line)}
+td{padding:6px 4px;border-bottom:1px solid #eee;font-variant-numeric:tabular-nums}
+.faan-line{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px dashed #e4e4e8}
+.faan-line:last-child{border-bottom:0}
+.evlog{font:10.5px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;background:#1e1e24;color:#c8c8d2;
+  border-radius:7px;padding:9px;height:150px;overflow-y:auto}
+.evlog .cur{background:#3a3a48;color:#fff;border-radius:3px}
+.evlog .ty{color:#7fb3ff}
+.scrub{display:flex;align-items:center;gap:8px;padding:8px 0}
+.scrub input[type=range]{flex:1}
+.scrub button{width:36px;height:32px;border-radius:6px;border:1px solid var(--line);
+  background:var(--card);cursor:pointer}
+/* observer mini-table: flat top-down on purpose. Perspective is for playing;
+   an analytical view wants a diagram you can read straight down. */
+.mini{position:relative;width:100%;aspect-ratio:1.18;max-width:330px;margin:0 auto;
+  background:#e2e7e1;border:1px solid #cfd6ce;border-radius:10px;padding:6px}
+.mfelt{position:absolute;inset:17%;background:#d3dbd1;border-radius:8px;
+  box-shadow:inset 0 0 0 1px #c3cdc1}
+.mpile{position:absolute;left:50%;top:50%;width:1px;height:1px}
+.mpile .t{position:absolute;transform-origin:50% 50%}
+.mpile .t.last{filter:drop-shadow(0 0 3px #a8341f)}
+.mseat{position:absolute;display:flex;align-items:center;gap:4px;font-size:10px;
+  color:#3c463c;white-space:nowrap}
+.mseat b{font-size:11px}
+.mseat.mt{top:3px;left:50%;transform:translateX(-50%)}
+.mseat.mb{bottom:3px;left:50%;transform:translateX(-50%)}
+.mseat.ml{left:3px;top:50%;transform:translateY(-50%);flex-direction:column;gap:1px;align-items:flex-start}
+.mseat.mr{right:3px;top:50%;transform:translateY(-50%);flex-direction:column;gap:1px;align-items:flex-end}
+.mseat .dot{width:6px;height:6px;border-radius:50%;background:transparent;flex:none}
+.mseat.turn .dot{background:#a8341f}
+.mmeld{display:flex;gap:2px;flex-wrap:wrap;max-width:78px}
+.mmeld .set{display:flex;gap:1px;background:rgba(0,0,0,.06);border-radius:2px;padding:1px}
+.mmeld .t{width:10px}
+.mwall{position:absolute;left:50%;bottom:19%;transform:translateX(-50%);font-size:9.5px;
+  color:#6b7a6b;background:rgba(255,255,255,.75);border-radius:9px;padding:1px 7px}
+.keys{position:absolute;inset:0;background:rgba(12,12,16,.55);z-index:20;display:flex;
+  align-items:center;justify-content:center;padding:16px}
+.keysbox{background:var(--card);border-radius:10px;padding:14px 16px;max-width:440px;width:100%;
+  max-height:100%;overflow-y:auto;box-shadow:0 12px 40px rgba(0,0,0,.35)}
+kbd{display:inline-block;min-width:52px;text-align:center;font:inherit;font-size:10.5px;
+  font-weight:600;background:#f0f0f3;border:1px solid var(--line);border-bottom-width:2px;
+  border-radius:4px;padding:2px 6px;margin-right:8px}
+.turn{padding:7px 8px;border-bottom:1px solid #f0f0f2;cursor:pointer;border-radius:5px}
+.turn:hover{background:#f7f7f9}
+.turn.on{background:#eef1f9;box-shadow:inset 2px 0 0 var(--accent)}
+.turn:last-child{border-bottom:0}
+.hand-strip{display:flex;gap:1.5px;flex-wrap:wrap;align-items:center}
+.hand-strip .t{width:19px}
+.hand-strip .t.in{box-shadow:0 2px 0 var(--ok);border-radius:2px}
+.hand-strip .t.out{opacity:.42;box-shadow:0 2px 0 var(--warn);border-radius:2px}
+.io{font-weight:600;font-size:10.5px;padding:0 5px;border-radius:8px}
+.io.in{color:var(--ok);background:#e6f2e9}
+.io.out{color:var(--warn);background:#f7e4de}
+.io.thru{color:#8a6a1f;background:#f7efd9}
+.hand-strip .t.thru{opacity:.55;box-shadow:0 2px 0 #b8901f;border-radius:2px}
+.lane{background:var(--card);border:1px solid var(--line);border-radius:8px;
+  padding:8px 10px;margin-bottom:7px}
+.lane .pool{flex-wrap:wrap}
+.mrow{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line);cursor:pointer}
+.mrow:last-child{border-bottom:0}
+.mrow .res{width:32px;height:32px;border-radius:6px;display:flex;align-items:center;
+  justify-content:center;font-weight:700;color:#fff;flex:none}
+</style>
+</head>
+<body>
+<div class="rail">
+  <h1>MJRC Game — P0 sketches</h1>
+  <div class="sub">Function over style. Real tile art, placeholders elsewhere.
+    Match scene runs the §5.2 state machine for real.</div>
+
+  <h2>Device</h2>
+  <button data-dev="phone">iPhone 15 · 852×393</button>
+  <button data-dev="phonesm">iPhone SE · 667×375</button>
+  <button data-dev="ipad">iPad Pro 11" · 1194×834</button>
+  <button data-dev="desktop">Desktop · 1440×900</button>
+  <label style="margin-top:5px"><input type="checkbox" id="ck-safe"> Show safe areas</label>
+  <div class="dimlabel" id="dimlabel"></div>
+
+  <h2>Screens</h2>
+  <button data-nav="lobby">Lobby</button>
+  <button data-nav="match">Match</button>
+  <button data-nav="results">Results</button>
+  <button data-nav="matches">Review</button>
+  <button data-nav="handreview">Hand review</button>
+  <button data-nav="observer">Observer mode</button>
+  <button data-nav="rooms">Rooms</button>
+  <button data-nav="landing">Landing / sign-in</button>
+  <button data-nav="replay">Replay viewer</button>
+  <button data-nav="shared">Shared replay</button>
+  <button data-nav="ia">IA map</button>
+
+  <h2>Match controls</h2>
+  <label><input type="checkbox" id="ck-labels" checked> Learner labels</label>
+  <label><input type="checkbox" id="ck-autopass"> Auto-pass claims</label>
+  <label><input type="checkbox" id="ck-floor"> Force faan-floor warning</label>
+  <label><input type="checkbox" id="ck-omni"> Omniscient view</label>
+  <label><input type="checkbox" id="ck-riichi"> Diagram mode (ordered pools)</label>
+  <label><input type="checkbox" id="ck-attrib"> Pile: show attribution</label>
+  <label><input type="checkbox" id="ck-notes" checked> Spec notes</label>
+  <button data-act="newhand" style="margin-top:7px">New hand</button>
+  <button data-act="showkeys">Hotkeys (?)</button>
+
+  <h2>Bot texture</h2>
+  <div class="stat" id="texture">measuring…</div>
+</div>
+
+<div class="stage">
+  <div class="framewrap" id="framewrap">
+    <div class="frame" data-dev="phone" id="frame"><div class="screen" id="screen"></div><div class="safeguide"><i class="sl"></i><i class="sr"></i><i class="sb"></i></div></div>
+  </div>
+  <div class="devcap" id="devcap"></div>
+</div>
+
+<div class="notes" id="notes"></div>
+
+<script>/* ---- tiles.gen.js ---- */
+"use strict";
+var MJTiles = (() => {
+  var __defProp = Object.defineProperty;
+  var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+  var __getOwnPropNames = Object.getOwnPropertyNames;
+  var __hasOwnProp = Object.prototype.hasOwnProperty;
+  var __export = (target, all) => {
+    for (var name in all)
+      __defProp(target, name, { get: all[name], enumerable: true });
+  };
+  var __copyProps = (to, from, except, desc) => {
+    if (from && typeof from === "object" || typeof from === "function") {
+      for (let key of __getOwnPropNames(from))
+        if (!__hasOwnProp.call(to, key) && key !== except)
+          __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+    }
+    return to;
+  };
+  var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
+
+  // src/features/tiles/render.ts
+  var render_exports = {};
+  __export(render_exports, {
+    PAL: () => PAL,
+    labelOverlay: () => labelOverlay,
+    recenterGlyphs: () => recenterGlyphs,
+    tileArt: () => tileArt,
+    tileBack: () => tileBack,
+    tileBody: () => tileBody,
+    tileDragon: () => tileDragon,
+    tileFlower: () => tileFlower,
+    tileSVG: () => tileSVG,
+    tileSuo: () => tileSuo,
+    tileTong: () => tileTong,
+    tileWan: () => tileWan,
+    tileWind: () => tileWind
+  });
+  var PAL = { face: "#FAFAF8", border: "#CCCCCC", blue: "#1845A5", green: "#1A8B3A", red: "#D42222" };
+  var B = "blue";
+  var G = "green";
+  var R = "red";
+  var fx = (v) => (+v).toFixed(2);
+  function tileBody() {
+    return `<rect x="1" y="1" width="98" height="138" rx="7" ry="7" fill="${PAL.face}" stroke="${PAL.border}" stroke-width="1.5"/>`;
+  }
+  var RULES = {
+    W: 100,
+    H: 140,
+    marginNat: 11,
+    marginMin: 7,
+    gutterMin: 1,
+    gapRatio2: 0.275,
+    tentAngle: 25,
+    squishBeadRy: 0.8,
+    squishSpacing: 1.1,
+    tierCap(count, nat, grow = true) {
+      if (count === 1) return Infinity;
+      if (!grow) return nat;
+      if (count === 2) return RULES.H / (2 + 3 * RULES.gapRatio2);
+      if (count === 3) return nat * 1.1;
+      return nat;
+    }
+  };
+  function solveLayout(bands, prim, count, opts = {}) {
+    const Rn = bands.length;
+    const gm = prim.gutterMin ?? RULES.gutterMin;
+    const Cmax = Math.max(1, ...bands.map((b) => b.cols ? b.of : b.anchor3 || b.vrow ? 3 : !b.colOf && !b.dy && !b.block && !b.tent ? b.n : 1));
+    const dyRange = (b) => b.dy ? Math.max(...b.dy) - Math.min(...b.dy) : 0;
+    const sinT = Math.sin(RULES.tentAngle * Math.PI / 180), cosT = Math.cos(RULES.tentAngle * Math.PI / 180);
+    const hFactor = (b) => b.block ? b.block.rows : b.tent ? cosT + prim.aspect * sinT : 1 + dyRange(b) + (b.pad || 0);
+    const totalFactor = bands.reduce((s, b) => s + hFactor(b), 0);
+    const fixedGaps = bands.reduce((s, b) => s + (b.block ? (b.block.rows - 1) * b.block.gap : 0), 0);
+    let m = RULES.marginNat, size = 0, my = 0;
+    while (true) {
+      my = opts.my ?? (opts.tightV ? RULES.marginMin : m);
+      const Wc2 = RULES.W - 2 * m, Hc2 = RULES.H - 2 * my;
+      const gapCount = opts.distV === "between" ? Math.max(Rn - 1, 0) : Rn;
+      const fitV = (Hc2 - gapCount * gm - fixedGaps) / totalFactor;
+      let fitH = (Wc2 / Cmax - gm) / prim.aspect;
+      bands.forEach((b) => {
+        if (b.dy && b.n > 1) fitH = Math.min(fitH, Wc2 / ((1 + 0.8 * (b.n - 1)) * prim.aspect));
+        if (b.block) fitH = Math.min(fitH, (Wc2 - (b.block.cols - 1) * b.block.gap - gm) / (b.block.cols * prim.aspect));
+        if (b.tent) {
+          const targetSpan = 2 * Wc2 / 3 + prim.aspect * prim.nat;
+          fitH = Math.min(fitH, targetSpan / (4 * sinT + prim.aspect * cosT));
+        }
+        if (b.anchor3 && b.n > 1)
+          fitH = Math.min(fitH, (2 * Wc2 / 3 / (b.n - 1) - RULES.gutterMin) / prim.aspect);
+      });
+      size = Math.min(RULES.tierCap(count, prim.nat, prim.grow ?? true), fitV, fitH);
+      if (size >= prim.min || m <= RULES.marginMin) break;
+      m -= 1;
+    }
+    size = Math.max(size, prim.min);
+    const Wc = RULES.W - 2 * m, Hc = RULES.H - 2 * my;
+    const w = prim.aspect * size;
+    const bandH = (b) => size * hFactor(b) + (b.block ? (b.block.rows - 1) * b.block.gap : 0);
+    const totalH = bands.reduce((s, b) => s + bandH(b), 0);
+    let g, yStart;
+    if (opts.distV === "even") {
+      g = (RULES.H - totalH) / (Rn + 1);
+      yStart = g;
+    } else if (opts.distV === "between") {
+      g = Rn > 1 ? (Hc - totalH) / (Rn - 1) : 0;
+      yStart = Rn > 1 ? my : my + (Hc - totalH) / 2;
+    } else {
+      g = (Hc - totalH) / Rn;
+      yStart = my + g / 2;
+    }
+    const spreadX = (f) => m + w / 2 + (Wc - w) * f;
+    const blockBand = bands.find((b) => b.block);
+    const blockXs = blockBand ? Array.from({ length: blockBand.block.cols }, (_, c) => 50 + (c - (blockBand.block.cols - 1) / 2) * (w + blockBand.block.gap)) : null;
+    const slots = [];
+    let y = yStart;
+    bands.forEach((band) => {
+      const cyPlain = y + bandH(band) / 2;
+      if (band.block) {
+        const { cols, rows, gap } = band.block;
+        for (let r2 = 0; r2 < rows; r2++) {
+          const cy = y + size / 2 + r2 * (size + gap);
+          for (let c = 0; c < cols; c++) slots.push([50 + (c - (cols - 1) / 2) * (w + gap), cy]);
+        }
+      } else if (band.colOf) {
+        const [idx, total] = band.colOf;
+        slots.push([spreadX(total > 1 ? idx / (total - 1) : 0.5), cyPlain]);
+      } else if (band.dy) {
+        const cy = y + bandH(band) / 2;
+        for (let k = 0; k < band.n; k++)
+          slots.push([spreadX(band.n > 1 ? k / (band.n - 1) : 0.5), cy + band.dy[k] * size]);
+      } else if (band.tent) {
+        const deg = RULES.tentAngle;
+        const dx = size * sinT;
+        const hwRot = (size * sinT + w * cosT) / 2;
+        const span = 3 * dx + 2 * hwRot;
+        const cy = y + bandH(band) / 2;
+        const x1 = m + (Wc - span) / 2 + hwRot;
+        for (let k = 0; k < 4; k++) {
+          const sign = k % 2 === 0 === (band.tent === "up") ? 1 : -1;
+          slots.push([x1 + k * dx, cy, sign * deg]);
+        }
+      } else if (band.cols) {
+        const gH = (Wc - band.of * w) / band.of;
+        band.cols.forEach((ci) => slots.push([m + gH / 2 + w / 2 + ci * (w + gH), cyPlain]));
+      } else if (band.vrow) {
+        const cy = y + bandH(band) / 2;
+        const gH3 = (Wc - 3 * w) / 3;
+        const xL = m + gH3 / 2 + w / 2, xR = xL + 2 * (w + gH3);
+        slots.push([xL, cy, 0], [xR, cy, 0]);
+        const endOff = (prim.endBeadFrac ?? 0.316) * size;
+        const q = prim.beadQ ?? 1;
+        const span = 2 * endOff;
+        const dx = 50 - xL;
+        const dyv = Math.sqrt(Math.max(span * span - dx * dx, 0.01));
+        const deg = Math.atan2(dx, dyv) * 180 / Math.PI;
+        const rad = Math.abs(deg) * Math.PI / 180;
+        const hwv = endOff * Math.sin(rad) + w / 2;
+        const hhv = endOff * Math.cos(rad) + w / 2 * q;
+        if (band.vrow === "up") {
+          const ay = cy + endOff, py = ay - dyv;
+          slots.push(
+            [(xL + 50) / 2, (ay + py) / 2, deg, 1, hwv, hhv],
+            [(xR + 50) / 2, (ay + py) / 2, -deg, 1, hwv, hhv]
+          );
+        } else {
+          const ay = cy - endOff, vy = ay + dyv;
+          slots.push(
+            [(xL + 50) / 2, (ay + vy) / 2, -deg, 1, hwv, hhv],
+            [(xR + 50) / 2, (ay + vy) / 2, deg, 1, hwv, hhv]
+          );
+        }
+      } else if (band.anchor3) {
+        const gH3 = (Wc - 3 * w) / 3;
+        const c0 = m + gH3 / 2 + w / 2, c2 = c0 + 2 * (w + gH3);
+        for (let k = 0; k < band.n; k++)
+          slots.push([c0 + (c2 - c0) * k / (band.n - 1), cyPlain]);
+      } else if (band.align === "block" && blockXs && blockXs.length === band.n) {
+        blockXs.forEach((bx) => slots.push([bx, cyPlain]));
+      } else {
+        const gH = (Wc - band.n * w) / band.n;
+        for (let k = 0; k < band.n; k++)
+          slots.push([m + gH / 2 + w / 2 + k * (w + gH), cyPlain]);
+      }
+      y += bandH(band) + g;
+    });
+    return { slots, size, margin: m, marginY: my };
+  }
+  var GLYPH = { font: "FandolKai, 'Noto Serif SC', 'Songti SC', STSong, serif", weight: 0.6, stretchX: 1.15, stretchY: 1.18, fontLift: 0.04 };
+  function glyph({ ch, cx, cy, size, color }) {
+    const dy = -size * GLYPH.fontLift;
+    return `<g transform="translate(${cx} ${cy + dy}) scale(${GLYPH.stretchX} ${GLYPH.stretchY})" class="glyph"><text x="0" y="0" text-anchor="middle" dominant-baseline="central" font-family="${GLYPH.font}" font-size="${size}" fill="${PAL[color]}" stroke="${PAL[color]}" stroke-width="${GLYPH.weight}" stroke-linejoin="round" paint-order="stroke">${ch}</text></g>`;
+  }
+  var NUMERALS = ["\u4E00", "\u4E8C", "\u4E09", "\u56DB", "\u4F0D", "\u516D", "\u4E03", "\u516B", "\u4E5D"];
+  function tileWan(n) {
+    return tileBody() + glyph({ ch: NUMERALS[n - 1], cx: 50, cy: 38, size: 44, color: "blue" }) + glyph({ ch: "\u842C", cx: 50, cy: 96, size: 60, color: "red" });
+  }
+  var WINDCH = ["\u6771", "\u5357", "\u897F", "\u5317"];
+  function tileWind(k) {
+    return tileBody() + glyph({ ch: WINDCH[k], cx: 50, cy: 70, size: 70, color: "blue" });
+  }
+  function tileDragon(k) {
+    if (k === 0) return tileBody() + glyph({ ch: "\u4E2D", cx: 50, cy: 70, size: 78, color: "red" });
+    if (k === 1) return tileBody() + glyph({ ch: "\u767C", cx: 50, cy: 70, size: 68, color: "green" });
+    return tileBody() + `<rect x="22" y="31" width="56" height="78" rx="2" fill="none" stroke="${PAL.blue}" stroke-width="2.6"/><rect x="27" y="36" width="46" height="68" rx="1.5" fill="none" stroke="${PAL.blue}" stroke-width="1.4"/>`;
+  }
+  function recenterGlyphs(root) {
+    root.querySelectorAll("g.glyph").forEach((g) => {
+      const t = g.querySelector("text");
+      if (!t) return;
+      let bb;
+      try {
+        bb = t.getBBox();
+      } catch {
+        return;
+      }
+      if (!bb || bb.width === 0) return;
+      const curX = parseFloat(t.getAttribute("x") || "0") || 0;
+      const curY = parseFloat(t.getAttribute("y") || "0") || 0;
+      t.setAttribute("x", String(curX - (bb.x + bb.width / 2)));
+      t.setAttribute("y", String(curY - (bb.y + bb.height / 2)));
+    });
+  }
+  function pipBullseye(cx, cy, d, color, P) {
+    const Rr = d / 2, b = P.whiteBoost ?? 1.1, n = P.innerRings, k = P.dotBoost ?? 1.2;
+    const wo = P.outerFrac * Rr;
+    const rd = (Rr - wo) / (1 + 2 / k * (n * (1 + b) + b));
+    const wg = 2 * rd / k;
+    const ww = b * wg;
+    const parts = [`<circle cx="${fx(cx)}" cy="${fx(cy)}" r="${fx(rd)}" fill="${PAL[color]}"/>`];
+    for (let i = 1; i <= n; i++) {
+      const rInner = rd + i * ww + (i - 1) * wg;
+      parts.push(`<circle cx="${fx(cx)}" cy="${fx(cy)}" r="${fx(rInner + wg / 2)}" fill="none" stroke="${PAL[color]}" stroke-width="${fx(wg)}"/>`);
+    }
+    parts.push(`<circle cx="${fx(cx)}" cy="${fx(cy)}" r="${fx(Rr - wo / 2)}" fill="none" stroke="${PAL[color]}" stroke-width="${fx(wo)}"/>`);
+    return parts.join("");
+  }
+  var P_BULL_1 = { innerRings: 1, outerFrac: 0.29, whiteBoost: 1.1, dotBoost: 2.4 };
+  var P_BULL_2 = { innerRings: 2, outerFrac: 0.24, whiteBoost: 1.1, dotBoost: 2.4 };
+  function rosette(cx, cy, d, centerDraw) {
+    const Rr = d / 2, F = PAL.face;
+    const parts = [];
+    const bandR = Rr * 0.88, bandW = Rr * 0.24;
+    parts.push(`<circle cx="${fx(cx)}" cy="${fx(cy)}" r="${fx(bandR)}" fill="none" stroke="${PAL.green}" stroke-width="${fx(bandW)}"/>`);
+    for (let i = 0; i < 16; i++) {
+      const a = i * Math.PI / 8;
+      parts.push(`<circle cx="${fx(cx + Math.cos(a) * bandR)}" cy="${fx(cy + Math.sin(a) * bandR)}" r="${fx(Rr * 0.055)}" fill="${F}"/>`);
+    }
+    for (let i = 0; i < 10; i++) {
+      const a = i * 36, rad = a * Math.PI / 180;
+      const px = cx + Math.cos(rad) * Rr * 0.55, py = cy + Math.sin(rad) * Rr * 0.55;
+      parts.push(`<ellipse cx="${fx(px)}" cy="${fx(py)}" rx="${fx(Rr * 0.18)}" ry="${fx(Rr * 0.11)}" fill="${PAL.blue}" transform="rotate(${a} ${fx(px)} ${fx(py)})"/>`);
+    }
+    parts.push(`<circle cx="${fx(cx)}" cy="${fx(cy)}" r="${fx(Rr * 0.37)}" fill="${F}"/>`);
+    parts.push(centerDraw(cx, cy, Rr * 0.66));
+    return parts.join("");
+  }
+  var PIP_PRIM = { nat: 30, min: 28, aspect: 1 };
+  function caneAspect(P) {
+    return 2 / (2 * (P.beadRy ?? 1) + (P.beads - 1) * P.spacing);
+  }
+  function caneGeom(H, P) {
+    const q = P.beadRy ?? 1;
+    const r = H / (2 * q + (P.beads - 1) * P.spacing);
+    return { q, r, step: P.spacing * r };
+  }
+  function caneBeads(cx, cy, H, color, P) {
+    const { q, r, step } = caneGeom(H, P);
+    const y0 = cy - (P.beads - 1) / 2 * step;
+    const parts = [];
+    for (let i = 0; i < P.beads; i++)
+      parts.push(`<ellipse cx="${fx(cx)}" cy="${fx(y0 + i * step)}" rx="${fx(r)}" ry="${fx(r * q)}" fill="${PAL[color]}"/>`);
+    return parts.join("");
+  }
+  function caneSlit(cx, cy, H, _color, P) {
+    if (!(P.slit > 0)) return "";
+    const { q, r, step } = caneGeom(H, P);
+    const y0 = cy - (P.beads - 1) / 2 * step;
+    const over = r * q * (P.slitOver ?? 0.18);
+    const yTop = y0 - over, yBot = y0 + (P.beads - 1) * step + over;
+    return `<line x1="${fx(cx)}" y1="${fx(yTop)}" x2="${fx(cx)}" y2="${fx(yBot)}" stroke="${PAL.face}" stroke-width="${fx(r * P.slit)}" stroke-linecap="round"/>`;
+  }
+  var CANE_PRIM = { nat: 52, min: 36, aspect: 1, gutterMin: 6, grow: false };
+  var CANE_C2 = { beads: 3, spacing: 1.72, slit: 0.35 };
+  function squishCaneP(P) {
+    return {
+      ...P,
+      beadRy: RULES.squishBeadRy,
+      spacing: RULES.squishSpacing,
+      slit: P.slit > 0 ? 0.38 : 0,
+      slitOver: 0.12
+    };
+  }
+  function caneSetup(n) {
+    const P = BAMBOO_SPECS[n] && BAMBOO_SPECS[n].squish ? squishCaneP(CANE_C2) : CANE_C2;
+    const q = P.beadRy ?? 1;
+    const denom = 2 * q + (P.beads - 1) * P.spacing;
+    return { prim: {
+      ...CANE_PRIM,
+      aspect: caneAspect(P),
+      endBeadFrac: (P.beads - 1) / 2 * P.spacing / denom,
+      beadQ: q
+    }, P };
+  }
+  var GRID_2x2 = [{ n: 2 }, { n: 2 }];
+  var RED_QUAD = { block: { cols: 2, rows: 2, gap: 2 } };
+  var STAG = 0.35;
+  var CIRCLE_SPECS = {
+    2: { bands: [{ n: 1 }, { n: 1 }], colors: [G, B], distV: "even" },
+    3: { bands: [{ colOf: [0, 3] }, { colOf: [1, 3] }, { colOf: [2, 3] }], colors: [B, R, G] },
+    4: { bands: GRID_2x2, colors: [G, B, B, G] },
+    5: { bands: GRID_2x2, colors: [G, B, B, G], center: R },
+    6: { bands: [{ n: 2, align: "block", pad: 2 * STAG }, RED_QUAD], colors: [G, G, R, R, R, R], tightV: true },
+    7: { bands: [{ n: 3, dy: [-STAG, 0, STAG] }, RED_QUAD], colors: [G, G, G, R, R, R, R], tightV: true },
+    8: { bands: [{ block: { cols: 2, rows: 4, gap: 2 } }], colors: [B, B, B, B, B, B, B, B] },
+    9: { bands: [{ n: 3 }, { n: 3 }, { n: 3 }], colors: [G, G, G, R, R, R, B, B, B] }
+  };
+  var B_OUT3 = { cols: [0, 2], of: 3 };
+  var BAMBOO_3x2 = [{ n: 3 }, { n: 3 }];
+  var BAMBOO_SPECS = {
+    2: { bands: [{ n: 1 }, { n: 1 }], colors: [G, G] },
+    3: { bands: [{ n: 1 }, B_OUT3], colors: [G, G, G] },
+    4: { bands: [{ n: 2 }, { n: 2 }], colors: [G, G, G, G] },
+    5: { bands: [B_OUT3, B_OUT3], colors: [G, G, G, G], center: R },
+    6: { bands: BAMBOO_3x2, colors: [G, G, G, G, G, G] },
+    7: { bands: [{ n: 1 }, ...BAMBOO_3x2], colors: [R, G, G, G, G, G, G], squish: true },
+    8: { bands: [{ vrow: "up" }, { vrow: "down" }], colors: [G, G, G, G, G, G, G, G] },
+    9: { bands: [{ n: 3 }, { n: 3 }, { n: 3 }], colors: [G, R, G, G, R, G, G, R, G], squish: true }
+  };
+  Object.values(BAMBOO_SPECS).forEach((sp) => {
+    sp.distV = "between";
+    sp.my = 12;
+  });
+  function renderSpec(spec, prim, drawFn, P, drawFn2) {
+    const count = spec.colors.length + (spec.center ? 1 : 0);
+    const { slots, size } = solveLayout(spec.bands, prim, count, { tightV: spec.tightV, distV: spec.distV, my: spec.my });
+    const pass = (fn) => slots.map(([x, y, rot, sc], i) => {
+      const piece = fn(x, y, size * (sc || 1), spec.colors[i], P);
+      return rot ? `<g transform="rotate(${rot} ${x.toFixed(1)} ${y.toFixed(1)})">${piece}</g>` : piece;
+    }).join("") + (spec.center ? fn(50, 70, size, spec.center, P) : "");
+    return pass(drawFn) + (drawFn2 ? pass(drawFn2) : "");
+  }
+  var pipN = (cx, cy, d, c) => pipBullseye(cx, cy, d, c, P_BULL_1);
+  function tileTong(n) {
+    if (n === 1) {
+      const D = RULES.W - 2 * RULES.marginNat;
+      return tileBody() + rosette(50, 70, D, (cx, cy, d) => pipN(cx, cy, d, R));
+    }
+    if (n === 2) {
+      const spec = CIRCLE_SPECS[2];
+      const { slots, size } = solveLayout(spec.bands, PIP_PRIM, 2, { distV: spec.distV });
+      return tileBody() + slots.map(([x, y], i) => pipBullseye(x, y, size, spec.colors[i], P_BULL_2)).join("");
+    }
+    return tileBody() + renderSpec(CIRCLE_SPECS[n], PIP_PRIM, pipN, null);
+  }
+  var BIRD_ART = `<g transform="translate(3.68 10.56) scale(0.08492)"><path d="M 590.0 207.5 C 590.0 201.8 585.8 224.0 591.5 224.0 C 592.0 229.5 604.0 225.0 608.5 224.0 C 613.0 223.0 612.7 220.3 618.5 218.0 C 624.3 215.7 633.7 211.2 643.5 210.0 C 653.3 208.8 667.0 209.0 677.5 211.0 C 688.0 213.0 697.4 216.6 706.5 222.0 C 715.6 227.4 724.9 235.9 732.0 243.5 C 739.1 251.1 744.0 259.0 749.0 267.5 C 754.0 276.0 758.0 284.3 762.0 294.5 C 766.0 304.7 769.8 315.2 773.0 328.5 C 776.2 341.8 779.7 358.5 781.0 374.5 C 782.3 390.5 782.5 406.8 781.0 424.5 C 779.5 442.2 775.7 464.7 772.0 480.5 C 768.3 496.3 763.8 507.3 759.0 519.5 C 754.2 531.7 748.5 543.2 743.0 553.5 C 737.5 563.8 733.1 571.4 726.0 581.5 C 718.9 591.6 689.8 621.3 700.5 614.0 C 692.0 624.8 720.2 601.3 732.5 592.0 C 744.8 582.7 756.0 574.8 774.5 558.0 C 793.0 541.2 824.7 508.5 843.5 491.0 C 862.3 473.5 877.5 459.3 887.5 453.0 C 897.5 446.7 903.3 447.5 903.5 453.0 C 908.8 453.0 907.6 462.2 904.0 469.5 C 900.4 476.8 877.5 500.0 882.0 496.5 C 874.7 505.5 890.5 487.7 895.5 486.0 C 900.5 484.3 912.0 481.2 912.0 486.5 C 917.5 486.7 922.6 489.8 912.0 502.5 C 901.4 515.2 862.8 552.9 848.5 563.0 C 834.2 573.1 831.5 561.3 826.5 563.0 C 821.5 564.7 828.2 564.8 818.5 573.0 C 808.8 581.2 776.4 602.9 768.0 612.5 C 759.6 622.1 768.6 626.9 768.0 630.5 C 767.4 634.1 770.8 629.6 764.5 634.0 C 758.2 638.4 743.8 648.8 730.5 657.0 C 717.2 665.2 695.1 678.8 684.5 683.0 C 673.9 687.2 667.3 686.2 667.0 682.5 C 661.2 682.3 667.7 675.3 666.0 671.5 C 664.3 667.7 658.5 663.3 657.0 659.5 C 655.5 655.7 661.7 648.8 657.0 648.5 C 657.0 644.8 643.0 653.5 643.0 647.5 C 638.3 647.2 639.7 636.5 643.0 629.5 C 646.3 622.5 655.7 615.7 663.0 605.5 C 670.3 595.3 680.3 579.8 687.0 568.5 C 693.7 557.2 697.7 549.7 703.0 537.5 C 708.3 525.3 714.8 508.0 719.0 495.5 C 723.2 483.0 725.5 473.8 728.0 462.5 C 730.5 451.2 732.8 440.8 734.0 427.5 C 735.2 414.2 735.3 393.7 735.0 382.5 C 734.7 371.3 734.2 370.5 732.0 360.5 C 729.8 350.5 725.7 333.3 722.0 322.5 C 718.3 311.7 714.3 303.5 710.0 295.5 C 705.7 287.5 702.2 281.4 696.0 274.5 C 689.8 267.6 679.8 258.9 672.5 254.0 C 665.2 249.1 658.7 246.5 652.5 245.0 C 646.3 243.5 641.5 243.8 635.5 245.0 C 629.5 246.2 620.8 250.0 616.5 252.0 C 612.2 254.0 612.2 254.8 609.5 257.0 C 606.8 259.2 603.0 262.0 600.0 265.5 C 597.0 269.0 595.7 276.0 591.5 278.0 C 587.3 280.0 574.3 285.2 575.0 277.5 C 569.5 277.3 575.2 260.8 577.0 254.5 C 578.8 248.2 582.0 244.3 586.0 239.5 C 590.0 234.7 604.7 225.8 601.0 225.5 C 606.0 220.8 590.0 230.2 590.0 224.5 C 586.3 224.2 589.5 202.0 590.0 207.5 Z M 619.0 256.5 C 625.3 255.8 639.2 255.9 645.5 257.0 C 651.8 258.1 653.8 260.8 656.5 263.0 C 659.2 265.2 660.8 268.2 662.0 270.5 C 663.2 272.8 663.7 270.8 664.0 276.5 C 664.3 282.2 664.8 298.2 664.0 304.5 C 663.2 310.8 661.8 311.4 659.0 314.5 C 656.2 317.6 654.6 321.4 647.5 323.0 C 640.4 324.6 623.3 324.7 616.5 324.0 C 609.7 323.3 609.6 321.8 606.5 319.0 C 603.4 316.2 599.6 314.6 598.0 307.5 C 596.4 300.4 596.8 282.7 597.0 276.5 C 597.2 270.3 597.2 273.1 599.0 270.5 C 600.8 267.9 604.2 263.3 607.5 261.0 C 610.8 258.7 612.7 257.2 619.0 256.5 Z M 548.0 290.5 C 548.2 286.7 545.8 293.1 549.5 294.0 C 553.2 294.9 565.2 294.2 570.5 296.0 C 575.8 297.8 577.8 298.9 581.0 304.5 C 584.2 310.1 588.8 320.3 590.0 329.5 C 591.2 338.7 586.1 353.6 588.0 359.5 C 589.9 365.4 596.9 362.4 601.5 365.0 C 606.1 367.6 611.6 371.6 615.5 375.0 C 619.4 378.4 621.6 380.4 625.0 385.5 C 628.4 390.6 633.0 397.2 636.0 405.5 C 639.0 413.8 641.8 423.3 643.0 435.5 C 644.2 447.7 643.7 467.0 643.0 478.5 C 642.3 490.0 641.3 494.7 639.0 504.5 C 636.7 514.3 633.3 526.2 629.0 537.5 C 624.7 548.8 618.0 562.7 613.0 572.5 C 608.0 582.3 602.3 592.2 599.0 596.5 C 595.7 600.8 594.0 597.0 593.0 598.5 C 592.0 600.0 597.7 598.0 593.0 605.5 C 588.3 613.0 575.3 630.7 565.0 643.5 C 554.7 656.3 541.9 670.9 531.0 682.5 C 520.1 694.1 509.9 703.8 499.5 713.0 C 489.1 722.2 479.8 729.9 468.5 738.0 C 457.2 746.1 424.5 765.3 432.0 761.5 C 419.8 769.3 449.9 751.9 454.5 750.0 C 459.1 748.1 455.8 752.0 459.5 750.0 C 463.2 748.0 461.8 746.0 476.5 738.0 C 491.2 730.0 532.9 707.9 547.5 702.0 C 562.1 696.1 560.1 699.2 564.0 702.5 C 567.9 705.8 569.2 717.8 571.0 721.5 C 572.8 725.2 574.3 721.2 575.0 724.5 C 575.7 727.8 575.8 738.2 575.0 741.5 C 574.2 744.8 566.0 744.2 570.0 744.5 C 568.3 745.5 582.2 740.0 582.0 745.5 C 586.0 745.8 586.8 762.0 581.5 762.0 C 581.3 767.5 566.2 766.7 565.5 762.0 C 560.2 762.0 572.3 742.5 563.5 748.0 C 562.8 743.3 541.4 760.1 537.0 764.5 C 532.6 768.9 538.8 768.3 537.0 774.5 C 535.2 780.7 529.7 790.2 526.0 801.5 C 522.3 812.8 518.3 824.0 515.0 842.5 C 511.7 861.0 506.8 890.5 506.0 912.5 C 505.2 934.5 507.7 956.0 510.0 974.5 C 512.3 993.0 515.3 1006.0 520.0 1023.5 C 524.7 1041.0 529.0 1055.2 538.0 1079.5 C 547.0 1103.8 566.2 1148.8 574.0 1169.5 C 581.8 1190.2 581.8 1191.3 585.0 1203.5 C 588.2 1215.7 591.3 1232.0 593.0 1242.5 C 594.7 1253.0 595.0 1254.0 595.0 1266.5 C 595.0 1279.0 595.0 1302.5 593.0 1317.5 C 591.0 1332.5 587.1 1345.4 583.0 1356.5 C 578.9 1367.6 573.7 1379.5 568.5 1384.0 C 563.3 1388.5 552.0 1389.5 552.0 1383.5 C 546.5 1383.3 551.0 1371.7 552.0 1365.5 C 553.0 1359.3 556.3 1354.5 558.0 1346.5 C 559.7 1338.5 562.5 1330.8 562.0 1317.5 C 561.5 1304.2 558.8 1283.0 555.0 1266.5 C 551.2 1250.0 547.5 1238.8 539.0 1218.5 C 530.5 1198.2 513.0 1164.7 504.0 1144.5 C 495.0 1124.3 490.2 1111.7 485.0 1097.5 C 479.8 1083.3 476.7 1074.2 473.0 1059.5 C 469.3 1044.8 465.2 1022.8 463.0 1009.5 C 460.8 996.2 460.2 998.7 460.0 979.5 C 459.8 960.3 459.8 917.2 462.0 894.5 C 464.2 871.8 469.2 857.5 473.0 843.5 C 476.8 829.5 481.0 819.8 485.0 810.5 C 489.0 801.2 500.2 786.3 497.0 787.5 C 501.0 779.8 499.4 784.2 487.5 791.0 C 475.6 797.8 438.5 821.8 425.5 828.0 C 412.5 834.2 409.8 832.3 409.5 828.0 C 404.2 828.0 426.5 800.7 408.5 815.0 C 408.2 810.7 371.4 850.9 354.5 858.0 C 337.6 865.1 306.8 863.0 307.0 857.5 C 291.2 857.3 299.1 849.4 307.5 841.0 C 315.9 832.6 338.1 819.2 357.5 807.0 C 376.9 794.8 425.8 767.7 424.0 767.5 C 446.2 754.3 421.9 765.4 418.5 767.0 C 415.1 768.6 411.0 773.2 403.5 777.0 C 396.0 780.8 386.0 786.0 373.5 790.0 C 361.0 794.0 339.3 799.2 328.5 801.0 C 317.7 802.8 308.7 806.8 308.5 801.0 C 301.8 801.0 304.8 784.3 308.0 783.5 C 307.8 777.7 312.6 783.4 317.5 781.0 C 322.4 778.6 330.9 774.1 337.5 769.0 C 344.1 763.9 349.9 758.8 357.0 750.5 C 364.1 742.2 372.7 731.5 380.0 719.5 C 387.3 707.5 395.2 692.2 401.0 678.5 C 406.8 664.8 411.2 651.7 415.0 637.5 C 418.8 623.3 421.3 616.7 424.0 593.5 C 426.7 570.3 429.0 519.5 431.0 498.5 C 433.0 477.5 434.0 476.7 436.0 467.5 C 438.0 458.3 440.2 451.0 443.0 443.5 C 445.8 436.0 449.0 429.3 453.0 422.5 C 457.0 415.7 460.1 409.9 467.0 402.5 C 473.9 395.1 485.1 384.1 494.5 378.0 C 503.9 371.9 513.0 368.2 523.5 366.0 C 534.0 363.8 557.3 367.5 557.5 365.0 C 568.8 364.7 557.1 358.9 558.0 357.5 C 558.9 356.1 564.8 359.3 563.0 356.5 C 564.7 356.2 560.2 350.4 557.5 348.0 C 554.8 345.6 550.5 342.0 546.5 342.0 C 542.5 342.0 536.9 345.8 533.5 348.0 C 530.1 350.2 528.0 352.7 526.0 355.5 C 524.0 358.3 525.2 363.5 521.5 365.0 C 517.8 366.5 504.3 375.2 504.0 364.5 C 498.2 364.3 502.2 340.8 503.0 332.5 C 503.8 324.2 505.8 319.9 509.0 314.5 C 512.2 309.1 519.8 297.7 522.5 300.0 C 527.0 295.2 526.3 306.7 530.5 307.0 C 534.7 307.3 544.6 304.8 547.5 302.0 C 550.4 299.2 547.5 289.3 548.0 290.5 Z M 570.5 381.0 C 566.3 377.5 573.2 383.8 569.5 385.0 C 565.8 386.2 556.5 384.5 548.5 388.0 C 540.5 391.5 529.2 399.4 521.5 406.0 C 513.8 412.6 508.1 418.9 502.0 427.5 C 495.9 436.1 490.0 445.3 485.0 457.5 C 480.0 469.7 475.0 484.5 472.0 500.5 C 469.0 516.5 461.2 561.7 467.0 553.5 C 465.3 571.2 478.8 533.0 484.5 529.0 C 490.2 525.0 501.0 523.5 501.0 529.5 C 506.5 529.7 505.5 536.3 501.0 547.5 C 496.5 558.7 481.0 585.2 474.0 596.5 C 467.0 607.8 462.2 608.7 459.0 615.5 C 455.8 622.3 457.8 627.5 455.0 637.5 C 452.2 647.5 449.2 659.8 442.0 675.5 C 434.8 691.2 400.5 741.0 411.5 732.0 C 401.3 750.8 427.1 721.9 444.5 705.0 C 461.9 688.1 497.1 652.1 516.0 630.5 C 534.9 608.9 546.8 592.2 558.0 575.5 C 569.2 558.8 575.8 547.0 583.0 530.5 C 590.2 514.0 597.5 489.3 601.0 476.5 C 604.5 463.7 603.7 459.7 604.0 453.5 C 604.3 447.3 603.7 444.3 603.0 439.5 C 602.3 434.7 601.8 430.3 600.0 424.5 C 598.2 418.7 594.8 410.0 592.0 404.5 C 589.2 399.0 586.6 395.4 583.0 391.5 C 579.4 387.6 570.8 379.7 570.5 381.0 Z M 571.0 410.5 C 571.0 404.2 586.0 401.5 588.0 410.5 C 593.7 410.5 593.3 425.2 594.0 437.5 C 594.7 449.8 594.8 469.0 592.0 484.5 C 589.2 500.0 583.7 515.5 577.0 530.5 C 570.3 545.5 562.7 559.2 552.0 574.5 C 541.3 589.8 526.6 607.8 513.0 622.5 C 499.4 637.2 480.2 656.2 470.5 663.0 C 460.8 669.8 454.3 669.2 454.5 663.0 C 449.2 663.0 446.4 658.6 455.0 644.5 C 463.6 630.4 490.8 600.7 506.0 578.5 C 521.2 556.3 537.0 528.2 546.0 511.5 C 555.0 494.8 556.5 488.0 560.0 478.5 C 563.5 469.0 565.2 462.7 567.0 454.5 C 568.8 446.3 570.3 436.8 571.0 429.5 C 571.7 422.2 565.3 410.5 571.0 410.5 Z M 633.0 663.5 C 633.2 658.7 646.3 661.8 649.5 663.0 C 652.7 664.2 650.4 668.9 652.0 670.5 C 653.6 672.1 657.5 671.3 659.0 672.5 C 660.5 673.7 660.8 673.7 661.0 677.5 C 661.2 681.3 657.0 695.2 660.0 695.5 C 659.7 701.5 669.0 691.2 669.0 696.5 C 672.0 696.8 674.5 712.3 669.0 712.5 C 669.0 717.8 652.7 718.5 652.5 713.0 C 647.0 713.2 655.5 696.7 652.0 696.5 C 651.8 691.0 641.7 699.8 641.5 696.0 C 638.0 695.8 642.5 684.7 641.0 684.5 C 640.8 680.7 635.7 682.5 636.5 684.0 C 635.0 683.8 638.8 684.7 639.0 688.5 C 639.2 692.3 641.2 701.9 637.5 707.0 C 633.8 712.1 622.7 717.0 616.5 719.0 C 610.3 721.0 601.0 724.8 600.5 719.0 C 595.2 719.0 600.1 705.4 599.0 701.5 C 597.9 697.6 594.8 699.3 594.0 695.5 C 593.2 691.7 591.2 682.9 594.0 678.5 C 596.8 674.1 604.9 670.6 610.5 669.0 C 616.1 667.4 623.8 667.5 627.5 669.0 C 631.2 670.5 632.3 682.8 632.5 678.0 C 634.2 681.0 627.5 663.7 633.0 663.5 Z M 550.0 925.5 C 552.0 913.2 565.3 901.8 567.0 925.5 C 572.7 925.5 569.0 974.3 572.0 996.5 C 575.0 1018.7 581.8 1044.5 585.0 1058.5 C 588.2 1072.5 587.5 1070.5 591.0 1080.5 C 594.5 1090.5 600.0 1105.2 606.0 1118.5 C 612.0 1131.8 618.7 1145.2 627.0 1160.5 C 635.3 1175.8 644.7 1193.2 656.0 1210.5 C 667.3 1227.8 679.4 1245.6 695.0 1264.5 C 710.6 1283.4 733.8 1308.8 749.5 1324.0 C 765.2 1339.2 782.5 1347.5 789.0 1355.5 C 795.5 1363.5 794.2 1372.0 788.5 1372.0 C 788.3 1377.5 776.8 1373.3 771.5 1372.0 C 766.2 1370.7 765.3 1369.5 756.5 1364.0 C 747.7 1358.5 730.0 1347.5 718.5 1339.0 C 707.0 1330.5 697.6 1322.2 687.5 1313.0 C 677.4 1303.8 667.2 1293.6 658.0 1283.5 C 648.8 1273.4 643.5 1268.5 632.0 1252.5 C 620.5 1236.5 600.7 1208.7 589.0 1187.5 C 577.3 1166.3 569.2 1146.3 562.0 1125.5 C 554.8 1104.7 549.3 1083.3 546.0 1062.5 C 542.7 1041.7 542.3 1017.2 542.0 1000.5 C 541.7 983.8 542.7 975.0 544.0 962.5 C 545.3 950.0 544.3 925.5 550.0 925.5 Z" fill="#1A8B3A" fill-rule="evenodd"/>
+<path d="M 687.0 17.5 C 692.0 11.7 704.0 7.5 704.0 17.5 C 709.7 17.5 704.7 38.2 704.0 47.5 C 703.3 56.8 702.0 65.3 700.0 73.5 C 698.0 81.7 694.5 90.7 692.0 96.5 C 689.5 102.3 679.3 107.8 685.0 108.5 C 682.7 112.5 702.3 101.8 702.0 110.5 C 707.7 111.2 702.8 126.8 701.0 136.5 C 699.2 146.2 694.7 160.2 691.0 168.5 C 687.3 176.8 684.2 180.8 679.0 186.5 C 673.8 192.2 665.1 199.1 659.5 203.0 C 653.9 206.9 652.3 207.5 645.5 210.0 C 638.7 212.5 624.7 215.7 618.5 218.0 C 612.3 220.3 613.1 223.1 608.5 224.0 C 603.9 224.9 591.0 229.2 591.0 223.5 C 585.2 223.3 588.4 211.8 591.0 206.5 C 593.6 201.2 597.4 199.1 606.5 192.0 C 615.6 184.9 636.1 171.4 645.5 164.0 C 654.9 156.6 657.6 153.8 663.0 147.5 C 668.4 141.2 674.8 132.1 678.0 126.5 C 681.2 120.9 691.8 102.7 682.5 114.0 C 684.0 109.8 669.8 134.0 654.5 148.0 C 639.2 162.0 606.1 184.6 590.5 198.0 C 574.9 211.4 567.8 220.2 561.0 228.5 C 554.2 236.8 552.8 241.3 550.0 247.5 C 547.2 253.7 545.0 260.3 544.0 265.5 C 543.0 270.7 543.3 274.7 544.0 278.5 C 544.7 282.3 547.3 283.8 548.0 288.5 C 548.7 293.2 553.8 306.3 548.0 306.5 C 548.0 312.5 535.7 310.0 530.5 307.0 C 525.3 304.0 520.1 295.1 517.0 288.5 C 513.9 281.9 512.7 277.3 512.0 267.5 C 511.3 257.7 511.2 240.3 513.0 229.5 C 514.8 218.7 518.5 211.0 523.0 202.5 C 527.5 194.0 534.1 185.6 540.0 178.5 C 545.9 171.4 544.4 171.4 558.5 160.0 C 572.6 148.6 609.2 122.4 624.5 110.0 C 639.8 97.6 641.8 95.1 650.0 85.5 C 658.2 75.9 667.8 63.8 674.0 52.5 C 680.2 41.2 682.0 23.3 687.0 17.5 Z M 596.0 777.5 C 600.0 758.8 626.0 770.8 626.0 777.5 C 636.0 777.5 627.3 784.8 626.0 797.5 C 624.7 810.2 619.7 835.8 618.0 853.5 C 616.3 871.2 615.7 887.2 616.0 903.5 C 616.3 919.8 617.8 936.2 620.0 951.5 C 622.2 966.8 625.8 983.3 629.0 995.5 C 632.2 1007.7 634.3 1013.8 639.0 1024.5 C 643.7 1035.2 650.7 1049.2 657.0 1059.5 C 663.3 1069.8 669.2 1078.2 677.0 1086.5 C 684.8 1094.8 699.6 1102.9 704.0 1109.5 C 708.4 1116.1 708.8 1126.0 703.5 1126.0 C 703.3 1131.5 691.8 1126.7 687.5 1126.0 C 683.2 1125.3 681.2 1123.7 677.5 1122.0 C 673.8 1120.3 672.0 1120.3 665.5 1116.0 C 659.0 1111.7 647.8 1105.4 638.5 1096.0 C 629.2 1086.6 618.1 1073.2 610.0 1059.5 C 601.9 1045.8 595.0 1030.2 590.0 1013.5 C 585.0 996.8 581.8 981.3 580.0 959.5 C 578.2 937.7 578.3 903.5 579.0 882.5 C 579.7 861.5 581.2 851.0 584.0 833.5 C 586.8 816.0 586.0 777.5 596.0 777.5 Z" fill="#D42222" fill-rule="evenodd"/>
+<path d="M 628 717 Q 628 669 583 660" fill="none" stroke="#D42222" stroke-width="15" stroke-linecap="round"/>
+<path d="M 603 737 Q 603 688 558 680" fill="none" stroke="#D42222" stroke-width="15" stroke-linecap="round"/>
+<path d="M 577 757 Q 578 708 533 700" fill="none" stroke="#D42222" stroke-width="15" stroke-linecap="round"/>
+<path d="M 552 776 Q 552 728 508 720" fill="none" stroke="#D42222" stroke-width="15" stroke-linecap="round"/>
+<line x1="701" y1="645" x2="669" y2="604" stroke="#FAFAF8" stroke-width="9" stroke-linecap="round"/></g>`;
+  function tileSuo(n) {
+    if (n === 1) return tileBody() + BIRD_ART;
+    const { prim, P } = caneSetup(n);
+    return tileBody() + renderSpec(BAMBOO_SPECS[n], prim, caneBeads, P, caneSlit);
+  }
+  function fIndexNum(n, color) {
+    return `<text x="12" y="20" font-family="Helvetica,Arial" font-weight="bold" font-size="17" fill="${PAL[color]}">${n}</text>`;
+  }
+  function fBloom(cx, cy, r, k, color, ctr) {
+    const parts = [];
+    for (let i = 0; i < k; i++) {
+      const a = i * (360 / k) - 90, rad = a * Math.PI / 180;
+      const px = cx + Math.cos(rad) * r * 0.62, py = cy + Math.sin(rad) * r * 0.62;
+      parts.push(`<ellipse cx="${fx(px)}" cy="${fx(py)}" rx="${fx(r * 0.42)}" ry="${fx(r * 0.3)}" fill="${PAL[color]}" transform="rotate(${a} ${fx(px)} ${fx(py)})"/>`);
+    }
+    parts.push(`<circle cx="${cx}" cy="${cy}" r="${fx(r * 0.2)}" fill="${PAL[ctr]}"/>`);
+    return parts.join("");
+  }
+  function fStroke(x1, y1, qx, qy, x2, y2, color, w) {
+    return `<path d="M ${x1} ${y1} Q ${qx} ${qy} ${x2} ${y2}" fill="none" stroke="${PAL[color]}" stroke-width="${w}" stroke-linecap="round"/>`;
+  }
+  function fBlade(cx, cy, len, ang, color) {
+    return `<ellipse cx="${cx}" cy="${cy}" rx="${fx(len / 2)}" ry="${fx(len * 0.13)}" fill="${PAL[color]}" transform="rotate(${ang} ${cx} ${cy})"/>`;
+  }
+  function fMum(cx, cy, r) {
+    let parts = "";
+    for (let i = 0; i < 12; i++) {
+      const a = i * 30, rad = a * Math.PI / 180;
+      const px = cx + Math.cos(rad) * r * 0.72, py = cy + Math.sin(rad) * r * 0.72;
+      parts += `<ellipse cx="${fx(px)}" cy="${fx(py)}" rx="${fx(r * 0.34)}" ry="${fx(r * 0.14)}" fill="${PAL.red}" transform="rotate(${a} ${fx(px)} ${fx(py)})"/>`;
+    }
+    for (let i = 0; i < 8; i++) {
+      const a = i * 45 + 22.5, rad = a * Math.PI / 180;
+      const px = cx + Math.cos(rad) * r * 0.4, py = cy + Math.sin(rad) * r * 0.4;
+      parts += `<ellipse cx="${fx(px)}" cy="${fx(py)}" rx="${fx(r * 0.26)}" ry="${fx(r * 0.12)}" fill="${PAL.blue}" transform="rotate(${a} ${fx(px)} ${fx(py)})"/>`;
+    }
+    parts += `<circle cx="${cx}" cy="${cy}" r="${fx(r * 0.16)}" fill="${PAL.green}"/>`;
+    return parts;
+  }
+  function fStalk(cx, cy, h) {
+    const w2 = h * 0.16;
+    return `<line x1="${cx}" y1="${cy - h / 2}" x2="${cx}" y2="${cy + h / 2}" stroke="${PAL.green}" stroke-width="${fx(w2)}" stroke-linecap="round"/><line x1="${fx(cx - w2 * 0.8)}" y1="${cy}" x2="${fx(cx + w2 * 0.8)}" y2="${cy}" stroke="${PAL.face}" stroke-width="${fx(w2 * 0.32)}"/>`;
+  }
+  var FLOWER_ARTS = [
+    () => fIndexNum(1, "red") + glyph({ ch: "\u6885", cx: 82, cy: 18, size: 24, color: "green" }) + fStroke(22, 122, 40, 84, 46, 44, "blue", 5) + fStroke(42, 68, 58, 62, 72, 68, "blue", 4) + fBlade(36, 78, 16, -55, "green") + fBlade(58, 92, 14, 30, "green") + fBloom(50, 40, 13, 5, "red", "blue") + fBloom(76, 72, 11, 5, "red", "green") + fBloom(30, 96, 10, 5, "red", "blue"),
+    () => fIndexNum(2, "red") + glyph({ ch: "\u862D", cx: 82, cy: 18, size: 24, color: "green" }) + `<ellipse cx="44" cy="126" rx="16" ry="8" fill="${PAL.blue}"/><ellipse cx="60" cy="130" rx="11" ry="6" fill="${PAL.blue}"/>` + fStroke(48, 122, 30, 84, 22, 46, "green", 4) + fStroke(50, 122, 52, 80, 66, 42, "green", 4) + fStroke(52, 122, 74, 96, 86, 78, "green", 3.5) + fStroke(46, 122, 40, 100, 30, 92, "green", 3) + fBloom(24, 42, 11, 3, "red", "blue") + fBloom(68, 38, 10, 3, "blue", "red") + fBloom(86, 72, 8, 3, "red", "blue"),
+    () => fIndexNum(3, "red") + glyph({ ch: "\u7AF9", cx: 82, cy: 18, size: 24, color: "green" }) + fStalk(38, 88, 68) + fStalk(60, 96, 52) + fBlade(30, 48, 26, -35, "blue") + fBlade(48, 42, 26, 15, "green") + fBlade(40, 36, 24, -8, "green") + fBlade(66, 62, 22, -25, "blue") + fBlade(74, 70, 20, 20, "green"),
+    () => fIndexNum(4, "red") + glyph({ ch: "\u83CA", cx: 82, cy: 18, size: 24, color: "green" }) + fStroke(52, 128, 50, 104, 52, 84, "green", 4.5) + fBlade(38, 104, 22, 35, "green") + fBlade(66, 112, 22, -30, "blue") + fMum(52, 60, 22)
+  ];
+  var SEASON_ARTS = [
+    () => fIndexNum(1, "blue") + glyph({ ch: "\u6625", cx: 80, cy: 19, size: 26, color: "green" }) + fStroke(50, 130, 44, 100, 36, 66, "green", 4.5) + fStroke(52, 130, 60, 98, 70, 74, "green", 4) + fBlade(30, 92, 22, -60, "green") + fBlade(66, 104, 20, 55, "green") + fBloom(34, 58, 10, 5, "red", "blue") + fBloom(74, 66, 9, 5, "blue", "red") + fBloom(52, 46, 8, 5, "red", "green"),
+    () => {
+      const petals = [[-64, 16], [-32, 19], [0, 20], [32, 19], [64, 16]].map(([a, r]) => {
+        const rad = (a - 90) * Math.PI / 180;
+        const px = 50 + Math.cos(rad) * r, py = 66 + Math.sin(rad) * r;
+        return `<ellipse cx="${fx(px)}" cy="${fx(py)}" rx="7.5" ry="13" fill="${PAL.red}" transform="rotate(${a} ${fx(px)} ${fx(py)})"/>`;
+      }).join("");
+      return fIndexNum(2, "blue") + glyph({ ch: "\u590F", cx: 80, cy: 19, size: 26, color: "green" }) + petals + `<ellipse cx="50" cy="72" rx="14" ry="7" fill="${PAL.green}"/>` + fStroke(50, 100, 50, 88, 50, 78, "green", 4) + `<ellipse cx="30" cy="104" rx="17" ry="6" fill="${PAL.green}"/>` + fStroke(12, 118, 30, 110, 48, 118, "blue", 3.5) + fStroke(30, 128, 50, 120, 70, 128, "blue", 3.5) + fStroke(52, 116, 70, 108, 88, 116, "blue", 3.5);
+    },
+    () => fIndexNum(3, "blue") + glyph({ ch: "\u79CB", cx: 80, cy: 19, size: 26, color: "green" }) + fStroke(14, 56, 44, 48, 78, 60, "blue", 5) + fStroke(38, 51, 50, 40, 62, 36, "blue", 3.5) + fBlade(30, 82, 27, 25, "red") + fBlade(62, 92, 26, -35, "green") + fBlade(40, 110, 25, 10, "red") + fBlade(72, 122, 23, 40, "blue") + fBlade(22, 126, 21, -20, "green"),
+    () => {
+      const snow = (cx, cy, r) => {
+        let o = "";
+        for (let i = 0; i < 3; i++) {
+          const a = i * 60, rad = a * Math.PI / 180;
+          o += `<line x1="${fx(cx - Math.cos(rad) * r)}" y1="${fx(cy - Math.sin(rad) * r)}" x2="${fx(cx + Math.cos(rad) * r)}" y2="${fx(cy + Math.sin(rad) * r)}" stroke="${PAL.blue}" stroke-width="2.4" stroke-linecap="round"/>`;
+        }
+        return o;
+      };
+      return fIndexNum(4, "blue") + glyph({ ch: "\u51AC", cx: 80, cy: 19, size: 26, color: "green" }) + fStroke(16, 122, 40, 104, 66, 100, "green", 5) + fBlade(30, 104, 20, -50, "green") + fBlade(44, 98, 20, -70, "green") + fBlade(58, 94, 18, -55, "green") + fBlade(38, 120, 18, 55, "green") + fBloom(70, 96, 8, 5, "red", "green") + snow(30, 48, 7) + snow(58, 36, 6) + snow(78, 60, 5.5);
+    }
+  ];
+  function tileFlower(i) {
+    const fn = i < 4 ? FLOWER_ARTS[i] : SEASON_ARTS[i - 4];
+    return tileBody() + fn();
+  }
+  function tileBack() {
+    return `
+ <rect x="1" y="1" width="98" height="138" rx="7" fill="#2c7a52" stroke="#1e5c3d" stroke-width="1.5"/>
+ <rect x="8.5" y="8.5" width="83" height="123" rx="5" fill="#256b47" stroke="#4aa878" stroke-width="1.3"/>
+ <g stroke="#4aa878" stroke-width="1.3" fill="none" opacity=".9">
+  <path d="M50 44 L70 70 L50 96 L30 70 Z"/><path d="M50 58 L60 70 L50 82 L40 70 Z"/></g>`;
+  }
+  function labelOverlay(id) {
+    const t = id < 27 ? String(id % 9 + 1) : id < 31 ? "ESWN"[id - 27] : "CFB"[id - 31];
+    const f = `font-family="Inter,system-ui,sans-serif" font-weight="700" fill="#33333c" stroke="#FAFAF8" stroke-width="3.4" stroke-linejoin="round" paint-order="stroke"`;
+    return `<text x="10" y="22" font-size="19" text-anchor="start" ${f}>${t}</text>`;
+  }
+  function tileArt(id, opts = {}) {
+    if (id === "back") return tileBack();
+    if (typeof id === "object") return tileFlower(id.flower);
+    let a;
+    if (id < 9) a = tileWan(id + 1);
+    else if (id < 18) a = tileSuo(id - 8);
+    else if (id < 27) a = tileTong(id - 17);
+    else if (id < 31) a = tileWind(id - 27);
+    else if (id < 34) a = tileDragon(id - 31);
+    else return tileFlower(id - 34);
+    return a + (opts.labels ? labelOverlay(id) : "");
+  }
+  function tileSVG(id, opts = {}) {
+    return `<svg viewBox="0 0 100 140">${tileArt(id, opts)}</svg>`;
+  }
+  return __toCommonJS(render_exports);
+})();
+
+</script>
+<script>/* ---- engine.js ---- */
+/* MJRC Game — P0 sketch engine.
+ * Implements DESIGN.md §5.2 state machine faithfully (claims, kongs, flowers,
+ * priority, dealer repeat). Scoring is a STUB — see faanFor(). Shanten/route
+ * evaluation is absent by design (DESIGN.md §7 defers it).
+ *
+ * Deliberate fidelity choices, each annotated where it happens:
+ *  - single named-deadline map + one timer  (§5.3 deadline multiplexer)
+ *  - bots answer on a paced delay           (§5.3 botPace / no timing leak)
+ *  - every transition emits an event        (§5.5 log schema v1)
+ *  - seeded wall                            (§5.1 deterministic replay)
+ */
+(function (root) {
+  "use strict";
+
+  /* ─────────── tiles ─────────── */
+  // 0-8 萬 · 9-17 索 · 18-26 筒 · 27-30 東南西北 · 31-33 中發白 · 34-41 flowers
+  var FLOWER_START = 34, HONOR_START = 27;
+  var NAMES = (function () {
+    var n = [], i;
+    for (i = 1; i <= 9; i++) n.push(i + "萬");
+    for (i = 1; i <= 9; i++) n.push(i + "索");
+    for (i = 1; i <= 9; i++) n.push(i + "筒");
+    ["東", "南", "西", "北", "中", "發", "白"].forEach(function (s) { n.push(s); });
+    ["梅", "蘭", "竹", "菊", "春", "夏", "秋", "冬"].forEach(function (s) { n.push(s); });
+    return n;
+  })();
+  function isFlower(t) { return t >= FLOWER_START; }
+  function isHonor(t) { return t >= HONOR_START && t < FLOWER_START; }
+  function suitOf(t) { return t < 9 ? 0 : t < 18 ? 1 : t < 27 ? 2 : 3; }
+  function rankOf(t) { return t < 27 ? t % 9 : -1; }
+  var WINDS = ["東", "南", "西", "北"];
+
+  /* ─────────── seeded wall (§5.1) ─────────── */
+  function mulberry32(a) {
+    return function () {
+      a |= 0; a = a + 0x6D2B79F5 | 0;
+      var t = Math.imul(a ^ a >>> 15, 1 | a);
+      t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+      return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    };
+  }
+  function buildWall(seed) {
+    var w = [], i, k, rnd = mulberry32(seed);
+    for (i = 0; i < 34; i++) for (k = 0; k < 4; k++) w.push(i);   // 136
+    for (i = FLOWER_START; i < FLOWER_START + 8; i++) w.push(i);  // + 8 flowers = 144
+    for (i = w.length - 1; i > 0; i--) {                          // Fisher-Yates
+      var j = Math.floor(rnd() * (i + 1)), t = w[i]; w[i] = w[j]; w[j] = t;
+    }
+    return w;
+  }
+
+  /* ─────────── hand math ─────────── */
+  function countsOf(hand) {
+    var c = new Array(34).fill(0);
+    hand.forEach(function (t) { if (t < 34) c[t]++; });
+    return c;
+  }
+  function meldsOk(c, need) {
+    if (need === 0) return true;
+    var i = 0; while (i < 34 && c[i] === 0) i++;
+    if (i === 34) return false;
+    if (c[i] >= 3) { c[i] -= 3; if (meldsOk(c, need - 1)) { c[i] += 3; return true; } c[i] += 3; }
+    if (i < 27 && rankOf(i) <= 6 && c[i + 1] > 0 && c[i + 2] > 0) {
+      c[i]--; c[i + 1]--; c[i + 2]--;
+      if (meldsOk(c, need - 1)) { c[i]++; c[i + 1]++; c[i + 2]++; return true; }
+      c[i]++; c[i + 1]++; c[i + 2]++;
+    }
+    return false;
+  }
+  // needMelds = 4 - (exposed melds). Seven pairs only valid with zero melds.
+  function canWin(c, needMelds) {
+    var i, pairs = 0, ok7 = needMelds === 4;
+    if (ok7) {
+      for (i = 0; i < 34; i++) {
+        if (c[i] === 0) continue;
+        if (c[i] === 2) pairs++; else { ok7 = false; break; }
+      }
+      if (ok7 && pairs === 7) return true;
+    }
+    for (i = 0; i < 34; i++) {
+      if (c[i] >= 2) {
+        c[i] -= 2;
+        if (meldsOk(c.slice(), needMelds)) { c[i] += 2; return true; }
+        c[i] += 2;
+      }
+    }
+    return false;
+  }
+
+  /* ─────────── readiness & liveTiles — EXACT, no theory required ───────────
+   * Unpruned recursive decomposition. The Python reference's branch-and-bound
+   * prune is wrong on 6-10% of hands (ENGINE-AUDIT §3) — do not port it.
+   * No seven-pairs branch: not a hand in classic HKOS.                      */
+  // Best (sets, partials) decomposition of the concealed tiles.
+  function maxBlocks(c, i, sets, parts) {
+    while (i < 34 && c[i] === 0) i++;
+    if (i >= 34) return [sets, parts];
+    var best = [sets, parts];
+    var take = function (r) { if (r[0] * 2 + r[1] > best[0] * 2 + best[1]) best = r; };
+    if (c[i] >= 3) { c[i] -= 3; take(maxBlocks(c, i, sets + 1, parts)); c[i] += 3; }
+    if (i < 27 && i % 9 <= 6 && c[i + 1] && c[i + 2]) {
+      c[i]--; c[i + 1]--; c[i + 2]--; take(maxBlocks(c, i, sets + 1, parts));
+      c[i]++; c[i + 1]++; c[i + 2]++;
+    }
+    if (c[i] >= 2) { c[i] -= 2; take(maxBlocks(c, i, sets, parts + 1)); c[i] += 2; }
+    if (i < 27 && i % 9 <= 7 && c[i + 1]) {
+      c[i]--; c[i + 1]--; take(maxBlocks(c, i, sets, parts + 1)); c[i]++; c[i + 1]++;
+    }
+    if (i < 27 && i % 9 <= 6 && c[i + 2]) {
+      c[i]--; c[i + 2]--; take(maxBlocks(c, i, sets, parts + 1)); c[i]++; c[i + 2]++;
+    }
+    c[i]--; take(maxBlocks(c, i, sets, parts)); c[i]++;   // leave this tile isolated
+    return best;
+  }
+  function _calc(c, melds, hasPair) {
+    var r = maxBlocks(c, 0, 0, 0), sets = r[0] + melds, parts = r[1];
+    if (sets + parts > 4) parts = 4 - sets;
+    return 8 - 2 * sets - parts - (hasPair ? 1 : 0);
+  }
+  // Try every candidate pair explicitly, plus the no-pair decomposition.
+  function distanceToReady(counts, melds) {
+    var c = counts.slice(), m = melds || 0, best = _calc(c, m, false), i;
+    for (i = 0; i < 34; i++) {
+      if (c[i] >= 2) { c[i] -= 2; best = Math.min(best, _calc(c, m, true)); c[i] += 2; }
+    }
+    return best;
+  }
+
+  /** Tiles that reduce distanceToReady, with how many copies remain unseen.
+   *  `visible` = every tile this seat can account for: own hand, all discards,
+   *  all melds, all flowers. Exact — no estimation anywhere. */
+  function liveTiles(counts, melds, visible) {
+    var base = distanceToReady(counts, melds), tiles = [], total = 0, i;
+    for (i = 0; i < 34; i++) {
+      if (counts[i] >= 4) continue;
+      counts[i]++;
+      var sh = distanceToReady(counts, melds);
+      counts[i]--;
+      if (sh < base) {
+        var unseen = 4 - Math.min(4, (visible && visible[i]) || 0);
+        if (unseen > 0) { tiles.push({ tile: i, unseen: unseen }); total += unseen; }
+      }
+    }
+    return { distance: base, tiles: tiles, total: total };
+  }
+
+  /* ─────────── faan — STUB (real engine is DESIGN.md §5.1, 2-3 wk) ─────────
+   * Enough of canonical HKOS to make the 3-faan floor actually bite, which is
+   * the whole texture of HK play. Not a scoring engine. Do not port.        */
+  function faanFor(seat, S, opts) {
+    opts = opts || {};
+    var all = seat.hand.concat(), det = [], f = 0;
+    seat.melds.forEach(function (m) { all = all.concat(m.tiles); });
+    var c = countsOf(all), i;
+
+    for (i = HONOR_START; i < FLOWER_START; i++) {
+      if (c[i] >= 3) {
+        if (i >= 31) { f += 1; det.push(NAMES[i] + " pung +1"); }
+        else if (i - HONOR_START === seat.windIdx) { f += 1; det.push("Seat wind " + NAMES[i] + " +1"); }
+        else if (i - HONOR_START === S.roundWind) { f += 1; det.push("Round wind " + NAMES[i] + " +1"); }
+      }
+    }
+    var suits = {}, honors = false;
+    all.forEach(function (t) {
+      if (t >= FLOWER_START) return;
+      if (isHonor(t)) honors = true; else suits[suitOf(t)] = 1;
+    });
+    var nSuits = Object.keys(suits).length;
+    if (nSuits === 1 && !honors) { f += 7; det.push("Full flush 清一色 +7"); }
+    else if (nSuits === 1 && honors) { f += 3; det.push("Half flush 混一色 +3"); }
+
+    var allPungs = seat.melds.every(function (m) { return m.type !== "chow"; });
+    if (allPungs && seat.melds.length > 0) {
+      var runs = false, cc = countsOf(seat.hand);
+      for (i = 0; i < 27 && !runs; i++)
+        if (rankOf(i) <= 6 && cc[i] && cc[i + 1] && cc[i + 2]) runs = true;
+      if (!runs) { f += 3; det.push("All pungs 對對糊 +3"); }
+    }
+    if (opts.selfDraw) { f += 1; det.push("Self-draw 自摸 +1"); }
+    seat.flowers.forEach(function (t) {
+      var idx = (t - FLOWER_START) % 4;
+      if (idx === seat.windIdx) { f += 1; det.push("Own flower " + NAMES[t] + " +1"); }
+    });
+    if (f === 0) det.push("Chicken hand 雞糊 — 0 faan");
+    return { faan: Math.min(f, 13), detail: det, capped: f > 13 };
+  }
+
+  /* ─────────── state machine ─────────── */
+  function Game(opts) {
+    this.seed = opts.seed || 12345;
+    this.onChange = opts.onChange || function () {};
+    this.onHandEnd = opts.onHandEnd || function () {};
+    this.matchId = opts.matchId || "m_sketch";
+    this.speed = opts.speed || 1;
+    this.autoPass = false;
+    this.forceFloorWarning = false;
+    this.handIdx = 0;
+    this.roundWind = 0;      // 東
+    this.dealer = 0;
+    this.log = [];
+    this.seq = 0;
+    this.deadlines = {};     // §5.3 — ONE timer, many named deadlines
+    this.timer = null;
+    this.seats = [0, 1, 2, 3].map(function (i) {
+      return {
+        idx: i, name: i === 0 ? "You" : ["", "Ah Ming", "Kai", "Suki"][i],
+        isYou: i === 0, hand: [], melds: [], flowers: [], discards: [],
+        chips: 0, windIdx: 0, drawn: null, connected: true
+      };
+    });
+  }
+
+  Game.prototype.emit = function (type, actor, payload) {
+    this.log.push({
+      v: 1, match_id: this.matchId, hand_idx: this.handIdx, seq: this.seq++,
+      ts: this.log.length, actor: actor, type: type, payload: payload || {}
+    });
+  };
+
+  /* --- deadline multiplexer: mirrors the DO's single-alarm constraint --- */
+  Game.prototype.setDeadline = function (name, ms) {
+    this.deadlines[name] = Date.now() + ms / this.speed;
+    this.arm();
+  };
+  Game.prototype.clearDeadline = function (name) { delete this.deadlines[name]; };
+  Game.prototype.arm = function () {
+    var self = this;
+    if (this.timer) return;
+    this.timer = setInterval(function () {
+      var now = Date.now(), due = [], k;
+      for (k in self.deadlines) if (self.deadlines[k] <= now) due.push(k);
+      due.forEach(function (name) { delete self.deadlines[name]; self.fire(name); });
+      if (due.length) self.onChange();
+      else if (self.phase === "CLAIM_WINDOW" || self.phase === "AWAIT_DISCARD") self.onChange();
+    }, 100);
+  };
+  Game.prototype.stop = function () { clearInterval(this.timer); this.timer = null; this.deadlines = {}; };
+  Game.prototype.remaining = function (name) {
+    if (!this.deadlines[name]) return 0;
+    return Math.max(0, this.deadlines[name] - Date.now());
+  };
+  Game.prototype.fire = function (name) {
+    if (name === "claimWindow") this.resolveClaims();
+    else if (name === "turnClock") this.autoDiscard();
+    else if (name.indexOf("botPace:") === 0) this.botDiscard(+name.split(":")[1]);
+    else if (name === "botClaims") this.collectBotClaims();
+  };
+
+  /* --- DEAL → FLOWER_REPLACEMENT → AWAIT_DISCARD(dealer) --- */
+  Game.prototype.startHand = function () {
+    var self = this;
+    this.wall = buildWall(this.seed + this.handIdx);
+    this.wallIdx = 0;
+    this.phase = "DEAL";
+    this.pendingClaims = null;
+    this.lastDiscard = null;
+    this.seats.forEach(function (s, i) {
+      s.hand = []; s.melds = []; s.flowers = []; s.discards = []; s.drawn = null;
+      s.windIdx = (i - self.dealer + 4) % 4;
+    });
+    this.emit("deal", null, { seed: this.seed + this.handIdx, dealer: this.dealer, round_wind: this.roundWind });
+    var dealEv = this.log[this.log.length - 1];
+    var k, i;
+    for (k = 0; k < 13; k++) for (i = 0; i < 4; i++) this.seats[i].hand.push(this.wall[this.wallIdx++]);
+    // FLOWER_REPLACEMENT — seat order, recursive; strictly ordered so replay
+    // re-execution is deterministic (§5.2).
+    for (i = 0; i < 4; i++) this.replaceFlowers(i);
+    this.seats.forEach(function (s) { s.hand.sort(function (a, b) { return a - b; }); });
+    this.assignRoutes();
+    dealEv.payload.hands = this.seats.map(function (s) { return s.hand.concat(); });
+    dealEv.payload.flowers = this.seats.map(function (s) { return s.flowers.concat(); });
+    this.drawFor(this.dealer);
+    this.awaitDiscard(this.dealer);
+  };
+  Game.prototype.replaceFlowers = function (i) {
+    var s = this.seats[i], moved = true;
+    while (moved) {
+      moved = false;
+      for (var k = 0; k < s.hand.length; k++) {
+        if (isFlower(s.hand[k])) {
+          var t = s.hand.splice(k, 1)[0];
+          s.flowers.push(t);
+          var r = this.wall[this.wallIdx++];
+          s.hand.push(r);
+          this.emit("flower_replace", i, { flower: t, replacement: r, initial: true });
+          moved = true; break;
+        }
+      }
+    }
+  };
+
+  // Crude faan-route steering. DESIGN.md §6 priority (2). A real bot evaluates
+  // routes continuously; this picks one at deal and never revises.
+  Game.prototype.assignRoutes = function () {
+    this.seats.forEach(function (s) {
+      var c = [0, 0, 0], hon = 0;
+      s.hand.forEach(function (t) { if (t < 27) c[suitOf(t)]++; else if (t < 34) hon++; });
+      var best = 0, i;
+      for (i = 1; i < 3; i++) if (c[i] > c[best]) best = i;
+      s.route = c[best] >= 6 ? { type: "flush", suit: best } : { type: "pungs" };
+    });
+  };
+
+  // Draw one tile; flowers replace recursively and never enter the hand.
+  Game.prototype.drawFor = function (seat, evType) {
+    var s = this.seats[seat];
+    s.drawn = this.wall[this.wallIdx++];
+    this.emit(evType || "draw", seat, { tile: s.drawn });
+    while (isFlower(s.drawn)) {
+      s.flowers.push(s.drawn);
+      this.emit("flower_replace", seat, { flower: s.drawn });
+      s.drawn = this.wall[this.wallIdx++];
+      this.emit("draw", seat, { tile: s.drawn });
+    }
+  };
+
+  Game.prototype.awaitDiscard = function (seat) {
+    this.phase = "AWAIT_DISCARD";
+    this.turn = seat;
+    this.pendingClaims = null;
+    this.clearDeadline("claimWindow");
+    var s = this.seats[seat];
+    if (s.isYou) this.setDeadline("turnClock", 10000);
+    else this.setDeadline("botPace:" + seat, 700 + Math.random() * 700);
+    this.onChange();
+  };
+
+  Game.prototype.handTiles = function (seat) {
+    var s = this.seats[seat];
+    return s.drawn === null ? s.hand.concat() : s.hand.concat([s.drawn]);
+  };
+
+  /* --- discard → CLAIM_WINDOW --- */
+  Game.prototype.discard = function (seat, tile) {
+    var s = this.seats[seat];
+    this.clearDeadline("turnClock");
+    this.clearDeadline("botPace:" + seat);
+    if (s.drawn === tile) s.drawn = null;
+    else {
+      var i = s.hand.indexOf(tile);
+      if (i < 0) return;
+      s.hand.splice(i, 1);
+      if (s.drawn !== null) { s.hand.push(s.drawn); s.drawn = null; }
+    }
+    s.hand.sort(function (a, b) { return a - b; });
+    s.discards.push(tile);
+    this.emit("discard", seat, { tile: tile });
+    this.openClaimWindow(tile, seat);
+  };
+  Game.prototype.autoDiscard = function () {
+    // Safe default on timeout (§2 — auto-pass/auto-discard, not a hang).
+    var s = this.seats[this.turn];
+    this.discard(this.turn, s.drawn !== null ? s.drawn : s.hand[s.hand.length - 1]);
+  };
+  Game.prototype.botDiscard = function (seat) {
+    var t = this.pickBotDiscard(seat);
+    this.discard(seat, t);
+  };
+  Game.prototype.pickBotDiscard = function (seat) {
+    // Shape value + route bias. Lowest score is discarded. Still not a real
+    // bot — no liveTiles, no safety, no defence. DESIGN.md §6 is the real spec.
+    var route = this.seats[seat].route || { type: "pungs" };
+    var tiles = this.handTiles(seat), c = countsOf(tiles), best = tiles[0], bestScore = 1e9;
+    tiles.forEach(function (t) {
+      if (t >= 34) return;
+      var score = c[t] * 12;
+      if (!isHonor(t)) {
+        var r = rankOf(t), su = suitOf(t);
+        [-2, -1, 1, 2].forEach(function (d) {
+          var rr = r + d;
+          if (rr >= 0 && rr <= 8) score += c[su * 9 + rr] * (Math.abs(d) === 1 ? 5 : 2);
+        });
+      }
+      if (route.type === "flush") score += suitOf(t) === route.suit ? 45 : (isHonor(t) ? 8 : 0);
+      else if (isHonor(t)) score += c[t] >= 2 ? 30 : 6;
+      if (score < bestScore) { bestScore = score; best = t; }
+    });
+    return best;
+  };
+  Game.prototype.onRoute = function (seat, tile) {
+    var r = this.seats[seat].route || { type: "pungs" };
+    if (r.type === "flush") return suitOf(tile) === r.suit || isHonor(tile);
+    return isHonor(tile) || true;
+  };
+
+  // own-turn declaration: concealed kong 暗槓 (§5.2)
+  Game.prototype.concealedKongOptions = function (seat) {
+    var c = countsOf(this.handTiles(seat)), out = [], i;
+    for (i = 0; i < 34; i++) if (c[i] === 4) out.push(i);
+    return out;
+  };
+  Game.prototype.concealedKong = function (seat, tile) {
+    var s = this.seats[seat], k;
+    this.clearDeadline("turnClock");
+    if (s.drawn !== null) { s.hand.push(s.drawn); s.drawn = null; }
+    for (k = 0; k < 4; k++) { var i = s.hand.indexOf(tile); if (i >= 0) s.hand.splice(i, 1); }
+    s.melds.push({ type: "kong", tiles: [tile, tile, tile, tile], from: seat, concealed: true });
+    this.emit("claimed", seat, { type: "kong", tile: tile, concealed: true });
+    this.drawFor(seat, "kong_replace");
+    this.awaitDiscard(seat);
+  };
+
+  Game.prototype.legalClaims = function (seat, tile, from) {
+    if (seat === from) return [];
+    var s = this.seats[seat], c = countsOf(s.hand), out = [];
+    var need = 4 - s.melds.length;
+    var c2 = c.slice(); c2[tile]++;
+    if (canWin(c2, need)) out.push({ type: "winOnDiscard" });
+    if (c[tile] >= 3) out.push({ type: "kong" });
+    if (c[tile] >= 2) out.push({ type: "pong" });
+    if (!isHonor(tile) && tile < 27 && (from + 1) % 4 === seat) {
+      var r = rankOf(tile), su = suitOf(tile);
+      var at = function (d) { var rr = r + d; return rr >= 0 && rr <= 8 ? su * 9 + rr : -1; };
+      var has = function (id) { return id >= 0 && c[id] > 0; };
+      [[-2, -1], [-1, 1], [1, 2]].forEach(function (p) {
+        var a = at(p[0]), b = at(p[1]);
+        if (has(a) && has(b)) out.push({ type: "chow", with: [a, b] });
+      });
+    }
+    return out;
+  };
+
+  Game.prototype.openClaimWindow = function (tile, from) {
+    this.phase = "CLAIM_WINDOW";
+    this.lastDiscard = { tile: tile, from: from };
+    this.pendingClaims = { tile: tile, from: from, offers: {}, answers: {} };
+    var self = this, any = false;
+    this.seats.forEach(function (s) {
+      var cl = self.legalClaims(s.idx, tile, from);
+      if (cl.length) {
+        self.pendingClaims.offers[s.idx] = cl;
+        self.emit("claim_offered", s.idx, { tile: tile, options: cl.map(function (c) { return c.type; }) });
+        any = true;
+      }
+    });
+    if (!any) { this.afterClaims(); return; }
+    if (this.autoPass && this.pendingClaims.offers[0] &&
+        !this.pendingClaims.offers[0].some(function (c) { return c.type === "winOnDiscard"; })) {
+      this.pendingClaims.answers[0] = null;
+    }
+    // Fixed minimum window so timing never leaks a held claim (§5.2), and bots
+    // reply through a paced deadline rather than synchronously (§5.3).
+    this.setDeadline("claimWindow", 5000);
+    this.setDeadline("botClaims", 900 + Math.random() * 900);
+    this.onChange();
+  };
+  Game.prototype.collectBotClaims = function () {
+    var p = this.pendingClaims, self = this;
+    if (!p) return;
+    Object.keys(p.offers).forEach(function (k) {
+      var i = +k;
+      if (i === 0) return;
+      var opts = p.offers[i];
+      var winOnDiscard = opts.find(function (o) { return o.type === "winOnDiscard"; });
+      if (winOnDiscard) { p.answers[i] = winOnDiscard; return; }
+      var pk = opts.find(function (o) { return o.type === "pong" || o.type === "kong"; });
+      var ch = opts.find(function (o) { return o.type === "chow"; });
+      var onRoute = self.onRoute(i, p.tile);
+      if (pk && onRoute && Math.random() < 0.85) p.answers[i] = pk;
+      else if (ch && onRoute && Math.random() < 0.5) p.answers[i] = ch;
+      else p.answers[i] = null;
+    });
+    if (Object.keys(p.offers).every(function (k) { return k in p.answers; })) {
+      self.clearDeadline("claimWindow");
+      self.resolveClaims();
+    }
+  };
+  Game.prototype.answerClaim = function (seat, choice) {
+    if (!this.pendingClaims) return;
+    this.pendingClaims.answers[seat] = choice;
+    if (!choice) this.emit("claim_declined", seat, { tile: this.pendingClaims.tile });
+    var p = this.pendingClaims;
+    if (Object.keys(p.offers).every(function (k) { return k in p.answers; })) {
+      this.clearDeadline("claimWindow");
+      this.resolveClaims();
+    }
+    this.onChange();
+  };
+
+  /* --- priority: winOnDiscard > kong/pong > chow, ties nearest seat (§5.2) --- */
+  Game.prototype.resolveClaims = function () {
+    var p = this.pendingClaims;
+    this.clearDeadline("botClaims");
+    if (!p) return;
+    var order = ["winOnDiscard", "kong", "pong", "chow"], self = this, winner = null;
+    order.forEach(function (type) {
+      if (winner) return;
+      for (var d = 1; d <= 3; d++) {
+        var seat = (p.from + d) % 4;
+        var a = p.answers[seat];
+        if (a && a.type === type) { winner = { seat: seat, claim: a }; return; }
+      }
+    });
+    if (!winner) { this.afterClaims(); return; }
+    var seat = winner.seat, claim = winner.claim, tile = p.tile;
+    this.pendingClaims = null;
+    if (claim.type === "winOnDiscard") return this.tryWin(seat, tile, false, p.from);
+    var s = this.seats[seat], take = [];
+    if (claim.type === "chow") take = claim.with.slice();
+    else take = [tile, tile].concat(claim.type === "kong" ? [tile] : []);
+    take.forEach(function (t) { var i = s.hand.indexOf(t); if (i >= 0) s.hand.splice(i, 1); });
+    s.melds.push({ type: claim.type, tiles: take.concat([tile]), from: p.from, concealed: false });
+    this.seats[p.from].discards.pop();
+    this.emit("claimed", seat, { type: claim.type, tile: tile, from: p.from });
+    if (claim.type === "kong") this.drawFor(seat, "kong_replace");
+    this.awaitDiscard(seat);   // pong/chow → claimant discards, no draw
+  };
+
+  Game.prototype.afterClaims = function () {
+    this.pendingClaims = null;
+    var next = (this.lastDiscard.from + 1) % 4;
+    if (this.wallIdx >= this.wall.length - 14) return this.endHand({ outcome: "exhaustive_draw" });
+    var s = this.seats[next];
+    this.drawFor(next);
+    var c = countsOf(this.handTiles(next));
+    if (canWin(c, 4 - s.melds.length)) {
+      if (!s.isYou) return this.tryWin(next, s.drawn, true, null);
+      this.selfDrawAvailable = true;
+    } else this.selfDrawAvailable = false;
+    this.awaitDiscard(next);
+  };
+
+  /* --- refused below-minimum wins emit visible events (§5.2) --- */
+  Game.prototype.tryWin = function (seat, tile, selfDraw, from) {
+    var s = this.seats[seat];
+    var probe = { hand: this.handTiles(seat).concat(selfDraw ? [] : [tile]), melds: s.melds, flowers: s.flowers, windIdx: s.windIdx };
+    if (!selfDraw) probe.hand = s.hand.concat([tile]);
+    var sc = faanFor(probe, this, { selfDraw: selfDraw });
+    if (sc.faan < 3) {
+      this.emit("refused_win", seat, { tile: tile, faan: sc.faan, reason: "below 3-faan minimum" });
+      this.lastRefusal = { seat: seat, tile: tile, faan: sc.faan, at: Date.now() };
+      if (selfDraw) { this.selfDrawAvailable = false; return this.awaitDiscard(seat); }
+      return this.afterClaims();
+    }
+    this.emit(selfDraw ? "tsumo" : "winOnDiscard", seat, { tile: tile, faan: sc.faan, from: from });
+    this.endHand({ outcome: selfDraw ? "tsumo" : "winOnDiscard", winner: seat, from: from, score: sc, tile: tile });
+  };
+
+  Game.prototype.endHand = function (res) {
+    this.phase = "HAND_END";
+    this.stop();
+    var chips = [0, 0, 0, 0];
+    if (res.winner != null) {
+      var base = Math.pow(2, Math.min(res.score.faan, 10)) * 2;
+      if (res.outcome === "tsumo") {
+        for (var i = 0; i < 4; i++) if (i !== res.winner) { chips[i] -= base; chips[res.winner] += base; }
+      } else { chips[res.from] -= base * 3; chips[res.winner] += base * 3; }
+    }
+    res.chips = chips;
+    this.seats.forEach(function (s, i) { s.chips += chips[i]; });
+    this.emit("hand_end", null, { outcome: res.outcome, winner: res.winner, chips: chips });
+    this.result = res;
+    this.onHandEnd(res);
+    this.onChange();
+  };
+
+  root.MJEngine = {
+    Game: Game, NAMES: NAMES, WINDS: WINDS, isFlower: isFlower, isHonor: isHonor,
+    suitOf: suitOf, rankOf: rankOf, countsOf: countsOf, canWin: canWin,
+    distanceToReady: distanceToReady, liveTiles: liveTiles,
+    faanFor: faanFor, buildWall: buildWall, FLOWER_START: FLOWER_START
+  };
+})(window);
+
+</script>
+<script>/* ---- ui.js ---- */
+/* MJRC Game — P0 sketch UI.
+ * Screens per DESIGN.md §2 screen map, extended with the menu/IA skeleton.
+ * Interaction grammar borrowed from Mahjong Soul / Riichi City: separated draw
+ * tile, bottom-right call buttons with countdown ring, base clock + time bank,
+ * auto-pass, per-seat discard pools, melds rotated to show claim source.
+ */
+(function () {
+"use strict";
+var E = window.MJEngine, T = window.MJTiles;
+var $ = function (s, r) { return (r || document).querySelector(s); };
+
+var S = {
+  screen: "landing", room: null, reviewIx: 0, obs: null, keys: false, chowIx: 0,
+  turn: null, reveal: false, toss: { seq: -1, at: 0 }, tossSalt: 0, tossOverride: null,
+  ritual: null, ritualTimer: null, diceCount: 3, tab: "play", game: null, result: null, matches: [],
+  replay: { log: [], idx: 0, playing: false, shared: false },
+  resTab: 0, sel: null, toast: null, sig: "",
+  dev: "phone",
+  opts: { labels: true, autoPass: false, floor: false, omni: false, notes: true,
+          riichi: false, attrib: false, safe: false },
+  me: { name: "You", rating: 1500, provisional: true, played: 0, signedIn: false, handle: "augustine" }
+};
+
+/* ─────────── tile helpers ─────────── */
+function tile(id, cls) {
+  return '<span class="t ' + (cls || "") + '">' + T.tileSVG(id, { labels: S.opts.labels && typeof id === "number" && id < 34 }) + "</span>";
+}
+function back() { return '<span class="t">' + T.tileSVG("back") + "</span>"; }
+function tiles(arr, cls) { return arr.map(function (t) { return tile(t, cls); }).join(""); }
+function nm(t) { return E.NAMES[t] || "?"; }
+
+/* ─────────── shell ─────────── */
+function appbar(title, backTo, right) {
+  return '<div class="appbar">' +
+    (backTo ? '<span class="back" data-nav="' + backTo + '">‹ Back</span>' : "") +
+    '<span class="ttl">' + title + "</span>" + (right || "") + "</div>";
+}
+function header() {
+  var nav = [["play", "Play", "lobby"], ["review", "Review", "matches"], ["learn", "Learn", "learn"]];
+  return '<div class="hdr">' +
+    '<div class="brand" data-nav="lobby">\u96C0</div>' +
+    '<div class="hnav">' + nav.map(function (x) {
+      return '<span class="' + (S.tab === x[0] ? "on" : "") + '" data-nav="' + x[2] + '" data-tab="' + x[0] + '">' + x[1] + "</span>";
+    }).join("") + "</div>" +
+    '<div class="spacer"></div>' +
+    (S.room ? '<span class="roomchip" data-nav="room">\u25C9 ' + S.room + "</span>" : "") +
+    '<span class="rat">' + S.me.rating + '<i>prov</i></span>' +
+    '<span class="who" data-nav="profile">' + (S.me.signedIn ? "@" + S.me.handle : "Guest") + "</span>" +
+    '<span class="gear" data-nav="settings">\u2699</span></div>';
+}
+
+/* ─────────── screens: onboarding / lobby / menus ─────────── */
+function scLanding() {
+  return '<div class="body" style="padding:0"><div class="hero">' +
+    '<div class="big" style="margin-bottom:14px">' + tiles([31, 0, 9, 18], "") + "</div>" +
+    '<h1 style="margin:0 0 6px;font-size:26px">Hong Kong mahjong</h1>' +
+    '<div class="mut" style="margin-bottom:20px">Ranked, logged, reviewable. English-first. No gacha.</div>' +
+    '<div style="width:min(320px,90%)">' +
+      '<button class="btn" data-act="signin">Sign in with Google</button>' +
+      '<button class="btn ghost" data-act="guest">Play as guest</button>' +
+      '<div class="tiny mut" style="margin-top:10px">Guest play uses a device token. Sign in later and ' +
+      "your hands come with you.</div></div></div></div>";
+}
+function scSignin() {
+  return appbar("Sign in", "landing") + '<div class="body">' +
+    '<div class="card" style="text-align:center;padding:22px">' +
+      '<div style="font-size:30px;margin-bottom:8px">\u{1F510}</div>' +
+      "<b>Continue with Google</b>" +
+      '<div class="tiny mut" style="margin:6px 0 16px">The only sign-in path. One account, ' +
+      "used by both the game and the Almanac.</div>" +
+      '<button class="btn" data-act="dosignin">Continue</button></div>' +
+    '<div class="card tiny mut">By continuing you accept the privacy policy. ' +
+    '<span class="pill stub">D8 \u2014 Augustine writes this, blocks Phase 2</span></div></div>';
+}
+function scHandle() {
+  return appbar("Choose a handle") + '<div class="body">' +
+    '<div class="card"><div class="tiny mut" style="margin-bottom:7px">Handle</div>' +
+      '<input type="text" value="' + S.me.handle + '" data-act="sethandle">' +
+      '<div class="tiny mut" style="margin-top:7px">Changeable later; the old handle is kept and ' +
+      "not reusable by anyone else (D7).</div></div>" +
+    '<div class="card"><div class="row tiny"><b>Keep your guest hands?</b><div class="spacer"></div>' +
+      '<span class="pill stub">needs a decision</span></div>' +
+      '<div class="tiny mut" style="margin-top:5px">You played <b>' + S.me.played + " hands</b> as a guest. " +
+      "\u00A76.6 makes merge-on-first-sign-in mandatory, but D2 forbids adopting a legacy Almanac session. " +
+      "Game history is machine-witnessed, so it is a different case \u2014 decide it explicitly.</div></div>" +
+    '<button class="btn" data-nav="lobby">Continue</button></div>';
+}
+function scOnboarding() {
+  return appbar("Welcome") + '<div class="body">' +
+    '<div class="card" style="text-align:center;padding:22px 12px">' +
+      '<div class="big">' + tiles([31, 0, 9, 18], "") + "</div>" +
+      '<h2 style="margin:14px 0 4px;font-size:17px">Hong Kong mahjong</h2>' +
+      '<div class="mut tiny">Ranked, logged, replayable. English-first.</div></div>' +
+    '<div class="card"><div class="tiny mut" style="margin-bottom:6px">Display name</div>' +
+      '<input type="text" value="You" style="letter-spacing:0"></div>' +
+    '<button class="btn" data-nav="lobby">Start playing</button>' +
+    '<div class="tiny mut" style="text-align:center;margin-top:6px">' +
+      'No account needed. A device token identifies you until you add passkeys ' +
+      '<span class="pill p1">P1</span></div></div>';
+}
+
+function scLobby() {
+  S.tab = "play";
+  var stat = function (v, l) { return '<div class="st"><b>' + v + "</b><span>" + l + "</span></div>"; };
+  var upd = [["2026-08-26", "Claim priority now resolves ties to the nearest seat."],
+             ["2026-08-24", "Flower replacement is strictly ordered \u2014 replays re-execute deterministically."],
+             ["2026-08-21", "Concealed kong \u6697\u69D3 added to the own-turn declaration path."]];
+  return header() + '<div class="body"><div class="col wide">' +
+    '<div class="card"><div class="row">' +
+      '<div><div class="tiny mut">Provisional rating</div>' +
+      '<div style="font-size:30px;font-weight:700;line-height:1.1">' + S.me.rating + "</div></div>" +
+      '<div class="spacer"></div><div class="stats">' +
+        stat(S.me.played, "hands") + stat("26%", "win rate") + stat("4.4", "mean faan") +
+      "</div></div></div>" +
+    '<div class="grid2" style="align-items:start"><div>' +
+      '<button class="btn" data-act="quick">Quick match <span style="opacity:.75;font-weight:400">\u00B7 vs bots</span></button>' +
+      '<button class="btn ghost" data-act="quick">Quick match \u00B7 vs players <span class="pill p1">P1</span></button>' +
+      '<button class="btn ghost" data-nav="create">Create a table</button>' +
+      '<button class="btn ghost" data-nav="join">Join with code</button>' +
+      '<button class="btn ghost" data-nav="rooms">My rooms</button>' +
+    "</div><div>" +
+      '<div class="card"><div class="row tiny" style="margin-bottom:8px"><b>Updates</b></div>' +
+      upd.map(function (u) {
+        return '<div style="padding:6px 0;border-bottom:1px solid #f0f0f2">' +
+          '<div class="tiny mut">' + u[0] + "</div><div>" + u[1] + "</div></div>";
+      }).join("") + "</div>" +
+    "</div></div></div></div>";
+}
+
+function scCreate() {
+  var opt = function (label, val, note) {
+    return '<div class="row" style="padding:8px 0;border-bottom:1px solid #eee">' +
+      "<div><div>" + label + '</div><div class="tiny mut">' + (note || "") + "</div></div>" +
+      '<div class="spacer"></div><b class="tiny">' + val + "</b></div>";
+  };
+  return appbar("Create table", "lobby") + '<div class="body">' +
+    '<div class="card" style="padding:2px 12px">' +
+      opt("Ruleset", "Canonical HKOS", "§4 — 3 faan min, 13 cap, flowers, wind faan") +
+      opt("Match length", "One wind round 東圈", "4 rotations + repeats · ~20-35 min") +
+      opt("Claim window", "5s fixed", "Fixed minimum so timing never leaks a claim") +
+      opt("Seats", "1 human + 3 bots", "Bots fill empty seats") +
+    "</div>" +
+    '<div class="card"><div class="row tiny"><b>House rule presets</b>' +
+      '<div class="spacer"></div><span class="pill">config, not code</span></div>' +
+      '<div class="tiny mut" style="margin-top:5px">LIU variant · Taiwanese 16-tile ' +
+      '<span class="pill p1">later</span> — §4 loads faan and payment tables from config.</div></div>' +
+    '<button class="btn" data-act="quick">Create &amp; start</button></div>';
+}
+
+function scRooms() {
+  var rooms = [["Sunday Set", "SUNSET", 8, "Canonical HKOS", "3 online \u00B7 41 offline"],
+               ["TVB 2026 study group", "TVB26", 12, "Canonical HKOS", "0 online \u00B7 96 offline"],
+               ["LA scene", "LASCN", 21, "LIU house preset", "6 online \u00B7 12 offline"]];
+  return header() + '<div class="body"><div class="col wide">' +
+    '<div class="banner info" style="margin-bottom:10px">A room is a join code + a pinned ruleset + ' +
+    "a roster + N tables. It already exists in the Almanac \u2014 the game reuses it rather than " +
+    "forking a second one.</div>" +
+    '<div class="card">' + rooms.map(function (r) {
+      return '<div class="mrow" data-nav="room" data-room="' + r[1] + '">' +
+        '<div class="res" style="background:#4a5a7a">' + r[0].slice(0, 1) + "</div>" +
+        "<div><div><b>" + r[0] + '</b></div><div class="tiny mut">' + r[1] + " \u00B7 " + r[2] +
+        " players \u00B7 " + r[3] + "</div></div>" +
+        '<div class="spacer"></div><div class="tiny mut">' + r[4] + "</div></div>";
+    }).join("") + "</div>" +
+    '<button class="btn ghost" data-nav="join">Join a room by code</button></div></div>';
+}
+function scRoom() {
+  var roster = [["Augustine", 1512, "42 / 12"], ["Ah Ming", 1488, "38 / 0"], ["Kai", 1502, "31 / 6"],
+                ["Suki", 1470, "29 / 3"], ["Wing", "\u2014", "18 / 0"]];
+  var sessions = [["online", "Match \u00B7 \u6771\u570F", "26 Aug", "4 hands"],
+                  ["offline", "Table 2 \u00B7 Almanac", "24 Aug", "11 hands"],
+                  ["offline", "Table 1 \u00B7 Almanac", "24 Aug", "9 hands"],
+                  ["online", "Match \u00B7 \u6771\u570F", "22 Aug", "6 hands"]];
+  return appbar("Sunday Set", "rooms", '<span class="pill">SUNSET</span>') +
+    '<div class="body"><div class="col wide"><div class="grid2" style="align-items:start"><div>' +
+      '<div class="card"><div class="row tiny" style="margin-bottom:7px"><b>Roster</b>' +
+      '<div class="spacer"></div><span class="pill" style="background:#e2efe6;color:#1A8B3A">exact by construction</span></div>' +
+      '<table><tr><th>Player</th><th>Rating</th><th>Hands off/on</th></tr>' +
+      roster.map(function (r) {
+        return "<tr><td>" + r[0] + "</td><td>" + r[1] + '</td><td style="text-align:right">' + r[2] + "</td></tr>";
+      }).join("") + "</table>" +
+      '<div class="tiny mut" style="margin-top:7px">Roster identity is why this room can compare ' +
+      "offline and online at all. Ad-hoc sessions stay name-only.</div></div>" +
+    "</div><div>" +
+      '<div class="card"><div class="row tiny" style="margin-bottom:7px"><b>Pinned ruleset</b>' +
+      '<div class="spacer"></div><span class="pill">admin-set</span></div>' +
+      '<div class="tiny mut">Canonical HKOS \u00B7 3 faan min \u00B7 13 cap \u00B7 flowers on \u00B7 one wind round</div></div>' +
+      '<div class="card"><div class="row tiny" style="margin-bottom:7px"><b>Recent sessions</b></div>' +
+      sessions.map(function (x) {
+        var on = x[0] === "online";
+        return '<div class="row" style="padding:5px 0;border-bottom:1px solid #f0f0f2">' +
+          '<span class="pill" style="background:' + (on ? "#e2efe6;color:#1A8B3A" : "#ececed;color:#6b6b76") + '">' +
+          x[0] + "</span><span>" + x[1] + '</span><div class="spacer"></div>' +
+          '<span class="tiny mut">' + x[2] + " \u00B7 " + x[3] + "</span></div>";
+      }).join("") + "</div>" +
+    "</div></div></div></div>";
+}
+
+function scJoin() {
+  return appbar("Join table", "lobby") + '<div class="body">' +
+    '<div class="card"><div class="tiny mut" style="margin-bottom:7px">6-character table code</div>' +
+      '<input type="text" placeholder="A7K2QM" maxlength="6" style="text-align:center;font-size:22px;font-weight:700"></div>' +
+    '<button class="btn" data-act="quick">Join</button>' +
+    '<div class="tiny mut" style="text-align:center">Codes are ≥6 chars with a per-IP join rate limit — ' +
+      'the minimum abuse posture for an invite-only alpha (§5.3).</div></div>';
+}
+
+/* ─────────── match scene ─────────── */
+function melds(s) {
+  return '<div class="meld">' + s.melds.map(function (m) {
+    return '<div class="set' + (m.concealed ? " conc" : "") + '">' + tiles(m.tiles) + "</div>";
+  }).join("") + "</div>";
+}
+function seatCard(i, pos) {
+  var g = S.game, s = g.seats[i], isTurn = g.turn === i && g.phase === "AWAIT_DISCARD";
+  var conceal = s.hand.length + (s.drawn !== null ? 1 : 0), side = pos === "left" || pos === "right", k;
+  var h = '<div class="seat ' + (side ? "side " : "") + (isTurn ? "turn " : "") + pos + '">' +
+    '<div class="hd"><span class="wd">' + E.WINDS[s.windIdx] + '</span>' +
+    '<span class="nm">' + s.name + '</span>' +
+    '<span class="ch">' + (s.chips >= 0 ? "+" : "") + s.chips + "</span></div>";
+  if (S.opts.omni) h += '<div class="pool">' + tiles(s.hand.concat(s.drawn !== null ? [s.drawn] : [])) + "</div>";
+  else if (side) { h += '<div class="edges">'; for (k = 0; k < conceal; k++) h += "<i></i>"; h += "</div>"; }
+  else { h += '<div class="back-strip">'; for (k = 0; k < conceal; k++) h += back(); h += "</div>"; }
+  if (s.melds.length) h += melds(s);
+  if (s.flowers.length) h += '<div class="flow">' + tiles(s.flowers) + "</div>";
+  return h + "</div>";
+}
+
+function callButtons() {
+  var g = S.game, p = g.pendingClaims, out = [];
+  if (g.phase === "AWAIT_DISCARD" && g.turn === 0) {
+    if (g.selfDrawAvailable) out.push('<button class="cbtn win" data-act="tsumo">Self-draw<small>\u81EA\u6478 zi mo</small></button>');
+    g.concealedKongOptions(0).forEach(function (t) {
+      out.push('<button class="cbtn" data-act="ckong" data-t="' + t + '">Kong<small>\u69D3 gong</small></button>');
+    });
+  }
+  if (p && p.offers[0] && !(0 in p.answers)) {
+    var frac = g.remaining("claimWindow") / 5000;
+    p.offers[0].forEach(function (c, ix) {
+      var lbl = { winOnDiscard: "\u98DF\u7CCA<small>Ron</small>", kong: "\u69D3<small>Kong</small>",
+                  pong: "\u78B0<small>Pong</small>", chow: "\u4E0A<small>Chow</small>" }[c.type];
+      out.push('<button class="cbtn' + (c.type === "winOnDiscard" ? " win" : "") + '" data-act="claim" data-i="' + ix + '">' + lbl + "</button>");
+    });
+    out.push('<button class="cbtn pass" data-act="pass">Pass' + ring(frac) + "</button>");
+  }
+  return '<div class="calls">' + out.join("") + "</div>";
+}
+function ring(frac) {
+  var r = 26, c = 2 * Math.PI * r;
+  return '<svg class="ring" viewBox="0 0 60 60"><circle cx="30" cy="30" r="' + r + '" stroke="rgba(255,255,255,.3)"/>' +
+    '<circle cx="30" cy="30" r="' + r + '" stroke="#fff" stroke-dasharray="' + c + '" ' +
+    'stroke-dashoffset="' + (c * (1 - frac)) + '" stroke-linecap="round"/></svg>';
+}
+
+/* ─────────── the pre-hand ritual ───────────
+ * 洗牌 shuffle · 砌牌 build the walls · 擲骰 throw the dice · 開牌 break the wall.
+ *
+ * This is not decoration. The dice decide WHERE the wall is broken, which is
+ * real state, and both the wall order and the dice come from the same seed —
+ * so the whole deal is determined before a tile moves. That makes it verifiable:
+ * publish a hash of the seed before the hand, reveal the seed after, and anyone
+ * can recompute the wall and confirm nothing was rigged. A digital mahjong game
+ * has to answer "is this dealt fairly", and the dice are where you answer it.
+ *
+ * [NEEDS VALIDATION] Dice count is a house variant — HK sets ship two or three.
+ * Configurable; defaulting to three.
+ */
+var RITUAL = [
+  { phase: "shuffle", ms: 950,  label: "Shuffling \u00B7 \u6D17\u724C sai paai" },
+  { phase: "build",   ms: 800,  label: "Building the walls \u00B7 \u780C\u724C cai paai" },
+  { phase: "dice",    ms: 900,  label: "Throwing the dice \u00B7 \u64F2\u9AB0 zaak sik" },
+  { phase: "break",   ms: 550,  label: "Breaking the wall \u00B7 \u958B\u724C hoi paai" },
+];
+
+function startRitual(g) {
+  var rnd = E.prng ? E.prng(g.seed) : null;
+  var dice = [], i;
+  for (i = 0; i < (S.diceCount || 3); i++) {
+    dice.push(rnd ? 1 + Math.floor(rnd() * 6) : 1 + ((g.seed >> (i * 3)) % 6));
+  }
+  var sum = dice.reduce(function (a, b) { return a + b; }, 0);
+  S.ritual = {
+    step: 0, at: Date.now(), dice: dice, sum: sum,
+    // counted anticlockwise from the dealer, then that many stacks along
+    breakWall: (g.dealer + sum - 1) % 4,
+    breakStack: ((sum - 1) % 18),
+  };
+  clearInterval(S.ritualTimer);
+  S.ritualTimer = setInterval(function () {
+    var r = S.ritual;
+    if (!r || r.step >= RITUAL.length) { clearInterval(S.ritualTimer); return; }
+    if (Date.now() - r.at >= RITUAL[r.step].ms) {
+      r.step++; r.at = Date.now();
+      if (r.step >= RITUAL.length) { clearInterval(S.ritualTimer); S.ritual = null; }
+      S.sig = ""; render();
+    }
+  }, 60);
+}
+function skipRitual() {
+  clearInterval(S.ritualTimer);
+  S.ritual = null; S.sig = ""; render();
+}
+
+function ritualView(g) {
+  var r = S.ritual;
+  if (!r || r.step >= RITUAL.length) return "";
+  var step = RITUAL[r.step], geo = wallGeometry();
+  var building = r.step >= 1;
+  var tiles = geo.map(function (c, i) {
+    // before the walls are built the tiles are a loose heap in the middle
+    var jx = (jit(i, 11) - 0.5) * 118, jy = (jit(i, 12) - 0.5) * 88;
+    var jr = (jit(i, 13) - 0.5) * 300;
+    var x = building ? c.x : jx, y = building ? c.y : jy, rot = building ? c.rot : jr;
+    // 開牌 — the break opens a visible gap at the dice-chosen spot
+    var broken = r.step >= 3 && c.wall === r.breakWall && Math.abs(c.idx - r.breakStack) < 2;
+    return '<i class="rstk' + (broken ? " broken" : "") + '" style="left:' + x.toFixed(1) +
+      "px;top:" + y.toFixed(1) + "px;width:" + c.sw + "px;height:" + c.sh.toFixed(1) +
+      "px;transform:translate(-50%,-50%) rotate(" + rot.toFixed(0) + "deg);transition-delay:" +
+      (building ? (i % 18) * 9 : 0) + 'ms"></i>';
+  }).join("");
+
+  var dice = r.step >= 2
+    ? '<div class="dice">' + r.dice.map(function (d, i) {
+        return '<b class="die" style="animation-delay:' + i * 70 + 'ms">' + d + "</b>";
+      }).join("") + "</div>"
+    : "";
+
+  return '<div class="ritual" data-act="skipritual">' +
+    '<div class="rwalls">' + tiles + dice + "</div>" +
+    '<div class="rlabel">' + step.label +
+      (r.step >= 2 ? ' \u00B7 <b>' + r.sum + "</b>" : "") +
+      '<span>tap to skip</span></div></div>";'.replace('";', '"');
+}
+
+function scMatch() {
+  var g = S.game;
+  if (!g) { startGame(); g = S.game; }
+  var me = g.seats[0], myTurn = g.phase === "AWAIT_DISCARD" && g.turn === 0;
+  var rem = g.wall.length - g.wallIdx;
+  var POS = { 2: "top", 1: "left", 3: "right" };
+  var badges = "", pools = "";
+  [1, 2, 3].forEach(function (i) { badges += seatBadge(i, POS[i]); });
+  if (S.opts.riichi)
+    [[0, "db"], [2, "dt"], [1, "dl"], [3, "dr"]].forEach(function (x) { pools += discardPool(g, x[0], x[1]); });
+  else pools = pileView(g);
+
+  var ritual = ritualView(g);
+  return '<div class="match"><div class="arena">' + ritual +
+    // match info lives top-left so the top-centre stays clear for the across seat
+    '<div class="corner tl"><b>' + E.WINDS[g.roundWind] + "\u5708</b> \u00B7 hand " +
+      (g.handIdx + 1) + " \u00B7 <b>" + rem + '</b> tiles<br><span style="opacity:.65">4P \u00B7 vs bots \u00B7 ' +
+      (S.room ? S.room : "casual") + "</span></div>" +
+    '<div class="rnd">' + (g.phase === "CLAIM_WINDOW" ? "claim window"
+      : g.turn === 0 ? "your turn" : g.seats[g.turn].name + " thinking\u2026") + "</div>" +
+    '<div class="corner tr"><button class="iconbtn" data-act="showkeys">?</button>' +
+      '<button class="iconbtn" data-nav="settings">\u2699</button></div>' +
+    '<div class="autos">' +
+      '<b class="' + (S.opts.autoPass ? "on" : "") + '" data-act="toggleauto" title="auto-pass">A</b>' +
+      '<b title="auto-win">W</b><b title="auto-call off">C</b><b title="auto-discard">D</b></div>' +
+    '<div class="corner br"><button class="iconbtn">\u{1F4AC}</button></div>' +
+    '<div class="surface">' + wallStacks(rem) + pools + "</div>" +
+    (S.opts.riichi ? centreBox(g, rem) : "") + badges +
+  "</div>" + youBar(g, me, myTurn) + "</div>";
+}
+
+// The wall as a physical, depleting object. Wall count drives push/fold in HK
+// more than in Riichi, so it should be a thing that shrinks, not a number.
+// Deterministic per-tile scatter. Must not change between renders or the pile
+// visibly reshuffles every tick.
+function jit(i, salt) {
+  var x = Math.sin((i + 1) * 12.9898 + salt * 78.233) * 43758.5453;
+  return x - Math.floor(x);
+}
+
+// The true discard sequence, folded out of the event log: pushed on `discard`,
+// popped on a non-concealed `claimed` (the tile left the table into a meld).
+function globalPile(g) {
+  var out = [];
+  g.log.forEach(function (e) {
+    if (e.type === "discard") out.push({ tile: e.payload.tile, from: e.actor, seq: e.seq });
+    else if (e.type === "claimed" && !e.payload.concealed) {
+      for (var i = out.length - 1; i >= 0; i--)
+        if (out[i].tile === e.payload.tile) { out.splice(i, 1); break; }
+    }
+  });
+  return out;
+}
+
+/* Non-overlapping scatter.
+ *
+ * A tile thrown onto a table lands flat, at some angle, NEXT TO the others —
+ * it does not stack on them. So the pile must be messy but fully countable.
+ *
+ * Guarantee: cells are square with side = the tile's DIAGONAL (times a margin).
+ * A rectangle rotated by any angle whatsoever fits inside a square of its own
+ * diagonal, so no two tiles can overlap at any rotation. Rows are staggered by
+ * half a cell to kill the grid read; nearest-centre distance across a staggered
+ * row is 1.047 * cell, so the guarantee survives the stagger and the jitter.
+ */
+function scatterLayout(n, tileW) {
+  var h = tileW * 1.4;                                  // tile viewBox is 100x140
+  var diag = Math.sqrt(tileW * tileW + h * h);
+  var cell = diag * 1.15;                               // margin absorbs the jitter
+  var R = Math.ceil(Math.sqrt(n)) + 2, cells = [], gx, gy;
+  for (gy = -R; gy <= R; gy++) {
+    for (gx = -R; gx <= R; gx++) {
+      var x = gx * cell + (gy & 1 ? cell * 0.5 : 0);
+      var y = gy * cell * 0.92;
+      cells.push({ x: x, y: y, d: x * x + y * y * 1.35 });   // grow wider than tall
+    }
+  }
+  cells.sort(function (a, b) { return a.d - b.d; });
+  return cells.slice(0, n).map(function (c, i) {
+    return {
+      x: c.x + (jit(i, 5) - 0.5) * cell * 0.10,
+      y: c.y + (jit(i, 6) - 0.5) * cell * 0.10,
+      rot: (jit(i, 1) - 0.5) * 100                      // +-50 deg: messy, still readable
+    };
+  });
+}
+
+var PILE_W = { phone: 10, phonesm: 8.5, ipad: 15, desktop: 17 };
+
+/* How a seat throws is a personality trait, so it must be STABLE for a player
+   across the whole match — not random per discard. Eventually this comes from
+   the hand model; for now it is derived from the seat so each bot reads
+   consistently. */
+var TOSS_STYLES = ["fling", "place", "slide", "slam"];
+function tossStyleFor(seat) {
+  return S.tossOverride || TOSS_STYLES[(seat + (S.tossSalt || 0)) % TOSS_STYLES.length];
+}
+
+/** Called when a new discard event is observed. Pure bookkeeping, no render. */
+function noteToss(g) {
+  if (!g || !g.log) return;
+  for (var i = g.log.length - 1; i >= 0; i--) {
+    if (g.log[i].type === "discard") {
+      if (g.log[i].seq !== S.toss.seq) S.toss = { seq: g.log[i].seq, at: Date.now() };
+      return;
+    }
+  }
+}
+
+function pileView(g) {
+  var pile = globalPile(g), last = pile.length - 1;
+  var SEATC = ["#ffd479", "#8fd0ff", "#ff9f9f", "#a5e8b0"];
+  var w = PILE_W[S.dev] || 12;
+  var pos = scatterLayout(pile.length, w);
+  return '<div class="pile">' + pile.map(function (d, i) {
+    var p = pos[i];
+    var ring = S.opts.attrib
+      ? ";box-shadow:0 0 0 1.5px " + SEATC[d.from] + ";border-radius:2px" : "";
+    // Toss state is set when the discard EVENT is seen (see noteToss), never
+    // mutated here — a render must be a pure function of state or the class is
+    // consumed by whichever render happens to run first.
+    var fresh = i === last && d.seq === S.toss.seq && Date.now() - S.toss.at < 600;
+    var style = fresh ? " toss toss-" + tossStyleFor(d.from) : "";
+    // thrown in from the discarder's own side of the table
+    var FROM = [[0, 95], [-110, 10], [0, -95], [110, 10]][d.from] || [0, 95];
+    return '<span class="t' + (i === last ? " last" : "") + style +
+      '" style="width:' + w + "px;left:" + p.x.toFixed(1) + "px;top:" + p.y.toFixed(1) +
+      "px;--rot:" + p.rot.toFixed(1) + "deg;--fx:" + FROM[0] + "px;--fy:" + FROM[1] + "px" +
+      ring + '">' + T.tileSVG(d.tile, { labels: false }) + "</span>";
+  }).join("") + "</div>";
+}
+
+/* A real wall: four walls of 18 stacks, two tiles high = 36 each, 144 total,
+ * laid out as a diamond so the corners point at the players.
+ *
+ * Positions are computed here rather than composed in CSS: build the square in
+ * its own space, then rotate every stack 45 deg about the centre. Deterministic,
+ * and immune to transform-order surprises.
+ */
+var STACK_W = { phone: 6.5, phonesm: 5.5, ipad: 11, desktop: 12 };
+
+/** Positions of all 72 stacks, in the same space wallStacks renders into. */
+function wallGeometry() {
+  var sw = STACK_W[S.dev] || 8, sh = sw * 1.4, pitch = sw + 1, half = 18 * pitch / 2;
+  var C = Math.cos(Math.PI / 4), Sn = Math.sin(Math.PI / 4), out = [], w, i;
+  var edge = [
+    [-half, -half, half, -half], [half, -half, half, half],
+    [half, half, -half, half], [-half, half, -half, -half]
+  ];
+  for (w = 0; w < 4; w++) {
+    var e = edge[w];
+    for (i = 0; i < 18; i++) {
+      var f = (i + 0.5) / 18;
+      var px = e[0] + (e[2] - e[0]) * f, py = e[1] + (e[3] - e[1]) * f;
+      out.push({ wall: w, idx: i, sw: sw, sh: sh,
+                 x: px * C - py * Sn, y: px * Sn + py * C, rot: w * 90 + 45 });
+    }
+  }
+  return out;
+}
+
+function wallStacks(rem) {
+  var sw = STACK_W[S.dev] || 8, sh = sw * 1.4, gap = 1;
+  var pitch = sw + gap, L = 18 * pitch, half = L / 2;
+  var total = 72, live = Math.ceil(rem / 2), used = total - live;
+  var C = Math.cos(Math.PI / 4), Sn = Math.sin(Math.PI / 4);
+  var out = "", w, i;
+  // edges of the square, clockwise from the top
+  var edge = [
+    [-half, -half, half, -half], [half, -half, half, half],
+    [half, half, -half, half], [-half, half, -half, -half]
+  ];
+  for (w = 0; w < 4; w++) {
+    var e = edge[w], ang = w * 90;
+    for (i = 0; i < 18; i++) {
+      var n = w * 18 + i;
+      if (n < used) continue;                       // consumed in order around the diamond
+      var f = (i + 0.5) / 18;
+      var px = e[0] + (e[2] - e[0]) * f, py = e[1] + (e[3] - e[1]) * f;
+      var rx = px * C - py * Sn, ry = px * Sn + py * C;   // rotate the whole square 45 deg
+      out += '<i class="stk" style="left:' + rx.toFixed(1) + "px;top:" + ry.toFixed(1) +
+        "px;width:" + sw + "px;height:" + sh.toFixed(1) +
+        "px;transform:translate(-50%,-50%) rotate(" + (ang + 45) + 'deg)"><b></b></i>';
+    }
+  }
+  return '<div class="walls">' + out + "</div>";
+}
+
+function discardPool(g, i, cls) {
+  var last = g.lastDiscard && g.lastDiscard.from === i ? g.seats[i].discards.length - 1 : -1;
+  return '<div class="dpool ' + cls + '">' + g.seats[i].discards.map(function (t, ix) {
+    return '<span class="t' + (ix === last ? " last" : "") + '">' + T.tileSVG(t, { labels: false }) + "</span>";
+  }).join("") + "</div>";
+}
+
+function centreBox(g, rem) {
+  var sc = function (i, cls) {
+    var s = g.seats[i];
+    return '<div class="sc ' + cls + '">' + E.WINDS[s.windIdx] + " " + (s.chips >= 0 ? "+" : "") + s.chips + "</div>";
+  };
+  var mid = g.phase === "CLAIM_WINDOW" ? "claim" :
+    g.turn === 0 ? "your turn" : g.seats[g.turn].name;
+  return '<div class="ctrbox">' + sc(2, "top") + sc(1, "left") + sc(3, "right") + sc(0, "bot") +
+    '<div class="mid"><b>' + rem + "</b><span>tiles</span>" +
+    '<span style="margin-top:2px;display:block;color:#cfe3dc">' + mid + "</span></div></div>";
+}
+
+function seatBadge(i, pos) {
+  var g = S.game, s = g.seats[i];
+  var isTurn = (g.turn === i && g.phase === "AWAIT_DISCARD");
+  var conceal = s.hand.length + (s.drawn !== null ? 1 : 0);
+  var h = '<div class="sb ' + pos + (isTurn ? " turn" : "") + '">' +
+    '<div class="av">' + E.WINDS[s.windIdx] + "</div>" +
+    '<div class="nmw"><b>' + s.name + "</b><span>" + conceal + " tiles \u00B7 " +
+    (s.chips >= 0 ? "+" : "") + s.chips + "</span></div></div>";
+  var extra = s.melds.concat();
+  if (extra.length || s.flowers.length) {
+    h += '<div class="sbmeld ' + pos + '">' + extra.map(function (m) {
+      return '<div class="set' + (m.concealed ? " conc" : "") + '">' + tiles(m.tiles) + "</div>";
+    }).join("") + (s.flowers.length ? '<div class="set">' + tiles(s.flowers) + "</div>" : "") + "</div>";
+  }
+  if (S.opts.omni) h += '<div class="sbmeld ' + pos + '" style="top:auto;bottom:6px">' +
+    '<div class="set">' + tiles(s.hand) + "</div></div>";
+  return h;
+}
+
+function youBar(g, me, myTurn) {
+  var clock = myTurn ? g.remaining("turnClock") / 10000 : 0;
+  var meta = '<div class="youmeta"><div class="row tiny" style="gap:5px">' +
+    '<b style="font-size:14px">' + E.WINDS[me.windIdx] + "</b><span>You</span></div>" +
+    '<div class="tiny mut">' + (me.chips >= 0 ? "+" : "") + me.chips + "</div></div>";
+  var mrow = (me.melds.length || me.flowers.length)
+    ? '<div class="youmelds">' + me.melds.map(function (m) {
+        return '<div class="set' + (m.concealed ? " conc" : "") + '">' + tiles(m.tiles) + "</div>";
+      }).join("") + (me.flowers.length ? '<div class="set">' + tiles(me.flowers) + "</div>" : "") + "</div>"
+    : "";
+
+  var ban = "";
+  if (S.opts.floor) ban += '<div class="banner warn">\u26A0 No legal path to 3 faan \u2014 this hand cannot be won as it stands.</div>';
+  if (g.lastRefusal && Date.now() - g.lastRefusal.at < 4000) {
+    var r = g.lastRefusal;
+    ban += '<div class="banner info">' + g.seats[r.seat].name + " hit " + nm(r.tile) +
+      " but held only " + r.faan + " faan \u2014 below the 3-faan minimum.</div>";
+  }
+  var hand = '<div class="handwrap">' + ban + '<div class="hand">' +
+    me.hand.map(function (t, ix) {
+      return '<span class="t' + (S.sel === ix ? " sel" : "") + '" data-act="tap" data-ix="' + ix + '">' +
+        T.tileSVG(t, { labels: S.opts.labels }) + "</span>";
+    }).join("") +
+    (me.drawn !== null ? '<span class="gap"></span><span class="t' + (S.sel === -1 ? " sel" : "") +
+      '" data-act="tap" data-ix="-1">' + T.tileSVG(me.drawn, { labels: S.opts.labels }) + "</span>" : "") +
+    "</div>" +
+    (myTurn ? '<div class="clock"><i style="width:' + (clock * 100) + '%"></i></div>' : "") + "</div>";
+
+  return mrow + '<div class="youbar">' + meta + hand + callButtons() + "</div>";
+}
+
+/* ─────────── results ─────────── */
+function resProgression(r, g) {
+  var won = r.winner === 0, d = won ? 18 : r.outcome === "exhaustive_draw" ? 0 : -9, h = "";
+  h += '<div class="card" style="text-align:center">' +
+    '<div class="tiny mut">Provisional rating</div>' +
+    '<div class="delta ' + (d > 0 ? "up" : d < 0 ? "down" : "") + '">' + (d > 0 ? "+" : "") + d + "</div>" +
+    '<div class="tiny mut">' + S.me.rating + " \u2192 " + (S.me.rating + d) + "</div></div>";
+  if (r.winner != null) {
+    var w = g.seats[r.winner];
+    h += '<div class="card"><div class="row tiny" style="margin-bottom:7px"><b>' + w.name +
+      " won \u00B7 " + r.score.faan + ' faan</b><div class="spacer"></div>' +
+      '<span class="pill stub">scoring stubbed</span></div>' +
+      '<div class="pool" style="gap:2px">' + tiles(w.hand) +
+      (r.tile != null ? '<span style="width:7px"></span>' + tile(r.tile) : "") + "</div>" +
+      (w.melds.length ? melds(w) : "") +
+      '<div style="margin-top:9px">' + r.score.detail.map(function (x) {
+        var parts = x.split(/(\+\d+|\u2014 0 faan)/);
+        return '<div class="faan-line"><span>' + parts[0] + "</span><b>" + (parts[1] || "") + "</b></div>";
+      }).join("") + "</div></div>";
+  } else h += '<div class="card" style="text-align:center"><b>Exhaustive draw \u6D41\u5C40</b>' +
+    '<div class="tiny mut" style="margin-top:4px">Dealer repeats.</div></div>';
+  return h;
+}
+function resScoreboard(r, g) {
+  return '<div class="card"><table><tr><th>Seat</th><th>Player</th><th>Chips</th><th>Total</th></tr>' +
+    g.seats.map(function (s, i) {
+      return "<tr><td><b>" + E.WINDS[s.windIdx] + "</b></td><td>" + s.name + "</td><td>" +
+        (r.chips[i] > 0 ? "+" : "") + r.chips[i] + "</td><td>" + (s.chips >= 0 ? "+" : "") + s.chips + "</td></tr>";
+    }).join("") + "</table></div>" +
+    '<div class="card tiny mut">Match is one wind round (\u00A74). Standings carry across hands; ' +
+    "the dealer repeats on a dealer win or a draw.</div>";
+}
+function scResults() {
+  var r = S.result, g = S.game;
+  if (!r) return appbar("Results", "lobby") + '<div class="body"><div class="card mut">No completed hand yet.</div></div>';
+  var wide = S.dev === "desktop" || S.dev === "ipad";
+  var actions = '<div class="row"><button class="btn" data-act="share" style="margin:0">Share</button>' +
+    '<button class="btn ghost" data-act="watch" style="margin:0">Watch replay</button></div>' +
+    '<button class="btn ghost" data-act="nexthand">Next hand</button>';
+  if (wide) {
+    // Enough width for both panels — the phone's tab split is a space constraint,
+    // not an information architecture. Ceremony still reads first (left).
+    return appbar("Hand result", "lobby") + '<div class="body"><div class="col wide">' +
+      '<div class="grid2" style="align-items:start"><div>' + resProgression(r, g) + actions + "</div>" +
+      "<div>" + resScoreboard(r, g) + "</div></div></div></div>";
+  }
+  return appbar("Hand result", "lobby") +
+    '<div class="tabs"><div class="' + (S.resTab === 0 ? "on" : "") + '" data-act="restab" data-i="0">Progression</div>' +
+    '<div class="' + (S.resTab === 1 ? "on" : "") + '" data-act="restab" data-i="1">Scoreboard</div></div>' +
+    '<div class="body">' + (S.resTab === 0 ? resProgression(r, g) + actions : resScoreboard(r, g)) + "</div>";
+}
+
+/* ─────────── match list / replay ─────────── */
+// Every annotation here is a RULE-DERIVED FACT read out of the event log.
+// No route evaluator, no theory, nothing that can be wrong. The judgement layer
+// ("this discard was the wrong one") is deliberately absent — see §7.
+function keyMoments(log, seat) {
+  var out = [], seen = {}, ronOffered = null, i, j, e;
+  var bump = function (t, n) { seen[t] = (seen[t] || 0) + (n || 1); };
+  for (i = 0; i < log.length; i++) {
+    e = log[i];
+    if (e.type === "discard") ronOffered = null;
+    if (e.type === "claim_offered" && e.actor === seat &&
+        (e.payload.options || []).indexOf("winOnDiscard") >= 0) ronOffered = e.payload.tile;
+    if (e.type === "claim_declined" && e.actor === seat && ronOffered === e.payload.tile) {
+      out.push({ seq: e.seq, kind: "bad", text: "Passed a legal winning claim on " + nm(e.payload.tile) + "." });
+      ronOffered = null;
+    }
+    if (e.type === "refused_win" && e.actor === seat)
+      out.push({ seq: e.seq, kind: "warn", text: "Reached a winning shape at " + e.payload.faan +
+        " faan \u2014 below the 3-faan floor, so it could not be taken." });
+    if (e.type === "claimed" && e.actor === seat && !e.payload.concealed)
+      out.push({ seq: e.seq, kind: "note", text: "Melded " + e.payload.type + " on " + nm(e.payload.tile) +
+        " \u2014 hand is now exposed." });
+    if (e.type === "discard") {
+      var t = e.payload.tile;
+      if (e.actor === seat) {
+        // 4 copies exist. If 2+ were already visible, nobody can be holding the
+        // two needed to pung. Says nothing about a chow wait — do not call it "safe".
+        var vis = seen[t] || 0;
+        if (vis >= 2 && !isHonorId(t))
+          out.push({ seq: e.seq, kind: "note", text: "Discarded " + nm(t) + " with " + vis +
+            " of 4 already visible \u2014 no pung or kong wait possible. A chow wait still is." });
+        else if (vis >= 2)
+          out.push({ seq: e.seq, kind: "note", text: "Discarded " + nm(t) + " with " + vis +
+            " of 4 already visible \u2014 cannot be claimed at all (honours do not chow)." });
+        for (j = i + 1; j < Math.min(i + 8, log.length); j++) {
+          if (log[j].type === "winOnDiscard" && log[j].payload.tile === t) {
+            out.push({ seq: e.seq, kind: "bad", text: "Dealt in \u2014 " + nm(t) + " won for " +
+              log[j].payload.faan + " faan." });
+            break;
+          }
+          if (log[j].type === "discard") break;
+        }
+      }
+      bump(t);
+    }
+    // the claimed tile was already counted at its discard; only add what came out of hand
+    if (e.type === "claimed") {
+      if (e.payload.concealed) bump(e.payload.tile, 4);
+      else if (e.payload.type === "kong") bump(e.payload.tile, 3);
+      else if (e.payload.type === "pong") bump(e.payload.tile, 2);
+      // chow melds are three different tiles; payload carries only the claimed one
+    }
+  }
+  return out;
+}
+function isHonorId(t) { return t >= 27 && t < 34; }
+
+// Per-decision readout. distance + liveTiles are EXACT and need no theory.
+// Everything probabilistic is deliberately absent — see the panel in the UI.
+function reviewSeries(m) {
+  var log = m.log, out = [], i, j, incoming = null, incomingKind = "draw";
+  for (i = 0; i < log.length; i++) {
+    var e = log[i];
+    if (e.actor !== 0) continue;
+    if (e.type === "draw" || e.type === "kong_replace") { incoming = e.payload.tile; incomingKind = "draw"; }
+    else if (e.type === "claimed") { incoming = e.payload.tile; incomingKind = e.payload.type; }
+    else if (e.type === "discard") {
+      // state immediately BEFORE the discard: hand still holds the drawn tile
+      var st = foldTo(log, i);
+      var me = st.seats[0];
+      var vis = new Array(34).fill(0);
+      st.seats.forEach(function (sx, si) {
+        sx.discards.forEach(function (t) { if (t < 34) vis[t]++; });
+        sx.melds.forEach(function (md) { md.tiles.forEach(function (t) { if (t < 34) vis[t]++; }); });
+        if (si === 0) sx.hand.forEach(function (t) { if (t < 34) vis[t]++; });
+      });
+      var after = me.hand.slice();
+      var k = after.indexOf(e.payload.tile);
+      if (k >= 0) after.splice(k, 1);
+      var u = E.liveTiles(E.countsOf(after), me.melds.length, vis);
+      var before = E.distanceToReady(E.countsOf(me.hand), me.melds.length);
+      out.push({
+        seq: e.seq, hand: me.hand.slice(), melds: me.melds.slice(),
+        inTile: incoming, inKind: incomingKind, outTile: e.payload.tile,
+        distance: u.distance, distBefore: before, total: u.total, tiles: u.tiles.slice(0, 8)
+      });
+      incoming = null;
+    }
+  }
+  return out;
+}
+
+function readyChart(series, curTurn) {
+  if (!series.length) return "";
+  var W = 100, H = 30, pad = 2;
+  var maxSh = Math.max(3, Math.max.apply(null, series.map(function (p) { return p.distance; })));
+  var x = function (i) { return pad + (i / Math.max(1, series.length - 1)) * (W - pad * 2); };
+  var y = function (v) { return pad + (v / maxSh) * (H - pad * 2); };   // 0 distance at top
+  var pts = series.map(function (p, i) { return x(i).toFixed(1) + "," + y(p.distance).toFixed(1); }).join(" ");
+  var dots = series.map(function (p, i) {
+    var col = p.distance <= 0 ? "#1A8B3A" : p.distance === 1 ? "#7a6a2a" : "#8a8a94";
+    return '<circle cx="' + x(i).toFixed(1) + '" cy="' + y(p.distance).toFixed(1) +
+      '" r="0.9" fill="' + col + '"/>';
+  }).join("");
+  var mark = curTurn != null && series[curTurn]
+    ? '<line x1="' + x(curTurn).toFixed(1) + '" y1="0" x2="' + x(curTurn).toFixed(1) + '" y2="' + H +
+      '" stroke="#2a2a32" stroke-width="0.5" vector-effect="non-scaling-stroke"/>' : "";
+  return '<svg viewBox="0 0 ' + W + " " + H + '" preserveAspectRatio="none" ' +
+    'style="width:100%;height:96px;display:block">' +
+    '<rect x="0" y="0" width="' + W + '" height="' + y(0.5).toFixed(1) +
+      '" fill="#e6f2e9"/>' + mark +
+    '<polyline points="' + pts + '" fill="none" stroke="var(--accent)" stroke-width="0.7" ' +
+      'stroke-linejoin="round" vector-effect="non-scaling-stroke"/>' + dots + "</svg>";
+}
+
+// Review is YOUR seat, not the omniscient view. Opponents' concealed hands stay
+// hidden by default so you judge your decisions against what you could actually
+// have known — seeing their hands first is hindsight poisoning. "Reveal" exists
+// because it is genuinely instructive, but it is opt-in.
+function opponentPanel(st, log, idx, reveal) {
+  var vis = new Array(34).fill(0);
+  st.seats.forEach(function (sx) {
+    sx.discards.forEach(function (t) { if (t < 34) vis[t]++; });
+    sx.melds.forEach(function (md) { md.tiles.forEach(function (t) { if (t < 34) vis[t]++; }); });
+  });
+  return [1, 2, 3].map(function (i) {
+    var sx = st.seats[i], nm2 = ["You", "Ah Ming", "Kai", "Suki"][i];
+    var head = '<div class="row tiny" style="margin-bottom:2px">' +
+      '<b style="color:' + SEATCOL[i] + '">' + E.WINDS[(i - st.dealer + 4) % 4] + "</b><b>" + nm2 + "</b>" +
+      '<div class="spacer"></div><span class="mut">' + sx.discards.length + " discards \u00B7 " +
+      sx.melds.length + " melds</span></div>";
+    var pub = (sx.melds.length || sx.flowers.length)
+      ? '<div class="pool" style="margin-bottom:3px">' + sx.melds.map(function (m) {
+          return '<span class="set" style="display:inline-flex;gap:1px;background:rgba(0,0,0,.05);' +
+            'border-radius:3px;padding:1px">' + tiles(m.tiles) + "</span>"; }).join("") +
+          (sx.flowers.length ? '<span style="width:6px;display:inline-block"></span>' + tiles(sx.flowers) : "") +
+        "</div>"
+      : '<div class="tiny mut" style="margin-bottom:3px">nothing exposed</div>';
+    var hidden = "";
+    if (reveal) {
+      var u = E.liveTiles(E.countsOf(sx.hand), sx.melds.length, vis);
+      hidden = '<div class="pool" style="margin-bottom:2px">' + tiles(sx.hand) + "</div>" +
+        '<div class="tiny" style="color:' + (u.distance <= 0 ? "var(--ok)" : "var(--dim)") + '">' +
+        (u.distance <= 0
+          ? "ready \u8074\u724C \u2014 waiting on " + u.tiles.map(function (w) { return nm(w.tile) + "\u00D7" + w.unseen; }).join(" \u00B7 ")
+          : u.distance + " away") + "</div>";
+    }
+    return '<div style="padding:6px 0;border-bottom:1px solid #f0f0f2">' + head + pub + hidden + "</div>";
+  }).join("");
+}
+
+function scHandReview() {
+  var m = S.matches[S.reviewIx || 0];
+  if (!m) return appbar("Review", "matches") + '<div class="body"><div class="card mut">No hands yet.</div></div>';
+  var log = m.log, moments = keyMoments(log, 0), series = reviewSeries(m);
+  if (!series.length) return appbar("Hand review", "matches") +
+    '<div class="body"><div class="card mut">No decisions recorded this hand.</div></div>';
+  if (S.turn == null || S.turn >= series.length) S.turn = series.length - 1;
+  var cur = series[S.turn], idx = cur.seq + 1;
+  var st = foldTo(log, idx);
+  var colour = { bad: "var(--warn)", warn: "#7a6a2a", note: "var(--dim)" };
+
+  var turns = series.map(function (p, i) {
+    var prev = i > 0 ? series[i - 1].distance : null;
+    var moved = prev === null ? "" : p.distance < prev
+      ? '<span style="color:var(--ok)">\u2193 closer</span>'
+      : p.distance > prev ? '<span style="color:var(--warn)">\u2191 further</span>'
+      : '<span class="mut">\u2192 same</span>';
+    var drawAndCut = p.inTile != null && p.inTile === p.outTile && p.inKind === "draw";
+    var inDone = false, outDone = false;
+    var handHtml = p.hand.map(function (t) {
+      var cls = "";
+      if (drawAndCut && !outDone && t === p.outTile) { cls = " thru"; outDone = true; }
+      else if (!drawAndCut && !inDone && t === p.inTile) { cls = " in"; inDone = true; }
+      else if (!outDone && t === p.outTile) { cls = " out"; outDone = true; }
+      return '<span class="t' + cls + '">' + T.tileSVG(t, { labels: S.opts.labels }) + "</span>";
+    }).join("");
+    var melded = p.melds.length
+      ? '<span style="width:7px;display:inline-block"></span>' + p.melds.map(function (mm) {
+          return '<span class="set" style="display:inline-flex;gap:1px;background:rgba(0,0,0,.05);' +
+            'border-radius:3px;padding:1px">' + tiles(mm.tiles) + "</span>"; }).join("")
+      : "";
+    return '<div class="turn' + (i === S.turn ? " on" : "") + '" data-act="selturn" data-i="' + i + '">' +
+      '<div class="row tiny" style="margin-bottom:3px">' +
+        '<span class="mut" style="width:24px">' + (i + 1) + "</span>" +
+        (drawAndCut
+          ? '<span class="io thru">\u21BA drew and cut ' + nm(p.outTile) + "</span>"
+          : '<span class="io in">+ ' + (p.inKind === "draw" ? "drew" : p.inKind) + " " +
+            (p.inTile != null ? nm(p.inTile) : "\u2014") + "</span>" +
+            '<span class="io out">\u2212 cut ' + nm(p.outTile) + "</span>") +
+        '<div class="spacer"></div>' + moved +
+        '<span class="mut" style="margin-left:8px">' +
+          (p.distance <= 0 ? "ready" : p.distance + " away") + " \u00B7 " + p.total + " live</span></div>" +
+      '<div class="hand-strip">' + handHtml + melded + "</div>" +
+      (p.distance <= 0 && p.tiles.length
+        ? '<div class="tiny mut" style="margin-top:3px">waiting on ' +
+          p.tiles.map(function (w) { return nm(w.tile) + "\u00D7" + w.unseen; }).join(" \u00B7 ") + "</div>"
+        : "") + "</div>";
+  }).join("");
+
+  return appbar("Hand review", "matches",
+      '<span class="pill">your seat</span>') +
+    '<div class="body"><div class="col wide">' +
+    '<div class="card"><div class="row tiny" style="margin-bottom:6px"><b>Distance to a winning hand</b>' +
+    '<div class="spacer"></div><span class="tiny mut">turn ' + (S.turn + 1) + " of " + series.length +
+    " \u00B7 green band = ready \u8074\u724C</span></div>" + readyChart(series, S.turn) + "</div>" +
+
+    '<div class="grid2" style="align-items:start"><div>' +
+      '<div class="card"><div class="row tiny" style="margin-bottom:6px"><b>How your hand evolved</b>' +
+      '<div class="spacer"></div><span class="tiny mut">click a turn</span></div>' +
+      '<div style="max-height:380px;overflow-y:auto">' + turns + "</div>" +
+      '<div class="tiny mut" style="margin-top:7px">' +
+      '<span class="io in">green</span> came in, <span class="io out">red</span> went out, ' +
+      '<span class="io thru">amber</span> means you cut the tile you just drew. ' +
+      "Shanten and live counts are exact for what was visible at that moment.</div></div>" +
+    "</div><div>" +
+
+      '<div class="card"><div class="row tiny" style="margin-bottom:6px"><b>The table at turn ' +
+      (S.turn + 1) + "</b><div class=\"spacer\"></div>" +
+      '<span class="tiny" data-act="reveal" style="cursor:pointer;color:var(--accent)">' +
+      (S.reveal ? "hide hands" : "reveal hands") + "</span></div>" +
+      miniTable(st, log, idx) + "</div>" +
+
+      '<div class="card"><div class="row tiny" style="margin-bottom:4px"><b>Opponents</b>' +
+      '<div class="spacer"></div><span class="tiny mut">' +
+      (S.reveal ? "revealed \u2014 hindsight" : "what you could see") + "</span></div>" +
+      opponentPanel(st, log, idx, S.reveal) + "</div>" +
+
+      '<div class="card"><div class="row tiny" style="margin-bottom:6px"><b>Key moments</b>' +
+      '<div class="spacer"></div><span class="tiny mut">' + moments.length + "</span></div>" +
+      (moments.length ? moments.map(function (x) {
+        return '<div style="padding:5px 0 5px 8px;border-left:2px solid ' + colour[x.kind] + ';margin-bottom:3px">' +
+          '<div class="tiny mut">event ' + x.seq + "</div>" + x.text + "</div>";
+      }).join("") : '<div class="tiny mut">Nothing flagged this hand.</div>') + "</div>" +
+
+      '<button class="btn ghost" data-nav="observer">Observer mode \u2014 all four hands</button>' +
+    "</div></div></div></div>";
+}
+
+/* ─────────── observer mode ───────────
+ * Watching after the fact is a different job from playing. You are not trying to
+ * pick a discard; you are trying to see who was close, who was pushing, and what
+ * the danger was. So this is not the table with the hands flipped over — it is
+ * four seats aligned on one timeline.
+ *
+ * NOTE: this uses the OMNISCIENT serializer (§5.5), which is legitimate here
+ * precisely because the hand is over. Live spectating may not — a spectator
+ * relaying hands to a player is a cheating vector, so live must be delayed or
+ * redacted. Post-hoc and live are different products.
+ */
+var SEATCOL = ["#1845A5", "#a8341f", "#1A8B3A", "#7a3ea8"];
+
+function observerSeries(log) {
+  var out = [];
+  for (var i = 0; i <= log.length; i++) {
+    var t = log[i - 1] && log[i - 1].type;
+    if (i && t !== "discard" && t !== "draw" && t !== "claimed" && t !== "flower_replace") continue;
+    var st = foldTo(log, i);
+    out.push({ i: i, dist: st.seats.map(function (sx) {
+      return E.distanceToReady(E.countsOf(sx.hand), sx.melds.length);
+    }) });
+  }
+  return out;
+}
+
+function raceChart(series, curIdx) {
+  if (series.length < 2) return "";
+  var W = 100, H = 26, pad = 1.5;
+  var maxSh = 6;
+  var x = function (k) { return pad + (k / (series.length - 1)) * (W - pad * 2); };
+  var y = function (v) { return pad + (Math.max(-1, Math.min(maxSh, v)) + 1) / (maxSh + 1) * (H - pad * 2); };
+  var lines = [0, 1, 2, 3].map(function (seat) {
+    var pts = series.map(function (p, k) { return x(k).toFixed(1) + "," + y(p.dist[seat]).toFixed(1); }).join(" ");
+    return '<polyline points="' + pts + '" fill="none" stroke="' + SEATCOL[seat] +
+      '" stroke-width="0.7" stroke-linejoin="round" vector-effect="non-scaling-stroke" opacity="0.9"/>';
+  }).join("");
+  var near = 0;
+  series.forEach(function (p, k) { if (Math.abs(p.i - curIdx) < Math.abs(series[near].i - curIdx)) near = k; });
+  return '<svg viewBox="0 0 ' + W + " " + H + '" preserveAspectRatio="none" style="width:100%;height:104px;display:block">' +
+    '<rect x="0" y="' + y(-1).toFixed(1) + '" width="' + W + '" height="' + (y(0) - y(-1)).toFixed(1) +
+      '" fill="#e6f2e9"/>' +
+    '<line x1="' + x(near).toFixed(1) + '" y1="0" x2="' + x(near).toFixed(1) + '" y2="' + H +
+      '" stroke="#2a2a32" stroke-width="0.5" vector-effect="non-scaling-stroke"/>' + lines + "</svg>";
+}
+
+function wallLeft(log, idx) {
+  var used = 52, i;
+  for (i = 0; i < idx && i < log.length; i++) {
+    var t = log[i].type;
+    if (t === "draw" || t === "kong_replace") used++;
+    else if (t === "flower_replace" && log[i].payload.initial) used++;
+  }
+  return Math.max(0, 144 - used);
+}
+
+// A diagram of the table, not a second copy of the match UI: seats, melds,
+// whose turn, the pile, and the wall. No hands — those live in the lanes.
+function miniTable(st, log, idx) {
+  var names = ["You", "Ah Ming", "Kai", "Suki"], POS = ["mb", "ml", "mt", "mr"];
+  var turn = null;
+  for (var i = idx - 1; i >= 0; i--) {
+    if (log[i].type === "discard") { turn = (log[i].actor + 1) % 4; break; }
+  }
+  var pile = [], seen = {};
+  st.seats.forEach(function (sx, si) {
+    sx.discards.forEach(function (t) { pile.push({ tile: t, from: si }); });
+  });
+  // stable order for the scatter: use the log sequence rather than seat order
+  var ordered = [];
+  log.slice(0, idx).forEach(function (e) {
+    if (e.type === "discard") ordered.push({ tile: e.payload.tile, from: e.actor });
+    else if (e.type === "claimed" && !e.payload.concealed) {
+      for (var k = ordered.length - 1; k >= 0; k--)
+        if (ordered[k].tile === e.payload.tile) { ordered.splice(k, 1); break; }
+    }
+  });
+
+  var seats = [0, 1, 2, 3].map(function (i) {
+    var sx = st.seats[i];
+    var meld = sx.melds.length || sx.flowers.length
+      ? '<div class="mmeld">' + sx.melds.map(function (m) {
+          return '<div class="set">' + tiles(m.tiles) + "</div>";
+        }).join("") + (sx.flowers.length ? '<div class="set">' + tiles(sx.flowers) + "</div>" : "") + "</div>"
+      : "";
+    return '<div class="mseat ' + POS[i] + (turn === i ? " turn" : "") + '">' +
+      '<span class="dot"></span><b style="color:' + SEATCOL[i] + '">' +
+      E.WINDS[(i - st.dealer + 4) % 4] + "</b><span>" + names[i] + "</span>" + meld + "</div>";
+  }).join("");
+
+  var last = ordered.length - 1, mw = 8;
+  var mpos = scatterLayout(ordered.length, mw);
+  var pileHtml = '<div class="mpile">' + ordered.map(function (d, i) {
+    var q = mpos[i];
+    return '<span class="t' + (i === last ? " last" : "") + '" style="width:' + mw + "px;left:" +
+      q.x.toFixed(1) + "px;top:" + q.y.toFixed(1) + "px;transform:translate(-50%,-50%) rotate(" +
+      q.rot.toFixed(1) + 'deg)">' + T.tileSVG(d.tile, { labels: false }) + "</span>";
+  }).join("") + "</div>";
+
+  return '<div class="mini">' + seats +
+    '<div class="mfelt">' + pileHtml + "</div>" +
+    '<div class="mwall">' + wallLeft(log, idx) + " in wall</div></div>";
+}
+
+function scObserver() {
+  var m = S.matches[S.reviewIx || 0];
+  if (!m) return appbar("Observer", "matches") + '<div class="body"><div class="card mut">No hands yet.</div></div>';
+  var log = m.log;
+  if (S.obs == null) S.obs = log.length;
+  var idx = Math.max(0, Math.min(log.length, S.obs));
+  var st = foldTo(log, idx), series = observerSeries(log);
+  var vis = new Array(34).fill(0);
+  st.seats.forEach(function (sx) {
+    sx.discards.forEach(function (t) { if (t < 34) vis[t]++; });
+    sx.melds.forEach(function (md) { md.tiles.forEach(function (t) { if (t < 34) vis[t]++; }); });
+  });
+
+  var lanes = [0, 1, 2, 3].map(function (i) {
+    var sx = st.seats[i], nm2 = ["You", "Ah Ming", "Kai", "Suki"][i];
+    var c = E.countsOf(sx.hand);
+    var u = E.liveTiles(c, sx.melds.length, vis);
+    var ready = u.distance <= 0;
+    var wait = ready
+      ? '<span class="tiny" style="color:var(--ok)">waiting on ' +
+        u.tiles.map(function (w) { return nm(w.tile) + "\u00D7" + w.unseen; }).join(" \u00B7 ") + "</span>"
+      : '<span class="tiny mut">' + u.distance + " away \u00B7 " + u.total + " live tiles</span>";
+    return '<div class="lane" style="border-left:3px solid ' + SEATCOL[i] + '">' +
+      '<div class="row tiny" style="margin-bottom:3px">' +
+        '<b style="font-size:13px">' + E.WINDS[(i - st.dealer + 4) % 4] + "</b>" +
+        "<b>" + nm2 + "</b>" +
+        '<span class="pill" style="background:' + (ready ? "#e2efe6;color:#1A8B3A" : "#ececed;color:#6b6b76") +
+          '">' + (ready ? "ready" : u.distance + "-away") + "</span>" +
+        '<div class="spacer"></div>' + wait + "</div>" +
+      '<div class="pool" style="margin-bottom:3px">' + tiles(sx.hand) +
+        (sx.melds.length ? '<span style="width:8px"></span>' + sx.melds.map(function (md) {
+          return '<span class="set" style="display:inline-flex;gap:1px;background:rgba(0,0,0,.05);' +
+            'border-radius:3px;padding:1px">' + tiles(md.tiles) + "</span>"; }).join("") : "") +
+        (sx.flowers.length ? '<span style="width:8px"></span>' + tiles(sx.flowers) : "") + "</div>" +
+      '<div class="row" style="gap:5px"><span class="tiny mut" style="width:44px">discards</span>' +
+        '<div class="pool" style="margin:0">' + tiles(sx.discards) + "</div></div>" +
+    "</div>";
+  }).join("");
+
+  return appbar("Observer", "matches", '<span class="pill">omniscient \u00B7 post-hoc</span>') +
+    '<div class="body"><div class="col wide">' +
+    '<div class="grid2" style="align-items:start"><div class="card">' +
+      '<div class="row tiny" style="margin-bottom:6px"><b>Table</b><div class="spacer"></div>' +
+      '<span class="tiny mut">event ' + idx + "</span></div>" +
+      miniTable(st, log, idx) +
+      '<div class="tiny mut" style="margin-top:6px">Diagram, not a second match UI \u2014 seats, ' +
+      "melds, whose turn, the pile and the wall. Hands are in the lanes below.</div></div>" +
+    '<div class="card"><div class="row tiny" style="margin-bottom:6px"><b>Who was close</b>' +
+      '<div class="spacer"></div>' + [0, 1, 2, 3].map(function (i) {
+        return '<span class="tiny" style="color:' + SEATCOL[i] + ';font-weight:600">' +
+          ["You", "Ah Ming", "Kai", "Suki"][i] + "</span>";
+      }).join(" ") + "</div>" +
+      raceChart(series, idx) +
+      '<div class="tiny mut" style="margin-top:5px">Shanten for all four seats on one axis. ' +
+      "The green band is ready. Two lines entering it together is the whole drama of a hand.</div></div></div>" +
+    '<div class="scrub"><button data-act="obs" data-d="-1">\u25C0</button>' +
+      '<input type="range" min="0" max="' + log.length + '" value="' + idx + '" data-act="obsscrub">' +
+      '<button data-act="obs" data-d="1">\u25B6</button>' +
+      '<span class="tiny mut" style="width:78px;text-align:right">event ' + idx + " / " + log.length + "</span></div>" +
+    lanes + "</div></div>";
+}
+
+function scMatches() {
+  S.tab = "review";
+  var rows = S.matches.length ? S.matches.map(function (m, i) {
+    var c = m.won ? "var(--ok)" : m.draw ? "#8a8a94" : "var(--warn)";
+    return '<div class="mrow" data-act="openreview" data-i="' + i + '">' +
+      '<div class="res" style="background:' + c + '">' + (m.won ? "W" : m.draw ? "—" : "L") + "</div>" +
+      "<div><div><b>" + m.title + '</b></div><div class="tiny mut">' + m.sub + "</div></div>" +
+      '<div class="spacer"></div><div class="tiny mut">' + m.events + " events</div></div>";
+  }).join("") : '<div class="mut tiny">No matches yet — play a hand.</div>';
+  return header() + '<div class="body"><div class="col wide">' +
+    '<div class="row" style="margin-bottom:9px"><b>Match history</b><div class="spacer"></div>' +
+    '<span class="tiny mut">' + S.matches.length + " recorded</span></div>" +
+    '<div class="card">' + rows + "</div>" +
+    '<div class="card tiny mut">Every completed hand writes an append-only event log (\u00A75.5). ' +
+    "Open one to review it move by move.</div></div></div>";
+}
+
+function foldTo(log, n) {
+  var st = { seats: [0,1,2,3].map(function(){ return {hand:[],melds:[],flowers:[],discards:[]}; }),
+             wind: 0, dealer: 0, last: null, note: "" };
+  for (var i = 0; i < n && i < log.length; i++) {
+    var e = log[i], p = e.payload, s = e.actor != null ? st.seats[e.actor] : null;
+    if (e.type === "deal") {
+      st.dealer = p.dealer; st.wind = p.round_wind;
+      if (p.hands) st.seats.forEach(function (x, ix) { x.hand = p.hands[ix].concat(); x.flowers = (p.flowers[ix]||[]).concat(); });
+    } else if (e.type === "flower_replace") {
+      // initial deal swaps are already baked into the deal snapshot
+      if (!p.initial && s) {
+        var fk = s.hand.indexOf(p.flower);
+        if (fk >= 0) s.hand.splice(fk, 1);
+        s.flowers.push(p.flower);
+      }
+    }
+    else if (e.type === "draw") { if (s) s.hand.push(p.tile); }
+    else if (e.type === "kong_replace") { if (s) s.hand.push(p.tile); }
+    else if (e.type === "discard") {
+      if (s) { var ix2 = s.hand.indexOf(p.tile); if (ix2 >= 0) s.hand.splice(ix2, 1); s.discards.push(p.tile); }
+      st.last = { tile: p.tile, from: e.actor };
+    } else if (e.type === "claimed") {
+      if (s) {
+        var take = p.concealed ? [p.tile,p.tile,p.tile,p.tile] : [p.tile,p.tile].concat(p.type==="kong"?[p.tile]:[]);
+        take.forEach(function (t) { var k = s.hand.indexOf(t); if (k >= 0) s.hand.splice(k, 1); });
+        s.melds.push({ type: p.type, tiles: take, concealed: !!p.concealed });
+        if (!p.concealed && p.from != null) st.seats[p.from].discards.pop();
+      }
+    } else if (e.type === "refused_win") st.note = "refused: " + p.faan + " faan, below minimum";
+  }
+  st.seats.forEach(function (x) { x.hand.sort(function (a, b) { return a - b; }); });
+  return st;
+}
+
+function scReplay(shared) {
+  var R = S.replay, st = foldTo(R.log, R.idx);
+  var h = shared
+    ? '<div class="appbar"><span class="ttl">Shared replay</span><span class="pill">public link</span></div>'
+    : appbar("Replay", "matches");
+  h += '<div class="body" style="padding:10px">';
+  if (shared) h += '<div class="banner info" style="margin-bottom:9px">Viewing a shared hand — no account needed. ' +
+    "<b>Sign up</b> to play.</div>";
+  h += '<div class="card" style="padding:9px">';
+  [2, 1, 3].forEach(function (i) {
+    var s = st.seats[i];
+    h += '<div class="row tiny" style="margin-bottom:3px"><b>' + E.WINDS[(i - st.dealer + 4) % 4] + "</b>" +
+      "<span>" + ["You","Ah Ming","Kai","Suki"][i] + "</span></div>" +
+      '<div class="pool" style="max-width:100%;margin-bottom:6px">' + tiles(s.hand) +
+      (s.melds.length ? '<span style="width:8px"></span>' + s.melds.map(function(m){
+        return '<span class="set" style="display:inline-flex;gap:1px">'+tiles(m.tiles)+"</span>"; }).join("") : "") + "</div>";
+  });
+  h += '<div class="row tiny" style="margin:7px 0 3px"><b>' + E.WINDS[(0 - st.dealer + 4) % 4] + "</b><span>You</span></div>" +
+    '<div class="pool" style="max-width:100%">' + tiles(st.seats[0].hand) + "</div>";
+  h += "</div>";
+  h += '<div class="card" style="padding:9px"><div class="tiny mut" style="margin-bottom:5px">Discards</div>' +
+    st.seats.map(function (s, i) {
+      return '<div class="row" style="gap:6px;margin-bottom:3px"><b class="tiny" style="width:14px">' +
+        E.WINDS[(i - st.dealer + 4) % 4] + '</b><div class="pool" style="max-width:100%;margin:0">' +
+        tiles(s.discards) + "</div></div>";
+    }).join("") + "</div>";
+  h += '<div class="scrub"><button data-act="step" data-d="-1">◀</button>' +
+    '<button data-act="play">' + (R.playing ? "⏸" : "▶") + "</button>" +
+    '<input type="range" min="0" max="' + R.log.length + '" value="' + R.idx + '" data-act="scrub">' +
+    '<button data-act="step" data-d="1">▶</button></div>' +
+    '<div class="tiny mut" style="text-align:center;margin-bottom:7px">event ' + R.idx + " / " + R.log.length + "</div>";
+  h += '<div class="evlog" id="evlog">' + R.log.map(function (e, i) {
+    return '<div class="' + (i === R.idx - 1 ? "cur" : "") + '">' + String(i).padStart(3, "0") +
+      ' <span class="ty">' + e.type + "</span> " + (e.actor != null ? "s" + e.actor : "--") + " " +
+      JSON.stringify(e.payload).slice(0, 46) + "</div>";
+  }).join("") + "</div>";
+  h += '<div class="card tiny mut" style="margin-top:9px">Replay is a fold over the event log — ' +
+    'the same stream the server wrote. Forward-step only, omniscient view at P0.</div>';
+  return h + "</div>";
+}
+
+/* ─────────── P1 / reference / settings / IA ─────────── */
+function stub(title, backTo, badge, lines) {
+  var h = appbar(title, backTo) + '<div class="body">' +
+    '<div class="card"><div class="row"><b>' + title + '</b><div class="spacer"></div>' + badge + "</div>" +
+    '<div class="tiny mut" style="margin-top:6px">' + lines + "</div></div></div>";
+  return tab ? h : h;
+}
+function scProfile() {
+  return header() + '<div class="body"><div class="col">' +
+    '<div class="card"><div class="row"><div><b>You</b><div class="tiny mut">device token · no account</div></div>' +
+    '<div class="spacer"></div><div style="text-align:right"><div style="font-size:22px;font-weight:700">' +
+    S.me.rating + '</div><div class="tiny mut">provisional</div></div></div></div>' +
+    '<div class="card"><div class="row tiny"><b>Stat dashboard</b><div class="spacer"></div>' +
+    '<span class="pill p1">P1</span></div><div class="tiny mut" style="margin-top:5px">' +
+    'Win rate, deal-in rate, mean winning faan, call rate — the same four metrics gate 3 ' +
+    'measures for bot parity (§3).</div></div>' +
+    '<div class="card"><div class="row tiny"><b>Account &amp; passkeys</b><div class="spacer"></div>' +
+    '<span class="pill p1">P1</span></div></div>' +
+    '<button class="btn ghost" data-nav="stats">Stats \u2014 offline vs online</button>' +
+    '<button class="btn ghost" data-nav="rules">Rules &amp; faan table</button>' +
+    '<button class="btn ghost" data-nav="settings">Settings</button></div></div>';
+}
+function scLearn() {
+  S.tab = "learn";
+  return header() + '<div class="body"><div class="col">' +
+    '<div class="card"><div class="row tiny"><b>In-app Learn tab</b><div class="spacer"></div>' +
+    '<span class="pill p1">P1</span></div><div class="tiny mut" style="margin-top:5px">' +
+    'At P0 the ten seed WWYD problems publish on mahjongresearch.com instead — same content, ' +
+    'zero client work (§7).</div></div>' +
+    '<div class="card"><b class="tiny">Shipping at P0, in-game</b>' +
+    '<div class="tiny mut" style="margin-top:5px">· Faan-floor warning — "no legal path to 3 faan"<br>' +
+    '· Current-faan display<br>· Cantonese terminology as the label vocabulary</div></div>' +
+    '<div class="card"><b class="tiny">Deferred on purpose</b>' +
+    '<div class="tiny mut" style="margin-top:5px">The best-route HUD needs a partial-hand route ' +
+    'evaluator that exists nowhere. §7 defers it rather than ship a recommendation a strong ' +
+    'player can screenshot being wrong.</div></div>' + "</div></div>";
+}
+// Offline (Almanac scorekeeper) and online (game) stats share ONE identity and
+// stay in separate fact tables. The bridge is ACCOUNTS-BUILD-SPEC §8.2's
+// trust-ranked player_links; the game is simply a new source at the top of it.
+function scStats() {
+  var col = function (title, badge, trust, rows, note) {
+    return '<div class="card"><div class="row"><b>' + title + '</b><div class="spacer"></div>' + badge + "</div>" +
+      '<div class="tiny mut" style="margin:4px 0 8px">' + trust + "</div><table>" +
+      rows.map(function (r) {
+        return "<tr><td>" + r[0] + '</td><td style="text-align:right"><b>' + r[1] + "</b></td></tr>";
+      }).join("") + "</table>" +
+      '<div class="tiny mut" style="margin-top:8px">' + note + "</div></div>";
+  };
+  var offline = col("Offline \u00B7 Almanac", '<span class="pill">scorekeeper</span>',
+    "Human-entered at the table. Honestly fuzzy.",
+    [["Sessions", "48"], ["Hands recorded", "612"], ["Win rate", "23%"], ["Mean winning faan", "4.8"],
+     ["Deal-in rate", "\u2014"], ["Discard-level detail", "none"]],
+    "Outcomes only: who won, faan, chips. Nobody logs the discards at a real table.");
+  var online = col("Online \u00B7 Game", '<span class="pill" style="background:#e2efe6;color:#1A8B3A">machine-witnessed</span>',
+    "Server-emitted event stream. Complete.",
+    [["Matches", "31"], ["Hands recorded", "289"], ["Win rate", "26%"], ["Mean winning faan", "4.4"],
+     ["Deal-in rate", "18%"], ["Discard-level detail", "every tile"]],
+    "Every draw, discard, claim and refusal, with timestamps and a pinned engine version.");
+  return appbar("Stats", "profile") + '<div class="body"><div class="col wide">' +
+    '<div class="banner info" style="margin-bottom:10px">Shown side by side, never blended. ' +
+    'The two sources have different fidelity \u2014 averaging them turns honestly fuzzy numbers into ' +
+    "confidently wrong ones.</div>" +
+    '<div class="grid2" style="align-items:start">' + offline + online + "</div>" +
+    '<div class="card"><div class="row tiny"><b>What the online log makes possible</b>' +
+    '<div class="spacer"></div><span class="pill p1">later</span></div>' +
+    '<div class="tiny mut" style="margin-top:6px">' +
+    '<b>Detectable at P0, no theory needed</b> \u2014 rule-derived facts straight from the log: ' +
+    "dealt into a win, melded into a hand below the 3-faan floor, passed on a legal winning claim, " +
+    "discarded a tile already seen three times.<br><br>" +
+    '<b>Needs the route evaluator that does not exist yet</b> \u2014 \u201Cthis discard was the wrong one.\u201D ' +
+    "Same missing component that defers the best-route HUD (\u00A77). Build it later and run it back over " +
+    "every hand ever logged \u2014 that is the point of event sourcing.</div></div></div></div>";
+}
+
+function scRules() {
+  var rows = [["Seat / round wind pung", "1"], ["Dragon pung 三元", "1"], ["Own flower", "1"],
+    ["All pungs 對對糊", "3"], ["Half flush 混一色", "3"], ["Full flush 清一色", "7"],
+    ["Self-draw 自摸", "1"], ["Minimum to win", "3"], ["Limit 爆棚", "13"]];
+  return appbar("Rules & faan", "profile") + '<div class="body">' +
+    '<div class="card"><div class="row tiny"><b>Canonical HK Old Style</b><div class="spacer"></div>' +
+    '<span class="pill stub">subset — sketch only</span></div>' +
+    '<table style="margin-top:7px">' + rows.map(function (r) {
+      return "<tr><td>" + r[0] + '</td><td style="text-align:right"><b>' + r[1] + "</b></td></tr>";
+    }).join("") + "</table></div>" +
+    '<div class="card tiny mut">The real faan table, payment table and house-rule presets load ' +
+    'from config, not code (§4). The tsumo per-player-vs-total ambiguity is still unsettled — ' +
+    'an open action in §9.</div></div>';
+}
+function scSettings() {
+  var sw = function (label, on, note) {
+    return '<div class="row" style="padding:9px 0;border-bottom:1px solid #eee">' +
+      "<div><div>" + label + '</div><div class="tiny mut">' + (note || "") + "</div></div>" +
+      '<div class="spacer"></div><b class="tiny">' + (on ? "On" : "Off") + "</b></div>";
+  };
+  return appbar("Settings", "lobby") + '<div class="body">' +
+    '<div class="card" style="padding:2px 12px">' +
+      sw("Learner labels on tiles", S.opts.labels, "1-9 / ESWN / CFB overlay") +
+      sw("Auto-pass non-win claims", S.opts.autoPass, "Safe default on poor signal (§2)") +
+      sw("Cantonese call audio", false, "Track A — parity feature, not a differentiator") +
+      sw("Reduce motion", false, "") +
+    "</div>" +
+    '<div class="card" style="padding:2px 12px">' +
+      sw("Sound", true, "") + sw("Haptics", true, "") +
+    "</div>" +
+    '<div class="card tiny mut">Toggles here are display-only in the sketch — drive them from ' +
+    'the left rail instead.</div></div>';
+}
+function scIA() {
+  var tree = [
+    ["Onboarding", "P0", "device token + display name", 0],
+    ["Lobby (home)", "P0", "rating chip, quick match, create, join", 0],
+    ["Create table", "P0", "ruleset preset, match length", 1],
+    ["Join with code", "P0", "6-char code", 1],
+    ["Match scene", "P0", "the §5.2 state machine", 0],
+    ["Results — Progression", "P0", "rating delta, hand, faan", 1],
+    ["Results — Scoreboard", "P0", "chips, standings", 1],
+    ["Replays (match list)", "P0", "history rows", 0],
+    ["Replay viewer", "P0", "forward-step, omniscient", 1],
+    ["Shared replay (logged out)", "P0", "the only P0 viral loop", 1],
+    ["Settings", "P0", "labels, auto-pass, sound", 0],
+    ["Rules &amp; faan table", "P0", "static reference", 1],
+    ["Profile", "P0", "device token, then account", 0],
+    ["Stats \u2014 offline vs online", "P1", "one identity, two fact tables", 1],
+    ["Blunder feed (rule-derived)", "P1", "deal-ins, sub-floor melds \u2014 no theory needed", 1],
+    ["Blunder feed (route-judged)", "P2", "blocked on the route evaluator", 1],
+    ["Leaderboard", "P1", "seasonal ladder", 0],
+    ["Learn tab", "P1", "WWYD in-app", 0],
+    ["Rated queue", "P1", "matchmaking", 0],
+    ["Account / passkeys", "P1", "real identity", 0],
+    ["Spectator mode", "P1", "live watching", 0],
+    ["Friends / social graph", "P1", "", 0],
+    ["Shop / gacha / characters", "NEVER", "§1 — explicitly not building", 0],
+    ["Real-money anything", "NEVER", "gambling adjacency, hard no", 0]
+  ];
+  return appbar("IA map (not a product screen)") + '<div class="body">' +
+    '<div class="card" style="padding:6px 12px">' + tree.map(function (r) {
+      var col = r[1] === "P0" ? "var(--ok)" : r[1] === "P1" ? "#7a6a2a" : "var(--warn)";
+      return '<div class="row" style="padding:6px 0;border-bottom:1px solid #f0f0f2">' +
+        '<div style="padding-left:' + (r[3] * 14) + 'px">' + (r[3] ? "└ " : "") + r[0] +
+        '<div class="tiny mut">' + r[2] + "</div></div>" +
+        '<div class="spacer"></div><span class="pill" style="background:transparent;color:' + col +
+        ';border:1px solid ' + col + '">' + r[1] + "</span></div>";
+    }).join("") + "</div></div>";
+}
+
+/* ─────────── notes panel ─────────── */
+var NOTES = {
+  match: [["", "<b>Interaction grammar is Mahjong Soul's</b>, HK rules underneath: drawn tile separated by a gap, call buttons bottom-right with a countdown ring, fixed claim window, auto-pass."],
+    ["", "<b>Claim window</b> prompts only seats with legal claims, privately. Priority <code>winOnDiscard &gt; kong/pong &gt; chow</code>, ties to nearest seat. §5.2"],
+    ["", "<b>Bots answer on a paced delay</b> — never synchronously, or response timing leaks who is holding a claim. §5.3"],
+    ["warn", "<b>3-faan minimum is live.</b> Wins below it are refused and emit a visible event, not a silent rollback — the teaching moment. §5.2"],
+    ["todo", "<b>Scoring is stubbed.</b> Real exposed-meld decomposition is the 2-3 week core of P0. §5.1"],
+    ["todo", "<b>Bots are placeholder</b> — crude route steering only. No liveTiles, no defence. §6 calls this a product blocker, not polish."]],
+  lobby: [["", "<b>Provisional rating ships at P0</b>, labelled unofficial. v1.0 deferred it to P1 and then gated P1 on retention — circular, since the thesis says rating <i>produces</i> retention. §3"],
+    ["", "P0 lobby is one DO handing out join codes. Rated matchmaking is P1."]],
+  results: [["", "<b>The results screen is the product.</b> Ceremony first, detail second — tab 1 rating delta + hand + faan, tab 2 scoreboard. §2"],
+    ["", "<b>Share works at P0</b> via a tokenized public replay URL. An invite-only alpha's only viral loop; it cannot be deferred."]],
+  replay: [["", "<b>Replay is a fold over the event log</b> — literally the stream the server wrote, re-rendered client-side. Same shape Mahjong Soul uses. §5.5"],
+    ["", "Event header pins <code>engine_version</code>, so a scoring bugfix can't silently rewrite history."],
+    ["todo", "Per-seat replay perspectives are cut from P0 — omniscient viewer only."]],
+  stats: [["", "<b>One identity, two fact tables.</b> The bridge already exists in ACCOUNTS-BUILD-SPEC \u00A78.2 \u2014 <code>player_links</code> maps a seat to a <code>user_id</code> with sources ranked by trust. The game is a new source at the top of that ranking."],
+    ["warn", "<b>Never union them.</b> \u00A78.3's own words: unverified linking turns <i>honestly fuzzy</i> stats into <i>confidently wrong</i> ones. The same logic forbids averaging offline and online."],
+    ["todo", "<b>Collect now, analyse later.</b> A pinned <code>engine_version</code> means a blunder detector built in 2028 can run over every hand logged in 2026."]],
+  ia: [["", "<b>P0 is 12 screens.</b> Everything green is on the critical path to a rated, logged, replayable hand."],
+    ["warn", "<b>Shop / gacha / characters are not a later phase</b> — §1 rules them out permanently. The anti-gacha stance is a positioning leg, not a scope cut."]],
+  default: [["", "Screens follow the §2 map. Chrome is deliberately plain — style comes later; this is for judging flow and information density."]]
+};
+function renderNotes() {
+  var el = $("#notes");
+  if (!S.opts.notes) { el.innerHTML = ""; return; }
+  var key = S.screen === "shared" ? "replay" : S.screen;
+  var list = NOTES[key] || NOTES.default;
+  el.innerHTML = "<h2>Spec notes — " + S.screen + "</h2>" +
+    list.map(function (n) { return '<div class="n ' + n[0] + '">' + n[1] + "</div>"; }).join("");
+}
+
+/* ─────────── game wiring ─────────── */
+function startGame() {
+  if (S.game) S.game.stop();
+  var g = new E.Game({ seed: Math.floor(Math.random() * 1e6), onChange: onChange, onHandEnd: onHandEnd });
+  g.autoPass = S.opts.autoPass;
+  S.game = g; S.sel = null;
+  g.startHand();
+}
+function onChange() {
+  if (S.screen !== "match") return;
+  var g = S.game;
+  noteToss(g);
+  var sig = [g.phase, g.turn, g.seq, g.selfDrawAvailable,
+    g.pendingClaims ? Object.keys(g.pendingClaims.answers).length : -1, S.sel].join("|");
+  if (sig !== S.sig) { S.sig = sig; render(); }
+  else updateTimers();
+}
+function updateTimers() {
+  var g = S.game;
+  var bar = $(".clock i");
+  if (g.phase === "AWAIT_DISCARD" && g.turn === 0 && bar) {
+    var f = g.remaining("turnClock") / 10000;
+    bar.style.width = (f * 100) + "%";
+    bar.style.background = f < .3 ? "var(--warn)" : "var(--accent)";
+  }
+  var ring = $(".cbtn.pass .ring circle:last-child");
+  if (ring && g.phase === "CLAIM_WINDOW") {
+    var c = 2 * Math.PI * 26, fr = g.remaining("claimWindow") / 5000;
+    ring.setAttribute("stroke-dashoffset", c * (1 - fr));
+  }
+}
+function onHandEnd(r) {
+  S.result = r; S.resTab = 0; S.me.played++;
+  S.me.rating += r.winner === 0 ? 18 : r.outcome === "exhaustive_draw" ? 0 : -9;
+  S.matches.unshift({
+    won: r.winner === 0, draw: r.outcome === "exhaustive_draw",
+    title: r.outcome === "exhaustive_draw" ? "Exhaustive draw" :
+      (r.winner === 0 ? "Won " + r.score.faan + " faan" : S.game.seats[r.winner].name + " won " + r.score.faan + " faan"),
+    sub: "東圈 · hand " + (S.game.handIdx + 1) + " · " + S.game.seats.map(function (s) {
+      return (s.chips >= 0 ? "+" : "") + s.chips; }).join(" / "),
+    events: S.game.log.length, log: S.game.log.concat()
+  });
+  go("results");
+}
+
+/* ─────────── render / route ─────────── */
+var SCREENS = {
+  onboarding: scOnboarding, lobby: scLobby, create: scCreate, join: scJoin, match: scMatch,
+  results: scResults, matches: scMatches, replay: function () { return scReplay(false); },
+  shared: function () { return scReplay(true); }, profile: scProfile, learn: scLearn,
+  rules: scRules, stats: scStats, settings: scSettings, ia: scIA, observer: scObserver,
+  landing: scLanding, signin: scSignin, handle: scHandle, rooms: scRooms, room: scRoom,
+  handreview: scHandReview,
+  leaderboard: function () { return stub("Leaderboard", "profile", '<span class="pill p1">P1</span>',
+    "Seasonal ladder with a Glicko-2-family official rating, aligned with HKMA's emerging HK standard (§1)."); }
+};
+var NAV_SCREENS = ["lobby", "matches", "learn", "profile"];
+function fitFrame() {
+  var fr = $("#frame"), wrap = $("#framewrap"), stage = $(".stage");
+  var w = fr.offsetWidth, h = fr.offsetHeight;
+  var k = Math.min(1, (stage.clientWidth - 4) / w);
+  wrap.style.transform = "scale(" + k + ")";
+  wrap.style.height = (h * k) + "px";
+  $("#devcap").textContent = w + " \u00D7 " + h + (k < 1 ? "  \u00B7 shown at " + Math.round(k * 100) + "%" : "");
+}
+function render() {
+  var inner = (SCREENS[S.screen] || SCREENS.lobby)();
+  $("#screen").innerHTML = '<div class="shell"><div class="pane">' + inner + "</div></div>" +
+    (S.keys ? hotkeyOverlay() : "");
+  try { T.recenterGlyphs($("#screen")); } catch (e) {}
+  document.querySelectorAll(".rail button[data-nav]").forEach(function (b) {
+    b.classList.toggle("on", b.dataset.nav === S.screen);
+  });
+  document.querySelectorAll(".rail button[data-dev]").forEach(function (b) {
+    b.classList.toggle("on", b.dataset.dev === S.dev);
+  });
+  fitFrame();
+  renderNotes();
+  var ev = $("#evlog"); if (ev) { var c = $(".cur", ev); if (c) c.scrollIntoView({ block: "nearest" }); }
+}
+function go(s) {
+  if (S.screen === "match" && s !== "match" && S.game) S.game.stop();
+  S.screen = s;
+  if (s === "match" && (!S.game || S.game.phase === "HAND_END")) { startGame(); startRitual(S.game); }
+  render();
+}
+function toast(msg) {
+  S.toast = msg; render();
+  var d = document.createElement("div");
+  d.className = "toast"; d.innerHTML = msg;
+  $("#frame").appendChild(d);
+  setTimeout(function () { d.remove(); }, 2600);
+}
+
+/* ─────────── hotkeys ───────────
+ * Two rules that matter more than the specific bindings:
+ *
+ * 1. ACTION-BOUND, NEVER POSITION-BOUND. Call buttons appear and disappear
+ *    depending on what is legal, so "key 1 = leftmost button" would mean a
+ *    different action every window. P is always pong, whether or not pong is
+ *    on offer. A key with no legal action does nothing — it never falls through
+ *    to something else.
+ * 2. THE WIN KEYS ARE NOWHERE NEAR THE PASS KEY. Under a 5s claim window,
+ *    fumbling Pass when you meant Ron is unrecoverable. R/T sit far from
+ *    Space/Esc on every keyboard layout.
+ *
+ * Space is "do the neutral thing" in every context: on your turn it discards
+ * the tile you just drew; in a claim window it passes. Both are the no-change
+ * action, so the mental model stays constant.
+ */
+var HOTKEYS = [
+  ["Match", [
+    ["Space", "Discard drawn tile \u00B7 or pass a claim", "the no-change action, always"],
+    ["\u2190 \u2192", "Move hand selection", ""],
+    ["Enter", "Discard selected tile", ""],
+    ["1-9", "Jump to hand position", "arrows reach 10-13"],
+    ["C", "Chow \u4E0A", "press again to cycle variants"],
+    ["P", "Pong \u78B0", ""],
+    ["K", "Kong \u69D3", "concealed on your turn, claimed in a window"],
+    ["R", "Ron \u98DF\u7CCA", "deliberately far from Space"],
+    ["T", "Tsumo \u81EA\u6478", ""],
+    ["Esc", "Pass", "secondary to Space"],
+    ["A", "Toggle auto-pass", ""]
+  ]],
+  ["Review, replay & observer", [
+    ["\u2190 \u2192", "Step one event", ""],
+    ["Shift + \u2190 \u2192", "Step ten events", ""],
+    ["Space", "Play / pause", ""],
+    ["Home / End", "Jump to start / end", ""]
+  ]],
+  ["Anywhere", [["?", "Show this panel", ""], ["Esc", "Back / close", ""]]]
+];
+
+function hotkeyOverlay() {
+  return '<div class="keys" data-act="closekeys"><div class="keysbox">' +
+    '<div class="row" style="margin-bottom:10px"><b>Keyboard</b><div class="spacer"></div>' +
+    '<span class="tiny mut">? or Esc to close</span></div>' +
+    HOTKEYS.map(function (grp) {
+      return '<div class="tiny mut" style="margin:9px 0 4px;text-transform:uppercase;' +
+        'letter-spacing:.07em;font-weight:600">' + grp[0] + "</div>" +
+        grp[1].map(function (k) {
+          return '<div class="row" style="padding:2px 0">' +
+            '<kbd>' + k[0] + "</kbd><span>" + k[1] + "</span>" +
+            (k[2] ? '<div class="spacer"></div><span class="tiny mut">' + k[2] + "</span>" : "") + "</div>";
+        }).join("");
+    }).join("") + "</div></div>";
+}
+
+function handOrder(me) {
+  var ord = [], i;
+  for (i = 0; i < me.hand.length; i++) ord.push(i);
+  if (me.drawn !== null) ord.push(-1);
+  return ord;
+}
+
+function matchKey(k, e) {
+  var g = S.game;
+  if (!g) return false;
+  var me = g.seats[0], p = g.pendingClaims;
+  var claimOf = function (type) {
+    if (!p || !p.offers[0] || (0 in p.answers)) return null;
+    var opts = p.offers[0].filter(function (c) { return c.type === type; });
+    return opts.length ? opts : null;
+  };
+  var fire = function (type) {
+    var opts = claimOf(type);
+    if (!opts) return false;
+    if (type === "chow" && opts.length > 1) {
+      S.chowIx = ((S.chowIx || 0) + 1) % opts.length;
+      g.answerClaim(0, opts[S.chowIx]);
+    } else g.answerClaim(0, opts[0]);
+    S.sig = ""; render(); return true;
+  };
+
+  if (k === " ") {
+    if (p && p.offers[0] && !(0 in p.answers)) { g.answerClaim(0, null); S.sig = ""; render(); return true; }
+    if (g.phase === "AWAIT_DISCARD" && g.turn === 0 && me.drawn !== null) {
+      g.discard(0, me.drawn); S.sel = null; S.sig = ""; render(); return true;
+    }
+    return false;
+  }
+  if (k === "escape") {
+    if (p && p.offers[0] && !(0 in p.answers)) { g.answerClaim(0, null); S.sig = ""; render(); return true; }
+    return false;
+  }
+  if (k === "c") return fire("chow");
+  if (k === "p") return fire("pong");
+  if (k === "k") {
+    if (fire("kong")) return true;
+    if (g.phase === "AWAIT_DISCARD" && g.turn === 0) {
+      var ck = g.concealedKongOptions(0);
+      if (ck.length) { g.concealedKong(0, ck[0]); S.sig = ""; render(); return true; }
+    }
+    return false;
+  }
+  if (k === "r") return fire("winOnDiscard");
+  if (k === "t") {
+    if (g.phase === "AWAIT_DISCARD" && g.turn === 0 && g.selfDrawAvailable) {
+      g.tryWin(0, me.drawn, true, null); return true;
+    }
+    return false;
+  }
+  if (k === "a") {
+    S.opts.autoPass = !S.opts.autoPass; g.autoPass = S.opts.autoPass;
+    document.getElementById("ck-autopass").checked = S.opts.autoPass;
+    S.sig = ""; render(); return true;
+  }
+  // selection + discard: only meaningful on your own turn
+  if (g.phase !== "AWAIT_DISCARD" || g.turn !== 0) return false;
+  var ord = handOrder(me);
+  if (!ord.length) return false;
+  var cur = ord.indexOf(S.sel);
+  if (k === "arrowleft" || k === "arrowright") {
+    var d = k === "arrowleft" ? -1 : 1;
+    cur = cur < 0 ? (d > 0 ? 0 : ord.length - 1) : (cur + d + ord.length) % ord.length;
+    S.sel = ord[cur]; S.sig = ""; render(); return true;
+  }
+  if (k === "home") { S.sel = ord[0]; S.sig = ""; render(); return true; }
+  if (k === "end") { S.sel = ord[ord.length - 1]; S.sig = ""; render(); return true; }
+  if (k === "enter" && S.sel !== null) {
+    g.discard(0, S.sel === -1 ? me.drawn : me.hand[S.sel]);
+    S.sel = null; S.sig = ""; render(); return true;
+  }
+  if (k >= "1" && k <= "9") {
+    var ix = +k - 1;
+    if (ix < me.hand.length) { S.sel = ix; S.sig = ""; render(); return true; }
+  }
+  return false;
+}
+
+function scrubKey(k, shift) {
+  var step = shift ? 10 : 1;
+  if (S.screen === "handreview") {
+    var m = S.matches[S.reviewIx || 0];
+    if (!m) return false;
+    var n = reviewSeries(m).length;
+    if (k === "arrowleft") { S.turn = Math.max(0, (S.turn || 0) - step); render(); return true; }
+    if (k === "arrowright") { S.turn = Math.min(n - 1, (S.turn || 0) + step); render(); return true; }
+    if (k === "home") { S.turn = 0; render(); return true; }
+    if (k === "end") { S.turn = n - 1; render(); return true; }
+  }
+  if (S.screen === "observer") {
+    var L = S.matches[S.reviewIx || 0].log.length;
+    if (k === "arrowleft") { S.obs = Math.max(0, (S.obs || 0) - step); render(); return true; }
+    if (k === "arrowright") { S.obs = Math.min(L, (S.obs || 0) + step); render(); return true; }
+    if (k === "home") { S.obs = 0; render(); return true; }
+    if (k === "end") { S.obs = L; render(); return true; }
+  }
+  if (S.screen === "replay" || S.screen === "shared") {
+    var R = S.replay;
+    if (k === "arrowleft") { R.idx = Math.max(0, R.idx - step); render(); return true; }
+    if (k === "arrowright") { R.idx = Math.min(R.log.length, R.idx + step); render(); return true; }
+    if (k === "home") { R.idx = 0; render(); return true; }
+    if (k === "end") { R.idx = R.log.length; render(); return true; }
+  }
+  return false;
+}
+
+document.addEventListener("keydown", function (e) {
+  if (/^(input|textarea|select)$/i.test(e.target.tagName)) return;
+  var k = e.key.length === 1 ? e.key.toLowerCase() : e.key.toLowerCase();
+  if (k === "?") { S.keys = !S.keys; render(); e.preventDefault(); return; }
+  if (S.keys && (k === "escape" || k === "?")) { S.keys = false; render(); e.preventDefault(); return; }
+  var handled = false;
+  if (S.screen === "match") handled = matchKey(k, e);
+  else handled = scrubKey(k, e.shiftKey);
+  if (!handled && k === "escape") { S.keys = false; render(); handled = true; }
+  if (handled) e.preventDefault();
+});
+
+/* ─────────── events ─────────── */
+document.addEventListener("click", function (e) {
+  var el = e.target.closest("[data-nav],[data-act],[data-dev],[data-toss]");
+  if (!el) return;
+  var g = S.game;
+  if (el.dataset.tab) S.tab = el.dataset.tab;
+  var act = el.dataset.act;
+
+  if (act === "closekeys" && el === e.target) { S.keys = false; render(); return; }
+  if (act === "toggleauto") { S.opts.autoPass = !S.opts.autoPass; if (g) g.autoPass = S.opts.autoPass;
+    document.getElementById("ck-autopass").checked = S.opts.autoPass; S.sig = ""; render(); return; }
+  if (act === "showkeys") { S.keys = true; render(); return; }
+  if (act === "signin") { go("signin"); return; }
+  if (act === "dosignin") { S.me.signedIn = true; go("handle"); return; }
+  if (act === "guest") { go("lobby"); return; }
+  if (act === "openreview") { S.reviewIx = +el.dataset.i; S.obs = null; S.turn = null; go("handreview"); return; }
+  if (act === "selturn") { S.turn = +el.dataset.i; render(); return; }
+  if (act === "reveal") { S.reveal = !S.reveal; render(); return; }
+  if (act === "obs") { S.obs = Math.max(0, Math.min(S.matches[S.reviewIx || 0].log.length,
+    (S.obs || 0) + (+el.dataset.d))); render(); return; }
+  if (act === "quick") { go("match"); return; }
+  if (act === "newhand") { S.game && S.game.stop(); S.game = null; go("match"); startRitual(S.game); return; }
+  if (act === "skipritual") { skipRitual(); return; }
+  if (act === "nexthand") {
+    if (g) { g.handIdx++; if (g.result && g.result.winner !== g.dealer && g.result.outcome !== "exhaustive_draw") g.dealer = (g.dealer + 1) % 4;
+      g.result = null; g.arm(); g.startHand(); }
+    go("match"); return;
+  }
+  if (act === "restab") { S.resTab = +el.dataset.i; render(); return; }
+  if (act === "share") { toast("Copied a public replay link.<br><span style='opacity:.7;font-size:11px'>mahjongresearch.com/r/9f3a2c — no account needed to view</span>"); return; }
+  if (act === "watch" || act === "openreplay") {
+    var m = act === "watch" ? S.matches[0] : S.matches[+el.dataset.i];
+    if (!m) return;
+    S.replay = { log: m.log, idx: m.log.length, playing: false };
+    go(act === "watch" ? "replay" : "replay"); return;
+  }
+  if (act === "step") { S.replay.idx = Math.max(0, Math.min(S.replay.log.length, S.replay.idx + (+el.dataset.d))); render(); return; }
+  if (act === "play") {
+    S.replay.playing = !S.replay.playing;
+    if (S.replay.playing) {
+      S.replay.idx = 0;
+      S.replay.t = setInterval(function () {
+        if (S.replay.idx >= S.replay.log.length || !S.replay.playing) { clearInterval(S.replay.t); S.replay.playing = false; }
+        else S.replay.idx++;
+        render();
+      }, 420);
+    } else clearInterval(S.replay.t);
+    render(); return;
+  }
+  // match interactions
+  if (act === "tap" && g) {
+    var ix = +el.dataset.ix;
+    if (g.phase !== "AWAIT_DISCARD" || g.turn !== 0) return;
+    if (S.sel === ix) { g.discard(0, ix === -1 ? g.seats[0].drawn : g.seats[0].hand[ix]); S.sel = null; }
+    else S.sel = ix;
+    onChange(); render(); return;
+  }
+  if (act === "claim" && g && g.pendingClaims) { g.answerClaim(0, g.pendingClaims.offers[0][+el.dataset.i]); render(); return; }
+  if (act === "pass" && g) { g.answerClaim(0, null); render(); return; }
+  if (act === "tsumo" && g) { g.tryWin(0, g.seats[0].drawn, true, null); return; }
+  if (act === "ckong" && g) { g.concealedKong(0, +el.dataset.t); render(); return; }
+  if (el.dataset.room) { S.room = el.dataset.room; }
+  if (el.dataset.toss !== undefined) {
+    S.tossOverride = el.dataset.toss || null;
+    document.querySelectorAll(".rail button[data-toss]").forEach(function (b) {
+      b.classList.toggle("on", b.dataset.toss === (S.tossOverride || ""));
+    });
+    return;
+  }
+  if (el.dataset.dev) { S.dev = el.dataset.dev; $("#frame").dataset.dev = S.dev; S.sig = ""; render(); return; }
+  if (el.dataset.nav) go(el.dataset.nav);
+});
+document.addEventListener("input", function (e) {
+  if (e.target.dataset.act === "scrub") { S.replay.idx = +e.target.value; render(); }
+  if (e.target.dataset.act === "obsscrub") { S.obs = +e.target.value; render(); }
+});
+["labels", "autopass", "floor", "omni", "notes", "riichi", "attrib", "safe"].forEach(function (k) {
+  var id = { labels: "labels", autopass: "autoPass", floor: "floor", omni: "omni",
+             notes: "notes", riichi: "riichi", attrib: "attrib", safe: "safe" }[k];
+  document.getElementById("ck-" + k).addEventListener("change", function (e) {
+    S.opts[id] = e.target.checked;
+    if (id === "autoPass" && S.game) S.game.autoPass = e.target.checked;
+    if (id === "safe") $("#frame").classList.toggle("showsafe", e.target.checked);
+    S.sig = ""; render();
+  });
+});
+
+/* bot texture readout — makes §6's "bots are a blocker" concrete */
+setTimeout(function () {
+  var out = {}, refused = 0, faans = [], claims = 0, N = 120;
+  for (var s = 0; s < N; s++) {
+    var g = new E.Game({ seed: 5000 + s });
+    g.setDeadline = function () {}; g.arm = function () {};
+    var ended = null; g.onHandEnd = function (r) { ended = r; };
+    g.startHand();
+    var guard = 0;
+    while (!ended && guard++ < 3000) {
+      if (g.phase === "AWAIT_DISCARD") g.botDiscard(g.turn);
+      else if (g.phase === "CLAIM_WINDOW") { g.collectBotClaims(); if (g.pendingClaims) g.resolveClaims(); }
+      else break;
+    }
+    refused += g.log.filter(function (e) { return e.type === "refused_win"; }).length;
+    claims += g.log.filter(function (e) { return e.type === "claimed"; }).length;
+    if (ended) { out[ended.outcome] = (out[ended.outcome] || 0) + 1; if (ended.score) faans.push(ended.score.faan); }
+  }
+  var dr = (out.exhaustive_draw || 0) / N;
+  document.getElementById("texture").innerHTML =
+    "<b>" + (dr * 100).toFixed(0) + "%</b> exhaustive draws<br>" +
+    "<b>" + (faans.reduce(function (a, b) { return a + b; }, 0) / faans.length).toFixed(1) + "</b> mean winning faan<br>" +
+    "<b>" + (claims / N).toFixed(1) + "</b> claims / hand<br>" +
+    "<b>" + (refused / N).toFixed(1) + "</b> refused wins / hand<br>" +
+    '<span style="color:#8b8b96">' + N + " simulated hands. Gate 3 measures<br>these four against humans.</span>";
+}, 60);
+
+window.addEventListener('resize', fitFrame);
+render();
+window.__mj = { S: S, render: render, E: E };   // dev hook, set only after init
+})();
+
+</script>
+</body>
+</html>

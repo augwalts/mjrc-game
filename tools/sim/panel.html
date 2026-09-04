@@ -1,0 +1,1250 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MJRC self-play panel</title>
+<style>
+:root{--bg:#1c1c22;--card:#26262e;--line:#3a3a44;--ink:#e6e6ec;--dim:#9a9aa6;
+  --ok:#5dbb7a;--warn:#e08a6a;--acc:#7fb3ff;--gold:#d8b56a}
+.nav{position:sticky;top:0;z-index:10;background:var(--bg);padding:8px 0;margin-bottom:10px;
+  border-bottom:1px solid var(--line);display:flex;gap:16px;font-size:12px;align-items:baseline}
+.nav a{color:var(--acc);text-decoration:none}
+.nav a:hover{text-decoration:underline}
+.mcode{display:inline-block;background:#33333d;color:var(--acc);border-radius:4px;padding:0 5px;
+  font-size:9.5px;font-weight:700;letter-spacing:.04em;margin-right:4px;vertical-align:middle}
+.sectionlabel{font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--dim);margin:18px 0 6px}
+.sectionnote{font-size:11.5px;color:var(--dim);line-height:1.55;margin:-2px 0 11px;max-width:980px}
+.sectionnote b{color:var(--ink);font-weight:650}
+.erafilter{position:sticky;top:38px;z-index:9;display:flex;gap:6px;align-items:baseline;flex-wrap:wrap;
+  background:var(--bg);padding:9px 0 10px;border-bottom:1px solid var(--line);margin-bottom:12px}
+.erabtn{border:1px solid var(--line);background:var(--card);color:var(--dim);border-radius:7px;
+  padding:4px 11px;cursor:pointer;font:inherit;font-size:11px;font-weight:650}
+.erabtn:hover{color:var(--ink)}
+.erabtn.on{background:var(--acc);color:#12151c;border-color:var(--acc)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:20px;max-width:1440px;margin:0 auto}
+h1{font-size:16px;margin:0 0 2px}
+.sub{color:var(--dim);font-size:11.5px;margin-bottom:16px}
+.kpis{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin-bottom:12px}
+.diagnostics,.trendgrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:12px}
+@media (max-width:1150px){.diagnostics,.trendgrid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.kpis .card h2{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* masonry: cards flow into balanced columns — no more page-tall blank gaps */
+.cols{columns:2;column-gap:12px;margin-bottom:12px}
+.col{display:contents}
+.cols .card{break-inside:avoid;margin-bottom:12px;display:block}
+.scrollcard{max-height:420px;overflow-y:auto}
+@media (max-width:1000px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.cols{columns:1}}
+@media (max-width:700px){body{padding:12px}.kpis,.diagnostics,.trendgrid{grid-template-columns:minmax(0,1fr)}.nav{overflow-x:auto}.scopebar{align-items:flex-start}.big{font-size:20px}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:9px;padding:13px;min-width:0;overflow-wrap:anywhere}
+.kpis>*,.diagnostics>*{min-width:0}
+.card h2{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--dim);
+  margin:0 0 9px;font-weight:600}
+.scope{display:block;color:var(--acc);font-size:9px;font-weight:700;letter-spacing:.11em;margin-bottom:3px}
+.scopebar{display:flex;gap:16px;align-items:baseline;flex-wrap:wrap}
+.health{font-weight:750;letter-spacing:.05em}.health.stale,.pill.stale{color:var(--warn);background:#452c25}
+.table-scroll{max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
+.decision{font-size:12px}.decision td,.decision th{white-space:nowrap}.decision td:last-child,.decision th:last-child{white-space:normal;text-align:left}
+.trend{width:100%;height:170px;display:block}.trendkey{display:flex;gap:12px;flex-wrap:wrap;font-size:10px;color:var(--dim)}
+.tabs{display:flex;gap:6px;margin:10px 0 14px;border-bottom:1px solid var(--line)}
+.tab{border:0;border-bottom:2px solid transparent;background:transparent;color:var(--dim);padding:8px 13px;cursor:pointer;font:inherit;font-weight:650}
+.tab.active{color:var(--ink);border-bottom-color:var(--acc)}.tab-panel[hidden]{display:none}
+.matrix th,.matrix td{white-space:nowrap;text-align:center}.matrix th:first-child,.matrix td:first-child{position:sticky;left:0;background:var(--card);z-index:2;text-align:left}
+.matrix .era-start{border-left:2px solid var(--gold)}.rise{color:var(--acc);font-size:9px}.fall{color:var(--warn);font-size:9px}
+table{width:100%;border-collapse:collapse;font-size:12px;font-variant-numeric:tabular-nums}
+th{text-align:right;color:var(--dim);font-weight:600;font-size:10px;text-transform:uppercase;
+  letter-spacing:.05em;padding:3px 6px;border-bottom:1px solid var(--line)}
+th:first-child,td:first-child{text-align:left}
+td{text-align:right;padding:4px 6px;border-bottom:1px solid #2e2e36}
+.up{color:var(--ok)} .down{color:var(--warn)} .mut{color:var(--dim)}
+.spark{width:100%;height:88px;display:block}
+.big{font-size:22px;font-weight:700}
+.pill{display:inline-block;font-size:10px;padding:1px 7px;border-radius:9px;
+  background:#33333d;color:var(--dim);margin-left:8px}
+.pill.live{background:#1e3a2a;color:var(--ok)}
+.goal{display:inline-block;font-size:9px;font-weight:700;letter-spacing:.05em;padding:1px 6px;
+  border-radius:8px;margin-left:6px;vertical-align:1px;background:#33333d;color:var(--dim)}
+.goal.up{background:#1e3a2a;color:var(--ok)}.goal.down{background:#452c25;color:var(--warn)}
+.goal.band{background:#2b3a4d;color:var(--acc)}
+.kv{display:flex;justify-content:space-between;padding:2px 0;font-size:12px}
+.matchlist{max-height:440px;overflow-y:auto}
+details.match{border-bottom:1px solid #2e2e36}
+details.match summary{cursor:pointer;padding:5px 4px;font-size:12px;
+  font-variant-numeric:tabular-nums;list-style-position:inside}
+details.match summary:hover{background:#2c2c35}
+.tiles{font-size:13px;letter-spacing:.04em}
+.wtile{color:var(--acc);font-weight:700;border-bottom:1px solid var(--acc)}
+</style>
+</head>
+<body>
+<h1>Self-play weight evolution <span class="pill" id="status"></span></h1>
+<div class="tabs" role="tablist" aria-label="Panel scope">
+  <button class="tab active" id="tabCurrentButton" type="button" role="tab" aria-selected="true">Current cycle</button>
+  <button class="tab" id="tabOverallButton" type="button" role="tab" aria-selected="false">Overall — HK standard</button>
+  <button class="tab" id="tabTvbButton" type="button" role="tab" aria-selected="false">Overall — TVB</button>
+</div>
+<section class="tab-panel" id="tabCurrent" role="tabpanel">
+  <div class="sub" id="sub">waiting for data.js…</div>
+  <div id="overnightbar"></div>
+  <div class="sectionlabel">Current-cycle generation decisions</div>
+  <div class="sectionnote">One row per <b>generation</b>. Each generation the current bot and six mutated copies play the same walls; a mutant must beat the incumbent twice — the second time on walls it has never seen — before it replaces it. This is the record of what was tried and whether it stuck.</div>
+  <div id="currentDecision"></div>
+  <div class="sectionlabel" id="currentCycle">Current-cycle trends — generation by generation</div>
+  <div class="sectionnote">How the bot’s play is drifting as this cycle runs. Every number here comes from the <b>bench</b>: the same frozen opponent and the same match count at every generation, so generations can be compared with each other. A single generation is a small sample, so read the shape, not any one point.</div>
+  <div class="diagnostics" id="kpis"></div>
+  <div class="sectionlabel">Current-cycle weights and inspection</div>
+  <div class="sectionnote">The bot’s entire personality is a list of numeric <b>dials</b> — training never edits its code, only these numbers. Underneath them you can open individual matches and replay them hand by hand.</div>
+  <div id="currentDetails"></div>
+  <div id="currentWide"></div>
+</section>
+<section class="tab-panel" id="tabTvb" role="tabpanel" hidden>
+  <div class="sectionlabel">TVB Championship 2026 — a different economy</div>
+  <div class="sectionnote">Same bots, different ruleset: 1-faan floor · LINEAR payments (a 10-faan hand pays only 10× a 1-faan hand) ·
+  no flowers · discarder pays all. Everything below is measured under TVB rules — scores here are NOT comparable to the era 1–4 tabs.</div>
+  <div id="tvbseries"></div>
+  <div class="sectionlabel" id="tvbdialslabel" style="display:none">Dial trajectories — TVB lineage</div>
+  <div class="sectionnote" id="tvbdialsnote" style="display:none">The same view as the HK tab, restricted to cycles trained under TVB rules:
+  one mini-chart per dial, one point per cycle endpoint, green dots where the cycle's product was admitted.</div>
+  <div id="tvbdialtrails"></div>
+  <div class="sectionlabel" id="tvblabel">Adaptation study — how the king re-learned under TVB rules</div>
+  <div class="sectionnote" id="tvbnote">The same bots under a DIFFERENT ruleset — TVB Championship 2026: 1-faan floor,
+  LINEAR payments (a 10-faan hand pays only 10× a 1-faan hand), no flowers, discarder pays all. The question: can the AI re-adapt its
+  personality when the economy inverts?</div>
+  <div id="tvblab"></div>
+</section>
+<section class="tab-panel" id="tabOverall" role="tabpanel" hidden>
+  <div class="erafilter" id="eraFilter"></div>
+  <div class="sectionlabel">Operation and archive coverage</div>
+  <div class="sectionnote">Whether the training process is alive right now, and how much work exists in total. If the heartbeat is older than eight minutes, either the run or the step that publishes its data has stopped.</div>
+  <div id="seriesKpis"></div>
+  <div class="sectionlabel">Across all cycles — every archived generation, with era breaks</div>
+  <div class="sectionnote">Every generation ever recorded — the densest view there is. Good for the long arc, noisy up close. Gold vertical lines are <b>era</b> boundaries, where the opponent was replaced by a stronger bot.</div>
+  <div class="trendgrid" id="longitudinal"></div>
+  <div class="sectionlabel">Absolute progress — measured against the fixed v0 yardstick</div>
+  <div class="sectionnote">The only charts here whose opponent never changes. Everywhere else the enemy is upgraded every era, so those scores reset toward zero by design and can never show cumulative improvement — a flat line there does not mean a flat bot. <b>baseline-v0</b> is the original defenceless bot and it never changes, so these are the charts that answer “are we actually getting better”.</div>
+  <div id="absoluteProgress"></div>
+  <div class="sectionlabel">Cycle texture — one point per cycle, proper axes</div>
+  <div class="sectionnote">“Texture” means how the table <i>feels</i> to play at — how often people claim tiles, how big hands get, how often nobody wins. One point per <b>cycle</b> rather than per generation: each point is a 160-match exam, so these are far steadier than the generation charts above and are the right place to judge whether something is still moving or has settled.</div>
+  <div class="trendgrid" id="cycleTexture"></div>
+  <div class="sectionlabel" id="dialslabel" style="display:none">Dial trajectories — how the bot's personality drifted</div>
+  <div class="sectionnote" id="dialsnote" style="display:none">One mini-chart per dial, one point per <b>cycle endpoint</b> (the weights that cycle finished with),
+  oldest on the left. This is the whole training history in one view: evolution nudges these 24 numbers and nothing else, so every
+  behavioural change the project ever produced is somewhere in these lines. Vertical marks are era boundaries; dots are cycles whose
+  product was <b>admitted</b> to the hall of fame. Each chart is scaled to its own range — the shape matters, not the height.</div>
+  <div id="dialtrails"></div>
+  <div class="sectionlabel" id="historylabel" style="display:none">Research archive</div>
+  <div class="sectionnote">Every cycle exam, every named experiment, and the frozen reference points, newest first. This is the project’s written record — a score only means something next to the enemy it was earned against, so every row names its enemy.</div>
+  <div id="history"></div>
+  <div id="legend"></div>
+</section>
+<script>
+// Cache-busted, mobile-safe loads (document.write scripts get BLOCKED by
+// mobile Chrome on slow networks — that was "where did the rest of the html
+// go"). Append real script tags, count them down, then boot the panel.
+(function () {
+  const files = ["overnight.js", "series-history.js", "baselines.js", "experiments.js", "champions.js", "log.js", "tvb.js", "dials-history.js", "data.js"];
+  let pending = files.length;
+  const done = () => { if (--pending === 0 && window.initPanel) window.initPanel(); };
+  for (const f of files) {
+    const t = document.createElement("script");
+    t.src = f + "?v=" + Date.now();
+    t.onload = done; t.onerror = done;      // a missing optional file must not block boot
+    document.head.appendChild(t);
+  }
+})();
+</script>
+<script>
+window.initPanel = function initPanel() {
+const D = window.SIM_DATA;
+// GLOBAL ERA FILTER (owner, 2026-08-29). null = every era. Four eras stacked
+// in one chart is unreadable when you only care about the live one, so every
+// chart, table and archive row on the Overall tab honours this. Re-rendering
+// is done by simply calling initPanel again — it rebuilds each container from
+// the source arrays, so there is one code path, not two.
+const eraOk = (e) => window.ERA_FILTER == null || (e ?? 1) === window.ERA_FILTER;
+// Goal badges: which way each number SHOULD move. Only rules the owner has
+// actually made get an arrow; texture metrics are labeled as texture rather
+// than given an invented target.
+const BENCH_NAME = ((D && D.baseline) || "baseline").split("/").pop().replace(".json", "");
+const BENCH_DESCS = {
+  "baseline-v0": "baseline-v0 — the defenseless era-1 yardstick",
+  "baseline-v1": "baseline-v1 — the FROZEN era-1 champion (0 = par with yesterday's best bot)",
+  "baseline-v2": "baseline-v2 — the era-2 king (0 = par with the reigning champion)",
+};
+const BENCH_DESC = BENCH_DESCS[BENCH_NAME] || (BENCH_NAME + " — the frozen benchmark for this era");
+const GOALS = {
+  up: '<span class="goal up">▲ WANT UP</span>',
+  down: '<span class="goal down">▼ WANT DOWN</span>',
+  zero: '<span class="goal down">▼ WANT → 0</span>',
+  drawBand: '<span class="goal band">▭ TARGET 10–20%</span>',
+  none: '<span class="goal">◇ TEXTURE — NO TARGET</span>',
+};
+const showTab = (name) => {
+  window.__activeTab = name;
+  for (const [id, tab] of [["tabCurrent", "current"], ["tabOverall", "overall"], ["tabTvb", "tvb"]]) {
+    const on = name === tab || (tab === "current" && name !== "overall" && name !== "tvb");
+    document.getElementById(id).hidden = !on;
+    const btn = document.getElementById(id + "Button");
+    btn.className = "tab" + (on ? " active" : "");
+    btn.setAttribute("aria-selected", String(on));
+  }
+};
+document.getElementById("tabCurrentButton").onclick = () => showTab("current");
+document.getElementById("tabOverallButton").onclick = () => showTab("overall");
+document.getElementById("tabTvbButton").onclick = () => showTab("tvb");
+showTab(window.__activeTab || (location.hash === "#overall" ? "overall" : location.hash === "#tvb" ? "tvb" : "current"));
+// ── operational health + series-level KPIs ──
+{
+  const O = window.OVERNIGHT;
+  const el = document.getElementById("overnightbar");
+  const seriesEl = document.getElementById("seriesKpis");
+  const allRows = window.SERIES_LOG || [];
+  const latestEra = allRows.length ? Math.max(...allRows.map((r) => r.era || 1)) : null;
+  const logs = allRows.filter((r) => (r.era || 1) === latestEra);
+  const rawCycles = O?.cycles?.length ? O.cycles : logs;
+  const cycles = rawCycles.map((c) => {
+    const logged = [...logs].reverse().find((r) => r.cycle === c.cycle && r.heldOutChips === c.heldOutChips);
+    return { ...(logged || {}), ...c };
+  });
+  const done = cycles.filter((c) => c.heldOutChips !== null && c.heldOutChips !== undefined && !c.error);
+  const now = Date.now();
+  const stamps = [Date.parse(D?.updated || ""), Number(O?.now)].filter(Number.isFinite);
+  const freshest = stamps.length ? Math.max(...stamps) : null;
+  const ageMinutes = freshest === null ? null : Math.max(0, (now - freshest) / 60_000);
+  const active = ["starting", "running"].includes(D?.status) || /evolving|starting/i.test(O?.statusLine || "");
+  const stale = active && (ageMinutes === null || ageMinutes > 8);
+  const health = stale ? "STALE" : active ? "RUNNING" : /fail/i.test(O?.statusLine || "") ? "FAILED" : "FINISHED";
+  const healthClass = stale || health === "FAILED" ? "stale" : health === "RUNNING" ? "up" : "";
+  const ageLabel = ageMinutes === null ? "no heartbeat" : ageMinutes < 1 ? "updated &lt;1m ago" : `updated ${Math.floor(ageMinutes)}m ago`;
+  const hoursLeft = O?.deadline ? Math.max(0, (O.deadline - now) / 3600e3).toFixed(1) : null;
+  const elapsedHours = O?.startedAt ? Math.max(0, (now - O.startedAt) / 3600e3).toFixed(1) : null;
+  if (el) el.innerHTML = `<div class="card scopebar" style="margin-bottom:12px">
+    <span class="scope">CURRENT OPERATION</span>
+    <span class="health ${healthClass}">${health}</span>
+    <span>${O?.statusLine || D?.status || "status unavailable"}</span>
+    <span class="mut">${ageLabel}${elapsedHours ? ` · ${elapsedHours}h elapsed` : ""}${hoursLeft ? ` · ${hoursLeft}h remaining` : ""}</span>
+    ${stale ? '<span class="down"><b>Telemetry is older than the 8-minute heartbeat limit.</b> The process or publication path may have stopped.</span>' : ""}
+  </div>`;
+  if (seriesEl) {
+    const planned = Number(D?.generationsPlanned) || 16;
+    const overallGenerations = done.reduce((n, c) => n + (Number(c.generations) || planned), 0) + (D?.history?.length || 0);
+    const archived = window.SERIES_HISTORY?.points || [];
+    const eras = [...new Set(archived.map((p) => p.era))];
+    const archivedCycles = new Set(archived.map((p) => `${p.era}:${p.cycle}`)).size;
+    seriesEl.innerHTML = `<div class="card scopebar" style="margin-bottom:12px">
+      <span class="scope">CURRENT ERA ${logs.length ? Math.max(...logs.map((r) => r.era || 1)) : "—"}</span>
+      <span><b>${overallGenerations} generations</b> observed</span>
+      <span><b>${done.length} completed cycles</b> + cycle ${done.length + 1} now</span>
+      <span class="mut">one cycle = ${planned} generations, then one held-out admission exam</span>
+      <span class="mut">long-term archive: ${archived.length.toLocaleString()} generation snapshots across ${archivedCycles} cycles (${eras.length} eras)</span>
+    </div>`;
+  }
+}
+// The optimizer rewrites data.js after every generation; reload to pick it up.
+if (!window.__reloadArmed && (!D || D.status === "running" || (D.history ?? []).length === 0)) {
+  window.__reloadArmed = true;                 // re-rendering must not stack timers
+  setTimeout(() => location.reload(), 45_000);
+}
+// ── render the era filter bar, and re-render everything on a change ──
+{
+  const eras = [...new Set([
+    ...(window.SERIES_LOG || []).map((r) => r.era ?? 1),
+    ...(window.SERIES_HISTORY?.points || []).map((p) => p.era ?? 1),
+  ])].filter(Number.isFinite).sort((a, b) => a - b);
+  const bar = document.getElementById("eraFilter");
+  if (bar && eras.length > 1) {
+    const btn = (val, label, title) =>
+      `<button type="button" class="erabtn${window.ERA_FILTER === val ? " on" : ""}" data-era="${val === null ? "" : val}" title="${title}">${label}</button>`;
+    bar.innerHTML = `<span class="scope" style="margin:0 4px 0 0">SHOW</span>`
+      + btn(null, "All eras", "Every era on one axis")
+      + eras.map((e) => btn(e, `Era ${e}`, `Only era ${e}`)).join("")
+      + `<span class="mut" style="font-size:11px;margin-left:8px">An <b>era</b> is one benchmark regime — the frozen opponent every score that era was earned against. Filtering rescales every chart below to just that stretch.</span>`;
+    bar.querySelectorAll(".erabtn").forEach((b) => {
+      b.onclick = () => {
+        const v = b.dataset.era;
+        window.ERA_FILTER = v === "" ? null : Number(v);
+        const y = window.scrollY;
+        window.initPanel();
+        window.scrollTo(0, y);
+      };
+    });
+  } else if (bar) { bar.innerHTML = ""; }
+}
+if (!D) { document.getElementById("sub").textContent = "no data.js yet — run evolve.mjs first"; }
+else if (D.history.length === 0) {
+  document.getElementById("status").textContent = D.status;
+  document.getElementById("status").className = "pill live";
+  document.getElementById("sub").textContent =
+    "run started " + D.updated + " — generation 0 takes a few minutes; this page reloads itself every 45s";
+} else {
+  const H = D.history;
+  const last = H[H.length - 1];
+  const promoted = H.filter(g => g.promoted !== null).length;
+  const exactWork = H.every((g) => g.work?.breakdown);
+  const totalMatches = exactWork ? H.reduce((n, g) => n + g.work.matches, 0) : null;
+  const totalHands = exactWork ? H.reduce((n, g) => n + g.work.hands, 0) : null;
+  const workLabel = exactWork
+    ? `${totalMatches.toLocaleString()} matches / ${totalHands.toLocaleString()} hands this cycle`
+    : "exact workload unavailable in this run's legacy telemetry";
+  document.getElementById("status").textContent = D.status;
+  document.getElementById("status").className = "pill" + (D.status === "running" ? " live" : "");
+  document.getElementById("sub").textContent =
+    `CURRENT CYCLE · ${window.OVERNIGHT ? `cycle ${window.OVERNIGHT.cycles.length + 1} · ` : ""}generations ${H.length}/${D.generationsPlanned || 16} · ${promoted} promotions · ${workLabel} · opponent ${D.trainingOpponentLabel || "not recorded"}`;
+
+  // Mini chart with REAL axes (owner, 2026-08-28: unlabeled sparklines auto-zoom
+  // tiny ranges into fake drama — draw rate "looked like it started at 60%").
+  // x = generation, y = labeled value scale; zero:true pins the floor at 0.
+  const spark = (vals, {lo, hi, fmt = v => v, color = "var(--acc)", zero = false} = {}) => {
+    if (!vals.length) return "";
+    lo = lo ?? (zero ? Math.min(0, ...vals) : Math.min(...vals));
+    hi = hi ?? Math.max(...vals, zero ? lo + 1e-9 : -Infinity);
+    if (hi === lo) { hi = lo + 1; }
+    const W = 340, Hh = 84, L = 34, R = 4, T = 6, B = 20;
+    const x = i => L + i / Math.max(1, vals.length - 1) * (W - L - R);
+    const y = v => T + (1 - (v - lo) / (hi - lo)) * (Hh - T - B);
+    const pts = vals.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+    const mid = (lo + hi) / 2;
+    const tick = (v) => `<line x1="${L}" x2="${W - R}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}"
+        stroke="var(--line)" stroke-width="0.6" stroke-dasharray="3 3"/>
+      <text x="${L - 4}" y="${(y(v) + 2.6).toFixed(1)}" text-anchor="end" font-size="8" fill="var(--dim)">${fmt(v)}</text>`;
+    const zeroLine = (lo < 0 && hi > 0)
+      ? `<line x1="${L}" x2="${W - R}" y1="${y(0).toFixed(1)}" y2="${y(0).toFixed(1)}" stroke="var(--dim)" stroke-width="0.8"/>` : "";
+    return `<svg class="spark" viewBox="0 0 ${W} ${Hh}">
+      ${tick(hi)}${tick(mid)}${tick(lo)}${zeroLine}
+      <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.6"/>
+      ${vals.map((v, i) => `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="1.8" fill="${color}"/>`).join("")}
+      <text x="${L}" y="${Hh - 6}" font-size="8" fill="var(--dim)">gen 0</text>
+      <text x="${W - R}" y="${Hh - 6}" text-anchor="end" font-size="8" fill="var(--dim)">gen ${vals.length - 1}</text>
+    </svg><div class="kv"><span class="mut">start ${fmt(vals[0])}</span><b>now ${fmt(vals[vals.length-1])}</b></div>`;
+  };
+
+  // Multi-line variant of spark for tactical mixes (claims, hand types, wins).
+  // Same axes discipline; series = [{label, color, vals}].
+  const sparkM = (series, {lo, hi, fmt = v => v, zero = false} = {}) => {
+    const live = series.filter((s) => s.vals.some(Number.isFinite));
+    if (!live.length) return '<div class="mut">not recorded in this run</div>';
+    const n = Math.max(...live.map((s) => s.vals.length));
+    const all = live.flatMap((s) => s.vals.filter(Number.isFinite));
+    lo = lo ?? (zero ? Math.min(0, ...all) : Math.min(...all));
+    hi = hi ?? Math.max(...all, lo + 1e-9);
+    if (hi === lo) hi = lo + 1;
+    const W = 340, Hh = 96, L = 34, R = 4, T = 6, B = 20;
+    const x = i => L + i / Math.max(1, n - 1) * (W - L - R);
+    const y = v => T + (1 - (v - lo) / (hi - lo)) * (Hh - T - B);
+    const tick = (v) => `<line x1="${L}" x2="${W - R}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}"
+        stroke="var(--line)" stroke-width="0.6" stroke-dasharray="3 3"/>
+      <text x="${L - 4}" y="${(y(v) + 2.6).toFixed(1)}" text-anchor="end" font-size="8" fill="var(--dim)">${fmt(v)}</text>`;
+    const body = live.map((s) => {
+      const pts = s.vals.map((v, i) => Number.isFinite(v) ? `${x(i).toFixed(1)},${y(v).toFixed(1)}` : null).filter(Boolean);
+      const dots = s.vals.map((v, i) => Number.isFinite(v)
+        ? `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="1.6" fill="${s.color}"><title>gen ${i} · ${s.label}: ${fmt(v)}</title></circle>` : "").join("");
+      return `<polyline points="${pts.join(" ")}" fill="none" stroke="${s.color}" stroke-width="1.5"/>${dots}`;
+    }).join("");
+    return `<svg class="spark" style="height:96px" viewBox="0 0 ${W} ${Hh}">
+      ${tick(hi)}${tick((lo + hi) / 2)}${tick(lo)}${body}
+      <text x="${L}" y="${Hh - 6}" font-size="8" fill="var(--dim)">gen 0</text>
+      <text x="${W - R}" y="${Hh - 6}" text-anchor="end" font-size="8" fill="var(--dim)">gen ${n - 1}</text>
+    </svg><div class="trendkey">${live.map((s) => `<span style="color:${s.color}">● ${s.label}</span>`).join("")}</div>`;
+  };
+
+  const bestChips = H.map(g => Math.max(...g.candidates.map(c => c.result.chipsPerMatch)));
+  // Texture KPIs read from the BENCH (same frozen enemy every generation).
+  // They used to read the control/promoted set, whose opponent alternates
+  // mirror/baseline cycle to cycle — cross-cycle comparison was broken (audit
+  // 2026-08-28). Bench is the only honestly comparable source.
+  const texture = k => H.map(g => (g.bench ?? g.control)[k]);
+
+  // Longitudinal archive: every recoverable generation, grouped by cycle and
+  // split at era boundaries because rules/benchmarks can change between eras.
+  {
+    // Era-label bug guard (2026-08-28): the era-3 overnight process launched
+    // with `era: 2` hardcoded in its archiver, so points it appends tonight
+    // arrive mislabeled. A point benched against baseline-v2 IS era 3.
+    const archived = (window.SERIES_HISTORY?.points || []).map((p) =>
+      p.era === 2 && (p.baseline || "").includes("baseline-v2") ? { ...p, era: 3 } : p);
+    const eraRows = (window.SERIES_LOG || []).map((r) => r.era || 1);
+    const currentEra = eraRows.length ? Math.max(...eraRows) : 1;
+    const eraCycles = archived.filter((p) => p.era === currentEra).map((p) => p.cycle);
+    const currentCycle = window.OVERNIGHT?.cycles?.length
+      ? window.OVERNIGHT.cycles.length + 1
+      : (eraCycles.length ? Math.max(...eraCycles) + 1 : 1);
+    const live = H.map((g) => {
+      const b = g.bench ?? g.control;
+      const a = b.activity;
+      const claims = (a?.chows || 0) + (a?.pungs || 0) + (a?.kongs || 0);
+      return { era: currentEra, cycle: currentCycle, gen: g.gen, promoted: g.promoted !== null,
+        baseline: D.baseline, opponent: D.trainingOpponent,
+        chipsPerMatch: b.chipsPerMatch, refusedPerHand: b.refusedPerHand, drawRate: b.drawRate,
+        meanFaan: b.meanFaan, threatDetection: b.threatDetection, claimsPerHand: b.claimsPerHand,
+        chowsPerHand: a?.hands ? a.chows / a.hands : null, pungsPerHand: a?.hands ? a.pungs / a.hands : null,
+        kongsPerHand: a?.hands ? a.kongs / a.hands : null,
+        chowClaimShare: claims ? a.chows / claims : null, pungClaimShare: claims ? a.pungs / claims : null,
+        kongClaimShare: claims ? a.kongs / claims : null,
+        discardWinsPerHand: a?.hands ? a.winsOnDiscard / a.hands : null,
+        selfDrawsPerHand: a?.hands ? a.selfDraws / a.hands : null };
+    });
+    const liveKeys = new Set(live.map((p) => `${p.era}:${p.cycle}:${p.gen}`));
+    const points = archived.filter((p) => !liveKeys.has(`${p.era}:${p.cycle}:${p.gen}`)).concat(live)
+      .filter((p) => eraOk(p.era))                       // global era filter
+      .sort((a, b) => a.era - b.era || a.cycle - b.cycle || a.gen - b.gen);
+    const trend = (key, { fmt = (v) => v, color = "var(--acc)", zero = false } = {}) => {
+      const values = points.map((p) => p[key]);
+      const valid = values.map((v, i) => Number.isFinite(v) ? { v, i } : null).filter(Boolean);
+      if (!valid.length) return '<div class="mut">Not recorded in the longitudinal archive.</div>';
+      let lo = Math.min(...valid.map((p) => p.v)), hi = Math.max(...valid.map((p) => p.v));
+      const pad = Math.max((hi - lo) * 0.08, Math.abs(hi || 1) * 0.01);
+      if (zero) lo = 0; else lo -= pad;
+      hi += pad;
+      if (hi === lo) hi = lo + 1;
+      const W = 720, Hh = 180, L = 42, R = 8, T = 22, B = 25;
+      const x = (i) => L + i / Math.max(1, points.length - 1) * (W - L - R);
+      const y = (v) => T + (1 - (v - lo) / (hi - lo)) * (Hh - T - B);
+      const starts = points.map((p, i) => i === 0 || p.era !== points[i - 1].era || p.cycle !== points[i - 1].cycle ? { ...p, i } : null).filter(Boolean);
+      const eras = starts.filter((p, i) => i === 0 || p.era !== starts[i - 1].era);
+      const paths = [...new Set(valid.map((p) => points[p.i].era))].map((era) => {
+        const segment = valid.filter((p) => points[p.i].era === era);
+        return `<polyline points="${segment.map((p) => `${x(p.i).toFixed(1)},${y(p.v).toFixed(1)}`).join(" ")}" fill="none" stroke="${color}" stroke-width="1.6"/>`;
+      }).join("");
+      const boundaries = starts.map((p) => `<line x1="${x(p.i)}" x2="${x(p.i)}" y1="${T}" y2="${Hh - B}" stroke="${p.gen === 0 && eras.some((e) => e.i === p.i) ? "var(--gold)" : "var(--line)"}" stroke-width="${eras.some((e) => e.i === p.i) ? 2 : 0.6}"/>`).join("");
+      const labels = eras.map((p) => `<text x="${x(p.i) + 4}" y="12" font-size="9" fill="var(--gold)">ERA ${p.era}</text>`).join("");
+      const cycleLabels = starts.filter((p, i) => i === 0 || i === starts.length - 1 || i % 5 === 0 || eras.some((e) => e.i === p.i))
+        .map((p) => `<text x="${x(p.i)}" y="${Hh - 6}" text-anchor="middle" font-size="8" fill="var(--dim)">E${p.era} C${p.cycle}</text>`).join("");
+      const promotions = valid.filter((p) => points[p.i].promoted).map((p) => `<circle cx="${x(p.i)}" cy="${y(p.v)}" r="2.8" fill="var(--gold)"><title>Era ${points[p.i].era}, cycle ${points[p.i].cycle}, gen ${points[p.i].gen}: ${fmt(p.v)} · promoted</title></circle>`).join("");
+      const cycleEnds = valid.filter((p) => p.i === points.length - 1 || points[p.i + 1].era !== points[p.i].era || points[p.i + 1].cycle !== points[p.i].cycle)
+        .map((p) => `<circle cx="${x(p.i)}" cy="${y(p.v)}" r="2.2" fill="var(--card)" stroke="${color}" stroke-width="1.5"><title>Era ${points[p.i].era}, cycle ${points[p.i].cycle} endpoint: ${fmt(p.v)}</title></circle>`).join("");
+      const ticks = [hi, (hi + lo) / 2, lo].map((v) => `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)" stroke-dasharray="3 3"/><text x="${L - 5}" y="${y(v) + 3}" text-anchor="end" font-size="9" fill="var(--dim)">${fmt(v)}</text>`).join("");
+      const last = valid[valid.length - 1];
+      return `<svg class="trend" viewBox="0 0 ${W} ${Hh}">${ticks}${boundaries}${paths}${cycleEnds}${promotions}${labels}${cycleLabels}</svg>
+        <div class="trendkey"><span>${valid.length.toLocaleString()}/${points.length.toLocaleString()} generations recorded</span><span>thin line = cycle boundary · outlined dot = cycle endpoint</span><span style="color:var(--gold)">gold line = era boundary · gold dot = promotion</span><span>latest ${fmt(last.v)}</span></div>`;
+    };
+    const metrics = [
+      ["refusedPerHand", `Refused wins per table hand${GOALS.zero}`, { color: "var(--warn)", zero: true, fmt: (v) => v.toFixed(2) }],
+      ["meanFaan", `Mean winning faan${GOALS.none}`, { color: "var(--acc)", fmt: (v) => v.toFixed(2) }],
+      ["drawRate", `Exhaustive draw rate${GOALS.drawBand}`, { color: "var(--gold)", zero: true, fmt: (v) => `${(v * 100).toFixed(0)}%` }],
+      ["threatDetection", `Threat detection${GOALS.up}`, { color: "var(--ok)", zero: true, fmt: (v) => `${(v * 100).toFixed(0)}%` }],
+    ];
+    document.getElementById("longitudinal").innerHTML = metrics.map(([key, title, opts]) =>
+      `<div class="card"><span class="scope">ACROSS ALL CYCLES · EVERY RECORDED GENERATION</span><h2>${title}</h2>${trend(key, opts)}</div>`).join("");
+
+    // One column per cycle, using that cycle's final recorded generation. This
+    // makes table-behavior shifts readable without treating one live snapshot
+    // as a durable KPI.
+    const byCycle = new Map();
+    for (const point of points) byCycle.set(`${point.era}:${point.cycle}`, point);
+    const cycleRows = [...byCycle.values()];
+    const behavior = [
+      ["chowClaimShare", "◇ Chows · share of claims", (v) => `${(v * 100).toFixed(0)}%`, 0.005, true],
+      ["pungClaimShare", "◇ Pungs · share of claims", (v) => `${(v * 100).toFixed(0)}%`, 0.005, true],
+      ["kongClaimShare", "◇ Kongs · share of claims", (v) => `${(v * 100).toFixed(1)}%`, 0.002, true],
+      ["chowsPerHand", "◇ Chows / table hand", (v) => v.toFixed(2), 0.01, false],
+      ["pungsPerHand", "◇ Pungs / table hand", (v) => v.toFixed(2), 0.01, false],
+      ["kongsPerHand", "◇ Kongs / table hand", (v) => v.toFixed(2), 0.01, false],
+      ["claimsPerHand", "◇ All claims / table hand", (v) => v.toFixed(2), 0.01, false],
+      ["discardWinsPerHand", "◇ Discard wins / table hand", (v) => v.toFixed(2), 0.01, false],
+      ["selfDrawsPerHand", "◇ Self-draws / table hand", (v) => v.toFixed(2), 0.01, false],
+      ["threatDetection", "▲ Threat detection", (v) => `${(v * 100).toFixed(0)}%`, 0.01, true],
+    ];
+    const cell = (metric, value, index, threshold, percentage) => {
+      if (!Number.isFinite(value)) return '<span class="mut">—</span>';
+      let previous = null;
+      for (let i = index - 1; i >= 0; i--) {
+        if (cycleRows[i].era !== cycleRows[index].era) break;
+        if (Number.isFinite(cycleRows[i][metric])) { previous = cycleRows[i][metric]; break; }
+      }
+      if (previous === null || Math.abs(value - previous) < threshold) return behavior.find((r) => r[0] === metric)[2](value);
+      const change = value - previous;
+      const delta = percentage ? `${Math.abs(change * 100).toFixed(Math.abs(change) < 0.01 ? 1 : 0)}pp` : Math.abs(change).toFixed(2);
+      return `${behavior.find((r) => r[0] === metric)[2](value)} <span class="${change > 0 ? "rise" : "fall"}">${change > 0 ? "▲" : "▼"}${delta}</span>`;
+    };
+    const matrixHead = cycleRows.map((p, i) => {
+      const eraStart = i === 0 || p.era !== cycleRows[i - 1].era;
+      const liveCycle = p.era === currentEra && p.cycle === currentCycle;
+      return `<th class="${eraStart ? "era-start" : ""}" title="Era ${p.era}, cycle ${p.cycle}, generation ${p.gen}">E${p.era}<br>C${p.cycle}${liveCycle ? "*" : ""}</th>`;
+    }).join("");
+    const matrixBody = behavior.map(([metric, label, fmt, threshold, percentage]) =>
+      `<tr><td><b>${label}</b></td>${cycleRows.map((p, i) => {
+        const eraStart = i === 0 || p.era !== cycleRows[i - 1].era;
+        return `<td class="${eraStart ? "era-start" : ""}">${cell(metric, p[metric], i, threshold, percentage)}</td>`;
+      }).join("")}</tr>`).join("");
+    // (per-cycle behaviour TABLE removed 2026-08-29 — unreadable at 250+ columns;
+    //  the same numbers live in the line charts above.)
+  }
+
+  const PATTERN_LABELS = {
+    selfDraw:"self-draw 自摸", allChows:"All Chows 平糊", allPungs:"All Pungs 對對糊",
+    halfFlush:"Half Flush 混一色", fullFlush:"Full Flush 清一色", dragonPung:"dragon pung 三元牌",
+    seatWind:"seat wind 門風", roundWind:"round wind 圈風", ownFlower:"own flower 正花",
+    ownSeason:"own season 正花(季)", noFlowers:"no bonus tiles 無花", concealedHand:"concealed 門前清",
+    winOnKongReplacement:"kong replacement 槓上開花", winOnLastTile:"last tile 海底撈月",
+    winOnLastDiscard:"last discard 河底撈魚", mixedTerminals:"mixed terminals 混么九",
+    smallThreeDragons:"Small 3 Dragons 小三元", bigThreeDragons:"Big 3 Dragons 大三元",
+    allTerminals:"All Terminals 清么九", allHonours:"All Honours 字一色",
+    fourConcealedPungs:"4 Concealed Pungs 四暗刻", nineGates:"Nine Gates 九蓮寶燈",
+    thirteenOrphans:"13 Orphans 十三么", heavenlyHand:"Heavenly 天糊", earthlyHand:"Earthly 地糊",
+    allKongs:"All Kongs 十八羅漢", bigFourWinds:"Big 4 Winds 大四喜", smallFourWinds:"Small 4 Winds 小四喜",
+    robbingKong:"robbing the kong 搶槓", winByDoubleKong:"double kong win 槓上槓",
+    allFlowers:"all 4 flowers 齊四花", allSeasons:"all 4 seasons 齊四季",
+  };
+  const cards = [];
+  const put = (slot, html) => cards.push({ slot, html });
+  const BASE_LABEL = BENCH_DESC;
+  // ── THE number: incumbent vs the frozen season-start bot, fixed seeds ──
+  const benches = H.map((g) => g.bench).filter(Boolean);
+  if (benches.length) {
+    const b = benches[benches.length - 1];
+    const line = benches.map((x) => x.chipsPerMatch);
+    put("kpis", `<div class="card"><span class="scope">WITHIN CURRENT CYCLE · ${benches.length} GENERATIONS</span><h2>Fixed-bench chips/match vs ${BENCH_NAME}${GOALS.up}</h2>
+      ${spark(line, { zero: true, fmt: (v) => (v > 0 ? "+" : "") + v, color: b.chipsPerMatch >= 0 ? "var(--ok)" : "var(--warn)" })}
+      <div class="mut" style="font-size:11px">won <b class="up">${b.chipsWonPerMatch}</b> · lost <b class="down">${b.chipsLostPerMatch}</b>
+      ${b.winLossRatio !== undefined ? `· <b>W/L ratio ${b.winLossRatio}</b> (how humans compare — &gt;1 = net winner)` : ""} per match.
+      ${b.dealInLossPerMatch !== undefined ? `The loss, attributed: <b class="down">${b.dealInLossPerMatch}</b> from deal-ins
+      (${b.dealInsPerMatch}/match — YOUR discard fed the win) + <b>${b.taxLossPerMatch}</b> self-draw tax (dodgeable only by winning first).` : ""}
+      Same frozen opponent and ${D.benchMatches || 192} all-seat matches every generation. This trend covers ${benches.length} generations in the current cycle only. 0 = exactly as good as the benchmark bot.</div>
+      ${(() => {
+        const prevs = H.map((g) => g.benchPrev).filter(Boolean);
+        if (!prevs.length) return "";
+        const pv = prevs[prevs.length - 1];
+        return `<div style="border-top:1px dashed var(--line);margin-top:8px;padding-top:6px">
+          <div class="kv"><span><b>vs past champion</b> (this run's start profile)</span>
+          <b class="${pv.chipsPerMatch > 0 ? "up" : pv.chipsPerMatch < 0 ? "down" : ""}">${pv.chipsPerMatch > 0 ? "+" : ""}${pv.chipsPerMatch}</b></div>
+          ${spark(prevs.map((x) => x.chipsPerMatch), { zero: true, fmt: (v) => (v > 0 ? "+" : "") + v, color: "var(--gold)" })}
+          <div class="mut" style="font-size:11px">≈0 until a promotion lands, then this line is the run's own gain —
+          it keeps meaning even after the baseline is left far behind.</div></div>`;
+      })()}</div>`);
+  }
+  // ── threat detection: key KPI (owner priority 2026-08-28) ──
+  {
+    const tdVals = H.map((g) => g.bench?.threatDetection).filter((v) => v !== undefined);
+    if (tdVals.length) {
+      put("kpis", `<div class="card"><span class="scope">WITHIN CURRENT CYCLE · ${tdVals.length} GENERATIONS</span><h2>Threat detection by generation${GOALS.up}</h2>
+        ${spark(tdVals, { zero: true, hi: 1, fmt: (v) => Math.round(v * 100) + "%" })}
+        <div class="mut" style="font-size:11px">Share of benchmark wins where the winner had been flagged (threat &gt; 0.3)
+        by an opponent's table read before the win. This plot compares generations inside the active cycle; use the Overall tab to compare recorded threat detection across cycles.</div></div>`);
+    }
+  }
+  put('kpis', `<div class="card"><span class="scope">WITHIN CURRENT CYCLE · ${H.length} GENERATIONS</span><h2>Refused wins / hand by generation${GOALS.zero}</h2>
+    ${spark(texture("refusedPerHand"), {lo: 0, color: "var(--warn)", fmt: v => v})}
+    <div class="mut" style="font-size:11px">Whole-table count per hand where any seat completed a winning shape it legally could not take under the 3-faan floor. This is the current cycle only; the Overall tab covers all archived cycles.</div></div>`);
+
+  put('kpis', `<div class="card"><span class="scope">WITHIN CURRENT CYCLE · ${H.length} GENERATIONS</span><h2>Draw rate by generation 流局${GOALS.drawBand}</h2>
+    ${spark(texture("drawRate"), {lo: 0, hi: 0.7, fmt: v => (v*100).toFixed(0)+"%"})}
+    <div class="mut" style="font-size:11px">流局 — the wall ran out and NOBODY won (not self-draw — 自摸 is a win).
+ This plot compares generations in the current cycle only.</div></div>`);
+
+  put('kpis', `<div class="card"><span class="scope">WITHIN CURRENT CYCLE · ${H.length} GENERATIONS</span><h2>Mean winning faan by generation${GOALS.none}</h2>
+    ${spark(texture("meanFaan"), {zero: true, fmt: v => v})}
+    <div class="mut" style="font-size:11px">Average faan of winning hands. 3.0 = everyone scrapes the minimum; rising = hands
+ built for value. This plot compares generations in the current cycle only.</div></div>`);
+
+  // ── Tactical texture by generation (owner, 2026-08-28): hand types, claims,
+  // win mix, faan spread — all from the per-generation BENCH activity census
+  // (192 all-seat matches ≈ 1,475 hands per generation, a bigger sample than
+  // the cycle-end exam, so these per-generation trends are statistically real).
+  {
+    const acts = H.map((g) => (g.bench ?? g.control)?.activity ?? null);
+    const winsOf = (a) => a ? a.winsOnDiscard + a.selfDraws : 0;
+    if (acts.some(Boolean)) {
+      const share = (key) => acts.map((a) => a && winsOf(a) ? (a.patterns?.[key] ?? 0) / winsOf(a) : NaN);
+      const perHand = (key) => acts.map((a) => a?.hands ? a[key] / a.hands : NaN);
+      const pctF = (v) => `${(v * 100).toFixed(0)}%`;
+      // Hand types — the five patterns that define the current meta.
+      const TYPE_LINES = [
+        ["halfFlush", "half flush 混一色", "var(--acc)"],
+        ["allPungs", "all pungs 對對糊", "var(--gold)"],
+        ["fullFlush", "full flush 清一色", "var(--warn)"],
+        ["concealedHand", "concealed 門前清", "var(--ok)"],
+        ["allChows", "all chows 平糊", "#b48ead"],
+      ];
+      const lastAct = [...acts].reverse().find(Boolean);
+      const census = Object.entries(lastAct.patterns ?? {}).sort((a, b) => b[1] - a[1]);
+      put('kpis', `<div class="card"><span class="scope">WITHIN CURRENT CYCLE · ${H.length} GENERATIONS</span><h2>Hand types — share of bench wins${GOALS.none}</h2>
+        ${sparkM(TYPE_LINES.map(([k, label, color]) => ({ label, color, vals: share(k) })), { zero: true, fmt: pctF })}
+        <details style="margin-top:6px"><summary class="mut" style="cursor:pointer;font-size:11px">full census — latest generation (${winsOf(lastAct)} wins)</summary>
+        <table style="margin-top:4px"><tr><th>pattern</th><th>wins</th><th>share</th></tr>
+        ${census.map(([id, n]) => `<tr><td>${PATTERN_LABELS[id] ?? id}</td><td>${n}</td><td>${pctF(n / winsOf(lastAct))}</td></tr>`).join("")}</table></details>
+        <div class="mut" style="font-size:11px">A win can carry several patterns, so shares exceed 100% summed. Watch for meta drift (e.g. everything collapsing into half flush), not a direction.</div></div>`);
+      put('kpis', `<div class="card"><span class="scope">WITHIN CURRENT CYCLE · ${H.length} GENERATIONS</span><h2>Claim mix per table hand${GOALS.none}</h2>
+        ${sparkM([
+          { label: "pungs/hand 碰", color: "var(--gold)", vals: perHand("pungs") },
+          { label: "chows/hand 上", color: "var(--acc)", vals: perHand("chows") },
+          { label: "kongs/hand 槓", color: "var(--warn)", vals: perHand("kongs") },
+        ], { zero: true, fmt: (v) => v.toFixed(2) })}
+        <div class="mut" style="font-size:11px">Too few claims total = the alien-quiet table the texture gate exists for; the pung-vs-chow balance itself is texture, not a target.</div></div>`);
+      put('kpis', `<div class="card"><span class="scope">WITHIN CURRENT CYCLE · ${H.length} GENERATIONS</span><h2>Win mix per table hand${GOALS.none}</h2>
+        ${sparkM([
+          { label: "discard wins/hand 食糊", color: "var(--acc)", vals: perHand("winsOnDiscard") },
+          { label: "self-draws/hand 自摸", color: "var(--ok)", vals: perHand("selfDraws") },
+        ], { zero: true, fmt: (v) => v.toFixed(2) })}
+        <div class="mut" style="font-size:11px">How hands finish. Their sum is the win rate per hand; the gap to 1.0 is the draw rate.</div></div>`);
+      // Faan distribution — latest generation histogram + the 8+ tail trend.
+      const hist = lastAct.faanHist ?? [];
+      const histWins = hist.reduce((a, b) => a + b, 0) || 1;
+      const bigShare = acts.map((a) => {
+        const h = a?.faanHist; if (!h) return NaN;
+        const t = h.reduce((x, y) => x + y, 0); return t ? h.slice(8).reduce((x, y) => x + y, 0) / t : NaN;
+      });
+      const bars = (() => {
+        const idx = hist.map((n, i) => [i, n]).filter(([i, n]) => i >= 3 && n > 0);
+        if (!idx.length) return '<div class="mut">no faan histogram in this run</div>';
+        const top = Math.max(...idx.map(([, n]) => n));
+        const W = 340, Hh = 96, L = 30, R = 4, T = 8, B = 18, bw = (W - L - R) / idx.length;
+        return `<svg class="spark" style="height:96px" viewBox="0 0 ${W} ${Hh}">
+          ${idx.map(([f, n], j) => {
+            const h = (n / top) * (Hh - T - B);
+            return `<rect x="${(L + j * bw + 2).toFixed(1)}" y="${(Hh - B - h).toFixed(1)}" width="${(bw - 4).toFixed(1)}" height="${h.toFixed(1)}" fill="var(--acc)" opacity="0.85"><title>${f} faan: ${n} wins (${(n / histWins * 100).toFixed(1)}%)</title></rect>
+            <text x="${(L + j * bw + bw / 2).toFixed(1)}" y="${Hh - 6}" text-anchor="middle" font-size="8" fill="var(--dim)">${f}</text>`;
+          }).join("")}
+          <text x="${L - 4}" y="${T + 6}" text-anchor="end" font-size="8" fill="var(--dim)">${top}</text></svg>`;
+      })();
+      put('kpis', `<div class="card"><span class="scope">WITHIN CURRENT CYCLE · LATEST GENERATION + TREND</span><h2>Faan distribution${GOALS.none}</h2>
+        ${bars}
+        <div class="kv" style="margin-top:4px"><span class="mut">share of wins at 8+ faan, by generation</span></div>
+        ${spark(bigShare, { zero: true, fmt: pctF, color: "var(--warn)" })}
+        <div class="mut" style="font-size:11px">Bars: latest generation's winning-faan histogram (bench). The 8+ tail is where the payment ladder pays 128-256 chips — texture, but the tail is what "win bigger" looks like when it works.</div></div>`);
+    }
+  }
+
+  const WEIGHT_DOCS = {
+    faanWeight: "Value vs speed: how much a route's payout matters over finishing fast. Low = race for any legal 3 faan; high = build big hands.",
+    routeDistanceWeight: "The sprint dial: penalty per tile the chosen route still needs. High = pick nearly-done routes.",
+    offRouteWeight: "Rebuild cost: penalty per dealt tile the route would throw away. Low = happy to dump a suit and rebuild.",
+    belowMinimumPenalty: "The anti-sin: charge on any route that cannot legally reach 3 faan. This is the refused-wins dial.",
+    discardDistanceWeight: "Stay close to ready: penalty for a cut that moves the hand further from winning. The dominant discard term.",
+    discardRouteWeight: "Commitment: prefer cuts that serve the chosen route. High = tunnel vision, low = stay flexible.",
+    discardSafetyWeight: "Defence: prefer cutting tiles with more copies already visible on the table.",
+    discardOutsWeight: "Tiny tiebreak between equal cuts by how many live winning tiles each keeps. Deliberately small.",
+    claimSpeedGain: "Minimum speed-up a pung/chow must buy before the bot will take it.",
+    claimRouteTolerance: "Claim discipline: how much route value a claim may destroy before it is refused. Claiming always costs concealment.",
+    aggression: "Global claim eagerness multiplier. The personality dial — and the noisiest one in every run so far.",
+    chipValuation: "0 = value routes by LINEAR faan (the old bug); 1 = by expected CHIPS through the ruleset's payment table. 6 faan pays ~8× a 3-faan hand, not 2×.",
+    routeDecay: "P(route completes) per remaining tile of distance — disciplines the exponential payout so slow-huge doesn't always beat fast-small.",
+    leftFeedWeight: "The seat before you is your supply line: their discard mix raises or sinks each suit route (owner's route-picking read).",
+    threatSensitivity: "How much the table read bends discards at all. The master defence switch.",
+    threatPushValue: "Push/fold exchange rate: own hand strength offsets table threat. High = a big hand ignores danger.",
+    urgencyWeight: "Race pressure: table heat discounts distant plans harder.",
+    suitContestWeight: "Price down suit routes the table is visibly eating (a collector declared, or copies gone).",
+    claimSupplyWeight: "Pairs count as claimable speed — three opponents can finish a pung for you.",
+    leadDefense: "SCORE DIAL (era 3): when ahead on chips, scale up safety, threat folding, and ease the fold trigger — the owner's 'in the lead, try very hard not to lose'.",
+    trailSwing: "SCORE DIAL (era 3): when behind, scale up faan value and claim aggression — 'if I'm losing I take bigger swings'.",
+    winFastLead: "SCORE DIAL (era 3): when ahead, prefer finishing fast (distance weights scale up).",
+    foldThreshold: "HARD FOLD (era 3): past this fold-factor the seat abandons the win — safest-tile-only cuts, no claims. 0 = never. Deliberately evolvable: the owner says the correct line is unknown.",
+    feedDenial: "FEED DENIAL (era 3): withhold pairable tiles from seats showing an all-pungs appetite (2+ pung/kong melds).",
+  };
+  const K = D.keys;
+  const w0 = D.defaults, wN = last.incumbentAfter;
+  put('currentDetails', `<div class="card scrollcard"><span class="scope">CURRENT CYCLE</span><h2>Incumbent weights — cycle start → now</h2>
+    <div class="mut" style="font-size:11px;margin-bottom:8px">The bot's entire personality is these ${K.length} dials — coefficients of its three
+    decision formulas (route choice · discard choice · claim choice). Evolution never invents behaviour, it only re-balances them.
+    "default" is the hand-guessed starting value; green/red Δ = evolution raised/lowered it.</div>
+    <table><tr><th>weight</th><th>default</th><th>now</th><th>Δ</th></tr>
+    ${K.map(k => {
+      const d = w0[k] === 0 ? null : wN[k] / w0[k] - 1;
+      const cls = d === null || Math.abs(d) < 0.05 ? "mut" : d > 0 ? "up" : "down";
+      const delta = d === null ? (wN[k] === 0 ? "unchanged" : `0→${wN[k]}`) : `${d > 0 ? "+" : ""}${(d*100).toFixed(0)}%`;
+      return `<tr><td>${k}<div class="mut" style="font-size:10.5px;line-height:1.35;max-width:300px;white-space:normal">${WEIGHT_DOCS[k] ?? ""}</div></td><td class="mut">${w0[k]}</td><td><b>${wN[k]}</b></td>
+        <td class="${cls}">${delta}</td></tr>`;
+    }).join("")}</table></div>`);
+
+  // ── the matches themselves: latest generation's control set, hand by hand ──
+  // Tile id 0-41 → characters, mirroring TILE_NAMES in engine/src/tiles.ts.
+  const TILE_CHARS = (() => {
+    const n = [];
+    for (let i = 1; i <= 9; i++) n.push(i + "萬");
+    for (let i = 1; i <= 9; i++) n.push(i + "索");
+    for (let i = 1; i <= 9; i++) n.push(i + "筒");
+    n.push("東","南","西","北","中","發","白");
+    n.push("梅","蘭","菊","竹","春","夏","秋","冬");
+    return n;
+  })();
+  const tileStr = t => TILE_CHARS[t] ?? ("?" + t);
+  const OUTCOME_LABELS = {
+    winOnDiscard: "win 食糊", selfDraw: "self-draw 自摸", exhaustiveDraw: "exhaustive draw 流局",
+  };
+  if (Array.isArray(D.sampleMatches) && D.sampleMatches.length > 0) {
+    const handHtml = (hand) => {
+      if (!hand) return '<span class="mut">—</span>';
+      const concealed = [...(hand.concealed ?? [])].sort((a, b) => a - b).map(tileStr).join(" ");
+      const melds = (hand.melds ?? []).map(m => "[" + m.tiles.map(tileStr).join("") + "]").join(" ");
+      const win = `<span class="wtile" title="winning tile">${tileStr(hand.winningTile)}</span>`;
+      const awards = (hand.awards ?? [])
+        .map(a => `${PATTERN_LABELS[a.id] ?? a.id} <b>${a.faan}</b>`).join(" · ");
+      return `<span class="tiles">${[concealed, melds, win].filter(Boolean).join(" ")}</span>` +
+        (awards ? `<div class="mut" style="font-size:10.5px">${awards}</div>` : "");
+    };
+    const matchHtml = (m, matchIndex) => {
+      const top = Math.max(...m.chips);
+      const candidateSeat = m.candidateSeat ?? (matchIndex % 4);
+      const chipsLine = m.chips
+        .map((c, s) => { const t = `S${s}${s === candidateSeat ? " (incumbent)" : ""} ${c > 0 ? "+" : ""}${c}`; return c === top ? `<b>${t}</b>` : t; })
+        .join(" · ");
+      const rows = (m.handRecords ?? []).map((h, i) =>
+        `<tr><td class="mut">${i}</td><td>${OUTCOME_LABELS[h.outcome] ?? h.outcome}</td>
+         <td>${h.winner === null ? '<span class="mut">—</span>' : "S" + h.winner}</td>
+         <td>${h.faan ?? '<span class="mut">—</span>'}</td>
+         <td style="text-align:left;white-space:normal">${handHtml(h.winningHand)}</td></tr>`).join("");
+      return `<details class="match"><summary>seed ${m.seed} · ${m.hands} hands · ${chipsLine}</summary>
+        <table><tr><th>#</th><th>outcome</th><th>winner</th><th>faan</th><th style="text-align:left">winning hand</th></tr>
+        ${rows}</table></details>`;
+    };
+    put('currentWide', `<div class="card"><details><summary><span class="scope">LATEST GENERATION · SAMPLE MATCHES</span><b>Match inspector — control set</b></summary>
+      <div class="mut" style="font-size:11px;margin:8px 0">One incumbent seat versus three <b>${D.trainingOpponentLabel || "opponents not recorded in this legacy run"}</b> on the control seeds —
+      ${D.sampleMatches.length} full matches. Click a match to see every hand: who won, the faan, and the winning
+      hand face up (melds bracketed, winning tile highlighted). The incumbent seat is named in each row; the top chip take is bold.</div>
+      <div class="matchlist">${D.sampleMatches.map(matchHtml).join("")}</div></details></div>`);
+  }
+
+  // ── current-cycle generation decision log ──
+  {
+    const BAR = 0.5;
+    const rows = H.map((g) => {
+      const best = [...g.candidates].sort((a, b) => (b.result.pointsPerMatch ?? 0) - (a.result.pointsPerMatch ?? 0))[0];
+      const bestPts = best?.result.pointsPerMatch ?? 0;
+      const ctrl = g.control.pointsPerMatch ?? 0;
+      const gateA = bestPts - ctrl;
+      const gateB = g.confirm && g.confirmControl
+        ? g.confirm.pointsPerMatch - g.confirmControl.pointsPerMatch : null;
+      const moved = Object.keys(g.changed || {});
+      const changed = moved.length ? moved.slice(0, 3).join(", ") + (moved.length > 3 ? ` +${moved.length - 3}` : "") : "—";
+      const delta = (v) => v === null ? "—" : `${v > 0 ? "+" : ""}${v.toFixed(2)}`;
+      const outcome = g.promoted !== null
+        ? `<span class="up">PROMOTED #${g.promoted}</span>`
+        : g.confirm && !g.confirmControl
+          ? '<span class="mut" title="Legacy record: confirmation control was not stored">kept · gate B comparison not recorded</span>'
+          : gateB !== null
+            ? `<span class="mut">kept · gate B ${delta(gateB)} ≤ +${BAR}</span>`
+            : `<span class="mut">kept · gate A ${delta(gateA)} ≤ +${BAR}</span>`;
+      const matchCount = g.work?.breakdown ? g.work.matches.toLocaleString() : "legacy count unavailable";
+      return `<tr><td><b>${g.gen}</b></td>
+        <td class="${gateA > BAR ? "up" : "mut"}">${delta(gateA)}</td>
+        <td class="${gateB !== null && gateB > BAR ? "up" : "mut"}">${delta(gateB)}</td>
+        <td>${outcome}</td>
+        <td>${g.bench ? (g.bench.chipsPerMatch > 0 ? "+" : "") + g.bench.chipsPerMatch : "—"}</td>
+        <td class="mut">${matchCount}</td><td class="mut">${(g.ms / 1000).toFixed(0)}</td><td>${changed}</td></tr>`;
+    });
+    const baseLbl = BENCH_DESC;
+    put('currentDecision', `<div class="card"><span class="scope">CURRENT CYCLE · ALL ${H.length} COMPLETED GENERATIONS</span>
+      <h2>Generation decision log</h2>
+      <div class="mut" style="font-size:11px;margin-bottom:7px"><b>Gate A</b> = best challenger minus incumbent on seed set A. <b>Gate B</b> = the same challenger minus incumbent on fresh seed set B. Both must exceed +${BAR} ${D.fitness === "chips" ? "chips/match (owner ruling: chips, not placement, are the objective)" : "placement points/match"}. Training opponent: <b>${D.trainingOpponentLabel || "not recorded in this legacy run"}</b>. Fixed bench is against ${baseLbl}; it is diagnostic, not a promotion gate.</div>
+      <div class="table-scroll"><table class="decision"><tr><th>gen</th><th>gate A Δ</th><th>gate B Δ</th><th>decision</th><th>fixed bench<br>chips/match</th><th>matches</th><th>secs</th><th>dials changed</th></tr>
+      ${[...rows].reverse().join("")}</table></div></div>`);
+  }
+
+
+  for (const slot of ["kpis", "currentDecision", "currentDetails", "currentWide"]) {
+    const el = document.getElementById(slot);
+    el.innerHTML = cards.filter((c) => c.slot === slot).map((c) => c.html).join("");
+  }
+}
+// ── Cycle texture: PROPER per-cycle plots (owner, 2026-08-28) ──
+// One point per cycle, from the archive and the cycle log only — deliberately
+// OUTSIDE the live-data.js branch so these charts survive the blank window at
+// the start of every cycle. Two honest sources, never mixed in one line:
+//   BENCH endpoints — final recorded generation of each cycle, same frozen
+//   bench enemy all era (full history, eras 1-3).
+//   EXAM rows — the cycle-end 160-match held-out exam vs the era enemy
+//   (chips always; texture fields only where the extended STATS ran).
+{
+  // Era-label bug guard (2026-08-28): points benched vs baseline-v2 ARE era 3
+  // even while tonight's process archives them labeled era 2.
+  const archived = (window.SERIES_HISTORY?.points || [])
+    .map((p) => p.era === 2 && (p.baseline || "").includes("baseline-v2") ? { ...p, era: 3 } : p)
+    .filter((p) => eraOk(p.era))                          // global era filter
+    .sort((a, b) => a.era - b.era || a.cycle - b.cycle || a.gen - b.gen);
+  const endpoints = [...new Map(archived.map((p) => [`${p.era}:${p.cycle}`, p])).values()];
+  const examRows = (window.SERIES_LOG || [])
+    .filter((r) => !r.error && Number.isFinite(r.heldOutChips))
+    .map((r) => ({ ...r, era: r.era ?? 1 }))
+    .filter((r) => eraOk(r.era))                          // global era filter
+    .sort((a, b) => a.era - b.era || a.cycle - b.cycle);
+  // lines: [{label, color, pts: [{era, cycle, v, se?}]}] — se draws a ±2SE band
+  const cplot = (lines, { fmt = (v) => v, zero = false, hi: hiCap, band = null } = {}) => {
+    const live = lines.map((ln) => ({ ...ln, pts: ln.pts.filter((p) => Number.isFinite(p.v)) }))
+      .filter((ln) => ln.pts.length);
+    if (!live.length) return null;
+    const keys = [...new Map(live.flatMap((ln) => ln.pts).map((p) => [`${p.era}:${p.cycle}`, p]))
+      .values()].sort((a, b) => a.era - b.era || a.cycle - b.cycle)
+      .map((p) => `${p.era}:${p.cycle}`);
+    const ix = new Map(keys.map((k, i) => [k, i]));
+    const vals = live.flatMap((ln) => ln.pts.flatMap((p) => [p.v - 2 * (p.se || 0), p.v + 2 * (p.se || 0)])).concat(band ?? []);
+    let lo = Math.min(...vals), hi = Math.max(...vals);
+    const pad = Math.max((hi - lo) * 0.08, Math.abs(hi || 1) * 0.01);
+    if (zero) lo = Math.min(0, lo); else lo -= pad;
+    hi = hiCap !== undefined ? Math.max(hiCap, hi) : hi + pad;
+    if (hi === lo) hi = lo + 1;
+    const W = 720, Hh = 180, L = 44, R = 8, T = 20, B = 26;
+    const x = (k) => L + (ix.get(k) || 0) / Math.max(1, keys.length - 1) * (W - L - R);
+    const y = (v) => T + (1 - (v - lo) / (hi - lo)) * (Hh - T - B);
+    const eraOf = (k) => +k.split(":")[0], cycOf = (k) => +k.split(":")[1];
+    const eraStarts = keys.map((k, i) => i === 0 || eraOf(k) !== eraOf(keys[i - 1]) ? i : null).filter((i) => i !== null);
+    const boundaries = eraStarts.map((i) => `<line x1="${x(keys[i]).toFixed(1)}" x2="${x(keys[i]).toFixed(1)}" y1="${T}" y2="${Hh - B}" stroke="var(--gold)" stroke-width="1.6"/>
+      <text x="${(x(keys[i]) + 4).toFixed(1)}" y="12" font-size="9" fill="var(--gold)">ERA ${eraOf(keys[i])}</text>`).join("");
+    const step = Math.max(1, Math.round(keys.length / 9));
+    const xLabels = keys.map((k, i) =>
+      i === 0 || i === keys.length - 1 || eraStarts.includes(i) || i % step === 0
+        ? `<text x="${x(k).toFixed(1)}" y="${Hh - 8}" text-anchor="middle" font-size="8" fill="var(--dim)">C${cycOf(k)}</text>` : "").join("");
+    const ticks = [hi, (hi + lo) / 2, lo].map((v) => `<line x1="${L}" x2="${W - R}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}" stroke="var(--line)" stroke-dasharray="3 3"/>
+      <text x="${L - 5}" y="${(y(v) + 3).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--dim)">${fmt(v)}</text>`).join("");
+    const zeroLine = lo < 0 && hi > 0 ? `<line x1="${L}" x2="${W - R}" y1="${y(0).toFixed(1)}" y2="${y(0).toFixed(1)}" stroke="var(--dim)" stroke-width="0.8"/>` : "";
+    const bandRect = band ? `<rect x="${L}" y="${y(band[1]).toFixed(1)}" width="${W - L - R}" height="${(y(band[0]) - y(band[1])).toFixed(1)}" fill="var(--ok)" opacity="0.10"><title>target zone ${fmt(band[0])}–${fmt(band[1])}</title></rect>` : "";
+    const body = live.map((ln) => {
+      const byEra = [...new Set(ln.pts.map((p) => p.era))].map((era) => ln.pts.filter((p) => p.era === era));
+      const bands = byEra.map((seg) => {
+        const withSe = seg.filter((p) => Number.isFinite(p.se) && p.se > 0);
+        if (withSe.length < 2) return "";
+        const up = withSe.map((p) => `${x(`${p.era}:${p.cycle}`).toFixed(1)},${y(p.v + 2 * p.se).toFixed(1)}`);
+        const dn = withSe.map((p) => `${x(`${p.era}:${p.cycle}`).toFixed(1)},${y(p.v - 2 * p.se).toFixed(1)}`).reverse();
+        return `<polygon points="${up.concat(dn).join(" ")}" fill="${ln.color}" opacity="0.13"/>`;
+      }).join("");
+      const paths = byEra.map((seg) =>
+        `<polyline points="${seg.map((p) => `${x(`${p.era}:${p.cycle}`).toFixed(1)},${y(p.v).toFixed(1)}`).join(" ")}" fill="none" stroke="${ln.color}" stroke-width="1.7"/>`).join("");
+      const dots = ln.pts.map((p) =>
+        `<circle cx="${x(`${p.era}:${p.cycle}`).toFixed(1)}" cy="${y(p.v).toFixed(1)}" r="2.4" fill="${ln.color}"><title>E${p.era} C${p.cycle} · ${ln.label}: ${fmt(p.v)}${Number.isFinite(p.se) && p.se > 0 ? ` (±${fmt(2 * p.se)} 2SE)` : ""}</title></circle>`).join("");
+      return bands + paths + dots;
+    }).join("");
+    const key = live.map((ln) => `<span style="color:${ln.color}">● ${ln.label}</span>`).join("")
+      + `<span>${keys.length} cycles · gold line = era boundary${live.some((ln) => ln.pts.some((p) => p.se)) ? " · shaded = ±2SE" : ""}</span>`;
+    return `<svg class="trend" viewBox="0 0 ${W} ${Hh}">${bandRect}${ticks}${zeroLine}${boundaries}${body}${xLabels}</svg><div class="trendkey">${key}</div>`;
+  };
+  const pct = (v) => `${(v * 100).toFixed(0)}%`;
+  const bench = (k) => endpoints.map((p) => ({ era: p.era, cycle: p.cycle, v: p[k] }));
+  const benchPat = (k) => endpoints.map((p) => ({ era: p.era, cycle: p.cycle, v: p.patternShares ? p.patternShares[k] : null }));
+  const meClaimShare = (k) => (r) => {
+    const c = (r.stats || {}).me && r.stats.me.claims;
+    if (!c) return null;
+    const total = c.chows + c.pungs + c.kongs;
+    return total ? c[k] / total : null;
+  };
+  const exam = (get, se) => examRows.map((r) => {
+    const v = get(r);
+    return { era: r.era, cycle: r.cycle, v: Number.isFinite(v) ? v : null, se: se ? se(r) : undefined };
+  });
+  const st = (r) => r.stats || {};
+  const bigShare = (r) => st(r).faanShares ? st(r).faanShares.slice(5).reduce((a, b) => a + b, 0) : null;
+  const chipsSe = (r) => Number.isFinite(st(r).chipsSD) && st(r).matches ? st(r).chipsSD / Math.sqrt(st(r).matches) : undefined;
+  const charts = [
+    ["Held-out exam — chips/match vs era enemy", "the admission number, with its real uncertainty. 0 = par with the era's frozen enemy; the band is ±2SE over the 160-match block (recorded once the extended exam stats land).",
+      [{ label: "exam chips/match", color: "var(--acc)", pts: exam((r) => r.heldOutChips, chipsSe) }],
+      { fmt: (v) => (v > 0 ? "+" : "") + v.toFixed(0), zero: true }, "up"],
+    ["Claim mix — share of all claims", "bench endpoints, table-wide. Chow-vs-pung appetite is one of the tightest per-cycle signals (thousands of claims per point).",
+      [{ label: "pung", color: "var(--gold)", pts: bench("pungClaimShare") },
+       { label: "chow", color: "var(--acc)", pts: bench("chowClaimShare") },
+       { label: "kong", color: "var(--warn)", pts: bench("kongClaimShare") }],
+      { fmt: pct, zero: true }, "none"],
+    ["Hand types — share of bench wins", "bench endpoints, table-wide. The meta: which winning shapes dominate. A win can carry several patterns, so shares can sum past 100%.",
+      [{ label: "half flush 混一色", color: "var(--acc)", pts: benchPat("halfFlush") },
+       { label: "all pungs 對對糊", color: "var(--gold)", pts: benchPat("allPungs") },
+       { label: "full flush 清一色", color: "var(--warn)", pts: benchPat("fullFlush") },
+       { label: "concealed 門前清", color: "var(--ok)", pts: benchPat("concealedHand") },
+       { label: "all chows 平糊", color: "#b48ead", pts: benchPat("allChows") }],
+      { fmt: pct, zero: true }, "none"],
+    ["Claims per table hand", "bench endpoints. Total claim appetite — the alien-quiet-table detector.",
+      [{ label: "claims/hand", color: "var(--acc)", pts: bench("claimsPerHand") }], { fmt: (v) => v.toFixed(2), zero: true }, "none"],
+    ["Wins per table hand — self-draw vs discard", "bench endpoints, table-wide. Which way hands are finishing.",
+      [{ label: "self-draws/hand 自摸", color: "var(--ok)", pts: bench("selfDrawsPerHand") },
+       { label: "discard wins/hand 食糊", color: "var(--acc)", pts: bench("discardWinsPerHand") }],
+      { fmt: (v) => v.toFixed(2), zero: true }, "none"],
+    ["Mean winning faan", "bench endpoints. 3.0 = everyone scrapes the floor; rising = value hands.",
+      [{ label: "mean faan", color: "var(--acc)", pts: bench("meanFaan") }], { fmt: (v) => v.toFixed(1), zero: true }, "none"],
+    ["Exhaustive draw rate 流局", "bench endpoints. Real HK tables sit ~10-20%.",
+      [{ label: "draw rate", color: "var(--gold)", pts: bench("drawRate") }], { fmt: pct, zero: true, band: [0.10, 0.20] }, "drawBand"],
+    ["Challenger economy — chips won vs bled, per match", "held-out exam, challenger seat only. The two halves of the score: win bigger (green) and bleed less (orange), with the deal-in slice of the bleed in gold. Recorded once the extended exam stats land.",
+      [{ label: "won/match", color: "var(--ok)", pts: exam((r) => st(r).me?.wonPerMatch) },
+       { label: "lost/match", color: "var(--warn)", pts: exam((r) => st(r).me?.lostPerMatch) },
+       { label: "deal-in loss/match", color: "var(--gold)", pts: exam((r) => st(r).me?.dealInLossPerMatch) }],
+      { fmt: (v) => (v > 0 ? "+" : "") + v.toFixed(0), zero: true }, '<span class="goal up">▲ WON UP</span><span class="goal down">▼ |LOST| DOWN</span>'],
+    ["Challenger claim mix — share of its claims", "held-out exam, challenger seat only (recorded once the per-seat claim stats land). Compare against the table-wide mix above: is the champion calling differently from its opponents?",
+      [{ label: "pung", color: "var(--gold)", pts: exam(meClaimShare("pungs")) },
+       { label: "chow", color: "var(--acc)", pts: exam(meClaimShare("chows")) },
+       { label: "kong", color: "var(--warn)", pts: exam(meClaimShare("kongs")) }],
+      { fmt: pct, zero: true }, "none"],
+    ["Big hands — share of wins at 8+ faan", "held-out exam, table-wide. The exponential tail of the payment ladder (recorded from era 3 on).",
+      [{ label: "8+ faan share", color: "var(--warn)", pts: exam(bigShare) }], { fmt: pct, zero: true }, "none"],
+  ];
+  // ── ABSOLUTE PROGRESS (owner, 2026-08-29) ──────────────────────────────
+  // Every other chips number on this panel is scored against the ERA ENEMY,
+  // which is replaced by a stronger bot each era — so it resets toward 0 by
+  // construction and CANNOT show cumulative progress. baseline-v0 never
+  // changes, so it is the only axis on which "is the bot actually getting
+  // better" is answerable. The harness has logged vsV0 every cycle since era
+  // 2 (era 1 benched against v0 directly); it had never been plotted.
+  {
+    const raw = (window.SERIES_LOG || [])
+      .filter((r) => !r.error)
+      .map((r) => {
+        const era = r.era ?? 1;
+        return { era, cycle: r.cycle, v: era === 1 ? r.heldOutChips : r.vsV0 };
+      })
+      .filter((p) => Number.isFinite(p.v) && eraOk(p.era))   // global era filter
+      .sort((a, b) => a.era - b.era || a.cycle - b.cycle);
+    // Centred rolling mean — a single 160-match block has a huge spread (the
+    // champion ladder below shows the SAME profile scoring 23.9 and 72.0 on
+    // different blocks), so the per-cycle line is mostly noise and the
+    // smoothed line is the part worth reading.
+    const W = 9;
+    const smooth = raw.map((p, i) => {
+      const lo = Math.max(0, i - (W >> 1)), hi = Math.min(raw.length, i + (W >> 1) + 1);
+      const seg = raw.slice(lo, hi);
+      return { era: p.era, cycle: p.cycle, v: seg.reduce((a, b) => a + b.v, 0) / seg.length };
+    });
+    const trendSvg = cplot([
+      { label: "per-cycle vs v0", color: "var(--line)", pts: raw },
+      { label: `${W}-cycle rolling mean`, color: "var(--ok)", pts: smooth },
+    ], { fmt: (v) => (v > 0 ? "+" : "") + v.toFixed(0), zero: true });
+
+    // Champion ladder — each era's frozen king, same enemy, same blocks.
+    const C = window.CHAMPIONS;
+    let ladder = '<div class="mut">champions.js not loaded — run the ladder to populate this.</div>';
+    if (C && C.rows && C.rows.length) {
+      // Champion trajectory as a TIME SERIES (x = era), matching every other
+      // plot on this panel. The line is the mean of all blocks; the vertical
+      // whisker and its dots are the individual blocks, because the block
+      // spread is the honest error bar and it is bigger than most era-to-era
+      // differences.
+      const rows = C.rows;
+      const all = rows.flatMap((r) => r.chips.concat([r.mean])).concat([0]);
+      let lo = Math.min(...all), hi = Math.max(...all);
+      const pad = Math.max((hi - lo) * 0.12, 2);
+      lo = Math.min(0, lo - pad); hi += pad;
+      const W = 720, Hh = 190, L = 44, R = 14, T = 18, B = 36;
+      const x = (i) => L + (rows.length === 1 ? 0.5 : i / (rows.length - 1)) * (W - L - R);
+      const y = (v) => T + (1 - (v - lo) / (hi - lo)) * (Hh - T - B);
+      const fmtC = (v) => (v > 0 ? "+" : "") + v.toFixed(0);
+      const ticks = [hi, (hi + lo) / 2, lo].map((v) =>
+        `<line x1="${L}" x2="${W - R}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}" stroke="var(--line)" stroke-dasharray="3 3"/>
+         <text x="${L - 5}" y="${(y(v) + 3).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--dim)">${fmtC(v)}</text>`).join("");
+      const zeroLine = lo < 0 && hi > 0
+        ? `<line x1="${L}" x2="${W - R}" y1="${y(0).toFixed(1)}" y2="${y(0).toFixed(1)}" stroke="var(--dim)" stroke-width="0.9"/>
+           <text x="${W - R}" y="${(y(0) - 4).toFixed(1)}" text-anchor="end" font-size="8" fill="var(--dim)">0 = par with ${C.enemy}</text>` : "";
+      const whiskers = rows.map((r, i) => {
+        const mn = Math.min(...r.chips), mx = Math.max(...r.chips);
+        return `<line x1="${x(i).toFixed(1)}" x2="${x(i).toFixed(1)}" y1="${y(mx).toFixed(1)}" y2="${y(mn).toFixed(1)}" stroke="var(--gold)" stroke-width="1.1" opacity="0.65"/>`;
+      }).join("");
+      const blockDots = rows.map((r, i) => r.chips.map((c) =>
+        `<circle cx="${x(i).toFixed(1)}" cy="${y(c).toFixed(1)}" r="2.4" fill="var(--gold)" opacity="0.9"><title>${r.name} · one 160-match block: ${fmtC(c)}</title></circle>`).join("")).join("");
+      const meanPath = `<polyline points="${rows.map((r, i) => `${x(i).toFixed(1)},${y(r.mean).toFixed(1)}`).join(" ")}" fill="none" stroke="var(--acc)" stroke-width="2"/>`;
+      const meanDots = rows.map((r, i) =>
+        `<circle cx="${x(i).toFixed(1)}" cy="${y(r.mean).toFixed(1)}" r="4" fill="var(--acc)" stroke="var(--card)" stroke-width="1.5"><title>${r.name} (era ${r.era} king) · mean of ${r.chips.length} blocks: ${fmtC(r.mean)}</title></circle>`).join("");
+      const deltas = rows.slice(1).map((r, i) => {
+        const d = r.mean - rows[i].mean;
+        const mx = (x(i) + x(i + 1)) / 2, my = (y(r.mean) + y(rows[i].mean)) / 2;
+        return `<text x="${mx.toFixed(1)}" y="${(my - 8).toFixed(1)}" text-anchor="middle" font-size="9" fill="${d >= 0 ? "var(--ok)" : "var(--warn)"}">${d >= 0 ? "+" : ""}${d.toFixed(1)}</text>`;
+      }).join("");
+      const xLabels = rows.map((r, i) =>
+        `<text x="${x(i).toFixed(1)}" y="${Hh - 18}" text-anchor="middle" font-size="9" fill="var(--ink)">${r.name}</text>
+         <text x="${x(i).toFixed(1)}" y="${Hh - 6}" text-anchor="middle" font-size="8" fill="var(--dim)">era ${r.era} king</text>`).join("");
+      ladder = `<svg class="trend" style="height:190px" viewBox="0 0 ${W} ${Hh}">
+        ${ticks}${zeroLine}${whiskers}${meanPath}${blockDots}${meanDots}${deltas}${xLabels}</svg>
+        <div class="trendkey"><span style="color:var(--acc)">● mean of ${C.blocks.length} blocks</span><span style="color:var(--gold)">┃ individual blocks (spread = the real error bar)</span><span>${C.matchesPerBlock} matches per block, all seats · measured ${C.generated} · always shows every era</span></div>`;
+    }
+
+    const el = document.getElementById("absoluteProgress");
+    if (el) el.innerHTML = `<div class="trendgrid">
+      <div class="card"><span class="scope">EVERY CYCLE · ALL ERAS · FIXED ENEMY</span>
+        <h2>Net chips/match vs baseline-v0${GOALS.up}</h2>
+        ${trendSvg ?? '<div class="mut">no vsV0 data recorded</div>'}
+        <div class="mut" style="font-size:11px">The one chart that can show cumulative progress: <b>the opponent never changes</b>.
+        Every other chips plot is scored against that era's enemy, which is replaced by a stronger bot each era, so it resets to ~0 and
+        looks flat forever no matter how much the bot improves. Grey = per-cycle (mostly block noise); green = ${W}-cycle rolling mean.
+        <b>Era 1 is not comparable</b> — those cycles ran before the seat-luck bench fix and are inflated.</div></div>
+      <div class="card"><span class="scope">ERA CHAMPIONS · SAME ENEMY · SAME WALLS</span>
+        <h2>Champion ladder vs baseline-v0${GOALS.up}</h2>
+        ${ladder}
+        <div class="mut" style="font-size:11px">The definitive milestone comparison: each era's frozen king replayed against the same
+        fixed opponent on the same three blocks, so nothing but the bot differs. Gold dots are the individual blocks — their spread is
+        the honest error bar, and it is <b>large</b> (baseline-v1 scored 23.9 and 72.0 on different blocks), which is exactly why the
+        rolling mean, not any single cycle, is the thing to read.</div></div>
+    </div>`;
+  }
+
+  const holder = document.getElementById("cycleTexture");
+  if (holder) holder.innerHTML = charts.map(([title, note, lines, opts, goal]) => {
+    const svg = cplot(lines, opts);
+    return `<div class="card"><span class="scope">ONE POINT PER CYCLE</span><h2>${title}${goal ? (GOALS[goal] ?? goal) : ""}</h2>
+      ${svg ?? '<div class="mut">No cycles recorded yet for this metric — it fills in as exams with extended stats complete.</div>'}
+      <div class="mut" style="font-size:11px">${note} Era boundaries reset comparability: the bench enemy changes each era.</div></div>`;
+  }).join("");
+}
+// ── HISTORY: one unified, dated record — cycles, experiments, references ──
+{
+  const fmtC = (v) => (v === null || v === undefined || Number.isNaN(v)) ? "—" : (v > 0 ? "+" : "") + v;
+  const entries = [];
+  for (const e of (window.EXPERIMENTS || [])) {
+    entries.push({ key: `${e.date}|zz`, when: e.date, kind: "experiment", name: e.name, detail: e.setup,
+      result: e.result, verdict: e.verdict, good: false });
+  }
+  for (const r of (window.SERIES_LOG || [])) {
+    const era = r.era ?? 1;
+    if (!eraOk(era)) continue;                            // global era filter
+    const day = r.ts ? r.ts.slice(0, 10) : (era === 1 ? "2026-08-27" : "2026-08-28");
+    const enemy = r.enemy ?? (era === 1 ? "baseline-v0" : "baseline-v1");
+    const st = r.stats;
+    const admissionDelta = Number.isFinite(r.reigningOnSameBlock)
+      ? +(r.heldOutChips - r.reigningOnSameBlock).toFixed(1) : null;
+    entries.push({ key: `${day}|e${era}c${String(r.cycle).padStart(4, "0")}`, when: day, kind: `era-${era} · cycle ${r.cycle}${r.rulesetId === "tvb-2026" ? " · TVB" : ""}`,
+      name: `exam vs ${enemy}`,
+      detail: r.error ? "" : `trained vs ${r.opponent} · ${r.matches} matches/eval · ${r.mins}m`,
+      result: r.error ? r.error
+        : `<b>${fmtC(r.heldOutChips)}</b> <span class="mut" style="font-size:10px">±16/block</span> chips/match vs ${enemy}` +
+          `${admissionDelta !== null ? ` · reigning ${fmtC(r.reigningOnSameBlock)} on same block · admission Δ <b>${fmtC(admissionDelta)}</b> (needs &gt;+4)` : ""}` +
+          `${r.vsV0 !== undefined && r.vsV0 !== null ? ` · ${fmtC(r.vsV0)} vs v0` : ""}` +
+          `${st ? `<div class="mut" style="font-size:10.5px">draws ${Math.round(st.drawRate * 100)}% · x̄ ${st.meanFaan} faan · threat ${Math.round((st.threatDetection ?? 0) * 100)}%${st.faanShares ? " · faan " + st.faanShares.map((x, i) => `${i + 3 === 10 ? "10+" : i + 3}:${Math.round(x * 100)}%`).join(" ") : ""}</div>` : ""}`,
+      verdict: r.error ? "cycle FAILED" : (r.improved ? "ADMITTED — beat reigning player on same block" : "not admitted on same-block gate"),
+      good: !!r.improved });
+  }
+  for (const b of (window.BASELINES?.rows || [])) {
+    entries.push({ key: `${b.date ?? "2026-07-18"}|aa`, when: b.date ?? "—", kind: "reference", name: b.name, detail: b.source,
+      result: `draws ${b.drawRate !== null ? Math.round(b.drawRate * 100) + "%" : "—"} · claims/h ${b.claimsPerHand ?? "—"} · x̄ ${b.meanFaan ?? "—"} faan`,
+      verdict: "era texture snapshot", good: false });
+  }
+  entries.sort((a, b) => b.key.localeCompare(a.key));
+  const row = (e) => `<tr>
+    <td class="mut" style="white-space:nowrap;vertical-align:top">${e.when}</td>
+    <td style="vertical-align:top;white-space:nowrap"><span class="pill${e.kind === "experiment" ? " live" : ""}">${e.kind}</span></td>
+    <td style="text-align:left;vertical-align:top"><b>${e.name}</b>${e.detail ? `<div class="mut" style="font-size:10.5px">${e.detail}</div>` : ""}</td>
+    <td style="text-align:left;vertical-align:top">${e.result}</td>
+    <td style="text-align:left;vertical-align:top" class="${e.good ? "up" : "mut"}">${e.verdict}</td></tr>`;
+  const CUT = 30;
+  if (entries.length) {
+    document.getElementById("historylabel").style.display = "";
+    document.getElementById("history").innerHTML = (
+      `<div class="card"><details><summary><span class="scope">RESEARCH ARCHIVE · ALL RECORDED ERAS</span><b>Every cycle, experiment and reference</b></summary>
+      <div class="mut" style="font-size:11px;margin-bottom:6px"><b>Cycles</b> are the machine's own held-out exams (all seats,
+      enemy named per row — a score only means something next to its enemy; single-exam scores carry ±16 of block luck,
+      so only the same-walls admission verdict and multi-block means are load-bearing). <b>Experiments</b> are the curated studies from
+      tools/sim/experiments.js. <b>References</b> are frozen texture snapshots of how each era's table felt.</div>
+      <div class="table-scroll"><table><tr><th>when</th><th>type</th><th style="text-align:left">what</th><th style="text-align:left">result</th><th style="text-align:left">verdict</th></tr>
+      ${entries.slice(0, CUT).map(row).join("")}</table></div>
+      ${entries.length > CUT ? `<details><summary class="mut" style="cursor:pointer;padding:6px 0">show ${entries.length - CUT} older entries</summary>
+      <div class="table-scroll"><table>${entries.slice(CUT).map(row).join("")}</table></div></details>` : ""}</details></div>`);
+  }
+}
+// ── DIAL TRAJECTORIES (owner request 2026-08-29) ──
+{
+  const D2 = window.DIALS_HISTORY;
+  window.__renderDials = (hostId, keep, labelIds) => {
+  const host = document.getElementById(hostId);
+  if (D2 && host && D2.points.filter(keep).length > 1) {
+    for (const id of labelIds) { const el = document.getElementById(id); if (el) el.style.display = ""; }
+    const pts = D2.points.filter(keep), keys = D2.keys;
+    // era boundaries (index where the era number changes)
+    const bounds = [];
+    for (let i = 1; i < pts.length; i++) if (pts[i].era !== pts[i - 1].era) bounds.push({ i, era: pts[i].era });
+    const W = 210, H = 74, L = 3, R = 3, T = 9, B = 11;
+    const chart = (ki) => {
+      const vals = pts.map((p) => p.v[ki]);
+      let lo = Math.min(...vals), hi = Math.max(...vals);
+      if (hi === lo) { hi = lo + 1e-6; }
+      const x = (i) => L + i / (pts.length - 1) * (W - L - R);
+      const y = (v) => T + (1 - (v - lo) / (hi - lo)) * (H - T - B);
+      const line = vals.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+      const eraMarks = bounds.map((b) =>
+        `<line x1="${x(b.i).toFixed(1)}" x2="${x(b.i).toFixed(1)}" y1="${T}" y2="${H - B}" stroke="var(--dim)" stroke-width=".7" stroke-dasharray="2 2"/>
+         <text x="${(x(b.i) + 2).toFixed(1)}" y="${T + 7}" font-size="7" fill="var(--dim)">e${b.era}</text>`).join("");
+      const dots = pts.map((p, i) => p.admitted
+        ? `<circle cx="${x(i).toFixed(1)}" cy="${y(p.v[ki]).toFixed(1)}" r="2" fill="var(--ok)"/>` : "").join("");
+      const first = vals[0], last = vals[vals.length - 1];
+      const pct = first ? Math.round((last / first - 1) * 100) : 0;
+      const cls = Math.abs(pct) < 10 ? "mut" : pct > 0 ? "up" : "down";
+      return `<div class="card" style="padding:8px">
+        <div style="font-size:11px;font-weight:600;margin-bottom:1px">${keys[ki]}</div>
+        <div class="mut" style="font-size:10px;margin-bottom:2px">${first} → <b>${last}</b>
+          <span class="${cls}">${pct > 0 ? "+" : ""}${pct}%</span></div>
+        <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:${H}px;display:block">
+          ${eraMarks}
+          <polyline points="${line}" fill="none" stroke="var(--acc)" stroke-width="1.4"/>
+          ${dots}
+          <text x="${L}" y="${H - 2}" font-size="7" fill="var(--dim)">${lo.toFixed(2)}</text>
+          <text x="${W - R}" y="${H - 2}" text-anchor="end" font-size="7" fill="var(--dim)">${hi.toFixed(2)}</text>
+        </svg></div>`;
+    };
+    // biggest movers first — the story reads top-left to bottom-right
+    const order = keys.map((k, i) => {
+      const vals = pts.map((p) => p.v[i]);
+      const f = vals[0], l = vals[vals.length - 1];
+      return { i, move: f ? Math.abs(l / f - 1) : 0 };
+    }).sort((a, b) => b.move - a.move).map((o) => o.i);
+    host.innerHTML = `<div class="card" style="margin-bottom:8px"><h2>What this shows</h2>
+      <div class="mut" style="font-size:11.5px">${pts.length} cycle endpoints across eras ${[...new Set(pts.map((p) => p.era))].join(", ")}
+      (per-cycle archiving began in era 3; eras 1–2 predate it, and their endpoints are the frozen baselines v1/v2 in the reference row below).
+      Charts are ordered by how far the dial travelled — biggest movers first. Green dots mark admitted cycles: where a line JUMPS at a green
+      dot, that weight change is one the same-block exam actually endorsed.</div></div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px">${order.map(chart).join("")}</div>
+      ${D2.refs?.length ? `<div class="card" style="margin-top:8px"><h2>Frozen reference bots — the ladder, dial by dial</h2>
+        <div style="overflow-x:auto"><table><tr><th style="text-align:left">dial</th>${D2.refs.map((r) => `<th>${r.name}</th>`).join("")}</tr>
+        ${keys.map((k, i) => `<tr><td style="text-align:left">${k}</td>${D2.refs.map((r) => `<td class="mut">${r.v[i] ?? "—"}</td>`).join("")}</tr>`).join("")}
+        </table></div></div>` : ""}`;
+  }
+  };
+  window.__renderDials("dialtrails", (p) => p.ruleset !== "tvb-2026", ["dialslabel", "dialsnote"]);
+  window.__renderDials("tvbdialtrails", (p) => p.ruleset === "tvb-2026", ["tvbdialslabel", "tvbdialsnote"]);
+}
+// ── LEGEND: units + vocabulary, collapsed so it never costs a scroll ──
+{
+  const BASE = BENCH_DESC;
+  document.getElementById("legend").innerHTML = (`<div class="card"><details>
+    <summary style="cursor:pointer"><b>Legend — how to read this page</b> <span class="mut">(chips ladder, units, vocabulary — click to expand)</span></summary>
+    <div class="mut" style="font-size:12px;line-height:1.55;margin-top:8px">
+    <b>Chips are money.</b> The HK payment ladder (mjrc-standard, 3–10 faan): a win on a discard costs the discarder
+    3f=16 · 4f=32 · 5f=48 · 6f=64 · 7f=96 · 8f=128 · 9f=192 · 10f(cap)=256 chips; a self-draw collects HALF that figure
+    from <i>each</i> of the three losers (so 1.5× total).<br>
+    <b>Every "chips/match" number is an average per one-wind-round match.</b> The sample size is stated beside each primary score: cycle-end admission exams use 160 matches, while selection and fixed-bench diagnostics use their own recorded counts. A single hot match can be +400, so sample source matters.<br>
+    <b>Placement points</b> (+3/+1/−1/−3 by table finish) are used only inside evolution's promotion decisions; chips are the scoreboard.<br>
+    <b>Benchmark opponent:</b> ${BASE}.</div>
+    <div style="border-top:1px dashed var(--line);margin-top:8px;padding-top:6px">
+    <div class="mut" style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px"><b>Yardstick — how big is a chips/match number?</b></div>
+    <div class="mut" style="font-size:12px;line-height:1.55">
+    <b>Physical size:</b> a 3-faan discard win moves 16 chips and a match is ~7 hands, so +9/match ≈ winning an extra
+    half floor-hand per wind round. Reference magnitudes: <b>±5 = a nudge · ±15 = one ladder rung</b> (v1→v2 took 17
+    cycles for +12) <b>· ±40 = a whole era of progress</b> (era-1 champion vs the default).<br>
+    <b>Statistical weight:</b> a SINGLE held-out exam carries <b>±16 of block luck</b> (v2 measured on 14 independent
+    blocks scored −16.6 to +33.7 — same bot, same enemy). One exam number alone is weather, not climate. Numbers you can
+    trust: same-walls comparisons (admission, control-vs-best — luck cancels), and multi-block means. That is why a cycle
+    can score +27 one block and −26 the next without either being news.</div></div>
+    <div style="border-top:1px dashed var(--line);margin-top:8px;padding-top:6px" class="mut">
+    <table style="font-size:12px">
+      <tr><td style="white-space:nowrap"><b>hand</b> 一局</td><td style="text-align:left">one deal: walls built, draw/discard until someone wins or the wall runs out (流局). Payments settle per hand.</td></tr>
+      <tr><td><b>game / match</b> 一圈</td><td style="text-align:left">one wind round — four dealerships plus dealer repeats, typically 5–11 hands. Every "chips/match" number is per game.</td></tr>
+      <tr><td><b>bot / weights</b></td><td style="text-align:left">a bot is fixed decision code plus 19 numeric dials. Training never changes the code, only the dials.</td></tr>
+      <tr><td><b>generation</b></td><td style="text-align:left">one evolution step: the incumbent dial-set and 6 mutated copies play the same walls; a mutant must beat the incumbent twice (second time on fresh walls) to replace it.</td></tr>
+      <tr><td><b>cycle</b></td><td style="text-align:left">one harness iteration ≈ 16 generations (~15–35 min), ending in a 160-game held-out exam vs the frozen benchmark. Only exam winners enter the hall of fame.</td></tr>
+      <tr><td><b>era</b></td><td style="text-align:left">one benchmark regime. Era 1: vs baseline-v0 (defenseless; ended ~+35–40 bias-free). Era 2: vs baseline-v1 — era 1's champion, frozen — under mjrc-standard (3–10 faan).</td></tr>
+      <tr><td><b>enemy</b></td><td style="text-align:left">the frozen opponent a score is earned against — the single most important label on any number. +40 vs the defenseless v0 and +40 vs the defending v1 are utterly different achievements.</td></tr>
+      <tr><td><b>held-out</b></td><td style="text-align:left">scored on walls the training never saw — the exam is never taken on the homework.</td></tr>
+      <tr><td><b>all-seats</b></td><td style="text-align:left">every benchmark wall is played from all four chairs, so seat luck cancels exactly and a bot benched against itself scores 0.</td></tr>
+      <tr><td><b>threat detection</b></td><td style="text-align:left">share of wins where an opponent's table read had flagged the winner (threat &gt; 0.3) before the win.</td></tr>
+    </table></div></details></div>`);
+}
+// ── TVB series — same modules, same look as the HK overall tab ──
+{
+  const rows = (window.SERIES_LOG || []).filter((r) => r.rulesetId === "tvb-2026" && !r.error);
+  const el = document.getElementById("tvbseries");
+  if (el && rows.length) {
+    const W = 320, H = 96, L = 36, R = 6, T = 10, B = 18;
+    const plot = (lines, { fmt = (v) => v, zero = false } = {}) => {
+      const all = lines.flatMap((l) => l.pts.filter((v) => v !== null && v !== undefined));
+      if (all.length < 2) return null;
+      let lo = zero ? Math.min(0, ...all) : Math.min(...all), hi = Math.max(...all);
+      if (hi === lo) hi = lo + 1;
+      const n = Math.max(...lines.map((l) => l.pts.length));
+      const x = (i) => L + i / Math.max(1, n - 1) * (W - L - R);
+      const y = (v) => T + (1 - (v - lo) / (hi - lo)) * (H - T - B);
+      const tick = (v) => `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)" stroke-width=".6" stroke-dasharray="3 3"/>
+        <text x="${L - 4}" y="${y(v) + 3}" text-anchor="end" font-size="8" fill="var(--dim)">${fmt(v)}</text>`;
+      const zline = lo < 0 && hi > 0 ? `<line x1="${L}" x2="${W - R}" y1="${y(0)}" y2="${y(0)}" stroke="var(--dim)" stroke-width=".9"/>` : "";
+      const paths = lines.map((l) => {
+        const pts = l.pts.map((v, i) => (v === null || v === undefined) ? null : `${x(i).toFixed(1)},${y(v).toFixed(1)}`).filter(Boolean).join(" ");
+        return `<polyline points="${pts}" fill="none" stroke="${l.color}" stroke-width="1.6"/>`;
+      }).join("");
+      const admitted = rows.map((r, i) => r.improved
+        ? `<circle cx="${x(i).toFixed(1)}" cy="${y(lines[0].pts[i] ?? lo).toFixed(1)}" r="3" fill="var(--ok)"><title>cycle ${r.cycle}: ADMITTED</title></circle>` : "").join("");
+      return `<svg class="trend" viewBox="0 0 ${W} ${H}" style="width:100%;height:${H}px;display:block">
+        ${tick(hi)}${tick((hi + lo) / 2)}${tick(lo)}${zline}${paths}${admitted}
+        <text x="${L}" y="${H - 5}" font-size="8" fill="var(--dim)">cycle 1</text>
+        <text x="${W - R}" y="${H - 5}" text-anchor="end" font-size="8" fill="var(--dim)">cycle ${rows.length}</text></svg>
+        ${lines.length > 1 ? `<div class="trendkey">${lines.map((l) => `<span style="color:${l.color}">● ${l.label}</span>`).join("")}</div>` : ""}`;
+    };
+    const st = (k) => rows.map((r) => (r.stats ? r.stats[k] ?? null : null));
+    const pat = (k) => rows.map((r) => (r.stats?.patternShares ? r.stats.patternShares[k] ?? null : null));
+    const pct = (v) => `${Math.round(v * 100)}%`;
+    const charts = [
+      ["Held-out exam — chips/match vs the v4 king", "the admission number. 0 = par with the frozen enemy; green dots are cycles admitted to the hall of fame.",
+        [{ label: "exam", color: "var(--acc)", pts: rows.map((r) => r.heldOutChips) }], { fmt: (v) => (v > 0 ? "+" : "") + v.toFixed(0), zero: true }, "up"],
+      ["Claim mix — share of all claims", "bench endpoints, table-wide. Chow-vs-pung appetite is the tightest per-cycle behavioural signal.",
+        [{ label: "pung", color: "var(--gold)", pts: st("pungShare") }, { label: "chow", color: "var(--acc)", pts: st("chowShare") },
+         { label: "kong", color: "var(--warn)", pts: st("kongShare") }], { fmt: pct, zero: true }, "none"],
+      ["Hand types — share of bench wins", "which winning shapes dominate under a linear economy. A win can carry several patterns.",
+        [{ label: "half flush", color: "var(--acc)", pts: pat("halfFlush") }, { label: "all pungs", color: "var(--gold)", pts: pat("allPungs") },
+         { label: "concealed", color: "var(--warn)", pts: pat("concealedHand") }], { fmt: pct, zero: true }, "none"],
+      ["Mean winning faan", "under TVB every faan is worth the same, so this shows how big the bots bother to build. Real players sit at 2.22.",
+        [{ label: "x̄ faan", color: "var(--acc)", pts: st("meanFaan") }], { fmt: (v) => v.toFixed(1), zero: true }, "none"],
+      ["Draw rate 流局", "hands nobody won. Real TVB players draw ~2% of hands.",
+        [{ label: "draws", color: "var(--warn)", pts: st("drawRate") }], { fmt: pct, zero: true }, "down"],
+      ["Refused wins / hand", "legal winning shapes that could not be taken — under a 1-faan floor these are hands worth literally zero.",
+        [{ label: "refused", color: "var(--warn)", pts: st("refusedPerHand") }], { fmt: (v) => v.toFixed(2), zero: true }, "down"],
+      ["Threat detection", "share of wins where an opponent's table read had flagged the winner beforehand.",
+        [{ label: "detection", color: "var(--ok)", pts: st("threatDetection") }], { fmt: pct, zero: true }, "up"],
+    ];
+    const adm = rows.filter((r) => r.improved).length;
+    const ch = rows.map((r) => r.heldOutChips);
+    el.innerHTML = `<div class="card" style="margin-bottom:10px"><span class="scope">TVB SERIES · CONCLUDED</span>
+      <h2>Operation and coverage</h2>
+      <div class="mut" style="font-size:12px"><b>${rows.length}</b> cycles · <b>${adm}</b> admissions · enemy <b>${rows[0].enemy}</b> ·
+      fitness ${rows[0].fitness} · exam mean <b>${(ch.reduce((a, b) => a + b, 0) / ch.length).toFixed(1)}</b>
+      (range ${Math.min(...ch).toFixed(1)} … ${Math.max(...ch).toFixed(1)}). Same admission rules as every era: same-block, margin 6, held-out.
+      Concluded by the owner — search added ~nothing on top of the engine fixes.</div></div>
+      <div class="trendgrid">${charts.map(([title, note, lines, opts, goal]) => {
+        const svg = plot(lines, opts);
+        return `<div class="card"><span class="scope">ONE POINT PER CYCLE</span><h2>${title}${goal ? (GOALS[goal] ?? "") : ""}</h2>
+          ${svg ?? '<div class="mut">not recorded for these cycles</div>'}
+          <div class="mut" style="font-size:11px">${note}</div></div>`;
+      }).join("")}</div>
+      <div class="card"><details><summary style="cursor:pointer"><b>All ${rows.length} TVB cycles</b>
+        <span class="mut">(collapsed — click to expand the full exam table)</span></summary>
+        <div style="overflow-x:auto;max-height:420px;overflow-y:auto;margin-top:8px"><table>
+        <tr><th>cycle</th><th>trained vs</th><th>sigma</th><th>exam chips</th><th>x̄ faan</th><th>draws</th><th>admitted</th><th>mins</th></tr>
+        ${[...rows].reverse().map((r) => `<tr><td>${r.cycle}</td><td class="mut">${r.opponent}</td><td class="mut">${r.sigma ?? "—"}</td>
+          <td>${r.heldOutChips > 0 ? "+" : ""}${r.heldOutChips}</td><td class="mut">${r.stats?.meanFaan ?? "—"}</td>
+          <td class="mut">${r.stats ? Math.round(r.stats.drawRate * 100) + "%" : "—"}</td>
+          <td>${r.improved ? '<span class="up">NEW BEST</span>' : '<span class="mut">—</span>'}</td>
+          <td class="mut">${r.mins}m</td></tr>`).join("")}</table></div></details></div>`;
+  } else if (el) {
+    el.innerHTML = `<div class="card"><h2>TVB series</h2><span class="mut" style="font-size:12px">no completed TVB cycles recorded</span></div>`;
+  }
+}
+// ── TVB lab (owner request 2026-08-29): cross-ruleset adaptation ──
+{
+  const T = window.TVB_LAB;
+  if (T) {
+
+    const cmpRow = (k, label2) => `<tr><td style="text-align:left">${label2}</td><td>${T.census.standard[k]}</td><td>${T.census.tvbUnadapted[k]}</td><td><b>${T.census.tvbAdapted?.[k] ?? "—"}</b></td><td><b>${T.census.candidate?.[k] ?? "—"}</b></td><td class="up"><b>${T.census.humans?.[k] ?? "—"}</b></td></tr>`;
+    const dials = T.dialMoves?.length
+      ? `<div class="card"><h2>What adaptation changed (v4 king → TVB-adapted, moves &gt; 15%)</h2>
+        <table><tr><th style="text-align:left">dial</th><th>king</th><th>TVB-adapted</th><th>Δ</th></tr>
+        ${T.dialMoves.map((m) => `<tr><td style="text-align:left">${m.k}</td><td class="mut">${m.from}</td><td><b>${m.to}</b></td>
+          <td class="${m.pct > 0 ? "up" : "down"}">${m.pct > 0 ? "+" : ""}${m.pct}%</td></tr>`).join("")}</table></div>` : "";
+    document.getElementById("tvblab").innerHTML = `
+      ${T.measuredWith ? `<div class="card"><h2>Measurement provenance</h2>
+        <div class="mut" style="font-size:12px">Every number on this tab comes from ONE engine build and, for exams, one seed block:
+        <b>${T.measuredWith}</b>. Earlier revisions of this tab mixed three builds — that is why the modules disagreed with each other
+        and with the live series. Cross-tab comparison warning stands: TVB figures are not comparable to the era 1–4 tabs.</div></div>` : ""}
+      <div class="card"><h2>Ruleset: ${T.ruleset.label}</h2>
+        <div class="mut" style="font-size:12px">${T.ruleset.summary}</div></div>
+      <div class="card"><h2>Adaptation exam — TVB rules, same walls</h2>
+        <div class="big ${T.exam.margin > 0 ? "up" : "down"}">${T.exam.margin > 0 ? "+" : ""}${T.exam.margin} chips/match</div>
+        <div class="mut" style="font-size:12px">TVB-adapted bot vs 3× the unadapted v4 king, ${T.exam.games} games under TVB rules.
+        ${T.exam.note}</div></div>
+      ${T.human ? `<div class="card"><h2>Real players vs the AI — the verdict</h2>
+        <div class="big down">AI adaptation: right direction, one-third of the distance</div>
+        <div class="mut" style="font-size:12px">${T.human.wins} recorded human wins across ${T.human.sessions} real TVB sessions
+        (from the almanac's TVB Training room). Humans fully internalized the linear economy: <b>mean ${T.human.meanFaan} faan</b>
+        (50% of wins are 1-faan hands!) and <b>${Math.round(T.human.drawRate * 100)}% draws</b> — they race to ANY completion.
+        The TVB-adapted bot still builds ~5-faan hands and draws ~47%: it moved the defensive and claiming dials but its route
+        machinery still overvalues hand size. The remaining gap is the next target — and the first direct human-vs-AI texture
+        measurement of the project. *Draw rate may be under-logged by scorekeepers.</div></div>` : ""}
+      <div class="card"><h2>Texture: same bot, different economies — and the humans</h2>
+        <table><tr><th style="text-align:left"></th><th>king · mjrc rules</th><th>king · TVB rules</th><th>TVB-evolved</th><th>fix candidate</th><th>real players</th></tr>
+        ${cmpRow("meanFaan", "mean winning faan")}${cmpRow("refused", "refused wins /hand")}${cmpRow("draws", "draws 流局")}
+        ${cmpRow("claims", "claims /hand")}${cmpRow("selfDrawShare", "self-draw share")}</table></div>
+      ${dials}`;
+  }
+}
+// ── module codes (owner request 2026-08-29): 1A, 2B… so cards are addressable ──
+{
+  let sec = 0, letter = 0;
+  for (const el of document.querySelectorAll(".sectionlabel, .card h2, .card > details > summary")) {
+    if (el.classList.contains("sectionlabel")) {
+      if (el.style.display === "none") continue;
+      sec++; letter = 0;
+      el.insertAdjacentHTML("afterbegin", `<span class="mcode">${sec}</span> `);
+    } else {
+      if (sec === 0) sec = 1;
+      const code = `${sec}${String.fromCharCode(65 + letter++)}`;
+      el.insertAdjacentHTML("afterbegin", `<span class="mcode">${code}</span> `);
+    }
+  }
+}
+};
+</script>
+</body>
+</html>

@@ -1,0 +1,574 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>MJRC Solo — 香港麻雀</title>
+<style>
+:root{
+  --felt:#12503f; --felt-dk:#0d3d30; --wood:#3a2a1e; --ink:#f2ece0; --dim:#a9b8ae;
+  --tile:#f6f1e4; --tile-edge:#cdc3ab; --tile-ink:#22201c; --red:#b23b32; --green:#1f6b46;
+  --gold:#d8b56a; --accent:#7fb3ff; --danger:#e08a6a;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;margin:0}
+body{background:radial-gradient(ellipse at 50% 30%, #1e1b17 0%, #131110 55%, #0a0908 100%);
+  color:var(--ink);font:15px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;overflow:hidden;
+  display:flex;flex-direction:column}
+
+/* ── top bar ── */
+#hud{display:flex;align-items:center;gap:14px;padding:6px 12px;font-size:12px;color:var(--dim);
+  background:rgba(0,0,0,.22);backdrop-filter:blur(4px);flex:0 0 auto}
+#hud b{color:var(--ink)}
+#hud .spacer{flex:1}
+#hud button{background:rgba(255,255,255,.08);color:var(--ink);border:1px solid rgba(255,255,255,.16);
+  border-radius:7px;padding:4px 10px;font-size:12px;cursor:pointer}
+#hud button:hover{background:rgba(255,255,255,.16)}
+#hud #btnFeedback{border-color:rgba(216,181,106,.4);color:var(--gold)}
+.panel textarea{width:100%;min-height:110px;padding:10px 12px;font:14px/1.45 inherit;
+  border-radius:9px;background:rgba(255,255,255,.07);color:var(--ink);
+  border:1px solid rgba(255,255,255,.18);resize:vertical}
+
+/* ── table ── */
+#table{flex:1;position:relative;min-height:0;display:flex;align-items:center;justify-content:center}
+/* THE TABLE — a felt surface with a wooden rim, not the whole window. */
+#felt{position:relative;width:min(94%,1040px);height:min(96%,660px);border-radius:22px;
+  background:radial-gradient(ellipse at 50% 42%, var(--felt) 0%, var(--felt-dk) 72%, #0b3427 100%);
+  border:10px solid #2e2016;
+  box-shadow:inset 0 0 60px rgba(0,0,0,.45), 0 18px 50px rgba(0,0,0,.55),
+    0 0 0 2px #1b120c, inset 0 2px 0 rgba(255,255,255,.06)}
+/* MATCH STATE LIVES ON THE TABLE. Round, hand and wall used to sit in a 12px
+   strip in the corner of the WINDOW, outside the felt — easy to miss on a
+   desktop and with nowhere to hide on a phone (owner 2026-08-30). They go in
+   the felt's top-left, and your own seat plate goes at the near edge opposite
+   them, so everything you need is inside the one box you are looking at.
+
+   It must FIT THE CORNER. The wall square leaves roughly an 18%-of-felt margin
+   each side, and #surface is `preserve-3d`, so its tiles paint by 3D depth and
+   sail straight over a z-index — a card that overlaps the wall loses, however
+   high you stack it. Hence one narrow two-line card, not a row of chips. */
+#state{position:absolute;left:10px;top:8px;z-index:4;max-width:17%;
+  background:rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.1);border-radius:10px;
+  padding:5px 10px;line-height:1.25;white-space:nowrap}
+#state .r1{display:flex;align-items:baseline;gap:7px}
+#state .wind{font-size:19px;font-weight:700;color:var(--gold);line-height:1}
+#state .r1 span:last-child,#state .r2{font-size:11px;color:var(--dim);letter-spacing:.03em}
+#state b{color:var(--ink);font-variant-numeric:tabular-nums;font-size:13px;font-weight:700}
+#state.low .r2 b{color:var(--gold)}
+
+.seat{position:absolute;display:flex;flex-direction:column;align-items:center;gap:3px}
+.seat.n{top:6px;left:50%;transform:translateX(-50%)}
+.seat.e{right:8px;top:50%;transform:translateY(-50%);align-items:flex-end}
+.seat.w{left:8px;top:50%;transform:translateY(-50%);align-items:flex-start}
+/* your seat: the near edge, mirroring north, directly above your own hand */
+.seat.s{bottom:5px;left:50%;transform:translateX(-50%)}
+.seat.s .nameplate{font-size:13.5px;padding:5px 13px;background:rgba(0,0,0,.44)}
+.seat.s .avatar{width:24px;height:24px;font-size:12px}
+.nameplate{display:flex;align-items:center;gap:6px;background:rgba(0,0,0,.32);border-radius:20px;
+  padding:3px 10px;font-size:12px;white-space:nowrap}
+.nameplate .wind{font-size:14px;color:var(--gold)}
+.nameplate .chips{font-variant-numeric:tabular-nums;font-weight:600}
+.nameplate .chips.up{color:#7fe0a4}.nameplate .chips.down{color:#ff9b93}
+.nameplate.turn{outline:2px solid var(--gold);box-shadow:0 0 14px rgba(216,181,106,.45)}
+.nameplate .dealer{background:var(--red);color:#fff;border-radius:4px;padding:0 4px;font-size:10px}
+.avatar{width:22px;height:22px;border-radius:50%;background:linear-gradient(160deg,#5b7a6a,#2c4438);
+  display:flex;align-items:center;justify-content:center;font-size:12px}
+.backrow{display:flex;gap:1px}
+.back{width:12px;height:17px;border-radius:2px;background:linear-gradient(180deg,#2f7a5f,#1d5c46);
+  border:1px solid #14493a}
+.seat.e .backrow,.seat.w .backrow{flex-direction:column}
+.seat.e .back,.seat.w .back{width:17px;height:12px}
+.meldrow .tile{--th:50px}
+.meldrow{display:flex;gap:4px;flex-wrap:wrap;justify-content:center;max-width:230px}
+
+/* ── centre: the pile ── */
+#centre{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  width:min(64vw,600px);height:min(52vh,360px)}
+
+/* ── the wall ──────────────────────────────────────────────────────────
+ * Four walls in a square, but PINWHEELED: each wall runs past its neighbour's
+ * end rather than meeting it, which is what a real set looks like (owner photo
+ * 2026-08-29). The whole surface sits in perspective, so the square reads as
+ * the diamond you see across a table. Tiles are stacked two high.            */
+#surface{position:absolute;inset:0;transform:perspective(1500px) rotateX(17deg);
+  transform-style:preserve-3d}
+#wall{position:absolute;inset:0;pointer-events:none}
+#wall .side{position:absolute;display:flex;gap:2px}
+#wall .side.top{top:1%;left:50%;transform:translateX(-46%);justify-content:center}
+#wall .side.bottom{bottom:1%;left:50%;transform:translateX(-54%);justify-content:center}
+#wall .side.left{left:1%;top:50%;transform:translateY(-54%);flex-direction:column;justify-content:center}
+#wall .side.right{right:1%;top:50%;transform:translateY(-46%);flex-direction:column;justify-content:center}
+/* The wall SCALES to the table (--ws, set in renderWall).
+   It drew 17 stacks a side at a fixed 17px, needing ~289px of width — but the
+   table centre is about 227px on a phone, so the bottom row ran off the edge
+   and the side columns cut straight through the seat nameplates. Portrait was
+   unusable. Sizes below are the desktop dimensions times --ws. */
+.wt{width:calc(17px * var(--ws,1));height:calc(23px * var(--ws,1));
+  border-radius:3px;flex:0 0 auto;
+  background:linear-gradient(180deg,#eef3f7 0 42%,#7fb6d8 42% 72%,#5a97bd 72% 100%);
+  border:1px solid #4b7f9f;
+  box-shadow:0 1px 0 rgba(255,255,255,.5) inset, 0 2px 3px rgba(0,0,0,.45)}
+#wall .side.left .wt,#wall .side.right .wt{
+  width:calc(23px * var(--ws,1));height:calc(15px * var(--ws,1));
+  background:linear-gradient(90deg,#eef3f7 0 42%,#7fb6d8 42% 72%,#5a97bd 72% 100%)}
+#wall .wt.gone{visibility:hidden}
+#wall .wt.dead{filter:saturate(.45) brightness(.9)}
+#wall .wt.dead{filter:brightness(.72) saturate(.6)}
+#wall.building .wt{animation:assemble .82s cubic-bezier(.2,.8,.3,1.1) backwards}
+@keyframes assemble{
+  from{transform:translate(var(--ax,0px),var(--ay,-70px)) rotate(var(--ar,-25deg)) scale(.7);opacity:0}
+  60%{opacity:1}
+}
+#pile{position:relative;width:100%;height:100%}
+/* The pile tile SCALES WITH THE BOX, set from JS as --pileth.
+   A fixed size cannot work: the heap's footprint is driven by the tile, and an
+   84-discard 流局 hand — about a third of hands, since that is the draw rate —
+   needs room. Measured against the real box, a fixed 36px already spilled out
+   of a laptop-sized 480x300 centre in 2 of 4 runs, and 42px spilled in 4 of 4.
+   That was a pre-existing bug; making tiles bigger only made it louder. */
+#pile .tile{position:absolute;--th:var(--pileth,38px)}
+#pile .tile.fresh{animation:toss var(--tossms,1300ms) linear backwards,
+                            tossFade 170ms ease-out backwards;
+                  animation-delay:var(--tossdelay,0ms), var(--tossdelay,0ms)}
+@keyframes tossFade{from{opacity:0}to{opacity:1}}
+@keyframes toss{
+  /* FLIGHT — leaves the thrower fast, slowing as it drops onto the felt */
+  0%{transform:translate(calc(-50% + var(--fx,0px)),calc(-50% + var(--fy,140px)))
+       rotate(var(--fr,0deg)) scale(1.25);
+     animation-timing-function:cubic-bezier(.11,.6,.32,1)}
+  /* CONTACT — down, short of the slot, still crooked from the throw */
+  52%{transform:translate(calc(-50% + var(--lx,0px)),calc(-50% + var(--ly,42px)))
+        rotate(var(--lr,0deg)) scale(1);
+      animation-timing-function:linear}
+  /* the beat where it is simply lying there */
+  64%{transform:translate(calc(-50% + var(--lx,0px)),calc(-50% + var(--ly,42px)))
+        rotate(var(--lr,0deg)) scale(1);
+      animation-timing-function:cubic-bezier(.72,0,1,1)}
+  /* SKID — gathers speed across the felt and stops dead */
+  100%{transform:translate(-50%,-50%) rotate(var(--rot,0deg)) scale(1)}
+}
+#pile .tile.hot{outline:2px solid var(--gold);box-shadow:0 0 12px rgba(216,181,106,.6);z-index:9}
+
+/* ── tiles ── */
+/* Tiles are the site's own SVG art. One scale knob: --tscale (settings). */
+:root{--th:44px}
+.tile{display:inline-block;height:calc(var(--th) * var(--tscale,1));
+  width:calc(var(--th) * var(--tscale,1) * 0.714);
+  border-radius:5px;box-shadow:0 1px 0 #b8ad93,0 2px 5px rgba(0,0,0,.35);
+  background:#FAFAF8;user-select:none;overflow:hidden;line-height:0;flex:0 0 auto}
+.tile svg{width:100%;height:100%;display:block}
+.tile.sm{--th:40px}
+
+/* ── your area ── */
+#mine{flex:0 0 auto;padding:4px 10px 10px;background:linear-gradient(180deg,rgba(0,0,0,0),rgba(0,0,0,.3) 40%)}
+#mymelds{display:flex;gap:10px;justify-content:center;min-height:38px;margin-bottom:3px}
+#mymelds .tile.fl{--th:68px}
+.meldrow .tile.fl{--th:56px}
+#mymelds .tile{--th:58px}
+#myhand{display:flex;gap:5px;justify-content:center;align-items:flex-end;min-height:62px;flex-wrap:wrap}
+#myhand .tile{--th:86px;cursor:pointer;transition:transform .12s,box-shadow .12s}
+#myhand .tile:hover{transform:translateY(-9px);box-shadow:0 6px 14px rgba(0,0,0,.45)}
+/* `backwards` + a delay is what makes a motion QUEUE: the tile sits at frame 0
+   — invisible, out at the wall — until its turn comes, rather than appearing in
+   place and then jumping. See ANIMATION-SEQUENCE.md. */
+#myhand .tile.drawn{margin-left:18px;animation:drawFromWall var(--drawms,900ms)
+  cubic-bezier(.2,.75,.3,1.05) var(--drawdelay,0ms) backwards}
+@keyframes drawFromWall{
+  0%{transform:translate(var(--wx,0px),var(--wy,-190px)) rotate(-18deg) scale(.62);opacity:0}
+  30%{opacity:1}
+  100%{transform:translate(0,0) rotate(0) scale(1)}
+}
+.backrow .wtnew{animation:botDraw .9s cubic-bezier(.2,.75,.3,1.05) var(--drawdelay,0ms) backwards}
+@keyframes botDraw{0%{transform:scale(.4) translateY(-26px);opacity:0}60%{opacity:1}100%{transform:none}}
+#myhand.locked .tile{cursor:default}#myhand.locked .tile:hover{transform:none;box-shadow:0 1px 0 #b8ad93,0 2px 4px rgba(0,0,0,.3)}
+#actions{display:flex;gap:8px;justify-content:center;align-items:center;min-height:42px;margin-top:5px}
+#actions button{background:rgba(255,255,255,.1);color:var(--ink);border:1px solid rgba(255,255,255,.22);
+  border-radius:9px;padding:9px 18px;font-size:15px;font-weight:600;cursor:pointer}
+#actions button:hover{background:rgba(255,255,255,.2)}
+#actions button.win{background:var(--gold);color:#2a2113;border-color:var(--gold)}
+#actions button.pass{font-weight:400;opacity:.8}
+#actions .hint{color:var(--dim);font-size:13px}
+
+/* ── overlays ── */
+/* A PANEL TALLER THAN THE PHONE MUST SCROLL.
+   This centred the panel with flex and gave it no overflow, while body is
+   overflow:hidden — so anything taller than the viewport spilled off both ends
+   with no way to reach it. On a phone the About screen's "got it" button was
+   simply unreachable and a tester could not start a game at all. The same trap
+   sat under the match scoreboard, Your games and the leaderboard.
+
+   `align-items:flex-start` + `margin:auto` on the child is the combination that
+   works: auto margins still centre the panel when it fits, and when it does not
+   the panel starts at the top and the veil scrolls. Centring with
+   `align-items:center` clips the overflow ABOVE the container, which no amount
+   of scrolling can reach. */
+.veil{position:fixed;inset:0;background:rgba(4,12,9,.82);display:flex;
+  align-items:flex-start;justify-content:center;overflow-y:auto;
+  -webkit-overflow-scrolling:touch;z-index:40;padding:16px}
+.panel{background:linear-gradient(180deg,#1b3a30,#12281f);border:1px solid rgba(216,181,106,.35);
+  border-radius:14px;padding:22px 26px;max-width:640px;width:100%;text-align:center;
+  margin:auto;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+.panel h1{font-size:20px;margin:0 0 4px}
+.panel h2{font-size:16px;margin:0 0 10px;color:var(--gold)}
+.panel p{color:var(--dim);font-size:13px;margin:6px 0}
+.panel .tiles{display:flex;gap:4px;justify-content:center;flex-wrap:wrap;margin:12px 0}
+.awards{font-size:13px;color:var(--dim);margin:8px 0}
+.awards b{color:var(--ink)}
+.pay{display:flex;gap:14px;justify-content:center;font-size:14px;margin:12px 0;flex-wrap:wrap}
+.pay div{background:rgba(0,0,0,.25);border-radius:8px;padding:6px 12px}
+.pay .d{font-variant-numeric:tabular-nums;font-weight:700}
+.pay .up{color:#7fd6a0}.pay .down{color:var(--danger)}
+.panel button{background:var(--gold);color:#2a2113;border:0;border-radius:9px;padding:11px 22px;
+  font-size:15px;font-weight:700;cursor:pointer;margin-top:6px}
+.choices{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:14px 0}
+.choice{background:rgba(0,0,0,.25);border:1px solid rgba(255,255,255,.14);border-radius:10px;padding:12px;
+  cursor:pointer;text-align:left}
+.choice:hover{border-color:var(--gold)}
+.choice.sel{border-color:var(--gold);background:rgba(216,181,106,.14)}
+.choice b{display:block;font-size:14px;margin-bottom:3px}
+.choice span{color:var(--dim);font-size:11.5px;line-height:1.35;display:block}
+/* Bot commentary lives in the dark band with the hand, never on the felt. */
+#devwrap{flex:0 0 auto;padding:0 10px}
+/* ── handicaps ── */
+/* Every copy of the hovered tile, wherever it is. Counting the discards is a
+   core skill; this does the counting, it does not reveal anything hidden.
+
+   It works by CONTRAST, not by stacking. A highlighted pile tile cannot be
+   lifted above its neighbours: #surface is `preserve-3d`, so its children paint
+   by 3D depth and a z-index is ignored — the same trap the state card hit. So
+   everything that does NOT match is dimmed and desaturated instead, which needs
+   no stacking at all. Both halves are deliberately gentle (owner, 2026-08-31):
+   the dim is 10%, enough to push the rest back without draining the table, and
+   the ring and glow are about half the strength they started at. The first cut
+   was unmissable and far too loud to sit behind for a whole hand.
+
+   Nothing here touches `transform`: pile tiles carry an inline transform with
+   their rotation, so a scale in a class would be silently overridden. */
+body.counting .tile:not(.samet){opacity:.9;filter:saturate(.85)}
+body.counting #wall .wt{opacity:.85}
+/* THE TILE GLOWS. Not a halo painted around it — the tile itself reads as lit:
+   a hot yellow edge, a warm wash across the face, and light spilling a short
+   way past the border.
+
+   The spill is `filter: drop-shadow` in YELLOW rather than `box-shadow`, and
+   that choice is the whole reason this works where the first attempt did not.
+   A box-shadow glow paints UNDER neighbouring tiles, so in a dense heap it is
+   swallowed by the very tiles it needs to stand out from. drop-shadow follows
+   the tile's shape and composites OVER them.
+
+   Uniform and tight — no offset, small radii — so it reads as the tile
+   emitting light rather than being lit from one side (owner, 2026-08-31).
+
+   The tile cannot be moved or scaled to help: pile tiles carry an inline
+   transform for their rotation, and anything in a class is silently
+   overridden. */
+.tile.samet{
+  outline:3px solid #ffd23f;
+  outline-offset:0;                       /* the ring sits OUTSIDE the tile */
+  filter:
+    drop-shadow(0 0 3px rgba(255,216,80,.9))
+    drop-shadow(0 0 7px rgba(255,196,40,.55))
+    brightness(1.04);
+  z-index:20}
+/* the warm wash that makes the FACE look lit rather than merely ringed */
+.tile.samet::after{content:"";position:absolute;inset:0;border-radius:5px;
+  background:radial-gradient(ellipse at 50% 45%,
+    rgba(255,232,150,.30) 0%, rgba(255,205,60,.14) 70%, rgba(255,196,40,.05) 100%);
+  pointer-events:none}
+.tile{position:relative}
+#callwrap{flex:0 0 auto;padding:0 10px}
+#callbar{max-width:1040px;margin:0 auto 4px;background:rgba(255,255,255,.05);
+  border:1px solid rgba(255,255,255,.1);border-radius:9px;padding:5px 11px;
+  font-size:12px;color:var(--dim);display:flex;align-items:baseline;gap:9px;flex-wrap:wrap}
+#callbar.calling{border-color:rgba(78,201,126,.5);background:rgba(78,201,126,.12)}
+#callbar.whatif{border-color:rgba(111,211,255,.5);background:rgba(111,211,255,.1)}
+#callbar .lead{color:var(--ink);font-size:12.5px}
+#callbar.calling .lead{color:#7fe0a4}
+#callbar.whatif .lead{color:#a5e2ff}
+#callbar b{color:var(--ink)}
+#callbar .n{color:var(--gold);font-size:10.5px;font-variant-numeric:tabular-nums}
+#callbar .tot{margin-left:auto;color:var(--dim);font-variant-numeric:tabular-nums}
+#callbar .faan{width:100%;font-size:11px}
+#callbar .ok{color:#7fe0a4}#callbar .warn{color:#ffa39b}
+
+/* ── the about panel ── */
+/* Prose, so it reads left-aligned. The panel centres by default, which is right
+   for a result screen and wrong for three paragraphs and a bullet list. */
+#panel.about{text-align:left}
+#panel.about h1,#panel.about button{text-align:center}
+#panel.about button{display:block;margin:18px auto 0}
+#panel.about h2{margin-top:16px}
+#panel.about p{margin:5px 0 0}
+.panel ul.about{margin:6px 0 0;padding-left:20px;color:var(--dim);font-size:13px;line-height:1.6}
+.panel ul.about b{color:var(--ink)}
+.panel h2+p{margin-top:4px}
+
+/* ── the setup screen ── */
+/* Length is a segmented control rather than four cards: it is one number, and
+   four blurb-carrying tiles wrapped to two rows for a choice that reads as a
+   dial. The cost of the choice moves to a caption under it, which also stops
+   the four options competing on how much text they carry. */
+.seg{display:flex;gap:6px;margin-top:6px}
+.seg button{flex:1;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);
+  border-radius:9px;padding:7px 4px;cursor:pointer;color:var(--dim);line-height:1.2;
+  font:inherit;transition:background .12s,border-color .12s}
+.seg button:hover{background:rgba(255,255,255,.1)}
+.seg button b{display:block;font-size:15px;color:var(--ink)}
+.seg button span{display:block;font-size:10px;letter-spacing:.03em}
+.seg button.on{background:rgba(216,181,106,.16);border-color:var(--gold)}
+.seg button.on b{color:var(--gold)}
+.segcap{margin:6px 0 0;font-size:11.5px;color:var(--dim)}
+.choices.two{grid-template-columns:1fr 1fr}
+.choice .seats{margin-top:5px;color:var(--gold);font-size:11px}
+.panel h2{margin-top:14px}
+
+/* ── lobby, stats, leaderboard ── */
+.choices.lobby{grid-template-columns:1fr}
+.choices.lobby .choice b{font-size:15px}
+.statgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:8px;margin-top:12px}
+.statgrid div{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.09);
+  border-radius:9px;padding:8px 10px;font-size:11px;color:var(--dim);letter-spacing:.03em}
+.statgrid span{display:block;font-size:20px;font-weight:700;color:var(--ink);
+  font-variant-numeric:tabular-nums;margin-bottom:2px}
+.rows{max-height:230px;overflow-y:auto;margin-top:6px}
+.rows.head{max-height:none;overflow:visible;color:var(--dim);font-size:9.5px;
+  text-transform:uppercase;letter-spacing:.02em;margin-top:10px;padding:0 8px;display:flex;gap:8px}
+.rows .row{display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:7px;font-size:12.5px}
+.rows .row:nth-child(odd){background:rgba(255,255,255,.035)}
+.rows .row.me{background:rgba(216,181,106,.14);border:1px solid rgba(216,181,106,.3)}
+.rows .c1{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rows .c2{width:56px;text-align:right;font-variant-numeric:tabular-nums;flex:0 0 auto}
+.rows .up{color:#7fe0a4}.rows .down{color:#ff9b93}
+.rows .c2.sortable{cursor:pointer;user-select:none}
+.rows .c2.sortable:hover{color:var(--ink)}
+.rows .c2.sortable.on{color:var(--gold)}
+.rows .c1 .mut{font-size:10.5px}
+.panel h2{font-size:12px;color:var(--gold);text-transform:uppercase;letter-spacing:.08em}
+
+#dev{display:grid;grid-template-columns:1fr 1fr;gap:10px;max-width:1040px;margin:0 auto}
+body.devmode #mine{padding-top:2px}
+#dev .devbox{background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.09);border-radius:9px;
+  padding:7px 10px;font-size:11.5px;line-height:1.45}
+#dev .scroll{max-height:96px;overflow-y:auto}
+#dev .devbox>b{color:var(--gold);display:block;font-size:10px;text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px}
+#dev .mut{color:rgba(255,255,255,.5)}
+#dev .best{color:#7fe0a4;font-weight:700}
+#dev .sug{color:var(--dim);margin-bottom:5px;padding-bottom:5px;border-bottom:1px solid rgba(255,255,255,.1)}
+/* The helper's verdict is a COLOUR first and prose second: green you played
+   it, amber close enough, red it cost you. A 3px border stripe was not
+   readable at a glance (owner 2026-08-30). */
+#dev .ce{border-left:3px solid var(--line);padding:3px 6px 3px 7px;margin:4px 0;border-radius:0 5px 5px 0}
+#dev .ce.good{border-left-color:#4ec97e;background:rgba(78,201,126,.13)}
+#dev .ce.ok{border-left-color:#e0bd6b;background:rgba(224,189,107,.12)}
+#dev .ce.bad{border-left-color:#e8685f;background:rgba(232,104,95,.14)}
+#dev .ce .g{display:inline-block;font-size:9px;font-weight:800;letter-spacing:.09em;
+  padding:1px 5px;border-radius:4px;margin-right:6px;color:#0f1512}
+#dev .ce.good .g{background:#4ec97e}#dev .ce.ok .g{background:#e0bd6b}#dev .ce.bad .g{background:#e8685f}
+#dev .ce.good b{color:#8ae7ad}#dev .ce.ok b{color:#efd08c}#dev .ce.bad b{color:#ffa39b}
+#dev .ce .mut{margin-top:1px}
+#clockbar{height:3px;background:rgba(255,255,255,.07);flex:0 0 auto}
+#clock{height:100%;width:0;background:linear-gradient(90deg,var(--gold),#f0d9a0);transition:width .1s linear;border-radius:0 2px 2px 0}
+#clock.low{background:linear-gradient(90deg,var(--danger),#f0a98a)}
+.setrow{display:flex;align-items:center;gap:10px;margin:8px 0;font-size:13px;text-align:left}
+.setrow label{width:80px;flex:0 0 auto;color:var(--dim)}
+.setrow input[type=range]{flex:1}
+.setrow .mut{color:var(--dim);font-size:11.5px}
+.panel h2{text-align:left}
+/* the call — canned, Cantonese-led, gone in about a second */
+#call{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);opacity:0;
+  pointer-events:none;text-align:center;z-index:20;transition:opacity .12s}
+#call.s0{left:50%;top:88%}      /* you   — just above your hand */
+#call.s1{left:82%;top:50%}      /* right */
+#call.s2{left:50%;top:14%}      /* across */
+#call.s3{left:18%;top:50%}      /* left  */
+/* The call HOLDS. It arrives just as fast as before — the entrance and exit
+   are pinned to the same fraction of a longer run — but it sits legible on
+   screen for ~1.6s instead of ~0.7s (owner 2026-08-30). Keep in step with the
+   timers in announce(). */
+#call.show{animation:callIn 2.2s cubic-bezier(.2,.9,.3,1.15) forwards}
+#call.show.big{animation-duration:3.2s}
+/* ── the call, by kind ──────────────────────────────────────────────────
+ * Every call used to look the same: white glyph, thin gold box. A routine 上
+ * and a 食糊 that ends the hand were the same visual event, which wastes the
+ * one moment the table has to say something (owner 2026-08-31).
+ *
+ * They are now tiered by how much the call MATTERS, and coloured by kind so a
+ * player learns to read the colour before the character:
+ *
+ *   上 chow    teal      taking a run, the cheapest claim there is
+ *   碰 pung    blue      a triplet, the common claim
+ *   槓 kong    violet    all three forms — rarer, and it draws a replacement
+ *   花 flower  rose      barely an event; smallest of the set
+ *   搶槓       orange    robbing a kong. Rare enough to be a story
+ *   食糊/自摸  gold      the hand is over. Biggest, with rays
+ *
+ * `--cc` is the glyph colour and `--cg` the light it throws; every rule below
+ * reads those two, so a new call type is three lines. */
+#call .cw{font-size:11px;color:var(--cc,#d8b56a);letter-spacing:.14em;text-transform:uppercase;
+  text-shadow:0 1px 5px rgba(0,0,0,.9);font-weight:700}
+#call .cc{font-size:54px;font-weight:800;line-height:1.02;color:var(--cc,#fff);
+  -webkit-text-stroke:2px rgba(0,0,0,.6);paint-order:stroke fill;white-space:nowrap;
+  text-shadow:0 2px 10px rgba(0,0,0,.85), 0 0 22px var(--cg,rgba(216,181,106,.9))}
+/* two-character calls carry twice the width; ease them down so the box keeps
+   its shape and 暗槓 does not tower over 碰 */
+#call .cc.two{font-size:42px}
+#call .ce{font-size:13px;color:#fff;letter-spacing:.06em;text-shadow:0 1px 6px rgba(0,0,0,.9)}
+#call .inner{position:relative;border-radius:16px;padding:9px 20px 8px;
+  background:radial-gradient(ellipse at 50% 38%, rgba(6,16,12,.82), rgba(6,16,12,.62));
+  border:2px solid var(--cc,#d8b56a);
+  box-shadow:0 0 0 1px rgba(0,0,0,.55), 0 6px 26px -6px rgba(0,0,0,.9),
+             0 0 30px -6px var(--cg,transparent), inset 0 0 26px -12px var(--cg,transparent);
+  backdrop-filter:blur(3px)}
+/* the burst behind the glyph — what makes it read as an event, not a label */
+#call .inner::before{content:"";position:absolute;inset:-12%;border-radius:50%;
+  background:radial-gradient(circle at 50% 45%, var(--cg,transparent) 0%, transparent 62%);
+  opacity:.5;pointer-events:none;z-index:-1}
+
+#call.k-chow          {--cc:#5fd39a;--cg:rgba(95,211,154,.85)}
+#call.k-pung          {--cc:#5db8f0;--cg:rgba(93,184,240,.85)}
+#call.k-kong,
+#call.k-concealedKong,
+#call.k-addedKong     {--cc:#b18bf5;--cg:rgba(177,139,245,.85)}
+#call.k-flower        {--cc:#f58bb0;--cg:rgba(245,139,176,.7)}
+#call.k-robbingKong   {--cc:#ff8a5b;--cg:rgba(255,138,91,.95)}
+#call.k-win,
+#call.k-selfDraw      {--cc:#ffd23f;--cg:rgba(255,210,63,.95)}
+
+/* 花 is the smallest thing that happens; it should not shout like a claim */
+#call.k-flower .cc{font-size:40px}
+#call.k-flower .inner{padding:7px 16px 6px}
+
+/* the win: bigger, and it throws rays */
+#call.big .cc{font-size:78px}
+#call.big .cc.two{font-size:64px}
+#call.big .inner{padding:12px 26px 10px;border-width:3px}
+#call.big .inner::after{content:"";position:absolute;inset:-60%;z-index:-2;
+  pointer-events:none;opacity:.5;
+  background:repeating-conic-gradient(from 0deg at 50% 50%,
+    var(--cg) 0deg 5deg, transparent 5deg 22deg);
+  -webkit-mask-image:radial-gradient(circle at 50% 50%, #000 12%, transparent 62%);
+  mask-image:radial-gradient(circle at 50% 50%, #000 12%, transparent 62%);
+  animation:rays 3.2s linear}
+@keyframes rays{from{transform:rotate(0)}to{transform:rotate(28deg)}}
+
+/* ── the grab ───────────────────────────────────────────────────────────
+ * A claimed tile used to vanish from the pile and reappear in a meld in the
+ * same frame, which read as a glitch rather than an action (owner 2026-08-31).
+ * It now travels: lifted off the pile, carried across, set down in the meld.
+ *
+ * The flier lives in a fixed overlay so it can cross from the felt into the
+ * seat boxes without being clipped by either. It is a MOTION, so the claim hold
+ * covers it and nothing else moves while it is in the air.
+ *
+ * The meld it is heading for is held invisible until it lands (`.claimed`
+ * below) — otherwise the destination tile is already sitting there and you
+ * watch a duplicate fly onto it, which is worse than the jump it replaced.
+ */
+#fly{position:fixed;inset:0;pointer-events:none;z-index:60}
+#fly .tile{position:absolute;animation:grab var(--grabms,760ms) cubic-bezier(.34,.02,.28,1) forwards}
+@keyframes grab{
+  /* picked up — lifts and grows as it comes off the felt */
+  0%{transform:translate(0,0) scale(1) rotate(var(--r0,0deg))}
+  26%{transform:translate(calc(var(--dx,0px) * .18),calc(var(--dy,0px) * .18 - 26px))
+        scale(1.22) rotate(calc(var(--r0,0deg) * .35))}
+  /* set down into the meld */
+  100%{transform:translate(var(--dx,0px),var(--dy,0px)) scale(var(--ds,1)) rotate(0deg)}
+}
+/* the destination meld, invisible until the tile arrives */
+.claimed{animation:meldLand 160ms ease-out var(--grabms,760ms) backwards}
+@keyframes meldLand{from{opacity:0}to{opacity:1}}
+
+/* ── declaring the throw ────────────────────────────────────────────────
+ * At a table you say what you throw. This is the ANNOUNCEMENT lane (see
+ * ANIMATION-SEQUENCE.md): it runs alongside the toss, never before or after it,
+ * and it does not touch the motion queue.
+ *
+ * It is deliberately much quieter than #call. A call happens six or seven times
+ * a hand; this happens eighty. Same idea at call weight would be unreadable
+ * noise, so it is small, low-contrast, and gone before the tile lands — the
+ * label's whole life is inside the toss's flight.
+ *
+ * Its own element, not #call: a claim fires on the very next event after the
+ * discard it claims, so sharing one banner would have 碰 stomping the
+ * declaration that caused it. They sit at different offsets so both can show.
+ */
+#say{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);opacity:0;
+  pointer-events:none;z-index:8;white-space:nowrap}
+#say.s0{left:50%;top:80%}
+#say.s1{left:78%;top:62%}
+#say.s2{left:50%;top:22%}
+#say.s3{left:22%;top:62%}
+#say .inner{background:rgba(8,20,15,.5);border:1px solid rgba(255,255,255,.14);
+  border-radius:9px;padding:3px 9px;font-size:15px;font-weight:600;color:#e8e2d4;
+  text-shadow:0 1px 4px rgba(0,0,0,.8)}
+#say.show{animation:sayIn var(--sayms,900ms) cubic-bezier(.2,.85,.35,1) forwards}
+@keyframes sayIn{
+  0%{opacity:0;transform:translate(-50%,-50%) scale(.7)}
+  14%{opacity:1;transform:translate(-50%,-50%) scale(1.04)}
+  26%{transform:translate(-50%,-50%) scale(1)}
+  62%{opacity:1}
+  100%{opacity:0;transform:translate(-50%,-58%) scale(.98)}
+}
+
+@keyframes callIn{
+  0%{opacity:0;transform:translate(-50%,-50%) scale(.55) rotate(-7deg)}
+  9%{opacity:1;transform:translate(-50%,-50%) scale(1.12) rotate(2deg)}
+  16%{transform:translate(-50%,-50%) scale(1) rotate(0)}
+  88%{opacity:1;transform:translate(-50%,-50%) scale(1)}
+  100%{opacity:0;transform:translate(-50%,-58%) scale(.96)}
+}
+#log{position:absolute;left:8px;bottom:8px;font-size:11px;color:rgba(255,255,255,.5);max-width:210px;
+  pointer-events:none;line-height:1.5}
+@media (max-width:820px){
+  #myhand .tile{width:32px;height:44px}#myhand .tile .g{font-size:21px}
+  .tile{width:24px;height:33px}.tile .g{font-size:16px}
+  #centre{width:60vw}
+  /* The running commentary is the only thing that may go: state and seat
+     plates are the information you cannot play without. */
+  #log{display:none}
+  #state{left:6px;top:6px;padding:4px 8px}
+  #state .wind{font-size:16px}
+  #state b{font-size:12px}
+  .seat.s .nameplate{font-size:12.5px;padding:4px 10px}
+}
+</style>
+</head>
+<body>
+<div id="hud">
+  <span class="spacer"></span>
+  <span id="hudTable"></span>
+  <button id="btnFeedback">✎ feedback</button>
+  <button id="btnSettings">⚙ settings</button>
+  <button id="btnQuit">quit</button>
+</div>
+<div id="table"><div id="felt">
+  <div id="state"></div>
+  <div class="seat n" id="seatN"></div>
+  <div class="seat w" id="seatW"></div>
+  <div class="seat e" id="seatE"></div>
+  <div id="centre"><div id="surface"><div id="wall"></div><div id="pile"></div></div></div>
+  <div class="seat s" id="seatS"></div>
+  <div id="log"></div>
+  <div id="say"></div>
+  <div id="call"></div>
+</div></div>
+<div id="callwrap"></div>
+<div id="devwrap"></div>
+<div id="clockbar"><div id="clock"></div></div>
+<div id="mine">
+  <div id="mymelds"></div>
+  <div id="myhand"></div>
+  <div id="actions"></div>
+</div>
+<div id="fly"></div>
+<div class="veil" id="veil"><div class="panel" id="panel"></div></div>
+<script>
+for (const f of ["tile-engine.js", "bots.js", "game.js"]) {
+  const t = document.createElement("script");
+  t.src = f + "?v=" + Date.now();
+  t.async = false;
+  document.head.appendChild(t);
+}
+</script>
+</body>
+</html>

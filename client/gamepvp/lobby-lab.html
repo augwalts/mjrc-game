@@ -1,0 +1,481 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lobby lab</title>
+<style>
+  :root{--bg:#0f0e0c;--panel:#17201b;--panel2:#1e2a24;--line:rgba(255,255,255,.1);--ink:#f2ece0;--dim:#a9b8ae;--gold:#d8b56a;--green:#7fe0a4;--red:#ff9b93;--blue:#7fb3ff;--chrome:#000;--primary:#d8b56a;--primary-ink:#1a1409;--grid:rgba(255,255,255,.08)}
+  /* Light = the MJRC palette standard (mjrc-admin/design/palette.html, kit.css): ivory ground #F6F1E4, paper #FFFDF7 cards,
+     ivory-deep #E7DFC9 panels and rules, ink #1A1A18, concrete #777770, line #cfc7b0; tile green #1A8B3A, seal red #C1272D,
+     royal blue #1845A5; temple gold #E3CF70 in reserve for highlights. Dark = ink on paper turned round: a charcoal ink ground (#1E1F1D, modules #2A2B29, rules #4A4B46) with paper-coloured type (#F3EFE4), not brown and not black; the table felt keeps the game's night #12100E. */
+  body:not(.light){--bg:#1e1f1d;--panel:#2a2b29;--panel2:#363733;--line:#4a4b46;--ink:#f3efe4;--dim:#b3b0a5;--gold:#9fbaf0;--green:#7fdc97;--red:#f19c9c;--blue:#9fbaf0;--chrome:#111210;--primary:#f3efe4;--primary-ink:#1e1f1d;--grid:rgba(243,239,228,.18);--accent-soft:#363733;--gild:#ffdf8a;--series2:#ffdf8a;--series3:#7fdc97}
+  body.light{--bg:#fffdf7;--panel:#f6f1e4;--panel2:#efeade;--line:#ddd6c4;--ink:#1a1a18;--dim:#777770;--gold:#1845a5;--green:#127a30;--red:#c1272d;--blue:#1845a5;--chrome:#e7dfc9;--primary:#1a1a18;--primary-ink:#fffdf7;--grid:rgba(26,26,24,.12);--accent-soft:#e2e8f8;--gild:#9a7318;--series2:#9a7318;--series3:#127a30}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;display:flex;flex-direction:column;align-items:center;gap:12px;padding:14px}
+  h1{font-size:16px;margin:0}
+  #controls{display:flex;flex-wrap:wrap;gap:8px;justify-content:center}
+  #controls button{font:inherit;padding:6px 12px;border-radius:8px;border:1px solid var(--line);background:rgba(255,255,255,.08);color:var(--ink);cursor:pointer}
+  #controls button.on{background:var(--gold);color:#1a1409;border-color:transparent;font-weight:600}
+  .top .back{font:inherit;font-size:22px;line-height:1;background:none;border:0;color:var(--gold);padding:0 6px 0 0;cursor:pointer}
+  .recent .row.msg{padding:8px 0;border-bottom:1px solid var(--line);white-space:normal;overflow:visible;align-items:flex-start} .msg:last-child{border:0} .msg.unread b{color:var(--gold)}
+  .rooms .room{cursor:pointer;padding:8px 0}
+  .rooms .room .rname b{display:block} .rooms .room .rname small{color:var(--dim);font-size:12px}
+  .rooms .room .n{white-space:nowrap}
+  .star{color:var(--dim);font-size:16px;width:20px;text-align:center} .star.on{color:var(--gild)}
+  .trow{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)} .trow:last-child{border:0}
+  .trow-l{flex:1;min-width:0;display:flex;flex-wrap:wrap;align-items:center;gap:6px} .trow-l small{color:var(--dim);font-size:12px;width:100%}
+  .mini{display:flex;gap:3px} .ms{width:34px;height:22px;border-radius:5px;border:1px dashed var(--line);font-size:10px;display:flex;align-items:center;justify-content:center;color:var(--dim);overflow:hidden}
+  .ms.h{border-style:solid;color:var(--ink);background:rgba(255,255,255,.05)} .ms.b{border-style:solid;background:rgba(127,179,255,.1)}
+  .sit.sm{padding:6px 10px;font-size:12px;margin-left:0} .trow .playing{color:var(--dim);font-size:12px;white-space:nowrap}
+  .gear{margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:4px}
+  .gear .link{font:inherit;font-size:12px;background:none;border:0;color:var(--gold);cursor:pointer;padding:0}
+  .frame.desktop .trow-l small{width:auto}
+  table.lb{width:100%;border-collapse:collapse;font-size:12px} table.lb th{text-align:left;color:var(--dim);font-weight:500;font-size:10px;letter-spacing:.06em;text-transform:uppercase;padding:2px 6px 6px 0}
+  table.lb td{padding:4px 6px 4px 0;border-top:1px solid var(--line)} table.lb tr.me td{color:var(--gold)}
+  .recent .row.game{cursor:pointer} .recent .row.game:hover{color:var(--gold)}
+  .toggle.src button{font-size:12px;padding:4px 10px}
+  .thread{display:flex;flex-direction:column;gap:8px}
+  .bub{max-width:78%;padding:8px 12px;border-radius:14px;background:var(--panel2);display:flex;flex-direction:column;gap:2px} .bub small{color:var(--dim);font-size:10px}
+  .bub.me{align-self:flex-end;background:rgba(216,181,106,.22)} body.light .bub.me{background:#e2e8f8} .bub.them{align-self:flex-start}
+  .bub.sys{align-self:center;max-width:100%;flex-direction:row;align-items:center;gap:10px;background:rgba(127,179,255,.12);font-size:12px} body.light .bub.sys{background:#e2e8f8}
+  .frow{cursor:pointer} .frow:hover{color:var(--gold)}
+  .heat{display:grid;grid-template-columns:auto repeat(4,1fr);gap:3px;margin-top:6px;font-size:11px}
+  .heat .hl{color:var(--dim);display:flex;align-items:center;justify-content:center;padding:2px}
+  .heat .cell{height:26px;border-radius:4px;display:flex;align-items:center;justify-content:center;color:var(--ink)}
+  .toggle button{font:inherit;font-size:11px;padding:2px 8px;border-radius:10px;border:1px solid var(--line);background:none;color:var(--dim)} .toggle button.on{background:var(--ink);color:var(--bg);border-color:transparent}
+  .note{color:var(--dim);max-width:760px;text-align:center;margin:0}
+  /* the device frame */
+  #frames{display:flex;gap:24px;align-items:flex-start;justify-content:center;flex-wrap:wrap;width:100%}
+  .frame{position:relative;background:var(--chrome);border-radius:28px;padding:10px;box-shadow:0 20px 60px rgba(0,0,0,.35)}
+  .frame .label{position:absolute;top:-22px;left:12px;font-size:12px;color:var(--dim)}
+  .frame.phone{width:395px;margin-top:26px}
+  .frame.desktop{width:min(96vw,1440px);margin-top:26px}
+  .screen{background:var(--bg);border-radius:20px;overflow:hidden;position:relative}
+  .frame.phone .screen{height:780px}
+  .frame.desktop .screen{height:900px}
+  .app{height:100%;display:flex;flex-direction:column}
+  .view{flex:1;overflow:auto;padding:14px 14px 90px}
+  .frame.desktop .view{padding:20px 28px}
+  /* shared bits */
+  .top{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+  .top h2{font-size:18px;margin:0}
+  .top .me,.nav .me{margin-left:auto;display:flex;flex-direction:row;align-items:center;gap:8px;color:var(--dim);white-space:nowrap}
+  .recent .row{white-space:nowrap;overflow:hidden}
+  .recent .row .badge{flex:0 0 auto}
+  .avatar{width:28px;height:28px;border-radius:50%;background:var(--accent-soft,linear-gradient(160deg,#5b7a6a,#2c4438));display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--ink)}
+  body.light .avatar{background:#e7dfc9;color:#4a463f}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--green);display:inline-block}
+  .dot.wait{background:#e3cf70} .dot.play{background:#1a8b3a} .dot.room{background:#1a8b3a}
+  .sec{font-size:11px;letter-spacing:.12em;color:var(--dim);text-transform:uppercase;margin:16px 0 8px}
+  .sec.in{margin:0 0 8px}
+  /* Module colour is MEANING, one rule a person can learn in a minute:
+     gold  = the game itself: tables to sit at, tiles, hands, what you held
+     green = points and results: your numbers, games, scores, form
+     blue  = people: friends, rooms, members, chat, messages, leaderboard, who fed whom
+     red   = needs attention: unread, admin, alerts
+     ivory = reference and system: rating, decisions, account, settings */
+  /* Neutral on neutral. Modules are ivory on paper with a soft rule; colour is only a functional highlight:
+     gains green, losses red, links and ranked blue, stars and streak gold, unread red, and the menu hue on
+     the active nav item and the page-title square. */
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+  .card .sec.in{margin:0 0 8px}
+  body:not(.light) .card{background:#2a2b29;border-color:#4a4b46}
+  .cta button.primary{background:var(--ink);color:var(--bg);border:1px solid var(--ink)}
+  .cta button:not(.primary){background:var(--panel);border:1px solid var(--line);color:var(--ink)}
+  .cta button{border-radius:8px}
+  .card{margin-top:10px}
+  .frame.desktop .dash .cell{margin-top:0} .frame.desktop .dash .card{margin-top:0}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px 14px}
+  .cta{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .cta button{font:inherit;padding:16px 12px;border-radius:14px;border:1px solid var(--line);background:var(--panel2);color:var(--ink);text-align:left;cursor:pointer}
+  .cta button b{display:block;font-size:16px;margin-bottom:2px}
+  .cta button.primary{background:var(--primary);color:var(--primary-ink);border-color:transparent}
+  .cta button small{color:inherit;opacity:.75}
+  .chips{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px}
+  .chip{flex:0 0 auto;display:flex;align-items:center;gap:6px;background:var(--panel2);border:1px solid var(--line);border-radius:20px;padding:6px 10px 6px 6px;white-space:nowrap}
+  .chip small{color:var(--dim)}
+  .table{display:flex;flex-direction:column;gap:8px;margin-bottom:10px}
+  .table .head{display:flex;align-items:center;gap:8px}
+  .table .head b{font-size:15px}
+  .badge{font-size:10px;letter-spacing:.08em;text-transform:uppercase;border:1px solid var(--line);border-radius:6px;padding:2px 6px;color:var(--dim)}
+  .badge.ranked{color:var(--blue);border-color:var(--blue)}
+  .table .rules{margin-left:auto;color:var(--dim);font-size:12px}
+  .seats{display:flex;gap:6px}
+  .seat{flex:1;border:1px dashed var(--line);border-radius:8px;padding:6px;text-align:center;font-size:12px;color:var(--dim)}
+  .seat.h{border-style:solid;color:var(--ink);background:rgba(255,255,255,.04)} .seat.b{border-style:solid;color:var(--dim);background:rgba(127,179,255,.08)}
+  .row{display:flex;align-items:center;gap:8px}
+  .row .sit{margin-left:auto;font:inherit;font-weight:600;padding:8px 14px;border-radius:10px;border:0;background:var(--blue);color:#fff;cursor:pointer}
+  .recent{display:flex;flex-direction:column;gap:6px;color:var(--dim);font-size:13px}
+  .recent b{color:var(--ink)}
+  .up{color:var(--green)} .down{color:var(--red)}
+  /* bottom nav (variant B/C) */
+  .nav{position:absolute;left:0;right:0;bottom:0;display:flex;background:var(--panel);backdrop-filter:blur(10px);border-top:1px solid var(--line);padding:8px 6px calc(8px + env(safe-area-inset-bottom))}
+  .nav button{flex:1;font:inherit;font-size:11px;background:none;border:0;color:var(--dim);display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer}
+  .nav button span.i{display:block;height:22px}
+  .stats .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;text-align:center}
+  .stats .tiles b{display:block;font-size:18px}
+  .stats .tiles small{color:var(--dim);font-size:11px}
+  .stats .streak{display:flex;align-items:center;gap:8px;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);color:var(--dim);font-size:12px}
+  .stats .streak .flame{color:var(--gild);display:flex}
+  .stats .streak b{color:var(--ink);font-size:13px}
+  .nav button.on{color:var(--ink);font-weight:600}
+  .nav button[data-k="home"].on{color:var(--ink)} .nav button[data-k="rooms"].on{color:#1a8b3a} .nav button[data-k="friends"].on{color:#1845a5} .nav button[data-k="stats"].on{color:#7a5a12}
+  .top h2 .k{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:8px;vertical-align:middle}
+  /* tabs (variant A) */
+  .tabs{display:flex;gap:6px;overflow-x:auto;margin-bottom:12px}
+  .tabs button{font:inherit;padding:6px 12px;border-radius:20px;border:1px solid var(--line);background:none;color:var(--dim);white-space:nowrap}
+  .tabs button.on{background:var(--ink);color:var(--bg);border-color:transparent;font-weight:600}
+  body:not(.light) .nav button[data-k="home"].on{color:#e0d5c8} body:not(.light) .nav button[data-k="rooms"].on{color:#6fd189} body:not(.light) .nav button[data-k="friends"].on{color:#86a9ee} body:not(.light) .nav button[data-k="stats"].on{color:#ffdf8a}
+  /* desktop columns */
+  .frame.desktop .cols{display:grid;grid-template-columns:1.4fr 1fr;gap:20px}
+  .frame.desktop .dash{display:grid;grid-template-columns:repeat(3,1fr);gap:18px 22px;align-items:start}
+  .frame.desktop .dash > .sec{margin:0 0 6px}
+  .frame.desktop .dash .cell{min-width:0}
+  .frame.desktop .dash .span3{grid-column:1 / -1}
+  .frame.desktop .dash .stats .tiles{grid-template-columns:repeat(8,1fr)}
+  .frame.desktop .dash .tabs{grid-column:1 / -1;margin:0}
+  .frame.desktop .nav{position:static;background:none;border:0;justify-content:flex-start;gap:12px;padding:0 0 12px}
+  .frame.desktop .nav button{flex:0 0 auto;flex-direction:row;font-size:13px}
+  .top .back{color:var(--blue)}
+  .frame.desktop .nav .me.innav{margin-left:auto}
+  .me .inbox{position:relative;background:none;border:0;color:var(--dim);padding:0;margin:0 4px 0 0;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;line-height:0;vertical-align:middle}
+  .me .inbox svg{display:block}
+  .me .inbox .n{position:absolute;top:-3px;right:-5px;background:var(--red);color:#fff;font-size:10px;font-weight:700;border-radius:8px;padding:0 4px;line-height:14px;min-width:14px;text-align:center}
+  .me .dot{margin-left:2px}
+  .me .name{font:inherit;background:none;border:0;color:var(--dim);cursor:pointer;display:inline-flex;align-items:center;gap:6px;padding:0}
+  .more{display:block;margin-top:8px;color:var(--blue);font-size:12px;text-decoration:none}
+  .rooms .room{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line)}
+  .rooms .room:last-child{border:0}
+  .rooms .room b{font-size:15px}
+  .rooms .room small{color:var(--dim);display:block}
+  .rooms .room .n{margin-left:auto;color:var(--dim);font-size:12px;text-align:right}
+</style>
+</head>
+<body class="light">
+<h1>Lobby lab</h1>
+<p class="note">Neutral on neutral. Colour is functional only: green gains, red losses and unread, blue links and ranked, gold stars and streak; the menu hue marks the active nav item and the page title. Tap the bottom bar, the envelope, or a room to move between pages; ‹ goes back. The question to answer on opening the page: who is here, where can I sit, and what is the one thing to press. Switch variants and frames; nothing here is wired to the server.</p>
+<div id="controls">
+  <button data-v="D" class="on">D · home: play now, friends, your numbers</button>
+  <button data-v="B">B · play first</button>
+  <button data-v="C">C · rooms first</button>
+  <button data-v="A">A · tabs (today)</button>
+  <span style="width:16px"></span>
+  <button id="theme" class="on">light</button>
+</div>
+<div id="frames">
+  <div class="frame phone"><div class="label">mobile · 375 × 780</div><div class="screen"><div class="app"></div></div></div>
+  <div class="frame desktop"><div class="label">web · 1440 × 900</div><div class="screen"><div class="app"></div></div></div>
+</div>
+
+<script>
+(() => {
+  const data = {
+    me: "Augustine",
+    here: [
+      { n: "augie", s: "wait", t: "waiting 2/4" }, { n: "jolly", s: "play", t: "hand 3/4" }, { n: "augwalts", s: "play", t: "hand 3/4" },
+      { n: "Mei", s: "lobby", t: "in the lobby" }, { n: "Kelvin", s: "lobby", t: "in the lobby" }, { n: "Sam", s: "wait", t: "waiting 2/4" },
+    ],
+    tables: [
+      { by: "augie", mode: "casual", rules: "MJRC standard · 東圈 · normal", seats: [["augie","h"],["Sam","h"],["","e"],["","e"]], status: "waiting", filled: "2/4" },
+      { by: "jolly", mode: "ranked", rules: "MJRC standard · 全莊 · faster", seats: [["jolly","h"],["augwalts","h"],["Mei","h"],["Ken","h"]], status: "playing", filled: "hand 3/16" },
+      { by: "Kelvin", mode: "casual", rules: "TVB 2026 · 東圈 · untimed", seats: [["Kelvin","h"],["Sifu","b"],["Ming","b"],["","e"]], status: "waiting", filled: "3/4" },
+    ],
+    recent: [["9/2","augie",+96,"jolly",-32],["9/2","Augustine",+288,"Sam",-128],["9/1","Mei",+64,"Kelvin",-64]],
+    friends: [
+      { n: "augie", s: "wait", t: "waiting at a table 2/4", r: 1540 }, { n: "jolly", s: "play", t: "playing, hand 3/4", r: 1498 }, { n: "augwalts", s: "room", t: "in Tuesday club", r: 1611 },
+      { n: "Mei", s: "lobby", t: "in the lobby", r: 1470 }, { n: "Sam", s: "off", t: "2 h ago", r: 1452 }, { n: "Kelvin", s: "off", t: "yesterday", r: null },
+    ],
+    stats: { rating: 1512, games: 23, wins: 7, places: [7, 6, 5, 5], agreement: 0.61, streak: { days: 4, best: 9, playedToday: true } },
+    mine: [["today","2nd","+96","MJRC standard · 東圈","ranked"],["today","4th","−128","TVB 2026 · 東圈","casual"],["9/1","1st","+288","MJRC standard · 東圈","ranked"],["8/31","3rd","−32","MJRC standard · 全莊","casual"]],
+    inbox: [
+      { from: "augie", kind: "invite", text: "wants you at their table · MJRC standard · 東圈", when: "2 min", unread: true },
+      { from: "Tuesday club", kind: "room", text: "Kelvin opened a table · 3/4 seated", when: "18 min", unread: true },
+      { from: "jolly", kind: "dm", text: "rematch tonight?", when: "1 h", unread: false },
+      { from: "MJRC", kind: "result", text: "your ranked game finished: 2nd, +96 · rating 1512 (+9)", when: "3 h", unread: false },
+    ],
+    members: [["augwalts","admin",1611],["augie","",1540],["Augustine","",1512],["jolly","",1498],["Mei","",1470],["Sam","",1452],["Kelvin","",null]],
+    rooms: [
+      { name: "Tuesday club", code: "K8SV9K", rules: "MJRC standard · 東圈 · normal", n: 11, online: 4, live: 2, star: true },
+      { name: "HK old style open hall", code: "OPEN", rules: "MJRC standard · 東圈 · normal", n: 42, online: 9, live: 5, star: true },
+      { name: "TVB practice", code: "5SF724", rules: "TVB 2026 · 全莊 · very slow", n: 6, online: 0, live: 0, star: false },
+      { name: "Sifu gym", code: "SIFU00", rules: "MJRC standard · 東圈 · insane", n: 3, online: 1, live: 0, star: false },
+      { name: "Sunday family", code: "FAM123", rules: "MJRC standard · 東圈 · untimed", n: 5, online: 2, live: 1, star: false },
+    ],
+  };
+  const I = {
+    home: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11 12 4l9 7"/><path d="M5 10v10h14V10"/></svg>',
+    tables: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 12h18M12 5v14"/></svg>',
+    rooms: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V6l8-3 8 3v14"/><path d="M9 20v-5h6v5"/></svg>',
+    friends: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><circle cx="17" cy="9" r="2.5"/><path d="M15.5 20a5 5 0 0 1 6-4.5"/></svg>',
+    chat: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4z"/></svg>',
+    stats: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M10 20V4M16 20v-8M22 20H2"/></svg>',
+    inbox: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>',
+    flame: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3c1 4 5 5 5 10a5 5 0 0 1-10 0c0-2 1-3 2-4 0 2 1 3 2 3 0-3-1-6 1-9z"/></svg>',
+    me: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>',
+  };
+  const navHtml = (on, items) => `<div class="nav">${items.map(([k, label]) => `<button data-k="${k}" class="${k === on ? "on" : ""}"><span class="i">${I[k]}</span>${label}</button>`).join("")}</div>`;
+  const T = () => { const cs = getComputedStyle(document.body); return { s2: cs.getPropertyValue("--series2").trim() || cs.getPropertyValue("--gold").trim(), s3: cs.getPropertyValue("--series3").trim() || cs.getPropertyValue("--green").trim(), gold: cs.getPropertyValue("--gold").trim(), green: cs.getPropertyValue("--green").trim(), red: cs.getPropertyValue("--red").trim(), blue: cs.getPropertyValue("--blue").trim(), dim: cs.getPropertyValue("--dim").trim(), ink: cs.getPropertyValue("--ink").trim(), grid: cs.getPropertyValue("--grid").trim() }; };
+  const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+  const dot = (s) => `<span class="dot ${s === "wait" ? "wait" : s === "play" ? "play" : ""}"></span>`;
+  const seatsHtml = (t) => `<div class="seats">${t.seats.map(([n, k]) => `<div class="seat ${k}">${n ? esc(n) : "empty"}</div>`).join("")}</div>`;
+  const tableRow = (t) => `<div class="trow">
+      <div class="trow-l"><b>${esc(t.by)}</b><span class="badge ${t.mode}">${t.mode}</span><small>${t.rules}</small></div>
+      <div class="mini">${t.seats.map(([n, k]) => `<span class="ms ${k}" title="${esc(n)}">${n ? esc(n).slice(0, 4) : "·"}</span>`).join("")}</div>
+      ${t.status === "waiting" ? `<button class="sit sm">Sit ${t.filled}</button>` : `<small class="playing">${t.filled}</small>`}
+    </div>`;
+  const tableHtml = (t) => `<div class="card table">
+      <div class="head"><b>${esc(t.by)}</b><span class="badge ${t.mode}">${t.mode}</span><span class="rules">${t.rules}</span></div>
+      ${seatsHtml(t)}
+      <div class="row"><span style="color:var(--dim)">${t.status === "waiting" ? t.filled + " seated" : "playing · " + t.filled}</span>${t.status === "waiting" ? '<button class="sit">Sit down</button>' : ""}</div>
+    </div>`;
+  const hereChips = () => `<div class="chips">${data.here.map((p) => `<div class="chip"><span class="avatar">${esc(p.n[0])}</span>${esc(p.n)}<small>${dot(p.s)} ${p.t}</small></div>`).join("")}</div>`;
+  const recentHtml = () => `<div class="card recent">${data.recent.map((r) => `<div>${r[0]} · <b>${esc(r[1])}</b> <span class="up">+${r[2]}</span> · ${esc(r[3])} <span class="down">${r[4]}</span></div>`).join("")}</div>`;
+  const roomRow = (r) => `<div class="row room"><span class="star ${r.star ? "on" : ""}">★</span><div class="rname"><b>${esc(r.name)}</b><small>${r.rules}</small></div><div class="n">${r.online ? `<span class="dot"></span> ${r.online} online` : "quiet"} · ${r.live} live</div></div>`;
+  const roomsHtml = () => `<div class="card rooms">${data.rooms.map(roomRow).join("")}</div>`;
+  const meHtml = () => `<div class="me"><button class="inbox" title="messages">${I.inbox}<span class="n">2</span></button><button class="name"><span class="dot"></span>${esc(data.me)}</button></div>`;
+  const top = () => `<div class="top"><h2>香港麻雀 · MJRC</h2>${meHtml()}</div>`;
+  const cta = (primaryLabel = "Play now") => `<div class="cta"><button class="primary"><b>${primaryLabel}</b><small>pick a room, rules, speed and seats</small></button><button><b>Join by code</b><small>a table or a room</small></button></div>`;
+
+  const friendsHtml = (n = 5) => `<div class="card friends">${data.friends.slice(0, n).map((f) => `<div class="row frow" data-go="dm" style="padding:5px 0"><span class="avatar">${esc(f.n[0])}</span><b>${esc(f.n)}</b><span style="color:var(--dim)">${f.s === "off" ? "" : dot(f.s)} ${f.t}</span><span style="margin-left:auto;color:var(--dim);font-size:12px">${f.r === null ? "unrated" : f.r}</span></div>`).join("")}<a class="more" href="#">all ${data.friends.length} friends ›</a></div>`;
+  const statsHtml = () => { const st = data.stats; return `<div class="card stats"><div class="tiles">
+      <div><b>${st.rating}</b><small>rating · provisional</small></div>
+      <div><b>${st.wins}/${st.games}</b><small>wins</small></div>
+      <div><b>${Math.round(st.agreement * 100)}%</b><small>like the engine</small></div>
+      <div><b>${st.places.join("·")}</b><small>1st·2nd·3rd·4th</small></div></div>
+      <div class="streak"><span class="flame">${I.flame}</span><b>${st.streak.days}-day streak</b><span>${st.streak.playedToday ? "played today" : "play today to keep it"} · best ${st.streak.best}</span></div></div>`; };
+  const mineHtml = (n = 3) => `<div class="card recent">${data.mine.slice(0, n).map((r) => `<div class="row">${r[0]} · <b>${r[1]}</b> <span class="${r[2].startsWith("+") ? "up" : "down"}">${r[2]}</span> · ${r[3]}<span class="badge ${r[4]}" style="margin-left:auto">${r[4]}</span></div>`).join("")}<a class="more" href="#">all games ›</a></div>`;
+
+  /* ── the standard chart set (same shapes the Almanac draws) ─────────── */
+  const bars = (vals, labels, opts = {}) => { const W = 300, H = 90, n = vals.length, bw = W / n - 4;
+    const flat = vals.map((v) => Array.isArray(v) ? v[0] + v[1] : v); const signed = flat.some((v) => v < 0);
+    const max = Math.max(...flat.map(Math.abs)) || 1; const base = signed ? H / 2 : H;
+    return `<svg viewBox="0 0 ${W} ${H + 16}" width="100%"><g>${signed ? `<line x1="0" x2="${W}" y1="${base}" y2="${base}" stroke="${T().grid}"/>` : ""}${vals.map((v, i) => { const x = i * (W / n) + 2;
+      if (Array.isArray(v)) { const h1 = v[0] / max * H, h2 = v[1] / max * H; return `<rect x="${x}" y="${H - h1}" width="${bw}" height="${h1}" fill="${T().gold}" rx="2"/><rect x="${x}" y="${Math.max(0, H - h1 - h2 - 2)}" width="${bw}" height="${h2}" fill="${T().blue}" rx="2"/>`; }
+      const h = Math.abs(v) / max * (signed ? H / 2 : H); const y = v >= 0 ? base - h : base; return `<rect x="${x}" y="${y}" width="${bw}" height="${h}" fill="${v >= 0 ? (opts.color || T().gold) : T().red}" rx="2"/>`; }).join("")}
+    ${labels.map((l, i) => `<text x="${i * (W / n) + W / n / 2}" y="${H + 12}" text-anchor="middle" fill="${T().dim}" font-size="9">${l}</text>`).join("")}</g></svg>`; };
+  const lineChart = (series, labels, opts = {}) => { const W = 300, H = 90; const max = Math.max(...series.flatMap((sr) => sr.v)) || 1;
+    const pts = (arr) => arr.map((v, i) => `${i / (arr.length - 1) * W},${H - v / max * H}`).join(" ");
+    return `<svg viewBox="0 0 ${W} ${H + 16}" width="100%">${[0.5, 1].map((f) => `<line x1="0" x2="${W}" y1="${H - f * H}" y2="${H - f * H}" stroke="${T().grid}"/>`).join("")}${series.map((sr) => `<polyline fill="none" stroke="${sr.c}" stroke-width="${sr.w || 2}" stroke-opacity="${sr.o ?? 1}" stroke-linejoin="round" points="${pts(sr.v)}"/>`).join("")}${series.filter((sr) => sr.dots).map((sr) => sr.v.map((v, i) => `<circle cx="${i / (sr.v.length - 1) * W}" cy="${H - v / max * H}" r="2.5" fill="${sr.c}"/>`).join("")).join("")}${labels.map((l, i) => `<text x="${i / (labels.length - 1) * W}" y="${H + 12}" text-anchor="middle" fill="${T().dim}" font-size="9">${l}</text>`).join("")}</svg>`; };
+  const faanHist = () => `<div class="card"><div class="row" style="margin-bottom:4px"><small style="color:var(--dim)">hands · <span style="color:${T().gold}">—</span> MJRC standard <span style="color:${T().s2}">—</span> TVB 2026</small><span class="toggle" style="margin-left:auto"><button class="on">hands</button><button>points</button></span></div>${lineChart([{ v: [0,0,6,5,3,4,2,3,1,2,0,0,1], c: T().gold, dots: true }, { v: [4,3,0,0,0,0,0,0,0,0,0,0,0], c: T().s2, dots: true }], ["1","2","3","4","5","6","7","8","9","10","11","12","13+"])}<small style="color:var(--dim)">winning fan. Split by ruleset because the floors differ (3 vs 1).</small></div>`;
+  const lines = () => { const W = 300, H = 80; const games = [[2,5,3,1,0,1,0],[1,3,4,2,1,0,0],[0,2,2,3,1,1,1],[3,4,2,1,1,0,0],[1,2,5,2,0,1,0]]; const agg = games[0].map((_, i) => games.reduce((a, g) => a + g[i], 0));
+    const pts = (arr, max) => arr.map((v, i) => `${i / (arr.length - 1) * W},${H - v / max * H}`).join(" ");
+    return `<div class="card"><small style="color:var(--dim)">hand sizes by game · faint line per game, bold aggregate</small><svg viewBox="0 0 ${W} ${H + 14}" width="100%">${games.map((g) => `<polyline fill="none" stroke="${T().gold}" stroke-opacity=".25" stroke-width="1" points="${pts(g, 6)}"/>`).join("")}<polyline fill="none" stroke="${T().gold}" stroke-width="2.2" points="${pts(agg, 20)}"/>${["3","4","5","6","7","8","9+"].map((l, i) => `<text x="${i / 6 * W}" y="${H + 12}" text-anchor="middle" fill="${T().dim}" font-size="9">${l}</text>`).join("")}</svg></div>`; };
+  const seatRound = () => { const v = [[3,1,0,2],[1,2,1,0],[0,1,3,1],[2,0,1,1]]; const max = 3; return `<div class="card"><small style="color:var(--dim)">wins by seat × round · you</small><div class="heat"><div></div>${["東","南","西","北"].map((r) => `<div class="hl">${r} round</div>`).join("")}${["東","南","西","北"].map((seat, i) => `<div class="hl">${seat}</div>${v[i].map((n) => `<div class="cell" style="background:rgba(216,181,106,${0.12 + n / max * 0.7})">${n || ""}</div>`).join("")}`).join("")}</div></div>`; };
+  const handType = () => `<div class="card recent"><small style="color:var(--dim)">hand type × fan · count and average</small>${[["平糊 all chows",4,"3.3"],["對對糊 all pungs",4,"6.5"],["混一色 half flush",6,"7.8"],["清一色 full flush",1,"10"],["三元牌 dragon pung",3,"5.0"],["自摸 self-draw",3,"6.1"]].map(([k, n, a]) => `<div class="row"><span>${k}</span><b style="margin-left:auto">${n} · avg ${a} fan</b></div>`).join("")}</div>`;
+  const insList = () => `<div class="card recent"><small style="color:var(--dim)">who gave the most · INS (hands paid in on) · this scope</small>${[["Sam",9,"32 hands"],["Kelvin",7,"28 hands"],["you",6,"41 hands"],["augie",4,"39 hands"]].map(([n, i, h]) => `<div class="row"><span>${n}</span><b style="margin-left:auto">${i} INS · ${h}</b></div>`).join("")}</div>`;
+  const progression = () => { const W = 300, H = 90; const seats = { you: [0,16,16,-48,-48,80,80,96], augie: [0,-16,32,32,32,-64,-64,-32], jolly: [0,0,-48,16,16,-16,-16,-64], Mei: [0,0,0,0,0,0,0,0] }; const colors = { you: T().blue, augie: T().s2, jolly: T().s3, Mei: T().red };
+    const pts = (arr) => arr.map((v, i) => `${i / (arr.length - 1) * W},${H / 2 - v / 100 * (H / 2)}`).join(" ");
+    return `<div class="card"><small style="color:var(--dim)">score progression · last game, per hand</small><svg viewBox="0 0 ${W} ${H + 14}" width="100%"><line x1="0" x2="${W}" y1="${H / 2}" y2="${H / 2}" stroke="${T().grid}"/>${Object.entries(seats).map(([n, a]) => `<polyline fill="none" stroke="${colors[n]}" stroke-width="${n === "you" ? 2.4 : 1.4}" points="${pts(a)}"/>`).join("")}${[1,2,3,4,5,6,7,8].map((h, i) => `<text x="${i / 7 * W}" y="${H + 12}" text-anchor="middle" fill="${T().dim}" font-size="9">${h}</text>`).join("")}</svg><small>${Object.entries(colors).map(([n, c]) => `<span style="color:${c}">■</span> ${n}`).join(" ")}</small></div>`; };
+  const myProgression = () => { const W = 300, H = 90; const games = [[0,16,16,-48,-48,80,80,96],[0,-16,-16,-64,-64,-64,-32,-32],[0,32,32,32,96,96,96,144],[0,0,-48,-48,-48,-16,-16,-16],[0,48,48,48,48,-16,-16,24],[0,0,0,32,32,32,64,64]];
+    const avg = games[0].map((_, i) => Math.round(games.reduce((a, g) => a + g[i], 0) / games.length));
+    const pts = (a) => a.map((v, i) => `${i / (a.length - 1) * W},${H / 2 - v / 160 * (H / 2)}`).join(" ");
+    return `<div class="card"><small style="color:var(--dim)">your score through a game · faint line per game, bold = your average · x = hand 1‥8</small><svg viewBox="0 0 ${W} ${H + 14}" width="100%"><line x1="0" x2="${W}" y1="${H / 2}" y2="${H / 2}" stroke="${T().grid}"/>${games.map((g) => `<polyline fill="none" stroke="${T().gold}" stroke-opacity=".28" stroke-width="1" points="${pts(g)}"/>`).join("")}<polyline fill="none" stroke="${T().gold}" stroke-width="2.4" points="${pts(avg)}"/>${[1,2,3,4,5,6,7,8].map((h, i) => `<text x="${i / 7 * W}" y="${H + 12}" text-anchor="middle" fill="${T().dim}" font-size="9">${h}</text>`).join("")}</svg><small style="color:var(--dim)">you start slow and finish strong: average −8 by hand 4, +47 by hand 8.</small></div>`; };
+  const feeds = () => { const W = 300; const rows = (arr, color) => arr.map(([n, p, k]) => `<div class="row" style="padding:3px 0"><span style="width:70px">${n}</span><svg viewBox="0 0 ${W} 14" width="60%" height="14"><rect x="0" y="2" width="${p / 400 * W}" height="10" rx="3" fill="${color}"/></svg><b style="margin-left:auto">${p} pts · ${k}</b></div>`).join("");
+    return `<div class="card"><small style="color:var(--dim)">who feeds you · points you won off their discards</small>${rows([["Sam",384,"5 hands"],["Kelvin",256,"3"],["Mei",160,"2"],["augie",96,"2"]], T().green)}
+      <small style="color:var(--dim);display:block;margin-top:10px">who you feed · points they won off your discards</small>${rows([["augie",320,"4 hands"],["jolly",224,"3"],["augwalts",96,"1"],["Sam",64,"1"]], T().red)}</div>`; };
+  const worthByGame = () => { const v = [1.2,-0.4,0.8,2.1,-1.1,0.3,1.6,0.9,-0.2,1.4]; const W = 300, H = 80, max = 2.2; const pts = v.map((x, i) => `${i / (v.length - 1) * W},${H / 2 - x / max * (H / 2)}`).join(" ");
+    return `<div class="card"><small style="color:var(--dim)">worth/hand by game · net per hand priced in that game's average winning hand</small><svg viewBox="0 0 ${W} ${H + 14}" width="100%"><line x1="0" x2="${W}" y1="${H / 2}" y2="${H / 2}" stroke="${T().grid}"/><polyline fill="none" stroke="${T().green}" stroke-width="2" stroke-linejoin="round" points="${pts}"/>${v.map((x, i) => `<circle cx="${i / (v.length - 1) * W}" cy="${H / 2 - x / max * (H / 2)}" r="2.5" fill="${x >= 0 ? T().green : T().red}"/>`).join("")}${v.map((_, i) => `<text x="${i / (v.length - 1) * W}" y="${H + 12}" text-anchor="middle" fill="${T().dim}" font-size="9">${i + 1}</text>`).join("")}</svg></div>`; };
+  /* ── sub pages ─────────────────────────────────────────────────────── */
+  const HUE = { Home: "#1a1a18", Rooms: "#1a8b3a", Friends: "#1845a5", Stats: "#e3cf70", Messages: "#c1272d", Account: "#777770", "Game settings": "#777770", Game: "#1a8b3a", Profile: "#1845a5" };
+  const pageTop = (title, back = true) => { const k = HUE[title] || HUE[Object.keys(HUE).find((h) => title.startsWith(h)) || ""]; return `<div class="top">${back ? '<button class="back">‹</button>' : ""}<h2>${k ? `<span class="k" style="background:${k}"></span>` : ""}${title}</h2>${meHtml()}</div>`; };
+  const filterRow = (items, on) => `<div class="tabs">${items.map((t) => `<button class="${t === on ? "on" : ""}">${t}</button>`).join("")}</div>`;
+  const pages = {
+    tables: () => `${pageTop("Tables")}
+      ${filterRow(["All", "Waiting", "Playing", "Ranked", "Casual"], "All")}
+      <div class="sec">Waiting · 2</div>${data.tables.filter((t) => t.status === "waiting").map(tableHtml).join("")}
+      <div class="sec">Playing · 1</div>${data.tables.filter((t) => t.status === "playing").map(tableHtml).join("")}
+      <div class="sec">Recent results</div>${recentHtml()}
+      ${navHtml("tables", NAV)}`,
+    rooms: () => `${pageTop("Rooms", false)}
+      <div class="row" style="margin-bottom:8px"><input placeholder="join by code, or search rooms" style="flex:1;font:inherit;padding:9px 10px;border-radius:10px;border:1px solid var(--line);background:rgba(255,255,255,.06);color:var(--ink)"><button class="sit">Go</button></div>
+      <div class="sec">Starred</div><div class="card rooms">${data.rooms.filter((r) => r.star).map(roomRow).join("")}</div>
+      <div class="sec">All rooms · ${data.rooms.length}</div><div class="card rooms">${data.rooms.filter((r) => !r.star).map(roomRow).join("")}</div>
+      <a class="more" href="#">create a room ›</a>
+      ${navHtml("rooms", NAV)}`,
+    room: () => `${pageTop("Tuesday club")}
+      <div class="card roomhead"><div class="row"><span class="star on">★</span><div><small style="color:var(--dim)">MJRC standard · 東圈 · normal · code K8SV9K · admin augwalts · 11 members</small></div><button class="sit" style="margin-left:auto">Play now</button></div></div>
+      <div class="sec">Tables · 3</div><div class="card tables">${[...data.tables, { by: "Mei", mode: "casual", rules: "MJRC standard · 東圈 · normal", seats: [["Mei","h"],["","e"],["","e"],["","e"]], status: "waiting", filled: "1/4" }].map(tableRow).join("")}</div>
+      <div class="sec">Here · 5</div><div class="card friends">${[["augie","wait","waiting at a table 2/4"],["Sam","wait","waiting 2/4"],["jolly","play","playing, hand 3/16"],["augwalts","play","playing, hand 3/16"],["Mei","lobby","in the room"]].map(([n, st, t]) => `<div class="row" style="padding:4px 0"><span class="avatar">${esc(n[0])}</span><b>${esc(n)}</b><span style="color:var(--dim)">${dot(st)} ${t}</span></div>`).join("")}<a class="more" href="#">all 11 members ›</a></div>
+      <div class="sec">Room chat</div><div class="card recent"><div><b>augie</b> anyone up for a quick east round?</div><div><b>Kelvin</b> opened one, 3/4</div><div class="row" style="margin-top:6px"><input placeholder="say something" style="flex:1;font:inherit;padding:8px 10px;border-radius:8px;border:1px solid var(--line);background:rgba(255,255,255,.06);color:var(--ink)"><button class="sit">send</button></div></div>
+      <div class="sec">Admin</div><div class="card" style="color:var(--dim);font-size:13px">Change rules or speed · close a waiting table · remove a member · rotate the admin code</div>
+      ${navHtml("rooms", NAV)}`,
+    friends: () => `${pageTop("Friends")}
+      ${filterRow(["Online", "All", "Requests"], "Online")}
+      <div class="row" style="margin:6px 0 4px"><input placeholder="add a friend by name or code" style="flex:1;font:inherit;padding:8px 10px;border-radius:8px;border:1px solid var(--line);background:rgba(255,255,255,.06);color:var(--ink)"><button class="sit">add</button></div>
+      <div class="sec">Online · 4</div>${friendsHtml(4).replace('<a class="more" href="#">all 6 friends ›</a>', "")}
+      <div class="sec">Offline · 2</div><div class="card friends">${data.friends.filter((f) => f.s === "off").map((f) => `<div class="row" style="padding:5px 0"><span class="avatar">${esc(f.n[0])}</span><b>${esc(f.n)}</b><span style="color:var(--dim)">${f.t}</span><span style="margin-left:auto;color:var(--dim);font-size:12px">${f.r === null ? "unrated" : f.r}</span></div>`).join("")}</div>
+      <div class="sec">Lobby chat</div><div class="card recent"><div><b>Mei</b> gg all</div><div><b>Sam</b> who wants TVB rules?</div></div>
+      ${navHtml("friends", NAV)}`,
+    me: () => `${pageTop("Profile")}
+      <div class="card"><div class="row"><span class="avatar" style="width:44px;height:44px;font-size:18px">A</span><div><b style="font-size:17px">${esc(data.me)}</b><br><small style="color:var(--dim)">rating 1512 · provisional · 23 games</small></div><div class="gear"><button class="link" data-go="account">account</button><button class="link" data-go="settings">game settings</button></div></div></div>
+      <div class="sec">Your numbers</div>${statsHtml()}
+      <div class="sec">Placements by ruleset</div><div class="card recent"><div>MJRC standard · <b>17 games</b> · 1st 6 · 2nd 4 · 3rd 4 · 4th 3 · net <span class="up">+412</span></div><div>TVB 2026 · <b>6 games</b> · 1st 1 · 2nd 2 · 3rd 1 · 4th 2 · net <span class="down">−40</span></div></div>
+      <div class="sec">All games</div>${mineHtml(4)}
+      ${navHtml("me", NAV)}`,
+    stats: () => `${pageTop("Stats", false)}
+      ${filterRow(["All", "Online", "Offline", "Ranked", "Casual", "MJRC standard", "TVB 2026", "Last 10", "Last 5"], "All")}
+      <div class="card stats"><div class="tiles">
+        <div><b>61</b><small>games · 512 hands</small></div><div><b>+0.9</b><small>worth/hand</small></div><div><b>28%</b><small>win rate</small></div><div><b>0.4</b><small>IN rate</small></div></div>
+        <div class="tiles" style="margin-top:8px"><div><b>1512</b><small>rating · online</small></div><div><b>17·15·14·15</b><small>1st·2nd·3rd·4th</small></div><div><b>24%</b><small>self-draw</small></div><div><b>38 / 23</b><small>offline / online</small></div></div>
+        <div class="streak"><span class="flame">${I.flame}</span><b>4-day streak</b><span>played today · best 9</span></div></div>
+      <div class="sec">Recent games · tap one for its own stats</div><div class="card recent">${[["today","2nd","+96","MJRC standard · 東圈","ranked","online"],["today","4th","−128","TVB 2026 · 東圈","casual","online"],["9/1","1st","+288","MJRC standard · 東圈","ranked","online"],["8/31","3rd","−32","MJRC standard · 全莊","casual","Almanac"],["8/29","1st","+140","MJRC standard · 東圈","casual","Almanac"]].map((r) => `<div class="row game" data-go="game">${r[0]} · <b>${r[1]}</b> <span class="${r[2].startsWith("+") ? "up" : "down"}">${r[2]}</span> · ${r[3]}<span class="badge ${r[4]}" style="margin-left:auto">${r[4]}</span><span class="badge">${r[5]}</span></div>`).join("")}<a class="more" href="#">all 61 games ›</a></div>
+      <div class="sec">Hand histogram — winning fan</div>${faanHist()}
+      <div class="sec">Leaderboard</div><div class="card"><table class="lb"><tr><th>player</th><th>games</th><th>win%</th><th>IN%</th><th>net/hand</th><th>worth</th><th>rating</th></tr>${[["augwalts",31,"33%","11%","+2.1","+1.4",1611],["augie",27,"30%","13%","+1.6","+1.1",1540],["you",61,"28%","12%","+1.2","+0.9",1512],["jolly",19,"26%","15%","+0.4","+0.3",1498]].map((r) => `<tr class="${r[0] === "you" ? "me" : ""}">${r.map((c) => `<td>${c}</td>`).join("")}</tr>`).join("")}</table><a class="more" href="#">full leaderboard ›</a></div>
+      <div class="sec">Score progression · you, across games</div>${myProgression()}
+      <div class="sec">Recent form</div>${worthByGame()}
+      <div class="sec">Hand sizes by game</div>${lines()}
+      <div class="sec">Rating · online, last 30 ranked</div><div class="card"><svg viewBox="0 0 300 70" width="100%" height="70"><polyline fill="none" stroke="${T().gold}" stroke-width="2" points="0,50 20,48 40,52 60,44 80,46 100,40 120,42 140,35 160,38 180,30 200,33 220,28 240,31 260,26 280,29 300,22"/><text x="0" y="66" fill="${T().dim}" font-size="9">1480</text><text x="272" y="18" fill="${T().ink}" font-size="10">1512</text></svg></div>
+      <div class="sec">Decisions · online, desktop</div><div class="card recent"><div class="row"><span>Played like the engine</span><b style="margin-left:auto">61% · 447 moves</b></div><div class="row"><span>On close calls</span><b style="margin-left:auto">38%</b></div><div class="row"><span>Biggest miss</span><b style="margin-left:auto">hand 3 yesterday · 4.1 gap ›</b></div></div>
+      <div class="sec">Feeds · by points</div>${feeds()}
+      <div class="sec">Hand type × fan</div>${handType()}
+      ${navHtml("stats", NAV)}`,
+    game: () => `${pageTop("Game · today")}
+      <div class="card"><div class="row"><div><b>MJRC standard · 東圈 · normal</b><br><small style="color:var(--dim)">ranked · online · Tuesday club · 8 hands · 42 min · 2 Sep</small></div><div style="margin-left:auto;display:flex;gap:6px"><button class="sit sm" style="background:var(--panel2);color:var(--ink)">replay</button><button class="sit sm" style="background:var(--panel2);color:var(--ink)">share</button></div></div></div>
+      <div class="sec">Result</div><div class="card recent">${[["1st","augie","+160",1540,"+11"],["2nd","you","+96",1512,"+9"],["3rd","jolly","−32",1498,"−4"],["4th","Mei","−224",1470,"−16"]].map((r) => `<div class="row"><b style="width:30px">${r[0]}</b><span>${r[1]}</span><span class="${r[2].startsWith("+") ? "up" : "down"}" style="margin-left:auto">${r[2]}</span><small style="color:var(--dim);width:80px;text-align:right">${r[3]} (${r[4]})</small></div>`).join("")}</div>
+      <div class="sec">Score progression</div>${progression()}
+      <div class="sec">Hand by hand</div><div class="card"><table class="lb"><tr><th>hand</th><th>result</th><th>fan</th><th>東</th><th>南</th><th>西</th><th>北</th></tr>${[["1 東","augie 食糊 off Mei","4","+32","−32","",""],["2 東","流局","","","","",""],["3 南","you 自摸","6","−48","+144","−48","−48"],["4 西","jolly 食糊 off you","3","−16","","+16",""],["5 北","augie 食糊 off Mei","8","+96","","","−96"],["6 北","流局","","","","",""],["7 北","you 食糊 off jolly","5","","+32","−32",""],["8 北","Mei 食糊 off augie","4","−32","","","+32"]].map((r) => `<tr>${r.map((c, i) => `<td class="${i >= 3 && c ? (c.startsWith("+") ? "up" : "down") : ""}">${c}</td>`).join("")}</tr>`).join("")}</table></div>
+      <div class="sec">Your hands this game</div>${faanHist()}
+      <div class="sec">Your decisions · desktop</div><div class="card recent"><div class="row"><span>Played like the engine</span><b style="margin-left:auto">64% · 51 moves</b></div><div class="row"><span>Biggest miss</span><b style="margin-left:auto">hand 3, discard 七萬 · 4.1 gap ›</b></div><div class="row"><span>Best call</span><b style="margin-left:auto">hand 7, held the chow ›</b></div></div>
+      <div class="sec">Chat from this game</div><div class="card recent"><div><b>augie</b> 好牌</div><div><b>jolly</b> 唔好意思</div></div>
+      ${navHtml("stats", NAV)}`,
+    dm: () => `${pageTop("jolly")}
+      <div class="card"><div class="row"><span class="avatar">j</span><div><b>jolly</b><br><small style="color:var(--dim)">${dot("play")} playing, hand 3/4 · rating 1498 · 11 games together</small></div><div style="margin-left:auto;display:flex;gap:6px"><button class="sit sm">invite to table</button><button class="sit sm" style="background:var(--panel2);color:var(--ink)">profile</button></div></div></div>
+      <div class="card thread">
+        <div class="bub them"><span>rematch tonight?</span><small>1 h ago</small></div>
+        <div class="bub me"><span>yes, after 9. TVB rules?</span><small>58 min ago</small></div>
+        <div class="bub them"><span>MJRC standard, I want my 96 back 😄</span><small>55 min ago</small></div>
+        <div class="bub sys"><span>jolly invited you to a table · MJRC standard · 東圈 · normal</span><button class="sit sm">Sit</button></div>
+      </div>
+      <div class="row" style="margin-top:8px"><input placeholder="message jolly" style="flex:1;font:inherit;padding:9px 10px;border-radius:10px;border:1px solid var(--line);background:rgba(255,255,255,.06);color:var(--ink)"><button class="sit">send</button></div>
+      ${navHtml("friends", NAV)}`,
+    account: () => `${pageTop("Account")}
+      <div class="card recent">
+        <div class="row"><span>Display name</span><b style="margin-left:auto">${esc(data.me)} ›</b></div>
+        <div class="row"><span>Handle</span><b style="margin-left:auto">@augustine ›</b></div>
+        <div class="row"><span>Sign in</span><b style="margin-left:auto;color:var(--dim)">not linked · Google ›</b></div>
+        <div class="row"><span>Devices with access</span><b style="margin-left:auto">this phone, Mac mini ›</b></div>
+        <div class="row"><span>Almanac profile</span><b style="margin-left:auto;color:var(--dim)">not linked ›</b></div>
+        <div class="row"><span>Export my data</span><b style="margin-left:auto">›</b></div>
+        <div class="row"><span>Delete account</span><b style="margin-left:auto;color:var(--red)">›</b></div>
+        <div style="margin-top:8px;color:var(--dim);font-size:12px">Same options as mahjongresearch.com/account, shown here so nobody leaves the game to manage them. Verify the list against the live site before building.</div>
+      </div>
+      ${navHtml("home", NAV)}`,
+    settings: () => `${pageTop("Game settings")}
+      <div class="card recent">
+        <div class="row"><span>Tile size</span><b style="margin-left:auto">normal ›</b></div>
+        <div class="row"><span>Sound</span><b style="margin-left:auto">on ›</b></div>
+        <div class="row"><span>Haptics</span><b style="margin-left:auto">on ›</b></div>
+        <div class="row"><span>Count tiles on hover/tap</span><b style="margin-left:auto">on ›</b></div>
+        <div class="row"><span>Coaching (desktop only)</span><b style="margin-left:auto">on ›</b></div>
+        <div class="row"><span>Language</span><b style="margin-left:auto">English · 中文 ›</b></div>
+        <div class="row"><span>This device</span><b style="margin-left:auto;color:var(--gold)">not you? start a new player ›</b></div>
+      </div>
+      ${navHtml("home", NAV)}`,
+    inbox: () => `${pageTop("Messages")}
+      ${filterRow(["All", "Invites", "Rooms", "Results"], "All")}
+      <div class="card recent">${data.inbox.map((m) => `<div class="row msg ${m.unread ? "unread" : ""}" ${m.kind === "dm" ? 'data-go="dm"' : ""}><span class="avatar">${esc(m.from[0])}</span><div style="flex:1"><b>${esc(m.from)}</b> <span>${esc(m.text)}</span><br><small style="color:var(--dim)">${m.when} ago · ${m.kind}</small></div>${m.kind === "invite" ? '<button class="sit">Sit</button>' : m.kind === "room" ? '<button class="sit" style="background:var(--panel2);color:var(--ink)">Open</button>' : ""}</div>`).join("")}</div>
+      ${navHtml("home", NAV)}`,
+  };
+  const NAV = [["home","Home"],["rooms","Rooms"],["friends","Friends"],["stats","Stats"]];
+  const variants = {
+    D: () => `${top()}
+      ${cta()}
+      <div class="sec">Friends</div>${friendsHtml()}
+      <div class="sec">Your numbers</div>${statsHtml()}
+      <div class="sec">Your recent games</div>${mineHtml()}
+      ${navHtml("home", NAV)}`,
+    A: () => `${top()}
+      <div class="tabs"><button class="on">Play</button><button>Chat</button><button>Stats</button><button>Games</button><button>Rooms</button></div>
+      <div class="sec">Here now</div><div class="card">${data.here.map((p) => `<div class="row" style="padding:4px 0">${dot(p.s)} ${esc(p.n)}<span style="margin-left:auto;color:var(--dim)">${p.t}</span></div>`).join("")}</div>
+      <div class="sec">Open tables</div>${data.tables.map(tableHtml).join("")}
+      <div class="sec">New table · Join by code</div>${cta()}
+      <div class="sec">Recent results</div>${recentHtml()}`,
+    B: () => `${top()}
+      ${cta()}
+      <div class="sec">Here now · ${data.here.length}</div>${hereChips()}
+      <div class="sec">Tables</div>${data.tables.map(tableHtml).join("")}
+      <div class="sec">Recent</div>${recentHtml()}
+      ${navHtml("home", [["home","Play"],["rooms","Rooms"],["chat","Chat"],["stats","Stats"],["me","Me"]])}`,
+    C: () => `${top()}
+      <div class="sec">Your rooms</div>${roomsHtml()}
+      <div class="sec">Everyone</div>${cta("Open table")}
+      <div class="sec">Here now · ${data.here.length}</div>${hereChips()}
+      <div class="sec">Tables</div>${data.tables.slice(0, 2).map(tableHtml).join("")}
+      ${navHtml("rooms", [["home","Play"],["rooms","Rooms"],["chat","Chat"],["stats","Stats"],["me","Me"]])}`,
+  };
+  const desktopWrap = (html) => {
+    // On desktop the same content becomes two columns: tables left, people + recent right.
+    return html;
+  };
+  let v = "D", page = "home";
+  const PAGE_LABEL = { home: "Home", tables: "Tables", rooms: "Rooms", room: "a room", friends: "Friends", me: "Me", inbox: "Inbox" };
+  function renderInto(app, desktop) {
+    app.innerHTML = `<div class="view">${page === "home" ? variants[v]() : pages[page]()}</div>`;
+    app.querySelectorAll(".nav button").forEach((b, i) => b.onclick = () => { page = NAV[i][0]; render(); });
+    app.querySelectorAll(".me .inbox").forEach((b) => b.onclick = () => { page = "inbox"; render(); });
+    app.querySelectorAll(".me .name").forEach((b) => b.onclick = () => { page = "me"; render(); });
+    app.querySelectorAll(".rooms .room").forEach((r) => r.onclick = () => { page = "room"; render(); });
+    app.querySelectorAll(".back").forEach((b) => b.onclick = () => { page = page === "room" ? "rooms" : (page === "account" || page === "settings") ? "me" : page === "game" ? "stats" : page === "dm" ? "inbox" : "home"; render(); });
+    app.querySelectorAll("[data-go]").forEach((b) => b.onclick = () => { page = b.dataset.go; render(); });
+    if (desktop && (page === "stats" || page === "game")) {
+      const view = app.querySelector(".view");
+      const nav = view.querySelector(".nav"); const me = view.querySelector(".top .me");
+      if (nav) { if (me) { me.classList.add("innav"); nav.appendChild(me); } view.prepend(nav); }
+      const dash = document.createElement("div"); dash.className = "dash";
+      const nodes = [...view.childNodes].filter((n) => n.nodeType === 1 && !n.classList.contains("top") && !n.classList.contains("nav"));
+      let cell = null;
+      for (const n of nodes) {
+        if (n.classList.contains("tabs")) { dash.appendChild(n); continue; }
+        if (n.classList.contains("stats")) { const c = document.createElement("div"); c.className = "cell span3"; c.appendChild(n); dash.appendChild(c); continue; }
+        if (n.classList.contains("sec")) { cell = document.createElement("div"); cell.className = "cell"; cell.appendChild(n); dash.appendChild(cell); continue; }
+        (cell || dash).appendChild(n);
+      }
+      // the two headline tiles rows merge into one 8-wide row on desktop
+      const tiles = dash.querySelectorAll(".stats .tiles"); if (tiles.length === 2) { [...tiles[1].children].forEach((c) => tiles[0].appendChild(c)); tiles[1].remove(); }
+      view.appendChild(dash);
+      return;
+    }
+    if (desktop) {
+      const view = app.querySelector(".view");
+      const nav = view.querySelector(".nav"); const me = view.querySelector(".top .me");
+      if (nav) { if (me) { me.classList.add("innav"); nav.appendChild(me); } view.prepend(nav); }
+      const left = document.createElement("div"), right = document.createElement("div"), cols = document.createElement("div"); cols.className = "cols";
+      const nodes = [...view.childNodes].filter((n) => !(n.classList && (n.classList.contains("top") || n.classList.contains("nav") || n.classList.contains("tabs"))));
+      let side = left;
+      for (const n of nodes) {
+        if (n.classList && n.classList.contains("sec")) side = /Here now|Recent|Your rooms|Friends|Here ·|Starred|Head to head|Leaderboard|All games|Wins by seat|Who gave|Hand type|Rating ·|Decisions/.test(n.textContent) ? right : left;
+        if (n.classList && n.classList.contains("cta")) side = left;
+        side.appendChild(n);
+      }
+      cols.append(left, right); view.appendChild(cols);
+    }
+  }
+  // Colour follows the menu, so a hue tells you which part of the app you are in:
+  // green = tables, rooms and games · blue = other players · gold = stats · red = messages and attention
+  // black = actions and system · grey = reference (account, settings, rating)
+  const toneFor = (t) => /admin/i.test(t) ? "darkred"
+    : /message|inbox|unread|alert|chat/i.test(t) ? "red"
+    : /account|setting|rating|decision/i.test(t) ? "grey"
+    : /friend|here|member|player|head to head|feed/i.test(t) ? "blue"
+    : /table|play|starred|room|game|waiting|invite|result|hand by hand/i.test(t) ? "green"
+    : /number|hand|histogram|fan|score|form|leaderboard|streak|worth|stat/i.test(t) ? "gold" : "paper";
+  function foldTitles(app) {
+    app.querySelectorAll(".sec").forEach((sec) => {
+      const next = sec.nextElementSibling;
+      if (next && next.classList.contains("card")) { sec.classList.add("in"); next.prepend(sec); next.dataset.tone = toneFor(sec.textContent); }
+    });
+    // untitled cards: the room header is a place, a profile card is a person, the stats tiles are your play
+    app.querySelectorAll(".card:not([data-tone])").forEach((c) => { if (c.classList.contains("roomhead")) c.dataset.tone = "blue"; else if (c.classList.contains("stats")) c.dataset.tone = "green"; else if (c.classList.contains("thread")) c.dataset.tone = "blue"; });
+  }
+  function render() {
+    document.querySelectorAll(".frame").forEach((fr) => { const app = fr.querySelector(".app"); renderInto(app, fr.classList.contains("desktop")); foldTitles(app); });
+  }
+  document.querySelectorAll("#controls [data-v]").forEach((b) => b.onclick = () => { v = b.dataset.v; document.querySelectorAll("[data-v]").forEach((x) => x.classList.toggle("on", x === b)); render(); });
+  document.body.classList.add("light");
+  document.getElementById("theme").onclick = (e) => { document.body.classList.toggle("light"); e.target.textContent = document.body.classList.contains("light") ? "light" : "dark"; render(); };
+  render();
+})();
+</script>
+</body>
+</html>

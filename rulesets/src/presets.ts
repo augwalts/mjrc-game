@@ -1,0 +1,314 @@
+/**
+ * Assembled Ruleset presets. DESIGN.md §4: P0 ships canonical HK Old Style,
+ * and "the implemented LIU closed-hand variant is a different game — it
+ * survives as a config preset for private tables". Both live here as data.
+ *
+ * A faanTable is BOTH the price list and the enable list: a pattern absent
+ * from it is a pattern this house does not play, and patterns.ts refuses to
+ * let an absent pattern subsume a present one.
+ *
+ * ── provenance, column by column ─────────────────────────────────────────
+ *
+ * hk-scoring.ts (mjrc-app, owned by another team — read, never imported)
+ * carries the same faan table across six systems with the conflicts recorded.
+ * Each preset here takes ONE of those columns whole rather than picking a
+ * favourite value per row, because a table assembled from six sources is a
+ * table no house plays:
+ *
+ *   hkos-standard  the "Wikipedia" column — the only column with a value for
+ *                  every classic pattern. Where it reads "—" the pattern is
+ *                  left out rather than filled in from a neighbour. It has
+ *                  exactly ONE named departure, 四暗刻, marked at its line.
+ *   liu            the "LIU" column, cross-checked row by row against
+ *                  PATTERN_FAN in mjrc-admin/research/probability/core/
+ *                  scoring.py. The two agree on every one of the sixteen
+ *                  patterns the Python engine implements, which is what makes
+ *                  the column safe to use for the patterns it does not.
+ *
+ * Award ids follow the convention engine/test/golden/kongs.ts establishes:
+ * one id per pattern regardless of set size, so a kong of dragons and a pung
+ * of dragons both emit "dragonPung".
+ */
+
+import type { Ruleset } from "@mjrc/engine";
+import { isPattern, pattern } from "./patterns.js";
+import { HKOS_DOUBLING_PER_PLAYER, LIU_BRACKET_TOTAL, TVB_LINEAR_PER_PLAYER } from "./payment.js";
+
+/**
+ * Canonical HK Old Style. 3-faan minimum, 13-faan limit 爆棚, flowers with
+ * replacement draws, seat and round wind faan, all three kong forms.
+ *
+ * Several limit hands sit below 13 in this column and only reach the cap once
+ * their additive components are counted — 字一色 at 10 plus 對對糊's 3 is
+ * exactly 13. That is the column working as designed, not a transcription slip.
+ */
+export const HKOS_STANDARD: Ruleset = {
+  id: "hkos-standard",
+  label: "香港舊章 Hong Kong Old Style",
+  minimumFaan: 3,
+  limitFaan: 13,
+  useFlowers: true,
+  payment: HKOS_DOUBLING_PER_PLAYER,
+  faanTable: {
+    // honour melds — a kong of the same honour is worth what the pung is worth
+    dragonPung: 1,
+    seatWind: 1,
+    roundWind: 1,
+
+    // bonus tiles 花
+    ownFlower: 1,
+    ownSeason: 1,
+    allFlowers: 2,
+    allSeasons: 2,
+    noFlowers: 1,
+
+    // winning conditions
+    selfDraw: 1,
+    concealedHand: 1,
+    winOnLastTile: 1,
+    winOnLastDiscard: 1,
+    robbingKong: 1,
+    winOnKongReplacement: 1,
+    winByDoubleKong: 8,
+
+    // hand patterns
+    allChows: 1,
+    allPungs: 3,
+    halfFlush: 3,
+    fullFlush: 6,
+    mixedTerminals: 1,
+    smallThreeDragons: 5,
+    bigThreeDragons: 8,
+    smallFourWinds: 6,
+    bigFourWinds: 10,
+
+    // limit hands 爆棚
+    // The one departure from the column, which renders this 10. Four of the six
+    // surveyed systems star 四暗刻 as a limit hand rather than pricing it, and
+    // the golden suite fixes it at the limit (engine/test/golden/kongs.ts calls
+    // its two cases uncontested at 13, where a 10 would land on 11 and 12).
+    // 十八羅漢 below stays at 10: that one the systems genuinely split on,
+    // 7 · 7 · 10 · limit, so the column's answer stands.
+    fourConcealedPungs: 13,
+    allHonours: 10,
+    // 7 is the column's own value and it is an OUTLIER — four of the six systems
+    // star 清么九 as a limit hand. Kept because the golden flush family pins it
+    // at 7 (its two cases total 8) while the limit family declares 10, and the
+    // suite cannot be satisfied both ways. Open question, not a decision.
+    allTerminals: 7,
+    // Second named departure. The column prices 九蓮寶燈 4 and adds 清一色's 6
+    // on top for 10 effective; the other four systems pay a flat limit, and the
+    // golden limit family needs 13 (a 4 would land its cases on 6 and 8).
+    // patterns.ts subsumes 清一色 to match the flat reading.
+    nineGates: 13,
+    thirteenOrphans: 13,
+    allKongs: 10,
+    heavenlyHand: 13,
+    earthlyHand: 13,
+
+    // Absent on purpose:
+    //   sevenPairs 七對子 — not classic HK Old Style, and the column has no
+    //     value for it. mjrc-standard DOES play it (owner ruling 2026-08-31);
+    //     that is a house addition made there, not a correction made here.
+    //   jadeDragon / rubyDragon / pearlDragon — the column reads "—". MJ Time
+    //     and MJB pay them as limit hands, so a house that plays them should
+    //     add them rather than have a value invented here.
+  },
+};
+
+/**
+ * The LIU family variant. DESIGN.md §4 keeps it as a config preset for private
+ * tables; ENGINE-AUDIT §1 records that its faan values are genuinely
+ * non-standard — 大三元 6 where canonical pays 8, 小四喜 10, and 七對子 scored
+ * at all, which classic HK Old Style does not do.
+ *
+ * Flowers are ON here even though ruleset.py sets `use_flowers = False`. That
+ * flag sits under a comment reading "Tile features (off by default in MJRC
+ * v0)" — it records what the Python engine had implemented, not how the LIU
+ * family plays, and the LIU column of hk-scoring.ts prices every bonus tile.
+ */
+export const LIU: Ruleset = {
+  id: "liu",
+  label: "LIU 家法 house variant",
+  minimumFaan: 3,
+  limitFaan: 13,
+  useFlowers: true,
+  payment: LIU_BRACKET_TOTAL,
+  faanTable: {
+    dragonPung: 1,
+    seatWind: 1,
+    roundWind: 1,
+
+    ownFlower: 1,
+    ownSeason: 1,
+    allFlowers: 2,
+    allSeasons: 2,
+    noFlowers: 1,
+
+    selfDraw: 1,
+    concealedHand: 1,
+    winOnLastTile: 1,
+    winOnLastDiscard: 1,
+    robbingKong: 1,
+    winOnKongReplacement: 1,
+
+    allChows: 1,
+    allPungs: 3,
+    halfFlush: 3,
+    fullFlush: 7,
+    mixedTerminals: 1,
+    sevenPairs: 4,
+    smallThreeDragons: 4,
+    bigThreeDragons: 6,
+    smallFourWinds: 10,
+    bigFourWinds: 13,
+
+    fourConcealedPungs: 13,
+    allHonours: 13,
+    allTerminals: 13,
+    nineGates: 13,
+    thirteenOrphans: 13,
+    allKongs: 7,
+    heavenlyHand: 13,
+    earthlyHand: 13,
+
+    // Absent because the LIU column reads "—": winByDoubleKong 槓上槓 and the
+    // three suit-dragon hands.
+  },
+};
+
+/**
+ * What MJRC actually plays — owner ruling 2026-08-27: "13 faan is too high,
+ * just do 3-10". The published reference (HKOS_STANDARD, 3-13) stays untouched
+ * as the golden suite's yardstick; this preset is the shipping game and the
+ * whole sim/training stack. Payment still reads the published doubling ladder,
+ * clamped by the lower cap (max win: 256 on a discard, 128 x 3 self-draw).
+ */
+export const MJRC_STANDARD: Ruleset = {
+  ...HKOS_STANDARD,
+  id: "mjrc-standard",
+  label: "MJRC 標準 (3-10 faan)",
+  limitFaan: 10,
+  // Inherited values above the cap are clamped IN THE TABLE, not just at
+  // scoring time: under a 10-cap house, "十三么 pays 10" is the price itself.
+  // Scoring output is identical either way (any single award at the cap
+  // saturates alone); what changes is that the table now tells the truth and
+  // the bots' route pricing stops valuing limit hands above what they pay.
+  faanTable: {
+    ...Object.fromEntries(
+      Object.entries(HKOS_STANDARD.faanTable).map(([id, faan]) => [id, Math.min(faan, 10)]),
+    ),
+    /**
+     * 清一色 — **7, ratified by the owner 2026-08-31.**
+     *
+     * The inherited 6 is a transcription error, not a house choice:
+     * RULESET-STANDARDIZATION-PROPOSAL.md §10 checked the column labelled
+     * "Wikipedia" in hk-scoring.ts against Wikipedia and found five of thirteen
+     * values wrong, this among them. The published value is 7, and LIU prices it
+     * at 7 as well (see FAAN_LIU in engine/test/golden/limit.ts).
+     *
+     * The correction lives HERE rather than in HKOS_STANDARD deliberately.
+     * hkos-standard's job is to be a faithful reading of that one column, warts
+     * included, and the golden suite mirrors it — so it keeps the 6 until the
+     * source table is fixed by the team that owns it. mjrc-standard is the house
+     * ruleset and is allowed its own prices, provided they are decisions. This
+     * one is.
+     *
+     * Note for whoever retrains next: the shipped ladder was evolved against a
+     * 6, so flush routes are now priced slightly under what they pay. Expected
+     * to be small; measure it rather than assume it.
+     */
+    fullFlush: 7,
+    /**
+     * 么九 — **10, ratified by the owner 2026-08-31**, alongside 清一色.
+     *
+     * The same transcription error as the flush, from the same audit: the column
+     * labelled "Wikipedia" in hk-scoring.ts carries 7 where Wikipedia prices it a
+     * LIMIT hand at 10. Under this house's 10-cap that makes 么九 a limit hand,
+     * which is what it is — every set built from terminals only, no honours to
+     * fall back on.
+     *
+     * Kept out of HKOS_STANDARD for the same reason as the flush: that preset's
+     * job is a faithful reading of one column, and the golden suite mirrors it.
+     *
+     * Behaviourally this is close to inert — 么九 did not occur once in a 500-hand
+     * sample. It is corrected because leaving it would mean mjrc-standard still
+     * carried an unratified slip, not because it changes play.
+     */
+    allTerminals: 10,
+    /**
+     * 七對子 — **4, owner ruling 2026-08-31: "enough people I know do play with
+     * it."**
+     *
+     * Absent from the Wikipedia column, so `hkos-standard` does not play it and
+     * this is a house ADDITION rather than a correction — the first departure
+     * here that is not fixing a transcription slip.
+     *
+     * 4 is LIU's price, the only value this codebase has ever validated (it is
+     * cross-checked against scoring.py and asserted by the golden fixtures).
+     * HKOS sources more often say 5; the owner ruled 5 too high.
+     *
+     * This one needed an ENGINE change, not just a row. Seven pairs is a shape
+     * that never reads as four sets and a pair, so decompose/ready/scoring each
+     * needed a branch — before that, LIU had priced the pattern for as long as
+     * it existed and could never award it.
+     */
+    sevenPairs: 4,
+  },
+};
+
+/**
+ * TVB Championship 2026 (owner request 2026-08-29). The interesting inversions
+ * vs mjrc-standard: 1-faan floor (every complete hand is payable), LINEAR
+ * payments (big hands barely out-earn small ones), no flowers. Approximation
+ * notes: the show's no-dealer-repeat and 12-tile bao are match-structure /
+ * liability rules the engine does not model; per-hand play is faithful.
+ */
+export const TVB_2026: Ruleset = {
+  ...HKOS_STANDARD,
+  id: "tvb-2026",
+  label: "TVB Championship 2026",
+  minimumFaan: 1,
+  limitFaan: 10,
+  useFlowers: false,
+  payment: TVB_LINEAR_PER_PLAYER,
+  // No flowers on the show's table, so no bonus-tile patterns either —
+  // 無花 would be trivially always-on and 正花 unreachable.
+  faanTable: Object.fromEntries(
+    Object.entries(HKOS_STANDARD.faanTable)
+      .filter(([id]) => pattern(id).family !== "bonusTile")
+      .map(([id, faan]) => [id, Math.min(faan, 10)]),
+  ),
+};
+
+export const RULESETS: readonly Ruleset[] = [HKOS_STANDARD, MJRC_STANDARD, TVB_2026, LIU];
+
+export const DEFAULT_RULESET_ID = HKOS_STANDARD.id;
+
+export const ruleset = (id: string): Ruleset | undefined =>
+  RULESETS.find((r) => r.id === id);
+
+/** Ids this ruleset plays. patterns.ts needs this to stop a disabled pattern subsuming an enabled one. */
+export const enabledPatterns = (r: Ruleset): ReadonlySet<string> =>
+  new Set(Object.keys(r.faanTable));
+
+/**
+ * Every faanTable key has to be a real pattern id — a typo would silently
+ * price nothing at all. Called by the test suite; cheap enough to call at
+ * startup if a future preset ever loads from disk.
+ */
+export function assertRulesetSound(r: Ruleset): void {
+  for (const id of Object.keys(r.faanTable)) {
+    if (!isPattern(id)) throw new Error(`${r.id}: "${id}" is not in the pattern catalogue`);
+    const faan = r.faanTable[id]!;
+    if (!Number.isInteger(faan) || faan < 0) {
+      throw new Error(`${r.id}: ${id} has a bad faan value ${faan}`);
+    }
+    if (!r.useFlowers && pattern(id).family === "bonusTile") {
+      throw new Error(`${r.id}: prices ${id} but plays without flowers`);
+    }
+  }
+  if (r.minimumFaan < 0 || r.minimumFaan > r.limitFaan) {
+    throw new Error(`${r.id}: minimumFaan ${r.minimumFaan} does not fit under limitFaan ${r.limitFaan}`);
+  }
+}

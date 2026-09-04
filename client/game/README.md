@@ -1,0 +1,257 @@
+# The game
+
+A playable HK Old Style match: you against three bots from the training
+programme, over the real engine.
+
+Open `index.html` (any static server) — no build step at runtime, no backend,
+no accounts. State lives in memory; your record persists in `localStorage`.
+
+    python3 -m http.server 8480 --directory client/game
+
+## What gets recorded
+
+A name on first visit — no password, no email, no sign-in. The key is a
+generated uuid, not the name, so two friends both called "Dave" do not merge
+and renaming yourself does not fork you in two. Per-device, and the screen says
+so.
+
+Every match then records, to **IndexedDB** (`store.ts`):
+
+- **The event log** — the engine's outputs, what the stats pages read.
+- **The action log** — the inputs, bots' choices included. Replaying it through
+  the reducer regenerates the events exactly, because the reducer is pure. So a
+  game recorded today still replays correctly after the bots are retrained;
+  their *decisions* are on record and history cannot be quietly rewritten.
+- **Every one of your decisions, graded** against the champion — what you
+  played, what it would have played, the gap, and how much better its first
+  choice was than its second. That last number is what separates a real
+  decision from a forced one: agreeing with the engine on a forced move says
+  nothing about you.
+- **Per-seat outcomes**, so "how do the bots do against real humans" is
+  answerable — the one comparison the whole training programme never made.
+
+Not localStorage: a one-wind match is ~187 KB of events, and localStorage's ~5 MB
+would fill at about 24 games.
+
+Quitting mid-match records a **forfeit**. A player who abandoned every losing
+game would otherwise look like a strong player.
+
+The **✎ feedback** button files a report with the game state attached — match id,
+hand, the last eight log lines, the seed — so a "something looked wrong" can be
+replayed rather than guessed at. It attaches to your last match too, since
+people file feedback about the game they just left.
+
+## Sitting down
+
+One screen: **length**, **rules**, **table**. Length is a segmented control with
+its cost as a caption underneath — four blurb-carrying cards for what is really
+one number wrapped to two rows and made a dial look like a menu.
+
+Two rulesets are offered:
+
+| | |
+| --- | --- |
+| **MJRC standard** | 3–10 faan · flowers · doubling payments. The house game. |
+| **TVB Championship 2026** | 1 faan minimum · no flowers · linear payments. |
+
+Only these two have actually been played through the client, and offering an
+untested table invites feedback about something already known to be unvalidated.
+`hkos-standard` stays registered in `@mjrc/rulesets` and is one line from being
+listed again.
+
+The ruleset is set **here and nowhere else** — it used to also live in settings,
+which is two places to change one thing.
+
+### What TVB actually changes
+
+| | TVB | MJRC standard |
+| --- | ---: | ---: |
+| minimum faan | **1** | 3 |
+| flowers | **none** | yes, with replacements |
+| wall | **136 tiles** | 144 |
+| 1 faan pays (discard) | **10** | 4 |
+| 10 faan pays (discard) | **100** | 256 |
+
+The linear curve is the whole character of it: every hand is payable, and a
+limit hand barely out-earns a cheap one. Worth playing precisely because it
+makes the 3-faan floor visible by its absence.
+
+## The scoreboard
+
+A finished match opens its own scoreboard — final standings, hands won,
+self-draws, who fed whom, the best hand each player made, discards and claims
+and kongs and flowers per seat, then the match hand by hand with your chip
+delta on each. The same screen is reachable later from **Your games**: tap any
+match.
+
+All of it is **derived by walking the stored event log**, which is the payoff
+for keeping the log rather than a summary row — none of these numbers had to be
+decided on in advance, and adding another is a re-read rather than a schema
+change.
+
+## Handicaps
+
+Training wheels, each switchable on its own in settings. They tell you only what
+a careful player could work out from the table — `visibleCounts` sees exactly
+what your seat sees, and nothing hidden is revealed.
+
+- **Count tiles** — hover any tile and every copy of it on the table lights up:
+  the pile, the melds, your hand. Counting the discards is a core skill; this
+  does the counting for you, it does not show you anything new.
+
+  A match **glows**: a hot yellow edge, a warm wash across the face, and light
+  spilling a short way past the border. Everything else dims only 10 %.
+
+  The spill is `filter: drop-shadow` in yellow, not `box-shadow`, and that is
+  the whole reason it works. **A `box-shadow` glow paints UNDER neighbouring
+  tiles**, so in a dense heap it is swallowed by the very tiles it needs to
+  stand out from — which is why the first attempt was invisible. `drop-shadow`
+  follows the tile's shape and composites over them.
+
+  A pile tile also cannot be raised by `z-index` (`#surface` is `preserve-3d`,
+  so its children paint by depth) and cannot be moved or scaled (it carries an
+  inline `transform` for its rotation, which silently beats anything in a
+  class). Light was the only lever left.
+
+- **Calling read** — a standing bar above your hand: whether you are 聽牌, what
+  you are waiting on, **how many of each are still live**, and whether the hand
+  can actually pay. A hand that cannot reach the 3-faan minimum says so, because
+  a complete hand you are not allowed to take is the most expensive way to learn
+  this ruleset.
+- **What-if** — hover a tile in your own hand and the bar shows what cutting it
+  would leave you waiting on. Needs the calling read.
+
+Past six helping tiles the bar stops naming them and gives the count instead:
+five away from calling, nearly every tile in the game helps, and nineteen names
+is wallpaper rather than a reading aid.
+
+## Settings (⚙ in the top bar)
+
+- **Rules** — MJRC standard (3–10 faan), HK Old Style published (3–13), or TVB
+  Championship 2026 (1-faan floor, linear payments, no flowers). Applies to the
+  next match; the engine does the rest.
+- **Tile size** — 80–200%. Everything scales off one CSS variable.
+- **Bot speed** — 0 (instant) to 1.2s per move.
+- **Dev mode** — two boxes. The first shows what each bot is planning: its top
+  routes, distance and who it fears. The second is the **helper**, and it
+  covers both halves of a turn:
+  - *Discards* — how the champion ranks yours, graded **green / amber / red**
+    with the reason ("slower: 4 away vs 3", "off your best route").
+  - *Claims* — while the pung/chow buttons are up it says TAKE or SKIP for each
+    and why; once you choose, the verdict joins the log. A refusal is quoted in
+    the bot's own terms ("leaves no path to the faan floor", "kills the
+    concealed hand you are building").
+
+  It runs `assessRoutes` / `rankDiscards` / `assessClaim` / `claimDecision` /
+  `shouldKong` — the very calls the bot makes, so the advice is its reasoning
+  rather than a story told about it.
+
+## What it is
+
+- **The real engine.** `game.ts` renders `MatchState` and posts `Action`s back.
+  It decides no rules: legality, scoring, payments and the 3-faan floor all come
+  from `engine/` and `rulesets/`, exactly as the simulations use them.
+- **Measured opponents.** `bots.js` carries the frozen ladder — `v0` (the
+  original defenceless bot) through `v4` (the strongest bot the programme
+  produced), plus `persona-action` (nearly as strong, far more watchable).
+  Difficulty here is a measured quantity: see `tools/sim/experiments.js`.
+- **The site's own tile art.** `tile-engine.js` is the SVG engine copied from
+  `mjrc-app/web/public/tiles/` — the same faces the scoring pages draw, with
+  real pip geometry. Flowers and seasons are keyed BY CHARACTER because the
+  engine's array order (梅蘭竹菊) differs from the tile ids (梅蘭菊竹).
+- **A pile that never overlaps.** Discards form an organic heap — the owner
+  picked it from ten sketches in `pile-lab.html` against a photo of a real
+  table. A tile lands on its thrower's side, falls toward it until a neighbour
+  stops it, then hops sideways-and-down 220 times looking for somewhere nearer;
+  a separating-axis test on the true rotated rectangle keeps it from ever lying
+  on another tile. 60 % of the heap's area is tile. Counting the discards is a
+  core skill; a pile you cannot count is worse than useless.
+- **Tiles are named by their face.** `4●` circles, `4▮` bamboo, `4萬`
+  characters, honours and flowers in English — the discard feed and the coach
+  should read without Chinese. The tile ART is untouched.
+- **Everything you need is on the table.** Round, hand and wall sit in the
+  felt's top-left; your own plate — seat wind, 莊, chips — sits at the near
+  edge mirroring the bots'. Nothing lives in a window strip a phone would have
+  to drop. Chips read green when you are up, red when you are down.
+- **HK table conventions.** Chow is offered only from 上家; the seat and
+  round winds, dealer mark 莊 and dealer repeats are all engine state.
+
+## The calls
+
+Every claim, flower and win puts up an announcement — and they are **tiered by
+how much the call matters**, then coloured by kind, so a player learns to read
+the colour before the character:
+
+| call | colour | why |
+| --- | --- | --- |
+| 上 chow | teal | the cheapest claim there is |
+| 碰 pung | blue | the common claim |
+| 槓 kong · 暗槓 · 加槓 | violet | rarer, and it draws a replacement |
+| 花 flower | rose | barely an event — smallest of the set |
+| 搶槓 robbing the kong | orange | rare enough to be a story |
+| 食糊 win · 自摸 self-draw | gold | the hand is over. Biggest, and it throws rays |
+
+Two CSS variables carry it: `--cc` is the glyph colour and `--cg` the light it
+throws. Every rule reads those, so a new call type is three lines.
+
+Before this they were all one thing — white glyph, thin gold box — so a routine
+上 and a 食糊 that ended the hand were the same visual event, which wastes the
+one moment the table has to say something.
+
+**`call-lab.html`** shows all of them: a stage that plays the sequence with the
+real animation and the real hold (2.2s a claim, 3.2s a win, seats rotating), and
+a grid of every call held still for comparison. It **pulls the stylesheet live
+out of `index.html`**, so there is no second copy to drift — it strips the
+game's page-level `body` rules on the way in, which otherwise turn the lab into
+a flex column and squash the stage.
+
+## Rebuild after changing `game.ts`
+
+    ../../../mjrc-app/web/node_modules/.bin/esbuild client/game/game.ts \
+      --bundle --platform=browser --format=iife --outfile=client/game/game.js
+
+Refresh the bot roster after a new champion is frozen:
+
+    python3 -c "import json;d={k:json.load(open('tools/sim/%s.json'%f)) for k,f in \
+      [('v0','baseline-v0'),('v1','baseline-v1'),('v2','baseline-v2'),('v3','baseline-v3'),\
+       ('v4','baseline-v4'),('persona','persona-action')]}; \
+      open('client/game/bots.js','w').write('window.BOTS = '+json.dumps(d)+';\n')"
+
+## Animation
+
+Three beats, all pure CSS so none of them can gate input (`MatchScene.ts` rule 1:
+show the affordance immediately, animate underneath it):
+
+- **Build the wall — 1.45s.** At the start of every hand the wall assembles: each
+  face-down tile flies in from a random offset with a random tilt, staggered by
+  side and position, so it reads as shuffling-then-stacking.
+- **Draw off the wall — 0.9s.** The drawn tile arcs from the wall into the gap at
+  the right of your hand. Bots' face-down tiles pop in the same way.
+- **Toss — 1.3s.** A discard flies in *from the thrower's seat*, lands short of
+  its slot at 52%, lies there for a beat, then skids the last stretch —
+  accelerating and stopping dead against the pile. The final easing is an
+  ease-IN, because a curve still gaining speed when it ends reads as a hard
+  stop; a decelerating one reads as a glide.
+
+**Two motions never run at once.** The reducer emits a discard and the next
+player's draw in one batch, so they used to start in the same frame. Motions now
+queue by delay — a draw begins 832ms into the toss, once the tile has landed and
+settled — while announcements (碰, 花, 食糊) ride alongside the motion that caused
+them. Queueing is delay plus `animation-fill-mode: backwards`, never a gate: the
+affordance is always live. The full audit is in `ANIMATION-SEQUENCE.md`.
+
+- **The hold after a call — 0.75s (0.5s for a flower).** A pung, chow, kong or
+  flower stops the table: nothing else animates until the call has been made
+  and the meld is down, the way play pauses at a real table. It is armed by
+  `announce()` so it fires exactly when a call was shown, and it never applies
+  to your own turn — an affordance is not taken away by an animation.
+
+The wall itself is decorative (the engine's wall is a shuffled array) but it
+carries what a real wall tells you: how much game is left, and it visibly erodes
+as tiles are drawn.
+
+## Not built yet
+
+Sound · replay viewer · avatars and
+expressions (`EXPRESSIONS.md`) · online play (`DESIGN.md` §5.3 specifies the
+snapshot + actions-since resync the renderer boundary already assumes).

@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pile lab — ten ways to throw tiles</title>
+<style>
+:root{--felt:#12503f;--felt-dk:#0d3d30;--ink:#f2ece0;--dim:#a9b8ae;--gold:#d8b56a}
+*{box-sizing:border-box}
+body{margin:0;background:#131110;color:var(--ink);
+  font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:20px}
+h1{font-size:17px;margin:0 0 4px}
+.sub{color:var(--dim);font-size:12.5px;margin-bottom:14px;max-width:900px}
+.controls{display:flex;gap:16px;align-items:center;margin-bottom:16px;font-size:12.5px;color:var(--dim);flex-wrap:wrap}
+.controls input[type=range]{width:150px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(310px,1fr));gap:14px}
+.cell{background:#1a1815;border:1px solid #2c2823;border-radius:12px;padding:10px}
+.cell h2{font-size:13px;margin:0 0 2px}
+.cell .note{color:var(--dim);font-size:11.5px;min-height:32px;margin-bottom:8px}
+.cell .meta{color:var(--gold);font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;margin-bottom:6px}
+.felt{position:relative;height:250px;border-radius:10px;overflow:hidden;
+  background:radial-gradient(ellipse at 50% 45%,var(--felt),var(--felt-dk) 75%,#0b3427);
+  border:6px solid #2e2016}
+.t{position:absolute;background:#FAFAF8;border-radius:3px;box-shadow:0 1px 2px rgba(0,0,0,.5);
+  line-height:0;overflow:hidden}
+.t svg{width:100%;height:100%;display:block}
+.seatmark{position:absolute;font-size:9px;color:rgba(255,255,255,.35);letter-spacing:.1em}
+</style>
+</head>
+<body>
+<h1>Pile lab — ten ways to throw tiles</h1>
+<div class="sub">Same discards, same tile art, ten layout algorithms. Every one is checked for overlap:
+the badge says <b>CLEAR</b> when no two tiles intersect at their drawn rotation, and reports the footprint
+so you can compare how compact each is. Tell me which you want in the game — they can also be selectable.</div>
+<div class="controls">
+  <label>tiles <input type="range" id="n" min="4" max="90" value="26"><span id="nv">26</span></label>
+  <label>tile size <input type="range" id="sz" min="18" max="44" value="30"><span id="szv">30</span></label>
+  <label><input type="checkbox" id="rot" checked> rotation jitter</label>
+</div>
+<div class="grid" id="grid"></div>
+<script src="tile-engine.js"></script>
+<script>
+SHOW_MEASURE = false;
+const FACE = [];
+for (let i = 1; i <= 9; i++) FACE.push(tileWan(i));
+for (let i = 1; i <= 9; i++) FACE.push(tileSuo(i));
+for (let i = 1; i <= 9; i++) FACE.push(tileTong(i));
+for (const c of ["東","南","西","北"]) FACE.push(tileWind(c));
+for (const k of ["red","green","white"]) FACE.push(tileDragon(k));
+
+const rngOf = (s) => () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296;
+const W = 340, H = 250;   // felt box in px
+
+/* Each layout returns {x,y,rot} per tile index. Origin is the felt's centre. */
+const LAYOUTS = [
+  { name: "1 · Centre-out spiral", note: "What the game uses now. Tiles accumulate around the first throw; step is the tile diagonal so nothing can overlap.",
+    fn: (n, s, rnd) => Array.from({length:n}, (_, i) => {
+      const cell = Math.hypot(s, s*0.714) * 1.02;
+      const [lx, ly] = spiral(i);
+      return { x: lx*cell*1.1, y: ly*cell*0.9, rot: (rnd()-0.5)*26 };
+    })},
+  { name: "2 · Hex pack", note: "Honeycomb rows. The tightest arrangement that still guarantees no overlap — smallest footprint here.",
+    fn: (n, s, rnd) => { const cell = Math.hypot(s, s*0.714)*1.0, per = 7; return Array.from({length:n}, (_, i) => {
+      const r = Math.floor(i/per), c = i%per;
+      return { x: (c - per/2 + (r%2)*0.5 + 0.5)*cell*0.95, y: (r - 1.5)*cell*0.83, rot: (rnd()-0.5)*16 };
+    });}},
+  { name: "3 · Rows and columns", note: "Mahjong Time's tidy river: strict left-to-right, wrapping. Easiest to count, least like a real table.",
+    fn: (n, s, rnd) => { const per = 8, w = s*0.714+3; return Array.from({length:n}, (_, i) =>
+      ({ x: ((i%per) - per/2 + 0.5)*w, y: (Math.floor(i/per) - 1.5)*(s+3), rot: 0 }));}},
+  { name: "4 · Four quadrants", note: "Each seat's discards drift into their own corner of the middle. You can read at a glance who threw what.",
+    fn: (n, s, rnd) => { const cell = Math.hypot(s, s*0.714)*1.02; return Array.from({length:n}, (_, i) => {
+      const seat = i%4, k = Math.floor(i/4);
+      const [qx, qy] = [[1,1],[-1,1],[-1,-1],[1,-1]][seat];
+      const c = k%3, r = Math.floor(k/3);
+      return { x: qx*(cell*0.62 + c*cell*0.95), y: qy*(cell*0.55 + r*cell*0.85), rot: (rnd()-0.5)*18 };
+    });}},
+  { name: "5 · Riichi rows", note: "Each player keeps a neat block in front of themselves, six to a row. Very legible, very Japanese.",
+    fn: (n, s, rnd) => { const w = s*0.714+2; return Array.from({length:n}, (_, i) => {
+      const seat = i%4, k = Math.floor(i/4), c = k%6, r = Math.floor(k/6);
+      const along = (c - 2.5)*w, out = 74 + r*(s+2);
+      return seat===0 ? {x: along, y: out, rot: 0} : seat===1 ? {x: out*1.25, y: -along, rot: 90}
+           : seat===2 ? {x: -along, y: -out, rot: 180} : {x: -out*1.25, y: along, rot: 270};
+    });}},
+  { name: "6 · Loose ring", note: "Tiles pushed outward into a widening ring, the middle left open. Reads as a table people are leaning over.",
+    fn: (n, s, rnd) => { const cell = Math.hypot(s, s*0.714)*1.04; return Array.from({length:n}, (_, i) => {
+      const ring = Math.floor(i/10), per = 10 + ring*4, k = i%per;
+      const rad = cell*1.5 + ring*cell*0.95, a = (k/per)*Math.PI*2 + ring*0.4;
+      return { x: Math.cos(a)*rad*1.25, y: Math.sin(a)*rad*0.8, rot: (rnd()-0.5)*30 };
+    });}},
+  { name: "7 · Cross", note: "Accumulates along two axes from the middle. Compact vertically, wide horizontally.",
+    fn: (n, s, rnd) => { const cell = Math.hypot(s, s*0.714)*1.02; return Array.from({length:n}, (_, i) => {
+      const arm = i%4, k = Math.floor(i/4)+1;
+      const d = k*cell*0.92;
+      return arm===0 ? {x:d*1.3,y:(rnd()-0.5)*6,rot:(rnd()-0.5)*14} : arm===1 ? {x:-d*1.3,y:(rnd()-0.5)*6,rot:(rnd()-0.5)*14}
+           : arm===2 ? {x:(rnd()-0.5)*6,y:d*0.85,rot:(rnd()-0.5)*14} : {x:(rnd()-0.5)*6,y:-d*0.85,rot:(rnd()-0.5)*14};
+    });}},
+  { name: "8 · Organic heap ★ SHIPPED", note: "A real table: many orientations including tiles lying sideways, irregular gaps, denser in the middle. This is the algorithm the game now runs. Each tile is thrown from ITS OWN SEAT'S side of the heap, creeps outward until it finds a legal spot, then falls back toward that seat until a neighbour stops it — and finally sidesteps and falls again, 220 times, keeping only what lands nearer. Tiles may touch; they never overlap.",
+    fn: (n, s, rnd) => { const tw = s*0.714, out = [], CLEAR = 0.3, SQUASH = Math.min(0.9, Math.max(0.5, H/W));
+      const fits = c => !out.some(o => overlaps(c, o, tw + CLEAR, s + CLEAR));
+      for (let i=0;i<n;i++){
+        // the thrower rotates you / east / north / west, as at the table
+        const seat = i % 4;
+        const ax = [0, tw*1.7, 0, -tw*1.7][seat], ay = [s*0.75, 0, -s*0.75, 0][seat];
+        const far = c => (c.x-ax)**2 + (c.y-ay)**2;
+        const drop = c => { const dx=ax-c.x, dy=ay-c.y, d=Math.hypot(dx,dy); if (d<0.01) return c;
+          const ux=dx/d*0.5, uy=dy/d*0.5;
+          for (let m=0;m<d;m+=0.5){ const nx={...c, x:c.x+ux, y:c.y+uy}; if(!fits(nx)) break; c=nx; }
+          return c; };
+        let p=null;
+        for (let r=0; r<320 && !p; r+=Math.max(0.8, s*0.028)){
+          const off = rnd()*Math.PI*2;
+          for (let k=0;k<40 && !p;k++){ const a = off + (k/40)*Math.PI*2;
+            for (let t=0;t<4 && !p;t++){
+              const rot = rnd()<0.24 ? (rnd()<0.5?90:-90)+(rnd()-0.5)*22 : (rnd()-0.5)*74;
+              const c = {x:ax+Math.cos(a)*r, y:ay+Math.sin(a)*r*SQUASH, rot};
+              if (fits(c)) p = c;
+            }
+          }
+        }
+        if (p) { p = drop(p);
+          for (let k=0;k<220;k++){
+            const c = {x:p.x+(rnd()-0.5)*14, y:p.y+(rnd()-0.5)*14, rot:p.rot+(rnd()-0.5)*22};
+            if (!fits(c)) continue;
+            const d2 = drop(c); if (far(d2) < far(p)) p = d2;
+          }
+        }
+        out.push(p ?? {x:0,y:0,rot:0}); }
+      return out;}},
+  { name: "9 · Sunburst by seat", note: "Each seat throws down its own spoke, angled to where they sit. The pile shows the shape of the hand.",
+    fn: (n, s, rnd) => { const cell = Math.hypot(s, s*0.714)*1.03; return Array.from({length:n}, (_, i) => {
+      const seat = i%4, k = Math.floor(i/4);
+      const base = [Math.PI/2, 0, -Math.PI/2, Math.PI][seat];
+      // the hub must clear four spokes of three, so start well out
+      const spread = ((k%3)-1)*0.34, rad = cell*2.15 + Math.floor(k/3)*cell*1.0;
+      const a = base + spread;
+      return { x: Math.cos(a)*rad*1.3, y: Math.sin(a)*rad*0.82, rot: (rnd()-0.5)*24 };
+    });}},
+  { name: "10 · Brick", note: "Staggered brick courses, tight and orderly but still slightly organic. A compromise between 2 and 3.",
+    fn: (n, s, rnd) => { const w = s*0.714+2, per = 7; return Array.from({length:n}, (_, i) => {
+      const r = Math.floor(i/per), c = i%per;
+      return { x: (c - per/2 + (r%2)*0.5 + 0.5)*w, y: (r-1.5)*(s*0.78), rot: (rnd()-0.5)*8 };
+    });}},
+];
+function spiral(n){ if(!n) return [0,0];
+  let ring=1; while(n >= (2*ring+1)**2) ring++;
+  const inner=(2*ring-1)**2, side=2*ring, k=n-inner, e=Math.floor(k/side), o=k%side;
+  if(e===0) return [ring,-ring+1+o]; if(e===1) return [ring-1-o,ring];
+  if(e===2) return [-ring,ring-1-o]; return [-ring+1+o,-ring];
+}
+/* overlap check: separating-axis test on two rotated rectangles */
+function overlaps(a, b, w, h){
+  const rect = (p) => { const c=Math.cos(p.rot*Math.PI/180), s=Math.sin(p.rot*Math.PI/180);
+    return [[-w/2,-h/2],[w/2,-h/2],[w/2,h/2],[-w/2,h/2]].map(([x,y]) => ({x:p.x+x*c-y*s, y:p.y+x*s+y*c})); };
+  const A=rect(a), B=rect(b);
+  for (const poly of [A,B]) for (let i=0;i<4;i++){
+    const p1=poly[i], p2=poly[(i+1)%4], ax=-(p2.y-p1.y), ay=p2.x-p1.x;
+    const proj = (P) => P.map(p => p.x*ax+p.y*ay);
+    const a1=proj(A), b1=proj(B);
+    if (Math.max(...a1) < Math.min(...b1) || Math.max(...b1) < Math.min(...a1)) return false;
+  }
+  return true;
+}
+function draw(){
+  const n = +document.getElementById("n").value;
+  const s = +document.getElementById("sz").value;
+  const useRot = document.getElementById("rot").checked;
+  document.getElementById("nv").textContent = n;
+  document.getElementById("szv").textContent = s;
+  const tw = s*0.714;
+  document.getElementById("grid").innerHTML = LAYOUTS.map((L, li) => {
+    const rnd = rngOf(9871 + li*77);
+    let pts = L.fn(n, s, rnd);
+    if (!useRot) pts = pts.map(p => ({...p, rot: Math.round(p.rot/90)*90}));
+    // RELAX: if a design collides at its natural spacing, push it outward until
+    // it does not. Every layout is then judged CLEAR at its true footprint, so
+    // the comparison is about shape and compactness, not who tuned constants.
+    const anyOverlap = (P) => {
+      for (let i=0;i<P.length;i++) for (let j=i+1;j<P.length;j++)
+        if (overlaps(P[i], P[j], tw, s)) return true;
+      return false;
+    };
+    let spread = 1, relaxed = 0;
+    while (anyOverlap(pts) && relaxed < 24) {
+      spread *= 1.045; relaxed++;
+      pts = L.fn(n, s, rngOf(9871 + li*77)).map(p => ({ ...p, x: p.x*spread, y: p.y*spread }));
+      if (!useRot) pts = pts.map(p => ({...p, rot: Math.round(p.rot/90)*90}));
+    }
+    const clear = !anyOverlap(pts);
+    const xs = pts.map(p=>p.x), ys = pts.map(p=>p.y);
+    const fw = Math.round(Math.max(...xs)-Math.min(...xs)+tw), fh = Math.round(Math.max(...ys)-Math.min(...ys)+s);
+    const fits = fw <= W-16 && fh <= H-16;
+    return `<div class="cell"><h2>${L.name}</h2><div class="note">${L.note}</div>
+      <div class="meta">${clear ? "✓ CLEAR" : "✕ OVERLAPS"} · footprint ${fw}×${fh}px · area ${(fw*fh/1000).toFixed(0)}k${relaxed ? ` · relaxed ${relaxed}×` : ""} ${fits ? "" : "· ⚠ bigger than the table centre"}</div>
+      <div class="felt">${pts.map((p, i) => {
+        const f = FACE[(i*7+li*3) % FACE.length];
+        return `<span class="t" style="left:${(W/2+p.x-tw/2).toFixed(1)}px;top:${(H/2+p.y-s/2).toFixed(1)}px;
+          width:${tw.toFixed(1)}px;height:${s}px;transform:rotate(${p.rot.toFixed(1)}deg)"><svg viewBox="0 0 100 140">${f}</svg></span>`;
+      }).join("")}</div></div>`;
+  }).join("");
+  recenterGlyphs(document);
+}
+for (const id of ["n","sz","rot"]) document.getElementById(id).addEventListener("input", draw);
+draw();
+</script>
+</body>
+</html>

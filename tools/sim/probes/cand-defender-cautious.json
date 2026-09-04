@@ -1,0 +1,5 @@
+{
+  "threatSensitivity": 1.0,
+  "threatPushValue": 0.8,
+  "discardSafetyWeight": 0.9
+}

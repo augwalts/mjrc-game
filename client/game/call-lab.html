@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Call lab — every announcement, side by side</title>
+<style>
+body{margin:0;background:#131110;color:#f2ece0;padding:18px;
+  font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+h1{font-size:17px;margin:0 0 4px}
+.sub{color:#a9b8ae;font-size:12.5px;max-width:900px;margin-bottom:14px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px}
+.cell{background:#1a1815;border:1px solid #2c2823;border-radius:12px;padding:9px}
+.cell h2{font-size:12px;margin:0 0 7px;color:#d8b56a;letter-spacing:.05em}
+/* A patch of the real felt, so contrast is judged against what ships. */
+.felt{position:relative;height:190px;border-radius:10px;overflow:hidden;
+  background:radial-gradient(ellipse at 50% 45%,#12503f,#0d3d30 75%,#0b3427);
+  border:5px solid #2e2016;display:flex;align-items:center;justify-content:center}
+/* The lab pins each call in the middle and holds it there — the shipped
+   animation ends at opacity 0, which is useless for looking at. */
+.felt .callbox{position:static;opacity:1;animation:none!important;transform:none}
+.controls{margin-bottom:14px;color:#a9b8ae;font-size:12.5px;display:flex;gap:16px;flex-wrap:wrap;align-items:center}
+.controls button{background:rgba(216,181,106,.16);border:1px solid #d8b56a;color:#f2ece0;
+  border-radius:8px;padding:6px 13px;font:inherit;cursor:pointer}
+.controls button:disabled{opacity:.4;cursor:default}
+.controls .now{color:#d8b56a;font-variant-numeric:tabular-nums}
+/* A full table, so the seat positions and the real animation can be judged. */
+.stage{position:relative;height:340px;flex:0 0 auto;border-radius:14px;overflow:hidden;
+  background:radial-gradient(ellipse at 50% 45%,#12503f,#0d3d30 75%,#0b3427);
+  border:7px solid #2e2016}
+.stage .seatlbl{position:absolute;font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+  color:rgba(255,255,255,.24)}
+.stage .seatlbl.s0{left:50%;bottom:10px;transform:translateX(-50%)}
+.stage .seatlbl.s1{right:12px;top:50%;transform:translateY(-50%)}
+.stage .seatlbl.s2{left:50%;top:10px;transform:translateX(-50%)}
+.stage .seatlbl.s3{left:12px;top:50%;transform:translateY(-50%)}
+/* the stage's call keeps the shipped positioning and animation */
+.stage .callbox{position:absolute}
+</style>
+</head>
+<body>
+<h1>Call lab — every announcement, side by side</h1>
+<div class="sub">Every call the game can make, held still on a patch of the real felt.
+The stylesheet is pulled live out of <code>index.html</code>, so this is exactly what ships —
+there is no second copy to drift.</div>
+<div class="controls">
+  <button id="play">▶ play them in sequence</button>
+  <button id="stop" disabled>■ stop</button>
+  <label>gap between calls <input type="range" id="gap" min="0" max="1500" step="100" value="400">
+    <span id="gapv">400ms</span></label>
+  <label><input type="checkbox" id="loop" checked> loop</label>
+  <span id="now" class="now">—</span>
+</div>
+
+<div class="stage">
+  <div class="seatlbl s0">you</div><div class="seatlbl s1">right</div>
+  <div class="seatlbl s2">across</div><div class="seatlbl s3">left</div>
+  <div class="callbox" id="stagecall"></div>
+</div>
+
+<h1 style="margin-top:22px">All of them at once</h1>
+<div class="sub">Held still, for comparing. The sequence above shows the real animation and
+the real hold — 2.2s for a claim, 3.2s for a win.</div>
+<div class="controls">
+  <label><input type="checkbox" id="big"> render every call at the win size</label>
+</div>
+<div class="grid" id="grid"></div>
+
+<script>
+/* The calls, copied from game.ts CALLS. Kept in the same order. */
+const CALLS = [
+  ["pung",          "碰",  "pung",              "Kwan", "3萬"],
+  ["chow",          "上",  "chow",              "Ling", "5索"],
+  ["kong",          "槓",  "kong",              "Ming", "8筒"],
+  ["concealedKong", "暗槓", "concealed kong",   "Kwan", ""],
+  ["addedKong",     "加槓", "added kong",       "Ling", ""],
+  ["flower",        "花",  "flower",            "Ming", "Spring"],
+  ["robbingKong",   "搶槓", "robbed the kong",  "You",  "7萬"],
+  ["win",           "食糊", "win",              "Kwan", "6 faan"],
+  ["selfDraw",      "自摸", "self-draw",        "You",  "9 faan"],
+];
+
+/* Pull the shipped stylesheet in rather than keeping a copy here. */
+async function boot() {
+  const html = await (await fetch("index.html")).text();
+  const css = [...html.matchAll(/<style>([\s\S]*?)<\/style>/g)].map((m) => m[1]).join("\n");
+  const st = document.createElement("style");
+  st.textContent = css
+    // #call is positioned against the table; the lab hosts it itself
+    .replace(/#call\b/g, ".callbox")
+    // Drop the game's PAGE-level rules. `body{display:flex;overflow:hidden}` was
+    // turning this page into a flex column and squeezing the stage to a strip —
+    // we want the call styling, not the game's layout.
+    .replace(/(^|\})\s*body\s*\{[^}]*\}/g, "$1")
+    .replace(/(^|\})\s*html\s*\{[^}]*\}/g, "$1");
+  document.head.appendChild(st);
+  draw();
+  document.getElementById("big").onchange = draw;
+  wireSequence();
+}
+
+/* ── play them in sequence ──────────────────────────────────────────────
+ * Mirrors announce() in game.ts: the same class, the same markup, and the same
+ * hold — 2200ms for a claim, 3200ms for a win. Seats rotate so the positioning
+ * gets exercised too, which is half of what makes a call readable. */
+const HOLD = (id) => (id === "win" || id === "selfDraw" ? 3200 : 2200);
+let seqTimer = 0, seqIdx = 0, running = false;
+
+function showOne(i) {
+  const [id, ch, en, who, extra] = CALLS[i];
+  const seat = i % 4;
+  const el = document.getElementById("stagecall");
+  const big = id === "win" || id === "selfDraw";
+  el.innerHTML = `<div class="inner"><div class="cw">${who}</div>` +
+    `<div class="cc${ch.length > 1 ? " two" : ""}">${ch}</div>` +
+    `<div class="ce">${en}${extra ? " · " + extra : ""}</div></div>`;
+  el.className = "callbox";
+  void el.offsetWidth;                       // restart the animation cleanly
+  el.className = `callbox show s${seat} k-${id} ${big ? "big" : ""}`;
+  document.getElementById("now").textContent =
+    `${i + 1}/${CALLS.length}  ${id} · ${ch}  → seat ${seat}`;
+  return HOLD(id);
+}
+
+function step() {
+  if (!running) return;
+  const hold = showOne(seqIdx);
+  const gap = Number(document.getElementById("gap").value);
+  seqIdx++;
+  if (seqIdx >= CALLS.length) {
+    if (!document.getElementById("loop").checked) {
+      seqTimer = setTimeout(stopSeq, hold);
+      return;
+    }
+    seqIdx = 0;
+  }
+  seqTimer = setTimeout(step, hold + gap);
+}
+
+function stopSeq() {
+  running = false;
+  clearTimeout(seqTimer);
+  document.getElementById("stagecall").className = "callbox";
+  document.getElementById("now").textContent = "—";
+  document.getElementById("play").disabled = false;
+  document.getElementById("stop").disabled = true;
+}
+
+function wireSequence() {
+  const gap = document.getElementById("gap");
+  gap.oninput = () => { document.getElementById("gapv").textContent = gap.value + "ms"; };
+  document.getElementById("play").onclick = () => {
+    running = true; seqIdx = 0;
+    document.getElementById("play").disabled = true;
+    document.getElementById("stop").disabled = false;
+    step();
+  };
+  document.getElementById("stop").onclick = stopSeq;
+}
+
+function draw() {
+  const big = document.getElementById("big").checked;
+  document.getElementById("grid").innerHTML = CALLS.map(([id, ch, en, who, extra]) => {
+    const isBig = big || id === "win" || id === "selfDraw";
+    return `<div class="cell"><h2>${id}</h2><div class="felt">
+      <div class="callbox show k-${id} ${isBig ? "big" : ""}">
+        <div class="inner">
+          <div class="cw">${who}</div>
+          <div class="cc${ch.length > 1 ? " two" : ""}">${ch}</div>
+          <div class="ce">${en}${extra ? " · " + extra : ""}</div>
+        </div>
+      </div></div></div>`;
+  }).join("");
+}
+boot();
+</script>
+</body>
+</html>
