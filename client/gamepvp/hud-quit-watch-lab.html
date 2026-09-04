@@ -3,7 +3,11 @@
 <title>HUD · quit · watch — mockups 2026-09-03</title>
 <style>
 :root{
-  --felt:#12503f; --felt-dk:#0d3d30; --wood:#3a2a1e; --ink:#f2ece0; --dim:#a9b8ae;
+  /* The felt: a woven green table mat (owner photo, 2026-09-03) — a mid,
+     saturated green rather than the old dark teal, darkening toward the rim.
+     `--felt-weave` is the pitch of the basket weave drawn over it. */
+  --felt:#1d7d4c; --felt-dk:#176640; --felt-edge:#115034; --felt-weave:4px;
+  --wood:#3a2a1e; --ink:#f2ece0; --dim:#a9b8ae;
   --tile:#f6f1e4; --tile-edge:#cdc3ab; --tile-ink:#22201c; --red:#b23b32; --green:#1f6b46;
   --gold:#d8b56a; --accent:#7fb3ff; --danger:#e08a6a;
   /* site kit, used FUNCTIONALLY only (owner's ruling: neutral on neutral,
@@ -22,7 +26,7 @@
   --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
 }
 @media (prefers-color-scheme: dark){
-  html.theme-system{
+  html:not(.theme-light){
     --c-bg:#1e1f1d; --c-panel:#2a2b29; --c-panel2:#363733; --c-line:#4a4b46; --c-ink:#f3efe4; --c-dim:#b3b0a5;
     --c-blue:#9fbaf0; --c-on-blue:#1e1f1d; --c-danger:#e2857f; --c-veil:rgba(0,0,0,.62)}
 }
@@ -47,11 +51,11 @@ body{background:var(--c-bg);
 .hud .gear{width:40px;height:40px;padding:0;border-radius:50%;display:flex;align-items:center;justify-content:center;
   color:var(--c-ink);border:1px solid var(--c-line);background:none;cursor:pointer;flex:0 0 auto}
 .hud .gear:hover,.hud .gear[aria-expanded="true"]{border-color:var(--c-ink);background:var(--c-panel2)}
-/* the dropdown: a small panel under the gear, one text row per action */
-.hudMenu{position:absolute;right:10px;top:calc(100% + 6px);z-index:71;min-width:180px;
-  background:var(--c-bg);border:1px solid var(--c-line);border-radius:12px;padding:6px;
-  box-shadow:0 14px 40px rgba(0,0,0,.28);display:flex;flex-direction:column;gap:2px}
-.hudMenu[hidden]{display:none}
+/* .hudMenu is now only a WIRING HOST (owner, 2026-09-03: the gear opens a
+   full tabbed menu instead of a dropdown): the four buttons keep their ids
+   and their boot-time handlers, stay hidden, and the menu's own buttons
+   forward clicks to them (menuScreen). */
+.hudMenu{display:none !important}
 /* `.hud .hudMenu …` outranks the pill rule `.hud button` below, which
    would otherwise win on source order and draw the rows as pills */
 .hud .hudMenu button{width:100%;text-align:left;border:0;border-radius:8px;padding:11px 12px;min-height:42px;font-size:14px;
@@ -96,6 +100,30 @@ body{background:var(--c-bg);
 .panel.modal .ghost{font:inherit;font-size:13px;padding:10px 16px;border-radius:10px;border:1px solid var(--c-line);
   background:none;color:var(--c-ink);cursor:pointer;min-height:42px}
 @media (max-width:520px){.panel.modal .mfoot .primary{flex:1 1 100%;order:-1}.panel.modal .mfoot .ghost{flex:1}}
+/* ── the tabbed menu behind the gear (hud-quit-watch-lab.html §4) ── */
+.panel.menu{max-width:560px}
+.panel.menu .mhead .sum{color:var(--c-dim);font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.panel.menu .mhead .x{margin-left:auto;width:32px;height:32px;border-radius:16px;border:1px solid var(--c-line);background:var(--c-panel);color:var(--c-ink);font:inherit;font-size:18px;line-height:1;padding:0;cursor:pointer;flex:0 0 auto}
+.panel.menu .tabs{display:flex;gap:4px;padding:8px 12px 0;border-bottom:1px solid var(--c-line);overflow-x:auto}
+.panel.menu .tab{font-family:var(--mono);font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--c-dim);padding:8px 10px;border:0;background:none;border-bottom:2px solid transparent;margin:0 0 -1px;white-space:nowrap;cursor:pointer;border-radius:0;min-height:0}
+.panel.menu .tab.on{color:var(--c-ink);border-bottom-color:var(--c-ink)}
+.panel.menu .mbody{max-height:min(60vh,480px);overflow:auto}
+.panel.menu .srow{display:grid;grid-template-columns:120px 1fr;align-items:center;gap:10px;min-height:42px;padding:2px 0}
+@media (max-width:520px){.panel.menu .srow{grid-template-columns:96px 1fr}}
+.panel.menu .srow .lbl{font-size:13.5px;color:var(--c-ink)}
+.panel.menu .cap2{color:var(--c-dim);font-size:11px;margin:-2px 0 6px;line-height:1.35}
+.panel.menu .act{display:flex;gap:8px;flex-wrap:wrap}
+.panel.menu .ghost.on{border-color:var(--c-ink);background:var(--c-panel2);font-weight:600}
+.panel.menu .ghost.danger{border-color:var(--c-danger);color:var(--c-danger)}
+.panel.menu .ghost:disabled{opacity:.5;cursor:default}
+.panel.menu .hostblk{margin-top:12px;padding-top:10px;border-top:1px solid var(--c-line)}
+.panel.menu .cap{font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--c-dim);font-weight:600;margin:0 0 6px}
+.panel.menu .seg{display:inline-flex;border:1px solid var(--c-line);border-radius:10px;overflow:hidden}
+.panel.menu .seg button{border:0;border-radius:0;padding:7px 12px;font-size:12.5px;color:var(--c-dim);background:none;min-height:0;cursor:pointer}
+.panel.menu .seg button.on{background:var(--c-panel2);color:var(--c-ink);font-weight:600}
+.panel.menu input[type=range]{width:100%;accent-color:var(--c-blue)}
+.panel.menu input[type=range]:disabled{opacity:.45}
+.panel.menu .rules b{color:var(--c-ink)} .panel.menu .rules p{margin:4px 0 8px;color:var(--c-dim);font-size:13px;line-height:1.5}
 .veil{position:absolute;inset:0;background:var(--c-veil);display:none;
   align-items:flex-start;justify-content:center;overflow-y:auto;
   -webkit-overflow-scrolling:touch;z-index:40;padding:16px}
@@ -124,7 +152,7 @@ h1{font-size:17px;margin:0 0 4px} .note{color:var(--c-dim);font-size:12.5px;max-
 .frame.phone .screen{height:760px}
 .hud .spacer{flex:1}
 .tablearea{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:10px}
-.felt{position:relative;width:100%;height:100%;border-radius:18px;background:radial-gradient(ellipse at 50% 42%,var(--felt) 0%,var(--felt-dk) 72%,#0b3427 100%);border:8px solid var(--c-panel);box-shadow:inset 0 0 40px rgba(0,0,0,.4),0 10px 26px rgba(0,0,0,.3);color:#f2ece0}
+.felt{position:relative;width:100%;height:100%;border-radius:18px;background:repeating-linear-gradient(0deg,rgba(0,0,0,.11) 0 1px,transparent 1px 4px),repeating-linear-gradient(90deg,rgba(255,255,255,.055) 0 1px,transparent 1px 4px),radial-gradient(ellipse at 50% 42%,var(--felt) 0%,var(--felt-dk) 72%,var(--felt-edge) 100%);border:8px solid var(--c-panel);box-shadow:inset 0 0 40px rgba(0,0,0,.4),0 10px 26px rgba(0,0,0,.3);color:#f2ece0}
 .state{position:absolute;left:10px;top:8px;background:rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:5px 10px;line-height:1.25;white-space:nowrap;font-size:12px}
 .state .wind{font-size:17px;font-weight:700}
 .tray{flex:0 0 auto;background:var(--c-panel);border-top:1px solid var(--c-line)}
@@ -151,27 +179,15 @@ h1{font-size:17px;margin:0 0 4px} .note{color:var(--c-dim);font-size:12.5px;max-
 .badge.on{border-color:var(--c-blue);color:var(--c-blue)}
 .rowh{display:flex;align-items:center;gap:8px}
 
-/* ── section 4: the tabbed menu ── */
-.menu .mhead{gap:10px} .menu .mhead .x{margin-left:auto;width:32px;height:32px;border-radius:16px;border:1px solid var(--c-line);background:var(--c-panel);color:var(--c-ink);font-size:18px;line-height:1}
-.tabs{display:flex;gap:6px;padding:8px 12px 0;border-bottom:1px solid var(--c-line);overflow-x:auto}
-.tab{font-family:var(--mono);font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--c-dim);padding:8px 10px;border:0;background:none;border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;cursor:pointer}
-.tab.on{color:var(--c-ink);border-bottom-color:var(--c-ink)}
-.srow{display:grid;grid-template-columns:120px 1fr;align-items:center;gap:10px;min-height:42px;padding:2px 0}
-.frame.phone .srow{grid-template-columns:96px 1fr}
-.srow .lbl{font-size:13.5px;color:var(--c-ink)}
-.srow .cap2{grid-column:2;color:var(--c-dim);font-size:11px;margin:-4px 0 6px;line-height:1.35}
-.srow.switch{grid-template-columns:1fr auto}
-.sw{width:40px;height:24px;border-radius:12px;background:var(--c-line);position:relative;flex:0 0 auto}
-.sw::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:var(--c-bg)}
-.sw.on{background:var(--c-blue)} .sw.on::after{left:19px}
+/* ── section 4: only what the real CSS does not draw (mock-only widgets) ── */
+.menu .mhead .sum{color:var(--c-dim);font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase}
+.sw{display:inline-block;font:inherit;font-size:13px;padding:8px 16px;border-radius:10px;border:1px solid var(--c-line);color:var(--c-ink)}
+.sw.on{border-color:var(--c-ink);background:var(--c-panel2);font-weight:600}
+.sw::after{content:"off"} .sw.on::after{content:"on"}
 .range{height:4px;border-radius:2px;background:var(--c-line);position:relative;margin:8px 0}
 .range i{position:absolute;left:0;top:0;height:100%;width:40%;background:var(--c-blue);border-radius:2px}
 .range b{position:absolute;left:40%;top:-7px;width:18px;height:18px;border-radius:50%;background:var(--c-bg);border:2px solid var(--c-blue);transform:translateX(-50%)}
-.seg{display:inline-flex;border:1px solid var(--c-line);border-radius:10px;overflow:hidden}
-.seg span{padding:7px 12px;font-size:12.5px;color:var(--c-dim)} .seg span.on{background:var(--c-panel2);color:var(--c-ink);font-weight:600}
-.act{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 4px}
-.hostblk{margin-top:12px;padding-top:10px;border-top:1px solid var(--c-line)}
-.hostblk .cap{margin-bottom:6px}
+.range.off{opacity:.45} .range.off i{width:60%} .range.off b{left:60%}
 </style></head><body class="">
 <div id="controls"><button class="on" onclick="setT('light',this)">paper</button><button onclick="setT('dark',this)">charcoal</button></div>
 <script>function setT(t,b){document.documentElement.className='theme-'+t;for(const x of document.querySelectorAll('#controls button'))x.classList.toggle('on',x===b)}</script>
@@ -247,11 +263,11 @@ h1{font-size:17px;margin:0 0 4px} .note{color:var(--c-dim);font-size:12.5px;max-
 </div></div>
 
 <div class="sec"><p class="cap">4 · the menu behind the gear — tabbed</p>
-<p class="note">Gear → one full menu, not a dropdown. Four tabs: <b>game</b> (pause, auto; host block: remove a player, end for everyone) · <b>table</b> (tile size, double-tap, sort) · <b>coach</b> (the handicaps + beginner labels) · <b>app</b> (theme, language, sound, haptics, account). The footer is the same on every tab: <b>leave the table</b> in seal red on the left, <b>done</b> as the primary on the right, Esc = done. The head repeats the HUD title so you never lose where you are. Quit is no longer a separate menu item — leaving is always one tap away in the footer, and it still goes through the confirm dialog (section 2).</p>
+<p class="note">Gear → one full menu, not a dropdown. Five tabs: <b>game</b> (pause, auto; host block: remove a player, end for everyone) · <b>rules</b> (the ruleset we are playing by, match length, the table's speed as a greyed slider) · <b>table</b> (tile size, double-tap on/off buttons, sort) · <b>coach</b> (the handicaps + beginner labels) · <b>app</b> (theme, language, sound, haptics, account). The footer is the same on every tab: <b>leave the table</b> in seal red on the left, <b>done</b> as the primary on the right, Esc = done. The head repeats the HUD title so you never lose where you are. Quit is no longer a separate menu item — leaving is always one tap away in the footer, and it still goes through the confirm dialog (section 2).</p>
 <div class="row2">
 <div class="frame phone"><span class="label">phone · game tab · host</span><div class="screen"><div class="hud"><span class="tt">MJRC standard · 東圈</span><span class="tt clock">12:34</span><span class="netchip"></span><span class="spacer"></span><button class="gear chatBtn"><svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M4 4h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 4v-4H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/></svg></button><button class="gear" aria-expanded="true"><svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M19.4 13a7.6 7.6 0 0 0 .1-1 7.6 7.6 0 0 0-.1-1l2.1-1.6a.5.5 0 0 0 .1-.7l-2-3.4a.5.5 0 0 0-.6-.2l-2.5 1a7.3 7.3 0 0 0-1.7-1l-.4-2.6a.5.5 0 0 0-.5-.5h-4a.5.5 0 0 0-.5.4l-.4 2.7a7.3 7.3 0 0 0-1.7 1l-2.5-1a.5.5 0 0 0-.6.2l-2 3.4a.5.5 0 0 0 .1.7L4.6 11a7.6 7.6 0 0 0-.1 1 7.6 7.6 0 0 0 .1 1l-2.1 1.6a.5.5 0 0 0-.1.7l2 3.4c.1.2.4.3.6.2l2.5-1a7.3 7.3 0 0 0 1.7 1l.4 2.6c0 .3.2.5.5.5h4c.2 0 .5-.2.5-.4l.4-2.7a7.3 7.3 0 0 0 1.7-1l2.5 1c.2.1.5 0 .6-.2l2-3.4a.5.5 0 0 0-.1-.7L19.4 13zM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z"/></svg></button></div><div class="tablearea"><div class="felt"></div></div><div class="veil" style="position:absolute;inset:0"><div class="panel modal menu">
     <div class="mhead"><h2>Menu</h2><span class="mut" style="font-family:var(--mono);font-size:11px">MJRC standard · 東圈 · 12:34</span><button class="x">×</button></div>
-    <div class="tabs"><button class="tab on">game</button><button class="tab">table</button><button class="tab">coach</button><button class="tab">app</button></div>
+    <div class="tabs"><button class="tab on">game</button><button class="tab">rules</button><button class="tab">table</button><button class="tab">coach</button><button class="tab">app</button></div>
     <div class="mbody">
       <div class="act"><button class="ghost">⏸ pause the table</button><button class="ghost">auto-play · off</button></div>
       <p class="mut" style="font-size:11.5px;margin:0 0 6px">Pause holds every seat's clock; anyone can resume. Auto lets a bot play your seat until you turn it off — you keep the seat.</p>
@@ -265,11 +281,11 @@ h1{font-size:17px;margin:0 0 4px} .note{color:var(--c-dim);font-size:12.5px;max-
   </div></div></div></div>
 <div class="frame phone"><span class="label">phone · table tab</span><div class="screen"><div class="hud"><span class="tt">MJRC standard · 東圈</span><span class="tt clock">12:34</span><span class="netchip"></span><span class="spacer"></span><button class="gear chatBtn"><svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M4 4h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 4v-4H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/></svg></button><button class="gear" aria-expanded="true"><svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M19.4 13a7.6 7.6 0 0 0 .1-1 7.6 7.6 0 0 0-.1-1l2.1-1.6a.5.5 0 0 0 .1-.7l-2-3.4a.5.5 0 0 0-.6-.2l-2.5 1a7.3 7.3 0 0 0-1.7-1l-.4-2.6a.5.5 0 0 0-.5-.5h-4a.5.5 0 0 0-.5.4l-.4 2.7a7.3 7.3 0 0 0-1.7 1l-2.5-1a.5.5 0 0 0-.6.2l-2 3.4a.5.5 0 0 0 .1.7L4.6 11a7.6 7.6 0 0 0-.1 1 7.6 7.6 0 0 0 .1 1l-2.1 1.6a.5.5 0 0 0-.1.7l2 3.4c.1.2.4.3.6.2l2.5-1a7.3 7.3 0 0 0 1.7 1l.4 2.6c0 .3.2.5.5.5h4c.2 0 .5-.2.5-.4l.4-2.7a7.3 7.3 0 0 0 1.7-1l2.5 1c.2.1.5 0 .6-.2l2-3.4a.5.5 0 0 0-.1-.7L19.4 13zM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z"/></svg></button></div><div class="tablearea"><div class="felt"></div></div><div class="veil" style="position:absolute;inset:0"><div class="panel modal menu">
     <div class="mhead"><h2>Menu</h2><span class="mut" style="font-family:var(--mono);font-size:11px">MJRC standard · 東圈 · 12:34</span><button class="x">×</button></div>
-    <div class="tabs"><button class="tab">game</button><button class="tab on">table</button><button class="tab">coach</button><button class="tab">app</button></div>
+    <div class="tabs"><button class="tab">game</button><button class="tab">rules</button><button class="tab on">table</button><button class="tab">coach</button><button class="tab">app</button></div>
     <div class="mbody">
       <div class="srow"><span class="lbl">tile size</span><div><div class="range"><i></i><b></b></div></div><span class="cap2">80–150% · your own hand only · <u>reset</u></span></div>
-      <div class="srow switch"><span class="lbl">double tap to discard · phone</span><span class="sw on"></span></div>
-      <div class="srow switch"><span class="lbl">double tap to discard · desktop</span><span class="sw on"></span></div>
+      <div class="srow"><span class="lbl">double tap to discard · phone</span><span class="sw on"></span></div>
+      <div class="srow"><span class="lbl">double tap to discard · desktop</span><span class="sw on"></span></div>
       <span class="cap2">First tap lifts the tile and reads it, second tap throws it — a thrown tile cannot be taken back.</span>
       <div class="srow"><span class="lbl">hand order</span><div><button class="ghost">sort my hand</button></div></div>
     </div>
@@ -279,26 +295,37 @@ h1{font-size:17px;margin:0 0 4px} .note{color:var(--c-dim);font-size:12.5px;max-
 <div class="row2">
 <div class="frame desk"><span class="label">desktop · coach tab</span><div class="screen"><div class="hud"><span class="tt">MJRC standard · 東圈 · normal</span><span class="tt clock">25:50</span><span class="netchip"></span><span class="spacer"></span><button class="gear chatBtn"><svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M4 4h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 4v-4H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/></svg></button><button class="gear" aria-expanded="true"><svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M19.4 13a7.6 7.6 0 0 0 .1-1 7.6 7.6 0 0 0-.1-1l2.1-1.6a.5.5 0 0 0 .1-.7l-2-3.4a.5.5 0 0 0-.6-.2l-2.5 1a7.3 7.3 0 0 0-1.7-1l-.4-2.6a.5.5 0 0 0-.5-.5h-4a.5.5 0 0 0-.5.4l-.4 2.7a7.3 7.3 0 0 0-1.7 1l-2.5-1a.5.5 0 0 0-.6.2l-2 3.4a.5.5 0 0 0 .1.7L4.6 11a7.6 7.6 0 0 0-.1 1 7.6 7.6 0 0 0 .1 1l-2.1 1.6a.5.5 0 0 0-.1.7l2 3.4c.1.2.4.3.6.2l2.5-1a7.3 7.3 0 0 0 1.7 1l.4 2.6c0 .3.2.5.5.5h4c.2 0 .5-.2.5-.4l.4-2.7a7.3 7.3 0 0 0 1.7-1l2.5 1c.2.1.5 0 .6-.2l2-3.4a.5.5 0 0 0-.1-.7L19.4 13zM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z"/></svg></button></div><div class="tablearea"><div class="felt"></div></div><div class="veil" style="position:absolute;inset:0"><div class="panel modal menu">
     <div class="mhead"><h2>Menu</h2><span class="mut" style="font-family:var(--mono);font-size:11px">MJRC standard · 東圈 · 12:34</span><button class="x">×</button></div>
-    <div class="tabs"><button class="tab">game</button><button class="tab">table</button><button class="tab on">coach</button><button class="tab">app</button></div>
+    <div class="tabs"><button class="tab">game</button><button class="tab">rules</button><button class="tab">table</button><button class="tab on">coach</button><button class="tab">app</button></div>
     <div class="mbody">
       <p class="mut" style="font-size:12px;margin:0 0 6px">Training wheels. Each only tells you what a careful player could work out from the table — nothing hidden is revealed.</p>
-      <div class="srow switch"><span class="lbl">count tiles</span><span class="sw on"></span></div><span class="cap2">tap or hover any tile to light up every copy on the table</span>
-      <div class="srow switch"><span class="lbl">calling read</span><span class="sw"></span></div><span class="cap2">whether you are 聽牌, what you wait on, how many are live</span>
-      <div class="srow switch"><span class="lbl">what-if</span><span class="sw"></span></div><span class="cap2">lift a tile to see what cutting it leaves you waiting on</span>
-      <div class="srow switch"><span class="lbl">beginner labels</span><span class="sw on"></span></div><span class="cap2">names the timer, the calls and the buttons</span>
+      <div class="srow"><span class="lbl">count tiles</span><span class="sw on"></span></div><span class="cap2">tap or hover any tile to light up every copy on the table</span>
+      <div class="srow"><span class="lbl">calling read</span><span class="sw"></span></div><span class="cap2">whether you are 聽牌, what you wait on, how many are live</span>
+      <div class="srow"><span class="lbl">what-if</span><span class="sw"></span></div><span class="cap2">lift a tile to see what cutting it leaves you waiting on</span>
+      <div class="srow"><span class="lbl">beginner labels</span><span class="sw on"></span></div><span class="cap2">names the timer, the calls and the buttons</span>
     </div>
+    <div class="mfoot"><button class="ghost" style="border-color:var(--c-danger);color:var(--c-danger)">leave the table</button><span class="hint2">esc · done</span><button class="primary">done ▸</button></div>
+  </div></div></div></div>
+</div>
+<div class="row2">
+<div class="frame desk"><span class="label">desktop · rules tab</span><div class="screen"><div class="hud"><span class="tt">MJRC standard · 東圈 · normal</span><span class="tt clock">25:50</span><span class="netchip"></span><span class="spacer"></span><button class="gear chatBtn"><svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M4 4h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 4v-4H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/></svg></button><button class="gear" aria-expanded="true"><svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M19.4 13a7.6 7.6 0 0 0 .1-1 7.6 7.6 0 0 0-.1-1l2.1-1.6a.5.5 0 0 0 .1-.7l-2-3.4a.5.5 0 0 0-.6-.2l-2.5 1a7.3 7.3 0 0 0-1.7-1l-.4-2.6a.5.5 0 0 0-.5-.5h-4a.5.5 0 0 0-.5.4l-.4 2.7a7.3 7.3 0 0 0-1.7 1l-2.5-1a.5.5 0 0 0-.6.2l-2 3.4a.5.5 0 0 0 .1.7L4.6 11a7.6 7.6 0 0 0-.1 1 7.6 7.6 0 0 0 .1 1l-2.1 1.6a.5.5 0 0 0-.1.7l2 3.4c.1.2.4.3.6.2l2.5-1a7.3 7.3 0 0 0 1.7 1l.4 2.6c0 .3.2.5.5.5h4c.2 0 .5-.2.5-.4l.4-2.7a7.3 7.3 0 0 0 1.7-1l2.5 1c.2.1.5 0 .6-.2l2-3.4a.5.5 0 0 0-.1-.7L19.4 13zM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z"/></svg></button></div><div class="tablearea"><div class="felt"></div></div><div class="veil" style="position:absolute;inset:0"><div class="panel modal menu">
+    <div class="mhead"><h2>Menu</h2><span class="mut" style="font-family:var(--mono);font-size:11px">MJRC standard · 東圈 · 12:34</span><button class="x">×</button></div>
+    <div class="tabs"><button class="tab">game</button><button class="tab">table</button><button class="tab">coach</button><button class="tab">app</button></div>
+    <div class="mbody"><div class="rules"><b>MJRC standard</b><p>3–10 faan · flowers · doubling payments. The house game.</p>
+      <div class="srow"><span class="lbl">length</span><span>one wind round 東圈</span></div>
+      <div class="srow"><span class="lbl">speed</span><div><div class="range off"><i></i><b></b></div><p class="cap2">Normal · 12s to discard, 6s to call · set when the table was opened</p></div></div>
+      <p><a style="color:var(--c-blue)">full scoring reference ›</a></p></div></div>
     <div class="mfoot"><button class="ghost" style="border-color:var(--c-danger);color:var(--c-danger)">leave the table</button><span class="hint2">esc · done</span><button class="primary">done ▸</button></div>
   </div></div></div></div>
 </div>
 <div class="row2">
 <div class="frame desk"><span class="label">desktop · app tab</span><div class="screen"><div class="hud"><span class="tt">MJRC standard · 東圈 · normal</span><span class="tt clock">25:50</span><span class="netchip"></span><span class="spacer"></span><button class="gear chatBtn"><svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M4 4h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 4v-4H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/></svg></button><button class="gear" aria-expanded="true"><svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M19.4 13a7.6 7.6 0 0 0 .1-1 7.6 7.6 0 0 0-.1-1l2.1-1.6a.5.5 0 0 0 .1-.7l-2-3.4a.5.5 0 0 0-.6-.2l-2.5 1a7.3 7.3 0 0 0-1.7-1l-.4-2.6a.5.5 0 0 0-.5-.5h-4a.5.5 0 0 0-.5.4l-.4 2.7a7.3 7.3 0 0 0-1.7 1l-2.5-1a.5.5 0 0 0-.6.2l-2 3.4a.5.5 0 0 0 .1.7L4.6 11a7.6 7.6 0 0 0-.1 1 7.6 7.6 0 0 0 .1 1l-2.1 1.6a.5.5 0 0 0-.1.7l2 3.4c.1.2.4.3.6.2l2.5-1a7.3 7.3 0 0 0 1.7 1l.4 2.6c0 .3.2.5.5.5h4c.2 0 .5-.2.5-.4l.4-2.7a7.3 7.3 0 0 0 1.7-1l2.5 1c.2.1.5 0 .6-.2l2-3.4a.5.5 0 0 0-.1-.7L19.4 13zM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z"/></svg></button></div><div class="tablearea"><div class="felt"></div></div><div class="veil" style="position:absolute;inset:0"><div class="panel modal menu">
     <div class="mhead"><h2>Menu</h2><span class="mut" style="font-family:var(--mono);font-size:11px">MJRC standard · 東圈 · 12:34</span><button class="x">×</button></div>
-    <div class="tabs"><button class="tab">game</button><button class="tab">table</button><button class="tab">coach</button><button class="tab on">app</button></div>
+    <div class="tabs"><button class="tab">game</button><button class="tab">rules</button><button class="tab">table</button><button class="tab">coach</button><button class="tab on">app</button></div>
     <div class="mbody">
       <div class="srow"><span class="lbl">theme</span><div class="seg"><span class="on">system</span><span>paper</span><span>charcoal</span></div></div>
       <div class="srow"><span class="lbl">language</span><div class="seg"><span class="on">English</span><span>廣東話</span></div></div>
-      <div class="srow switch"><span class="lbl">sound</span><span class="sw on"></span></div>
-      <div class="srow switch"><span class="lbl">haptics</span><span class="sw on"></span></div>
+      <div class="srow"><span class="lbl">sound</span><span class="sw on"></span></div>
+      <div class="srow"><span class="lbl">haptics</span><span class="sw on"></span></div>
       <div class="srow"><span class="lbl">account</span><div><a class="mut" style="text-decoration:underline">profile, picture, sign out ›</a></div></div>
     </div>
     <div class="mfoot"><button class="ghost" style="border-color:var(--c-danger);color:var(--c-danger)">leave the table</button><span class="hint2">esc · done</span><button class="primary">done ▸</button></div>
