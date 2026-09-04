@@ -533,6 +533,17 @@ export interface LobbyPayload {
 
 /** `?room=CODE` (§8b) scopes `here`/`tables`/`recent`/`chat` to one room —
  *  omit for the global lobby (Open hall). */
+/** Every live table this player can see: the global lobby (room-less
+ *  tables) plus each room they are a member of — the global panel leaves
+ *  a room's tables to the room's own page on purpose, so a list that means
+ *  "everything live" has to ask both (2026-09-03). De-duplicated by match. */
+export async function getLiveTablesEverywhere(token: string): Promise<LobbyTable[]> {
+  const [global, rooms] = await Promise.all([getLobby(token), getMyRooms(token).catch(() => [] as RoomSummary[])]);
+  const perRoom = await Promise.all(rooms.map((r) => getLobby(token, r.code).then((l) => l.tables).catch(() => [] as LobbyTable[])));
+  const seen = new Map<string, LobbyTable>();
+  for (const tb of [...global.tables, ...perRoom.flat()]) if (tb.lobbyStatus !== "done" && !seen.has(tb.matchId)) seen.set(tb.matchId, tb);
+  return [...seen.values()].sort((a, b) => b.startedAt - a.startedAt);
+}
 export async function getLobby(token: string, room?: string): Promise<LobbyPayload> {
   return apiFetch(`lobby${room ? `?room=${encodeURIComponent(room)}` : ""}`, { token });
 }

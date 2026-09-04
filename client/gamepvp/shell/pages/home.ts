@@ -3,7 +3,7 @@
  * code, Friends top 5, Your numbers with streak, Your recent games (3) with
  * ranked/casual badges. Desktop: two columns via `.cols` (theme.css).
  */
-import { getFriends, getInbox, getLobby, getStatsRecord, joinTable, listMatches, type FriendEntry, type LobbyHereEntry, type MatchListItem, type StatsRecordRow } from "../../net.js";
+import { getFriends, getInbox, getLiveTablesEverywhere, getLobby, getStatsRecord, joinTable, listMatches, type FriendEntry, type LobbyHereEntry, type MatchListItem, type StatsRecordRow } from "../../net.js";
 import { connectToMatch, handLabel } from "../../table.js";
 import type { PageMount } from "../router.js";
 import { esc, fmtChips, identity } from "../session.js";
@@ -109,11 +109,16 @@ export const mount: PageMount = (container, _params, router) => {
   void getLobby(token).then((lobby) => {
     const me = lobby.here.find((e) => e.playerId === playerId && (e.state === "waiting" || e.state === "playing") && !!e.joinCode);
     // hosting: a live table I created and hold no seat at (host-only, 2026-09-03)
-    const host = lobby.tables.find((tb) => tb.createdBy === playerId && tb.lobbyStatus !== "done"
-      && !tb.seats.some((s) => s.kind === "human" && s.playerId === playerId));
-    if (host) hosting = { matchId: host.matchId, name: host.name ?? null, status: host.lobbyStatus === "playing" ? handLabel(host.hand, host.handsBase) : "waiting to start" };
-    if ((me || host) && alive) { rejoin = me ?? null; paintShell(unreadNow); }
+    if (me && alive) { rejoin = me; paintShell(unreadNow); }
   }).catch(() => { /* degrade: no banner */ });
+  void getLiveTablesEverywhere(token).then((tables) => {
+    const host = tables.find((tb) => tb.createdBy === playerId
+      && !tb.seats.some((s) => s.kind === "human" && s.playerId === playerId));
+    if (host && alive) {
+      hosting = { matchId: host.matchId, name: host.name ?? null, status: host.lobbyStatus === "playing" ? handLabel(host.hand, host.handsBase) : "waiting to start" };
+      paintShell(unreadNow);
+    }
+  }).catch(() => { /* degrade: no card */ });
 
   void getInbox(token).then((inbox) => { if (alive) paintShell(inbox.filter((i) => i.unread).length); }).catch(() => { /* degrade: badge stays 0 */ });
   void getFriends(token).then((friends) => {

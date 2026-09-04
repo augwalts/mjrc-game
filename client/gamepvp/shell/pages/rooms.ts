@@ -2,7 +2,7 @@
  * Rooms — search-or-code field, Open hall pinned first, Starred, All
  * (task brief §11 build item 2; lobby-lab.html's Rooms page).
  */
-import { getLobby, getMyRooms, joinRoom, joinTable, starRoom, unstarRoom, type LobbyTable, type RoomSummary } from "../../net.js";
+import { getLiveTablesEverywhere, getMyRooms, joinRoom, joinTable, starRoom, unstarRoom, type LobbyTable, type RoomSummary } from "../../net.js";
 import { connectToMatch } from "../../table.js";
 import { tableRow } from "./room.js";
 import { ruleLabel, matchFormatLabel } from "../../table.js";
@@ -90,8 +90,8 @@ export const mount: PageMount = (container, _params, router) => {
     document.getElementById("roomCreate")!.addEventListener("click", (e) => { e.preventDefault(); void createRoomFlow(router); });
   };
   paint(null, null);
-  void getLobby(identity?.deviceToken ?? "").then((lobby) => {
-    liveTables = lobby.tables.filter((tb) => tb.lobbyStatus !== "done");
+  void getLiveTablesEverywhere(identity?.deviceToken ?? "").then((tables) => {
+    liveTables = tables;
     if (alive) paint(lastRooms, lastErr);
   }).catch(() => { liveTables = []; if (alive) paint(lastRooms, lastErr); });
   void getMyRooms(identity?.deviceToken ?? "").then((rooms) => { if (alive) paint(rooms, null); })

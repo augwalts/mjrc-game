@@ -7,7 +7,7 @@
  * tile, melds, flowers, discards, and who is on turn. Deliberately plain:
  * it is a monitor for a playtest host, not a player surface.
  */
-import { endTable, getLobby, getWatch, getWatchTokens, kickSeat, startTable, type LobbyTable, type WatchSeatOwn, type WatchView } from "../../net.js";
+import { endTable, getLiveTablesEverywhere, getWatch, getWatchTokens, kickSeat, startTable, type LobbyTable, type WatchSeatOwn, type WatchView } from "../../net.js";
 import { handLabel, meldHtml, ruleLabel, tileHtml } from "../../table.js";
 import type { PageMount } from "../router.js";
 import { esc, identity } from "../session.js";
@@ -88,10 +88,9 @@ export const mount: PageMount = (container, params, router) => {
     container.innerHTML = `${STYLE}${pageTop("Watch", { back: "/", displayName: identity?.displayName ?? "", unread: 0 })}
       <div class="sec">live tables</div><div class="card" id="watchList"><div class="spinner">loading…</div></div>${navHtml("/")}`;
     wireNav(container, router);
-    void getLobby(token).then((lobby) => {
+    void getLiveTablesEverywhere(token).then((live) => {
       const el = document.getElementById("watchList");
       if (!el || !alive) return;
-      const live = lobby.tables.filter((tb) => tb.lobbyStatus !== "done");
       el.innerHTML = live.length ? live.map(tableRow).join("") : `<p class="empty">no live tables</p>`;
       wireNav(container, router);
     }).catch(() => { const el = document.getElementById("watchList"); if (el) el.innerHTML = `<p class="empty">could not load</p>`; });
