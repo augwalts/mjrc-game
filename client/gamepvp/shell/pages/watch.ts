@@ -14,6 +14,50 @@ import { esc, identity } from "../session.js";
 import { navHtml, pageTop, wireNav } from "../ui.js";
 
 const WINDS = ["東", "南", "西", "北"];
+
+/* ── zoom for the four screens ─────────────────────────────────────────
+ * Two knobs, remembered per browser: screens per row (1 · 2 · 4) and the
+ * virtual screen each iframe renders at (phone 430×860, tablet 1024×768,
+ * desktop 1280×800). The scale is whatever makes that virtual width fit the
+ * cell, recomputed on resize. */
+const SIZES = { phone: [430, 860], tablet: [1024, 768], desktop: [1280, 800] } as const;
+type SizeKey = keyof typeof SIZES;
+const ZOOM_KEY = "mjrc.gamepvp.watchZoom";
+function readZoom(): { cols: 1 | 2 | 4; size: SizeKey } {
+  try {
+    const z = JSON.parse(localStorage.getItem(ZOOM_KEY) ?? "{}") as { cols?: number; size?: string };
+    return { cols: ([1, 2, 4] as const).find((c) => c === z.cols) ?? 2, size: (z.size && z.size in SIZES ? z.size : "desktop") as SizeKey };
+  } catch { return { cols: 2, size: "desktop" }; }
+}
+function wireZoom(root: HTMLElement): void {
+  const screens = root.querySelector<HTMLElement>("#screens");
+  if (!screens) return;
+  let z = readZoom();
+  const apply = (): void => {
+    const [vw, vh] = SIZES[z.size];
+    screens.style.setProperty("--cols", String(z.cols));
+    for (const cell of Array.from(screens.querySelectorAll<HTMLElement>(".cell"))) {
+      cell.style.setProperty("--vw", `${vw}px`); cell.style.setProperty("--vh", `${vh}px`);
+      cell.style.setProperty("--k", String(Math.min(1, cell.clientWidth / vw)));
+    }
+    for (const b of Array.from(root.querySelectorAll<HTMLButtonElement>("[data-zoom] button"))) {
+      const group = (b.parentElement as HTMLElement).dataset.zoom;
+      b.classList.toggle("on", group === "cols" ? Number(b.dataset.v) === z.cols : b.dataset.v === z.size);
+    }
+    try { localStorage.setItem(ZOOM_KEY, JSON.stringify(z)); } catch { /* fine */ }
+  };
+  for (const b of Array.from(root.querySelectorAll<HTMLButtonElement>("[data-zoom] button"))) {
+    b.onclick = () => {
+      const group = (b.parentElement as HTMLElement).dataset.zoom;
+      if (group === "cols") z = { ...z, cols: Number(b.dataset.v) as 1 | 2 | 4 }; else z = { ...z, size: b.dataset.v as SizeKey };
+      apply();
+    };
+  }
+  window.addEventListener("resize", apply);
+  apply();
+  // cells have no width until laid out; one more pass after paint
+  requestAnimationFrame(apply);
+}
 const POLL_MS = 2000;
 
 function tableRow(tb: LobbyTable): string {
@@ -71,9 +115,18 @@ const STYLE = `<style>
   #shell .meld{display:inline-flex;gap:1px;margin-right:6px}
   #shell .drawn{margin-left:8px}
   #shell .tiles .back{display:inline-block;width:28px;height:40px;border-radius:4px;background:#2b5f4a}
-  #shell .screens{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-  @media (max-width:900px){#shell .screens{grid-template-columns:1fr}}
-  #shell .screens iframe{width:100%;aspect-ratio:4/3;border:1px solid var(--line);border-radius:12px;background:#111}
+  /* Each screen is the real client rendered at a VIRTUAL size (--vw × --vh,
+     a desktop or a phone) and scaled down to fit its cell — so a cell shows
+     the desktop layout small, not the phone layout large. --cols and the
+     virtual size are the zoom controls; --k is computed per resize. */
+  #shell .screens{display:grid;grid-template-columns:repeat(var(--cols,2),1fr);gap:8px}
+  #shell .screens .cell{position:relative;overflow:hidden;border:1px solid var(--line);border-radius:12px;background:#111;height:calc(var(--vh) * var(--k,0.5))}
+  #shell .screens .cell iframe{position:absolute;left:0;top:0;width:var(--vw);height:var(--vh);border:0;transform:scale(var(--k,0.5));transform-origin:0 0}
+  #shell .zoombar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:0 0 8px}
+  #shell .zoombar .seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  #shell .zoombar .seg button{border:0;border-radius:0;padding:6px 10px;font-size:12px;color:var(--dim);background:none;cursor:pointer}
+  #shell .zoombar .seg button.on{background:var(--panel2);color:var(--ink);font-weight:600}
+  #shell .zoombar .lbl{font-family:var(--mono);font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--dim);margin-right:2px}
   #shell .screens .who{font-family:var(--mono);font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--dim);margin:0 0 4px}
   #shell .hostbar{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 </style>`;
@@ -113,9 +166,12 @@ export const mount: PageMount = (container, params, router) => {
           ${w.lobbyStatus === "waiting" ? `<button class="sit sm" data-host="start">start now · fill empty seats with bots</button>` : ""}
           ${[0, 1, 2, 3].map((s) => `<button class="sit sm ghost" data-host="kick" data-seat="${s}">remove ${WINDS[s]}</button>`).join("")}
           <button class="sit sm ghost" data-host="end" style="margin-left:auto;color:var(--red);border-color:var(--red)">end the table</button></div>` : ""}
-        <div class="screens">${w.tokens.map((tok, seat) => `<div><p class="who">${WINDS[seat]} · seat ${seat + 1}</p>
-        <iframe src="/?spectate=${encodeURIComponent(id)}&seat=${seat}&token=${encodeURIComponent(tok)}&rules=${encodeURIComponent(w.rulesetId)}&format=${encodeURIComponent(w.matchFormat)}" title="seat ${seat + 1}"></iframe></div>`).join("")}</div>
+        <div class="zoombar"><span class="lbl">per row</span><div class="seg" data-zoom="cols">${[1, 2, 4].map((n) => `<button data-v="${n}">${n}</button>`).join("")}</div>
+          <span class="lbl" style="margin-left:8px">screen</span><div class="seg" data-zoom="size">${(["phone", "tablet", "desktop"] as const).map((k) => `<button data-v="${k}">${k}</button>`).join("")}</div></div>
+        <div class="screens" id="screens">${w.tokens.map((tok, seat) => `<div><p class="who">${WINDS[seat]} · seat ${seat + 1}</p><div class="cell">
+        <iframe src="/?spectate=${encodeURIComponent(id)}&seat=${seat}&token=${encodeURIComponent(tok)}&rules=${encodeURIComponent(w.rulesetId)}&format=${encodeURIComponent(w.matchFormat)}" title="seat ${seat + 1}"></iframe></div></div>`).join("")}</div>
         <p class="mut" style="margin-top:8px"><a href="/watch/${esc(id)}?panels=1">summary panels instead ›</a></p>`;
+      wireZoom(el);
       // Two taps on remove/end (arm, then send); start is one tap.
       for (const b of Array.from(el.querySelectorAll<HTMLButtonElement>("[data-host]"))) {
         b.onclick = () => {
