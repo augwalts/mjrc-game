@@ -2695,9 +2695,14 @@ function setConnBadge(msg: string): void {
 }
 
 /* ── socket wiring ─────────────────────────────────────────────────────── */
+/** Spectator mode (admin watch page, 2026-09-03): this client is attached
+ *  as an observer of a seat — it paints exactly what that seat sees and can
+ *  do nothing. `body.spectator` hides the chrome and blocks input. */
+export let spectator = false;
 export function connectToMatch(r: {
   matchUuid: string; joinCode: string | null; seat: SeatIndex; seatToken: string;
   rulesetId: string; matchFormat: MatchFormat; creator?: boolean;
+  spectator?: boolean;
   /** Best-effort seed for the waiting room — see `seatPlan`'s doc comment. */
   seatPlan?: FourSeats<SeatPlanEntry> | null;
   /** Best-effort seed for `currentSpeed` — see its own doc comment. */
@@ -2708,7 +2713,9 @@ export function connectToMatch(r: {
   currentRulesetId = r.rulesetId; currentMatchFormat = r.matchFormat;
   mySeat = r.seat;
   isCreatorOfCurrentTable = r.creator ?? false;
-  sessionStorage.setItem(SESSION_KEY, JSON.stringify({
+  spectator = r.spectator ?? false;
+  document.body.classList.toggle("spectator", spectator);
+  if (!spectator) sessionStorage.setItem(SESSION_KEY, JSON.stringify({
     matchUuid: r.matchUuid, joinCode: r.joinCode, seat: r.seat, creator: isCreatorOfCurrentTable,
   }));
   snap = null; directory = null; seatPlan = r.seatPlan ?? null; lastSeq = -1; curLegal = null; pending = null;

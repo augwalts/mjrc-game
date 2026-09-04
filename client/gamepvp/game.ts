@@ -14,7 +14,7 @@
  * Build: ./gamepvp/build.sh (esbuild game.ts --bundle --platform=browser
  *        --format=iife --outfile=gamepvp/assets/game.js)
  */
-import { initTableChrome, resumeActiveSession, setHostHooks } from "./table.js";
+import { connectToMatch, initTableChrome, resumeActiveSession, setHostHooks } from "./table.js";
 import { initRouter, type Router } from "./shell/router.js";
 import { applyTheme, authState, bootIdentity, ensurePresenceHeartbeat, getThemeChoice } from "./shell/session.js";
 
@@ -32,9 +32,33 @@ function showShell(): void {
 
 let router: Router | null = null;
 
+/** `/?spectate=<matchId>&seat=N&token=…&rules=…&format=…` — one seat of a
+ *  live table, as that seat sees it, for the admin watch page's iframes
+ *  (2026-09-03). No shell, no router, no session: the table only. */
+function spectateParams(): { matchUuid: string; seat: 0 | 1 | 2 | 3; token: string; rulesetId: string; matchFormat: string } | null {
+  const q = new URLSearchParams(location.search);
+  const matchUuid = q.get("spectate"); const token = q.get("token"); const seat = Number(q.get("seat"));
+  if (!matchUuid || !token || ![0, 1, 2, 3].includes(seat)) return null;
+  return { matchUuid, seat: seat as 0 | 1 | 2 | 3, token, rulesetId: q.get("rules") ?? "mjrc-standard", matchFormat: q.get("format") ?? "east" };
+}
+
 async function boot(): Promise<void> {
   applyTheme(shellRoot, getThemeChoice());
   initTableChrome();
+  const spec = spectateParams();
+  if (spec) {
+    setHostHooks({
+      enterTable: () => showTable(),
+      leaveToShell: () => { showTable(); },
+      goToPlayer: () => { /* nothing to navigate to */ },
+      goToSettings: () => { /* nothing to navigate to */ },
+    });
+    connectToMatch({
+      matchUuid: spec.matchUuid, joinCode: null, seat: spec.seat, seatToken: spec.token,
+      rulesetId: spec.rulesetId, matchFormat: spec.matchFormat as never, spectator: true,
+    });
+    return;
+  }
   showShell(); // default until something says otherwise, below
 
   setHostHooks({

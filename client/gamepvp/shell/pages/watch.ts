@@ -7,7 +7,7 @@
  * tile, melds, flowers, discards, and who is on turn. Deliberately plain:
  * it is a monitor for a playtest host, not a player surface.
  */
-import { getLobby, getWatch, type LobbyTable, type WatchSeatOwn, type WatchView } from "../../net.js";
+import { getLobby, getWatch, getWatchTokens, type LobbyTable, type WatchSeatOwn, type WatchView } from "../../net.js";
 import { handLabel, meldHtml, ruleLabel, tileHtml } from "../../table.js";
 import type { PageMount } from "../router.js";
 import { esc, identity } from "../session.js";
@@ -71,6 +71,10 @@ const STYLE = `<style>
   #shell .meld{display:inline-flex;gap:1px;margin-right:6px}
   #shell .drawn{margin-left:8px}
   #shell .tiles .back{display:inline-block;width:28px;height:40px;border-radius:4px;background:#2b5f4a}
+  #shell .screens{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  @media (max-width:900px){#shell .screens{grid-template-columns:1fr}}
+  #shell .screens iframe{width:100%;aspect-ratio:4/3;border:1px solid var(--line);border-radius:12px;background:#111}
+  #shell .screens .who{font-family:var(--mono);font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--dim);margin:0 0 4px}
 </style>`;
 
 export const mount: PageMount = (container, params, router) => {
@@ -96,6 +100,23 @@ export const mount: PageMount = (container, params, router) => {
   container.innerHTML = `${STYLE}${pageTop("Watch", { back: "/watch", displayName: identity?.displayName ?? "", unread: 0 })}
     <div id="watchBody"><div class="spinner">loading…</div></div>${navHtml("/")}`;
   wireNav(container, router);
+
+  // The real thing (owner, 2026-09-03: "what they see on their screens"):
+  // four iframes of the actual client, each attached as an observer of one
+  // seat. `?panels=1` keeps the summary view.
+  if (!new URLSearchParams(location.search).has("panels")) {
+    void getWatchTokens(token, id).then((w) => {
+      const el = document.getElementById("watchBody");
+      if (!el || !alive) return;
+      el.innerHTML = `<div class="screens">${w.tokens.map((tok, seat) => `<div><p class="who">${WINDS[seat]} · seat ${seat + 1}</p>
+        <iframe src="/?spectate=${encodeURIComponent(id)}&seat=${seat}&token=${encodeURIComponent(tok)}&rules=${encodeURIComponent(w.rulesetId)}&format=${encodeURIComponent(w.matchFormat)}" title="seat ${seat + 1}"></iframe></div>`).join("")}</div>
+        <p class="mut" style="margin-top:8px"><a href="/watch/${esc(id)}?panels=1">summary panels instead ›</a></p>`;
+    }).catch((e) => {
+      const el = document.getElementById("watchBody");
+      if (el && alive) el.innerHTML = `<p class="empty">${esc(String(e).includes("not_found") ? "not found — or you are not an admin" : String(e))}</p>`;
+    });
+    return () => { alive = false; };
+  }
   const tick = async (): Promise<void> => {
     try {
       const v = await getWatch(token, id);

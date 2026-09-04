@@ -75,6 +75,12 @@ body{background:var(--c-bg);
 /* the game clock: elapsed since the first deal, tabular so it does not jitter */
 #hud .clock{color:var(--c-ink);font-variant-numeric:tabular-nums;flex:0 0 auto;overflow:visible}
 #hud .clock:empty{display:none}
+/* spectator (the admin watch page's iframes): no chrome to press, no tile
+   to touch — the felt is a window onto the seat, nothing more */
+body.spectator #hud .gear,body.spectator #chatOverlay,body.spectator #chatPreview{display:none !important}
+body.spectator #mine,body.spectator #actions,body.spectator #felt{pointer-events:none}
+body.spectator #hud::after{content:"watching";font-family:var(--mono);font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--c-danger);border:1px solid var(--c-danger);border-radius:20px;padding:5px 10px}
 #hud .mut{font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--c-dim);white-space:nowrap}
 #hud .netchip{display:inline-flex;align-items:center;gap:6px;color:var(--c-danger)}
 #hud .netchip:empty{display:none}

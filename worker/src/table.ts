@@ -538,6 +538,10 @@ export interface TableInit {
   seed: number;
   /** One-time seat credentials issued by the lobby (§5.3). Also the reclaim key. */
   seatTokens: FourSeats<string>;
+  /** Admin observer credentials, one per seat, minted on first request by
+   *  `/observers` (2026-09-03). A socket joining with one is attached as an
+   *  observer of that seat. Absent until an admin first watches the table. */
+  observerTokens?: FourSeats<string>;
   rulesetHash?: string;
   roomCode?: string;
   joinCode?: string;
@@ -592,6 +596,10 @@ interface SocketAttachment {
   matchId: string;
   seat: SeatIndex;
   playerId: string;
+  /** An admin observer of this seat (2026-09-03): receives exactly the
+   *  seat's stream, may send nothing but heartbeat/resync, touches no
+   *  presence. Absent on every player socket. */
+  observer?: boolean;
 }
 
 interface PresenceRecord {
@@ -1233,6 +1241,7 @@ export class TableCore {
     if (url.pathname.endsWith("/fill")) return this.handleFill(request);
     if (url.pathname.endsWith("/leave")) return this.handleLeave(request);
     if (url.pathname.endsWith("/observe")) return this.handleObserve(request);
+    if (url.pathname.endsWith("/observers")) return this.handleObservers(request);
     if (url.pathname.endsWith("/end")) return this.handleEnd(request);
     if (url.pathname.endsWith("/kick")) return this.handleKick(request);
     if (this.tombstone) return new Response("match over", { status: 410 });
@@ -1724,6 +1733,27 @@ export class TableCore {
   }
 
   /**
+   * Observer credentials for the admin watch page (2026-09-03): one token
+   * per seat, minted once and kept in meta. Table secret gate here; the
+   * Worker route in front is admin-only.
+   */
+  private async handleObservers(request: Request): Promise<Response> {
+    const secret = this.env.TABLE_SECRET;
+    if (secret && !tokensMatch(request.headers.get("x-mjrc-table-secret") ?? "", secret)) {
+      return new Response("forbidden", { status: 403 });
+    }
+    if (!this.meta) return new Response("table not initialised", { status: 409 });
+    if (!this.meta.observerTokens) {
+      this.meta = { ...this.meta, observerTokens: four(() => mintSeatToken()) };
+      await this.persistCore();
+    }
+    return new Response(JSON.stringify({ tokens: this.meta.observerTokens }), {
+      status: 200,
+      headers: { "content-type": "application/json; charset=utf-8" },
+    });
+  }
+
+  /**
    * The admin observer (owner request 2026-09-03): every seat's OWN view at
    * once, so a playtest host can watch four hands on one page. Gated twice —
    * the table secret here, and `users.is_admin` in the Worker route that is
@@ -1791,6 +1821,12 @@ export class TableCore {
       this.send(ws, protocolFault("notJoined"));
       return;
     }
+    // An observer socket (admin, 2026-09-03) may keep its stream alive and
+    // resync; every other request is refused before it can touch a seat.
+    if (att.observer && msg.type !== "heartbeat" && msg.type !== "resync") {
+      this.send(ws, rejected(msg.requestId, "unauthenticated"));
+      return;
+    }
     if (this.tombstone || this.book.matchOver) {
       this.send(ws, rejected(msg.requestId, "matchOver"));
       return;
@@ -1830,6 +1866,7 @@ export class TableCore {
     await this.hydrate();
     const att = this.attachmentOf(ws);
     if (!att) return;
+    if (att.observer) return;
     const stillUp = this.ctx
       .getWebSockets()
       .some((other) => other !== ws && this.attachmentOf(other)?.seat === att.seat);
@@ -1872,13 +1909,49 @@ export class TableCore {
     // off the bot without the lobby being in the loop.
     let seat: SeatIndex | null = null;
     for (const s of SEATS) if (tokensMatch(this.meta.seatTokens[s], p.seatToken)) seat = s;
+    // Not a seat token: an admin observer's token for a seat (2026-09-03)?
+    let observer = false;
+    if (seat === null && this.meta.observerTokens) {
+      for (const s of SEATS) if (tokensMatch(this.meta.observerTokens[s], p.seatToken)) { seat = s; observer = true; }
+    }
     if (seat === null) {
       this.send(ws, rejected(msg.requestId, "unauthenticated"));
       return;
     }
+    if (observer) {
+      // Attached as a watcher of the seat: same welcome, same broadcasts
+      // (`broadcast` keys off the attachment's seat), but no reclaim, no
+      // presence, no clocks, nothing persisted — the player at the seat
+      // never learns a socket was here.
+      ws.serializeAttachment({
+        matchId: this.meta.matchId,
+        seat,
+        playerId: "",
+        observer: true,
+      } satisfies SocketAttachment);
+      this.send(ws, {
+        p: PROTOCOL_VERSION,
+        type: "welcome",
+        payload: {
+          matchId: this.meta.matchId,
+          seat,
+          engineVersion: this.meta.header.engineVersion,
+          rulesetId: this.meta.header.rulesetId,
+          directory: this.directory(),
+          snapshot: this.viewFor(seat),
+          chat: [...this.chat],
+          paused: this.pausedInfo(),
+          starting: this.startingPayload(),
+          started: this.book.started,
+        },
+      });
+      this.send(ws, accepted(msg.requestId, this.seq));
+      return;
+    }
     for (const other of this.ctx.getWebSockets()) {
       if (other === ws) continue;
-      if (this.attachmentOf(other)?.seat === seat) other.close(4000, "seat reclaimed");
+      const oa = this.attachmentOf(other);
+      if (oa?.seat === seat && !oa.observer) other.close(4000, "seat reclaimed");
     }
     const player = this.meta.header.players[seat];
     ws.serializeAttachment({

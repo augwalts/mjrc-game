@@ -251,6 +251,8 @@ export interface TableStub {
    * shaped by the client. Read-only.
    */
   observe(): Promise<Record<string, unknown>>;
+  /** Observer credentials, one per seat (admin watch page, 2026-09-03). */
+  observerTokens(): Promise<string[]>;
   /** The creator's "end the table for everyone" (2026-09-03): the match
    *  ends now with reason `hostEnded`, the hand in flight void. Refused
    *  once the match is over or before it has started. */
@@ -1875,6 +1877,24 @@ async function postKick(matchId: string, request: Request, p: Platform, player: 
     return fail("table_unavailable", 503);
   }
   return json({ ok: true });
+}
+
+/**
+ * GET /api/watch/:matchId/tokens — observer credentials for the four seats,
+ * so the admin watch page can open the real client four times, each one
+ * attached as a watcher of a seat (2026-09-03). Admin only, 404 otherwise.
+ */
+async function getWatchTokens(matchId: string, p: Platform, player: PlayerRow): Promise<Response> {
+  if (!(await isAdminPlayer(p, player))) return fail("not_found", 404);
+  const match = await matchById(p.db, matchId);
+  if (match === null) return fail("not_found", 404);
+  try {
+    const tokens = await tableStubFor(p, matchId).observerTokens();
+    return json({ matchId, rulesetId: match.ruleset_id, matchFormat: match.match_format, tokens });
+  } catch (e) {
+    console.error("observer tokens failed", matchId, e);
+    return fail("table_unavailable", 503);
+  }
 }
 
 /** Admin, decided by the account the player is linked to (`players.
@@ -3752,6 +3772,10 @@ export async function handle(request: Request, p: Platform): Promise<Response> {
   if (seg[1] === "watch" && seg.length === 3) {
     if (method !== "GET") return fail("method_not_allowed", 405);
     return getWatch(seg[2], p, player);
+  }
+  if (seg[1] === "watch" && seg.length === 4 && seg[3] === "tokens") {
+    if (method !== "GET") return fail("method_not_allowed", 405);
+    return getWatchTokens(seg[2], p, player);
   }
 
   if (seg[1] === "tables") {
