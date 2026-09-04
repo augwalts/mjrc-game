@@ -24,3 +24,6 @@ deploy/
 # gamepvp build products and local wrangler state
 gamepvp/assets/
 gamepvp/.wrangler/
+
+# wrangler local dev state — regenerated on every `wrangler dev` run
+.wrangler/
