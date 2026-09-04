@@ -285,7 +285,8 @@ function paint(): void {
   for (const el of q<HTMLElement>("[data-swap]")) el.onclick = () => {
     const i = Number(el.dataset.swap);
     const seat = draft.seats[i]!;
-    if (seat.kind === "human") { if (humanSeatCount() <= 1) return; seat.kind = "bot"; }
+    // a player keeps one human seat (their own); a host may turn every seat into a bot
+    if (seat.kind === "human") { if (humanSeatCount() <= 1 && !draft.hostOnly) return; seat.kind = "bot"; }
     else seat.kind = "human";
     paint();
   };
@@ -293,7 +294,7 @@ function paint(): void {
     for (const el of q<HTMLElement>(`[data-seatkind-${i}]`)) el.onclick = (e) => {
       e.stopPropagation();
       const kind = el.dataset[`seatkind-${i}`] ?? el.getAttribute(`data-seatkind-${i}`);
-      if (kind === "bot") { if (humanSeatCount() <= 1) return; draft.seats[i]!.kind = "bot"; } else draft.seats[i]!.kind = "human";
+      if (kind === "bot") { if (humanSeatCount() <= 1 && !draft.hostOnly) return; draft.seats[i]!.kind = "bot"; } else draft.seats[i]!.kind = "human";
       paint();
     };
   }

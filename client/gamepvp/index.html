@@ -455,6 +455,24 @@ body.spectator #hud::after{content:"watching";font-family:var(--mono);font-size:
 #panel.menu input[type=range]{width:100%;accent-color:var(--c-blue)}
 #panel.menu input[type=range]:disabled{opacity:.45}
 #panel.menu .rules b{color:var(--c-ink)} #panel.menu .rules p{margin:4px 0 8px;color:var(--c-dim);font-size:13px;line-height:1.5}
+#panel.menu table.pay{width:100%;border-collapse:collapse;margin:6px 0 8px;font-variant-numeric:tabular-nums;font-size:13px}
+#panel.menu table.pay th{font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--c-dim);text-align:right;padding:4px 8px;border-bottom:1px solid var(--c-line);font-weight:600}
+#panel.menu table.pay th:first-child{text-align:left}
+#panel.menu table.pay td{padding:5px 8px;text-align:right;border-bottom:1px solid var(--c-line);color:var(--c-ink)}
+#panel.menu table.pay td:first-child{text-align:left;color:var(--c-dim)}
+#panel.menu details.faantable summary{cursor:pointer;color:var(--c-blue);font-size:13px;margin:6px 0}
+#panel.menu .faanrows{display:grid;grid-template-columns:1fr 1fr;gap:2px 12px;font-size:12.5px;color:var(--c-dim);margin:4px 0 8px}
+#panel.menu .faanrows b{color:var(--c-ink);display:inline-block;min-width:22px}
+/* the waiting room on the same modal — seats as four cells */
+#panel.modal .waitseats{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:8px 0 6px}
+#panel.modal .wseat{border:1px solid var(--c-line);border-radius:10px;padding:8px 10px;display:flex;flex-direction:column;gap:2px}
+#panel.modal .wseat b{color:var(--c-ink);font-size:13.5px} #panel.modal .wseat span{color:var(--c-dim);font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase}
+#panel.modal .wseat.on span{color:var(--c-ink)} #panel.modal .wseat.me{border-color:var(--c-ink)}
+#panel.modal .srow{display:grid;grid-template-columns:120px 1fr;align-items:center;gap:10px;min-height:42px;padding:2px 0}
+#panel.modal .srow .lbl{font-size:13.5px;color:var(--c-ink)}
+#panel.modal .cap2{color:var(--c-dim);font-size:11px;margin:-2px 0 6px;line-height:1.35}
+#panel.modal .act{display:flex;gap:8px;flex-wrap:wrap}
+@media (max-width:520px){#panel.modal .srow{grid-template-columns:96px 1fr}}
 .panel h2{font-size:16px;margin:0 0 10px;color:var(--gold)}
 .panel p{color:var(--dim);font-size:13px;margin:6px 0}
 .panel .tiles{display:flex;gap:4px;justify-content:center;flex-wrap:wrap;margin:12px 0}

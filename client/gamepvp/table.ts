@@ -1825,23 +1825,29 @@ function humanSeatsStillNeeded(): number {
 function waitingRoomScreen(): void {
   beforeScreen();
   $("veil").style.display = "flex";
+  $("panel").classList.add("modal");
   const needed = humanSeatsStillNeeded();
+  const speedLabel = currentSpeed ? (SPEED_INFO[currentSpeed]?.label ?? currentSpeed) : "…";
+  // The lab's modal (hud-quit-watch-lab §2/§4): head, body, foot — same
+  // surface as the quit dialog and the menu, not the old felt-green panel.
   $("panel").innerHTML = `
-    <h1>Waiting for the table</h1>
-    ${currentJoinCode ? `
-      <p class="mut">join code</p><h1 style="letter-spacing:.14em;color:var(--gold)">${currentJoinCode}</h1>
-      <button id="btnCopyInvite" style="background:rgba(255,255,255,.08)">copy invite link</button>` : ""}
-    <p class="mut">speed: ${currentSpeed
-      ? `<span class="badge speed">${esc(SPEED_INFO[currentSpeed]?.label ?? currentSpeed)}</span>`
-      : "…"}</p>
-    <div class="rows">${[0, 1, 2, 3].map((s) => {
-      const info = seatWaitInfo(s as SeatIndex);
-      return `<div class="row ${info.isMe ? "me" : ""}"><span class="c1">${esc(info.label)}</span>
-        <span class="c2">${info.bot ? "bot" : info.connected ? "connected" : "waiting…"}</span></div>`;
-    }).join("")}</div>
-    <p class="mut">waiting for ${needed} more player${needed === 1 ? "" : "s"}</p>
-    ${isCreatorOfCurrentTable ? `<button id="btnStartNow">Start now — fill empty seats with bots</button>` : ""}
-    <button id="btnLeaveWait" style="background:rgba(255,255,255,.08);margin-left:${isCreatorOfCurrentTable ? "8px" : "0"}">◂ leave</button>`;
+    <div class="mhead"><h2>${esc(t(S.waitTitle))}</h2><span class="sum">${esc(ruleLabel(currentRulesetId))} · ${esc(String(speedLabel).toLowerCase())}</span></div>
+    <div class="mbody">
+      ${currentJoinCode ? `<div class="srow"><span class="lbl">${esc(t(S.waitCode))}</span><div class="act" style="align-items:center">
+          <b style="font-family:var(--mono);font-size:22px;letter-spacing:.16em;color:var(--c-ink)">${esc(currentJoinCode)}</b>
+          <button id="btnCopyInvite" class="ghost">${esc(t(S.waitCopy))}</button></div></div>` : ""}
+      <div class="waitseats">${[0, 1, 2, 3].map((sx) => {
+        const info = seatWaitInfo(sx as SeatIndex);
+        const state = info.bot ? t(S.waitBot) : info.connected ? t(S.waitConnected) : t(S.waitWaiting);
+        return `<div class="wseat${info.isMe ? " me" : ""}${info.connected || info.bot ? " on" : ""}"><b>${esc(info.label)}</b><span>${esc(state)}</span></div>`;
+      }).join("")}</div>
+      <p class="cap2">${needed > 0 ? esc(t(S.waitNeeded(needed))) : esc(t(S.waitAllHere))}</p>
+    </div>
+    <div class="mfoot">
+      <button id="btnLeaveWait" class="ghost">${esc(t(S.waitLeave))}</button>
+      <span class="hint2"></span>
+      ${isCreatorOfCurrentTable ? `<button id="btnStartNow" class="primary">${esc(t(S.waitStartNow))} ▸</button>` : ""}
+    </div>`;
   const copyBtn = document.getElementById("btnCopyInvite");
   if (copyBtn) copyBtn.onclick = () => void copyInviteLink();
   const startBtn = document.getElementById("btnStartNow") as HTMLButtonElement | null;
@@ -3024,6 +3030,7 @@ function menuBody(tab: MenuTab): string {
       <div class="srow"><span class="lbl">${esc(t(S.menuSpeed))}</span><div>
         <input type="range" min="0" max="${speeds.length - 1}" step="1" value="${Math.max(si, 0)}" disabled aria-label="${esc(t(S.menuSpeed))}">
         <p class="cap2">${currentSpeed ? `${esc(SPEED_INFO[currentSpeed].label)} · ${esc(SPEED_INFO[currentSpeed].caption)}` : "—"} · ${esc(t(S.menuSpeedFixed))}</p></div></div>
+      ${paymentSchemeHtml()}
       ${currentRulesetId === "mjrc-standard" ? `<p><a href="https://mahjongresearch.com/scoring" target="_blank" rel="noopener" style="color:var(--c-blue)">${esc(t(S.menuScoringRef))} ›</a></p>` : ""}</div>`;
   }
   if (tab === "table") {
@@ -3048,6 +3055,27 @@ function menuBody(tab: MenuTab): string {
     ${menuSwitch("sound", SETTINGS.sound, t(S.sound))}
     ${menuSwitch("haptics", SETTINGS.haptics, t(S.haptics))}
     <div class="srow"><span class="lbl">${esc(t(S.menuAccount))}</span><div><a href="#" id="menuAccount" style="color:var(--c-blue)">${esc(t(S.menuAccountLink))} ›</a></div></div>`;
+}
+/** The whole payment scheme for the table's ruleset (owner, 2026-09-03):
+ *  faan floor and limit, flowers, the settlement rule, a chips-per-faan
+ *  table straight from the ruleset's own `payment` (so it can never drift
+ *  from what the engine charges), the 包 liability rules, and the faan
+ *  table itself. Read-only. */
+function paymentSchemeHtml(): string {
+  const r = currentRuleset();
+  const pay = r.payment;
+  const lo = r.minimumFaan, hi = r.limitFaan;
+  const rows: string[] = [];
+  for (let f = lo; f <= hi; f++) {
+    rows.push(`<tr><td>${f}</td><td>${pay.onDiscard(f)}</td><td>${pay.onSelfDraw(f)}${pay.selfDraw === "perPlayer" ? ` × 3` : ""}</td></tr>`);
+  }
+  const faan = Object.entries(r.faanTable as Record<string, number>).sort((a, b) => b[1] - a[1]);
+  return `<div class="srow"><span class="lbl">${esc(t(S.rulesFaan))}</span><span>${lo}–${hi} faan${r.useFlowers ? ` · ${esc(t(S.rulesFlowers))}` : ` · ${esc(t(S.rulesNoFlowers))}`}</span></div>
+    <div class="srow"><span class="lbl">${esc(t(S.rulesSettle))}</span><span class="cap2" style="margin:0">${esc(pay.selfDraw === "perPlayer" ? t(S.rulesPerPlayer) : t(S.rulesTotal))}</span></div>
+    <table class="lb pay"><tr><th>faan</th><th>${esc(t(S.rulesOnDiscard))}</th><th>${esc(t(S.rulesOnSelfDraw))}</th></tr>${rows.join("")}</table>
+    ${pay.liabilityRules && pay.liabilityRules.length > 0 ? `<p class="cap2"><b>包</b> ${pay.liabilityRules.map(esc).join(" · ")}</p>` : ""}
+    <details class="faantable"><summary>${esc(t(S.rulesFaanTable))} · ${faan.length}</summary>
+      <div class="faanrows">${faan.map(([k, v]) => `<span><b>${v}</b> ${esc(k.replace(/([A-Z])/g, " $1").toLowerCase())}</span>`).join("")}</div></details>`;
 }
 function menuScreen(tab: MenuTab): void {
   beforeScreen();
